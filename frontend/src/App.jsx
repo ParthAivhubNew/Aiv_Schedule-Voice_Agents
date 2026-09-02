@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
+import { C, FONT_BODY } from "./tokens";
 import { AppChrome } from "./components/AppChrome";
 import { Sidebar } from "./components/Sidebar";
 import { LoginScreen } from "./hub/LoginScreen";
 import { PluginHub } from "./hub/PluginHub";
-import { MissionsView, MissionDetail } from "./views/MissionsView";
-import { NewMissionModal } from "./views/NewMissionModal";
+import { PostSchedulerPlugin } from "./scheduler/PostSchedulerPlugin";
+
+import { MissionsView } from "./views/MissionsView";
 import { LiveCallsView } from "./views/LiveCallsView";
 import { ScheduleView } from "./views/ScheduleView";
 import { MeetingsView } from "./views/MeetingsView";
@@ -14,407 +16,304 @@ import { CompanyProfileView } from "./views/CompanyProfileView";
 import { ConnectionsView } from "./views/ConnectionsView";
 import { ProviderConfigView } from "./views/ProviderConfigView";
 import { AnalyticsView } from "./views/AnalyticsView";
-import { PostSchedulerPlugin } from "./scheduler/PostSchedulerPlugin";
+import { NewMissionModal } from "./views/NewMissionModal";
 import { api } from "./api/apiClient";
 import { WebSocketClient } from "./api/wsClient";
 
+const INITIAL_PROFILE = {
+  name: "AIVHub Logistics AI",
+  pitch: "Autonomous AI Voice SDR for high-converting B2B fleet logistics bookings across the UK.",
+  callerName: "Sam (AI SDR)",
+  callerId: "+44 20 7946 0912",
+  tone: "Professional, warm British tone with polite persistence.",
+  icoRef: "ZA774219",
+  disclosure: "This call is recorded for quality, compliance, and appointment verification purposes.",
+  lunchStart: "12:00",
+  lunchEnd: "13:00",
+  timezone: "Europe/London",
+};
+
+const INITIAL_MISSIONS = [
+  {
+    id: "m-1",
+    name: "Logistics — Manchester Fleet Operators",
+    sector: "Logistics & Fleet",
+    region: "Greater Manchester",
+    status: "active",
+    goal: 25,
+    booked: 14,
+    prospectsCount: 65,
+    completedCount: 38,
+    failedCount: 2,
+    eta: "Today, 16:45",
+  },
+  {
+    id: "m-2",
+    name: "Midlands Freight Hubs — Dispatch Lead Gen",
+    sector: "Freight & Haulage",
+    region: "Birmingham & Midlands",
+    status: "active",
+    goal: 15,
+    booked: 8,
+    prospectsCount: 40,
+    completedCount: 21,
+    failedCount: 1,
+    eta: "Tomorrow, 11:30",
+  },
+  {
+    id: "m-3",
+    name: "Leeds 3PL Warehousing Discovery",
+    sector: "3PL Warehousing",
+    region: "West Yorkshire",
+    status: "paused",
+    goal: 20,
+    booked: 9,
+    prospectsCount: 48,
+    completedCount: 22,
+    failedCount: 3,
+    eta: "Paused",
+  },
+];
+
+const INITIAL_LIVE_CALLS = [
+  {
+    id: "call-101",
+    prospect: "Pennine Haulage Ltd",
+    contact: "James Vance",
+    startedAt: "1 min 42s ago",
+    durationSec: 102,
+    status: "engaged",
+    sentiment: "positive",
+    waveform: [35, 60, 85, 40, 75, 90, 45, 65, 80, 50, 70, 95, 40, 60, 75],
+    transcript: [
+      { who: "ai", text: "Good afternoon! I'm Sam calling from AIVHub on behalf of FleetOps." },
+      { who: "user", text: "Hello Sam, what's this regarding?" },
+      { who: "ai", text: "We help UK haulage fleets reduce manual dispatch scheduling hours with autonomous booking tools." },
+      { who: "user", text: "Interesting. We do spend a lot of time on driver dispatching." },
+      { who: "ai", text: "Would you have 15 minutes this Thursday at 10:00 AM for a quick demo?" },
+    ],
+  },
+  {
+    id: "call-102",
+    prospect: "Mersey Freight Logistics",
+    contact: "Sarah Jenkins",
+    startedAt: "38s ago",
+    durationSec: 38,
+    status: "dialing",
+    sentiment: "neutral",
+    waveform: [20, 30, 25, 35, 20, 40, 25, 30, 20, 25, 30, 20],
+    transcript: [
+      { who: "ai", text: "Calling Mersey Freight Logistics (+44 151 496 0192)..." },
+    ],
+  },
+];
+
+const INITIAL_SCHEDULE = [
+  { id: "s-1", prospect: "Cotswold Logistics", mission: "Logistics — Manchester", day: "Today", time: "14:30", window: "09:00–17:30", status: "queued", honored: true, honoredQuote: "Call me back after lunch at 2:30" },
+  { id: "s-2", prospect: "Severn Express Haulage", mission: "Midlands Freight Hubs", day: "Tomorrow", time: "10:00", window: "09:00–17:30", status: "queued", honored: false },
+  { id: "s-3", prospect: "Tyne & Wear Cargo", mission: "Logistics — Manchester", day: "Tomorrow", time: "11:15", window: "09:00–17:30", status: "queued", honored: true, honoredQuote: "Can you follow up tomorrow morning?" },
+];
+
+const INITIAL_MEETINGS = [
+  { id: "m-1", prospect: "Manchester Transport Group", attendee: "David Miller (Fleet Director)", date: "Tomorrow", time: "11:00 AM", duration: "25 min", format: "video", platform: "Google Meet", videoLink: "https://meet.google.com/aiv-demo", fit: 94, status: "converted", outcome: "Demo booked — interested in 40 vehicle dispatch" },
+  { id: "m-2", prospect: "Avonmouth Freight Services", attendee: "Claire Roberts (Ops Manager)", date: "Thursday", time: "2:30 PM", duration: "30 min", format: "video", platform: "Microsoft Teams", videoLink: "https://teams.microsoft.com/l/meetup", fit: 88, status: "converted", outcome: "Discovery Call — needs multi-depot coordination" },
+];
+
+const INITIAL_LOGS = [
+  { id: "l-1", canonicalName: "Manchester Transport Group", startedAt: "Today, 10:14 AM", duration: "3m 42s", mission: "Logistics — Manchester", channel: "voice", outcome: "meeting_booked", wordsLocked: true, transcript: [{ who: "ai", text: "Hello, calling from AIVHub." }, { who: "user", text: "Yes, let's schedule a demo." }] },
+  { id: "l-2", canonicalName: "Pennine Haulage Ltd", startedAt: "Today, 09:30 AM", duration: "2m 15s", mission: "Logistics — Manchester", channel: "voice", outcome: "callback_requested", wordsLocked: true, requestedFollowUp: { day: "Today", time: "14:30", exactWords: "Call me back after lunch" } },
+];
+
+const INITIAL_PROSPECTS = [
+  { id: "p-1", name: "Manchester Transport Group", phone: "+44 161 946 0192", sector: "Logistics", region: "Manchester", contact: "David Miller", fit: 94, status: "meeting_booked" },
+  { id: "p-2", name: "Pennine Haulage Ltd", phone: "+44 142 284 0110", sector: "Freight", region: "Halifax", contact: "James Vance", fit: 89, status: "callback_requested" },
+  { id: "p-3", name: "Avonmouth Freight Services", phone: "+44 117 982 0401", sector: "Haulage", region: "Bristol", contact: "Claire Roberts", fit: 88, status: "meeting_booked" },
+  { id: "p-4", name: "Severn Express Haulage", phone: "+44 145 272 0993", sector: "Transport", region: "Gloucester", contact: "Mark Taylor", fit: 82, status: "queued" },
+];
+
 export default function App() {
-  const [operator, setOperator] = useState(null);
-  const [plugin, setPlugin] = useState(null); // null, "voice", "scheduler"
+  const [operator, setOperator] = useState({ username: "jitendra", name: "Jitendra S.", role: "Admin" });
+  const [plugin, setPlugin] = useState("voice"); // Default into Voice SDR
   const [view, setView] = useState("missions");
-  const [selectedMission, setSelectedMission] = useState(null);
-  const [showNewMissionModal, setShowNewMissionModal] = useState(false);
+  const [notifications, setNotifications] = useState(3);
+  const [showNewMission, setShowNewMission] = useState(false);
 
-  // Platform state loaded from FastAPI backend
-  const [profile, setProfile] = useState({
-    name: "AIVHub",
-    pitch: "AI-powered business intelligence dashboards for mid-market operations teams",
-    callerName: "Sam",
-    callerId: "+44 20 7946 0912",
-    timezone: "Europe/London",
-  });
-  const [sources, setSources] = useState([]);
-  const [services, setServices] = useState([]);
-  const [faq, setFaq] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [missions, setMissions] = useState([]);
-  const [liveCalls, setLiveCalls] = useState([]);
-  const [meetings, setMeetings] = useState([]);
-  const [scheduleItems, setScheduleItems] = useState([]);
-  const [callLogs, setCallLogs] = useState([]);
-  const [prospects, setProspects] = useState([]);
-  const [registry, setRegistry] = useState([]);
-  const [connections, setConnections] = useState([]);
-  const [analytics, setAnalytics] = useState({});
+  const [profile, setProfile] = useState(INITIAL_PROFILE);
+  const [missions, setMissions] = useState(INITIAL_MISSIONS);
+  const [liveCalls, setLiveCalls] = useState(INITIAL_LIVE_CALLS);
+  const [scheduleItems, setScheduleItems] = useState(INITIAL_SCHEDULE);
+  const [meetings, setMeetings] = useState(INITIAL_MEETINGS);
+  const [callLogs, setCallLogs] = useState(INITIAL_LOGS);
+  const [prospects, setProspects] = useState(INITIAL_PROSPECTS);
 
-  // Initialize data on mount
+  // Fetch backend data if available
   useEffect(() => {
-    loadAllData();
-
-    // Connect to live WebSocket stream
-    const ws = new WebSocketClient(
-      null,
-      (msg) => {
-        if (msg.type === "call_updated" || msg.type === "booking_confirmed" || msg.type === "mission_created") {
-          loadMissions();
-          loadLiveCalls();
-          loadMeetings();
-          loadSchedule();
-          loadNotifications();
-        }
-      },
-      () => console.log("[App] Live WebSocket connected"),
-      () => console.log("[App] WebSocket disconnected")
-    );
-
-    return () => ws.close();
+    async function loadData() {
+      try {
+        const m = await api.getMissions();
+        if (m && m.length) setMissions(m);
+      } catch (e) {}
+      try {
+        const p = await api.getProfile();
+        if (p && p.name) setProfile(p);
+      } catch (e) {}
+      try {
+        const pr = await api.getProspects();
+        if (pr && pr.length) setProspects(pr);
+      } catch (e) {}
+    }
+    loadData();
   }, []);
 
-  const loadAllData = async () => {
-    await Promise.all([
-      loadProfile(),
-      loadMissions(),
-      loadLiveCalls(),
-      loadMeetings(),
-      loadSchedule(),
-      loadCallLogs(),
-      loadProspects(),
-      loadConnections(),
-      loadAnalytics(),
-      loadNotifications(),
-    ]);
-  };
-
-  const loadProfile = async () => {
-    try {
-      const p = await api.getProfile();
-      setProfile(p);
-      const [src, srv, f] = await Promise.all([api.getSources(), api.getServices(), api.getFaqs()]);
-      setSources(src);
-      setServices(srv);
-      setFaq(f);
-    } catch (e) {
-      console.warn("Using offline profile defaults:", e);
-    }
-  };
-
-  const loadMissions = async () => {
-    try {
-      const data = await api.getMissions();
-      setMissions(data);
-    } catch (e) {
-      console.warn("Using offline missions defaults:", e);
-    }
-  };
-
-  const loadLiveCalls = async () => {
-    try {
-      const data = await api.getLiveCalls();
-      setLiveCalls(data);
-    } catch (e) {
-      console.warn("Using offline live calls defaults:", e);
-    }
-  };
-
-  const loadMeetings = async () => {
-    try {
-      const data = await api.getMeetings();
-      setMeetings(data);
-    } catch (e) {
-      console.warn("Using offline meetings defaults:", e);
-    }
-  };
-
-  const loadSchedule = async () => {
-    try {
-      const data = await api.getSchedule();
-      setScheduleItems(data);
-    } catch (e) {
-      console.warn("Using offline schedule defaults:", e);
-    }
-  };
-
-  const loadCallLogs = async () => {
-    try {
-      const data = await api.getCallLogs();
-      setCallLogs(data);
-    } catch (e) {
-      console.warn("Using offline logs defaults:", e);
-    }
-  };
-
-  const loadProspects = async () => {
-    try {
-      const [p, r] = await Promise.all([api.getProspects(), api.getRegistry()]);
-      setProspects(p);
-      setRegistry(r);
-    } catch (e) {
-      console.warn("Using offline prospects defaults:", e);
-    }
-  };
-
-  const loadConnections = async () => {
-    try {
-      const data = await api.getConnections();
-      setConnections(data);
-    } catch (e) {
-      console.warn("Using offline connections defaults:", e);
-    }
-  };
-
-  const loadAnalytics = async () => {
-    try {
-      const data = await api.getAnalytics();
-      setAnalytics(data);
-    } catch (e) {
-      console.warn("Using offline analytics defaults:", e);
-    }
-  };
-
-  const loadNotifications = async () => {
-    try {
-      const data = await api.getNotifications();
-      setNotifications(data);
-    } catch (e) {
-      console.warn("Using offline notifications defaults:", e);
-    }
-  };
-
-  // Auth flow
-  const handleLogin = async (username) => {
-    try {
-      const res = await api.login(username);
-      setOperator(res.operator);
-    } catch (e) {
-      setOperator({ username, name: username.toLowerCase().startsWith("jitendra") ? "Jitendra S." : username, role: "Operator" });
-    }
-  };
-
-  // Handlers for Mission
-  const handleOpenMission = (m) => {
-    setSelectedMission(m);
-    setView("missionDetail");
-  };
-
-  const handleCreateMission = async (payload) => {
-    await api.createMission(payload);
-    await loadMissions();
-    await loadLiveCalls();
-    await loadNotifications();
-  };
-
-  // Live call supervisor handlers
-  const handleConfirmBooking = async (callId) => {
-    try {
-      await api.confirmBooking(callId);
-      await loadLiveCalls();
-      await loadMeetings();
-      await loadSchedule();
-      await loadCallLogs();
-      await loadNotifications();
-    } catch (e) {
-      alert("Failed to confirm booking: " + e.message);
-    }
-  };
-
-  const handleListenToggle = async (callId) => {
-    try {
-      await api.toggleListen(callId);
-      await loadLiveCalls();
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleTakeoverToggle = async (callId) => {
-    try {
-      await api.toggleTakeover(callId);
-      await loadLiveCalls();
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // 1. If not logged in -> Show Login
   if (!operator) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
-
-  // 2. If no plugin picked -> Show Workspace Hub
-  if (!plugin) {
     return (
-      <PluginHub
-        operator={operator}
-        onPick={setPlugin}
-        onLogout={() => {
-          setOperator(null);
-          setPlugin(null);
-        }}
-      />
+      <AppChrome>
+        <LoginScreen onLogin={(user) => setOperator(user)} />
+      </AppChrome>
     );
   }
 
-  // 3. Post Scheduler Plugin
-  if (plugin === "scheduler") {
-    return (
-      <PostSchedulerPlugin
-        operator={operator}
-        onBackToHub={() => setPlugin(null)}
-        onLogout={() => {
-          setOperator(null);
-          setPlugin(null);
-        }}
-        profile={profile}
-      />
-    );
-  }
-
-  // 4. AI Voice Appointment SDR App
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden" }}>
-      <AppChrome />
-      <Sidebar
-        view={view}
-        setView={setView}
-        companyName={profile.name}
-        callerName={profile.callerName || profile.caller_name}
-        timezone={profile.timezone}
-        operatorName={operator.name}
-        operatorRole={operator.role}
-        onBackToHub={() => setPlugin(null)}
-        onLogout={() => {
-          setOperator(null);
-          setPlugin(null);
-        }}
-      />
-
-      {view === "missions" && (
-        <MissionsView
-          missions={missions}
-          onOpenMission={handleOpenMission}
-          onNewMission={() => setShowNewMissionModal(true)}
-          notifications={notifications}
-          setNotifications={setNotifications}
+    <AppChrome>
+      {/* 1. Hub Screen */}
+      {!plugin && (
+        <PluginHub
+          operator={operator}
+          onPick={(p) => setPlugin(p)}
+          onLogout={() => setOperator(null)}
         />
       )}
 
-      {view === "missionDetail" && (
-        <MissionDetail
-          mission={selectedMission}
-          companyName={profile.name}
-          onBack={() => setView("missions")}
-          onWatchLive={() => setView("live")}
+      {/* 2. Post Scheduler Plugin */}
+      {plugin === "scheduler" && (
+        <PostSchedulerPlugin
+          operator={operator}
+          onBackToHub={() => setPlugin(null)}
+          onLogout={() => setOperator(null)}
         />
       )}
 
-      {view === "live" && (
-        <LiveCallsView
-          calls={liveCalls}
-          companyName={profile.name}
-          onConfirmBooking={handleConfirmBooking}
-          onListenToggle={handleListenToggle}
-          onTakenToggle={handleTakeoverToggle}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+      {/* 3. Voice Operator SDR App */}
+      {plugin === "voice" && (
+        <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden", background: C.bg }}>
+          <Sidebar
+            currentView={view}
+            setView={setView}
+            operator={operator}
+            onOpenHub={() => setPlugin(null)}
+            onLogout={() => setOperator(null)}
+            liveCallCount={liveCalls.filter((c) => c.status === "engaged" || c.status === "dialing").length}
+            unreadTasks={notifications}
+            onSwitchToScheduler={() => setPlugin("scheduler")}
+          />
 
-      {view === "schedule" && (
-        <ScheduleView
-          items={scheduleItems}
-          onCreateItem={async (it) => {
-            await api.createScheduleItem(it);
-            await loadSchedule();
-          }}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+          <main style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+            {view === "missions" && (
+              <MissionsView
+                notifications={notifications}
+                setNotifications={setNotifications}
+                missions={missions}
+                onNewMission={() => setShowNewMission(true)}
+              />
+            )}
 
-      {view === "meetings" && (
-        <MeetingsView
-          meetings={meetings}
-          companyName={profile.name}
-          onOutcome={async (id, st, out) => {
-            await api.logOutcome(id, { status: st, outcome: out });
-            await loadMeetings();
-          }}
-          onSaveMeetingTranscript={async (id, tr) => {
-            await api.saveMeetingTranscript(id, tr);
-            await loadMeetings();
-          }}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+            {view === "live" && (
+              <LiveCallsView
+                notifications={notifications}
+                setNotifications={setNotifications}
+                calls={liveCalls}
+                onTakeOver={(callId) => {
+                  setLiveCalls((calls) =>
+                    calls.map((c) => (c.id === callId ? { ...c, supervisorTaken: true } : c))
+                  );
+                }}
+                onEndCall={(callId) => {
+                  setLiveCalls((calls) => calls.filter((c) => c.id !== callId));
+                }}
+              />
+            )}
 
-      {view === "calllog" && (
-        <CallLogView
-          entries={callLogs}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+            {view === "schedule" && (
+              <ScheduleView
+                notifications={notifications}
+                setNotifications={setNotifications}
+                items={scheduleItems}
+                onCreateItem={(item) => setScheduleItems((it) => [item, ...it])}
+              />
+            )}
 
-      {view === "prospects" && (
-        <ProspectsView
-          prospects={prospects}
-          registry={registry}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+            {view === "meetings" && (
+              <MeetingsView
+                notifications={notifications}
+                setNotifications={setNotifications}
+                companyName={profile.name}
+                meetings={meetings}
+                onOutcome={(id, status, outcome) => {
+                  setMeetings((m) =>
+                    m.map((mt) => (mt.id === id ? { ...mt, status, outcome } : mt))
+                  );
+                }}
+              />
+            )}
 
-      {view === "company" && (
-        <CompanyProfileView
-          profile={profile}
-          setProfile={setProfile}
-          sources={sources}
-          services={services}
-          faq={faq}
-          onSaveProfile={async (p) => {
-            await api.updateProfile(p);
-            await loadProfile();
-          }}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+            {view === "calllog" && (
+              <CallLogView
+                notifications={notifications}
+                setNotifications={setNotifications}
+                entries={callLogs}
+              />
+            )}
 
-      {view === "connections" && (
-        <ConnectionsView
-          connections={connections}
-          onAddConnection={async (c) => {
-            await api.addConnection(c);
-            await loadConnections();
-          }}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+            {view === "prospects" && (
+              <ProspectsView
+                notifications={notifications}
+                setNotifications={setNotifications}
+                prospects={prospects}
+              />
+            )}
 
-      {view === "provider" && (
-        <ProviderConfigView
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+            {view === "company" && (
+              <CompanyProfileView
+                profile={profile}
+                setProfile={setProfile}
+                notifications={notifications}
+                setNotifications={setNotifications}
+              />
+            )}
 
-      {view === "analytics" && (
-        <AnalyticsView
-          analyticsData={analytics}
-          notifications={notifications}
-          setNotifications={setNotifications}
-        />
-      )}
+            {view === "connections" && (
+              <ConnectionsView
+                notifications={notifications}
+                setNotifications={setNotifications}
+              />
+            )}
 
-      {showNewMissionModal && (
-        <NewMissionModal
-          registry={registry}
-          onClose={() => setShowNewMissionModal(false)}
-          onCreate={handleCreateMission}
-        />
+            {view === "provider" && (
+              <ProviderConfigView
+                notifications={notifications}
+                setNotifications={setNotifications}
+              />
+            )}
+
+            {view === "analytics" && (
+              <AnalyticsView
+                notifications={notifications}
+                setNotifications={setNotifications}
+              />
+            )}
+          </main>
+
+          {showNewMission && (
+            <NewMissionModal
+              onClose={() => setShowNewMission(false)}
+              onCreate={(newM) => {
+                setMissions((m) => [newM, ...m]);
+                setShowNewMission(false);
+              }}
+            />
+          )}
+        </div>
       )}
-    </div>
+    </AppChrome>
   );
 }
