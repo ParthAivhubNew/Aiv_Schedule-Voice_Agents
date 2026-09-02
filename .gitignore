@@ -1,3 +1,8 @@
+# Extra Reference Folders (Keep local only, do not track in Git)
+Chats/
+Prototypes/
+preview/
+
 # Node & Dependencies
 node_modules/
 .pnp
