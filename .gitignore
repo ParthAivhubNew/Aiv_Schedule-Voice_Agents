@@ -1,7 +1,8 @@
 # Secrets & Tokens
-*token*
+*token*.txt
 *.key
 *.pem
+!frontend/src/tokens.js
 
 # Extra Reference Folders (Keep local only, do not track in Git)
 Chats/
