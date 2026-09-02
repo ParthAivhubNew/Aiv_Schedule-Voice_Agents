@@ -65,7 +65,7 @@ services:
     ports:
       - "8000:8000"
 
-  # 4. React Frontend (Served via Nginx)
+  # 4. React Frontend (Served via Nginx on port 8080)
   frontend:
     build:
       context: ./frontend
@@ -75,7 +75,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "8080:80"
 
 volumes:
   postgres_data:
