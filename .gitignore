@@ -1,7 +1,14 @@
+# Secrets & Tokens
+*token*
+*.key
+*.pem
+
 # Extra Reference Folders (Keep local only, do not track in Git)
 Chats/
 Prototypes/
 preview/
+backend/
+frontend/
 
 # Node & Dependencies
 node_modules/
