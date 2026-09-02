@@ -7,8 +7,6 @@
 Chats/
 Prototypes/
 preview/
-backend/
-frontend/
 
 # Node & Dependencies
 node_modules/
