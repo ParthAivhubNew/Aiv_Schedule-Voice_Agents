@@ -1,6 +1,6 @@
 # AIVHub — Voice AI Agent & Post Scheduler (Production App)
 
-A production-ready, full-stack, Dockerized SaaS workspace featuring an autonomous **AI Voice SDR (Appointment Booking Agent)** and an AI-driven **Post Scheduler & Social Content Planner**.
+A production-ready, full-stack, Dockerized SaaS workspace featuring an autonomous **AI Voice SDR (Appointment Booking Agent)** and an AI-driven **Post Scheduler & Social Content Planner** with a **Radiant Redesign Glassmorphic UI**.
 
 ---
 
@@ -26,22 +26,17 @@ A production-ready, full-stack, Dockerized SaaS workspace featuring an autonomou
 
 The fastest way to run the complete stack on any server or local machine with Docker:
 
-### 1. Clone & Navigate
-```bash
-cd "working app"
-```
-
-### 2. Configure Environment (Optional)
+### 1. Configure Environment (Optional)
 ```bash
 cp .env.example .env
 ```
 
-### 3. Launch with Docker Compose
+### 2. Launch with Docker Compose
 ```bash
 docker compose up --build -d
 ```
 
-### 4. Access the Application
+### 3. Access the Application
 - **Frontend Dashboard**: [http://localhost](http://localhost) (or your server's IP / domain)
 - **FastAPI Interactive Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **API Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
@@ -75,9 +70,10 @@ npm run dev
 ## 📂 Project Architecture
 
 ```
-working app/
 ├── docker-compose.yml       # Production multi-container composition
 ├── .env.example             # Environment variable template
+├── README.md                # Project documentation
+├── .gitignore               # Git ignore rules (excludes local reference folders & caches)
 ├── backend/
 │   ├── Dockerfile           # Python 3.11 slim image
 │   ├── requirements.txt     # FastAPI, SQLAlchemy, AsyncPG, Redis, etc.
@@ -99,7 +95,7 @@ working app/
     └── src/
         ├── App.jsx          # Root application coordinator & state
         ├── api/             # REST & WebSocket client wrappers
-        ├── tokens.js        # Design tokens, colors, typography
+        ├── tokens.js        # Radiant Dark design tokens, neon gradients, typography
         ├── components/      # UI component library (Sidebar, TopBar, Badges, etc.)
         ├── views/           # Voice Operator App views (Missions, Live, Schedule, etc.)
         ├── scheduler/       # Post Scheduler plugin
