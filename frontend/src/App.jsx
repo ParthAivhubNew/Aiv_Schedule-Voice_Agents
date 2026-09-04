@@ -1141,8 +1141,7 @@ const NAV_GROUPS = [
   ]},
   { label: "Configuration", items: [
     { id: "company", label: "Company Profile", icon: Users },
-    { id: "connections", label: "Connections", icon: Plug },
-    { id: "provider", label: "AI Providers", icon: Settings2 },
+    { id: "provider", label: "Connections & Providers", icon: Plug },
   ]},
   { label: "Insights", items: [
     { id: "analytics", label: "Analytics", icon: BarChart3 },
@@ -4674,196 +4673,30 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
   );
 }
 
-function ConnectionsView({ notifications, setNotifications }) {
-  const [state, setState] = useState(CONNECTIONS);
+function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi }) {
+  const [activeTab, setActiveTab] = useState("routing");
   const [showAdd, setShowAdd] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [clearing, setClearing] = useState(false);
 
-  // Fetch backend connections on mount
+  // ── Layer Routing state ──
+  const [dirty, setDirty] = useState(false);
+  const mode = commonAi?.mode || "paid";
+  const custom = commonAi?.voiceLayers || Object.fromEntries(LAYERS.map((l) => [l.key, l.paid]));
+
+  // ── Credentials: loaded live from backend ──
+  const [credsState, setCredsState] = useState(CONNECTIONS);
+  const [rowState, setRowState] = useState({});
+
   useEffect(() => {
     async function loadConns() {
       try {
         const conns = await api.getConnections();
-        if (conns && conns.length) setState(conns);
-      } catch (e) {}
+        if (conns && conns.length) setCredsState(conns);
+      } catch (_) {}
     }
     loadConns();
   }, []);
 
-  const handleAddSuccess = (newIntegration) => {
-    setState((prev) => {
-      const exists = prev.find((g) => g.group === newIntegration.category);
-      if (exists) {
-        return prev.map((g) =>
-          g.group === newIntegration.category
-            ? { ...g, items: [...g.items.filter((it) => it.name !== newIntegration.name), { name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }
-            : g
-        );
-      }
-      return [...prev, { group: newIntegration.category, desc: "", items: [{ name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }];
-    });
-
-    setNotifications((ns) => [
-      { id: "n_" + Date.now(), text: `✓ Verified and activated ${newIntegration.name}`, time: "just now", unread: true, type: "success" },
-      ...ns,
-    ]);
-  };
-
-  const handleClearDemoData = async () => {
-    setClearing(true);
-    try {
-      await api.resetDemoData();
-      setNotifications((ns) => [
-        { id: "n_" + Date.now(), text: "Demo data cleared. Workspace is now fresh for real data.", time: "just now", unread: true, type: "info" },
-        ...ns,
-      ]);
-      setConfirmClear(false);
-      setTimeout(() => window.location.reload(), 600);
-    } catch (e) {
-      alert("Error clearing demo data: " + e.message);
-    } finally {
-      setClearing(false);
-    }
-  };
-
-  return (
-    <>
-      <TopBar title="Connections & Integrations" subtitle="API keys and credentials with real-time live authentication testing" notifications={notifications} setNotifications={setNotifications} />
-      <div style={{ padding: "20px 32px" }}>
-        
-        {/* Top Header Banner with Add Provider & Clear Demo Data buttons */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "#FFFFFF", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", marginBottom: 20, boxShadow: C.shadowCard }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <KeyRound size={17} color={C.cobalt} />
-            </div>
-            <div>
-              <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13.5, color: C.textInk }}>
-                Live Key Authentication & Testing
-              </div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>
-                Keys are automatically tested with live API pings before saving.
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button
-              onClick={() => setConfirmClear(true)}
-              style={{ display: "flex", alignItems: "center", gap: 6, background: C.redSoft, color: C.red, border: `1px solid #F0C4B8`, borderRadius: 8, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-            >
-              <Trash2 size={13} /> Clear Demo Data
-            </button>
-            <button
-              onClick={() => setShowAdd(true)}
-              style={{ display: "flex", alignItems: "center", gap: 6, background: C.cobalt, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-            >
-              <PlusCircle size={14} /> Add & Test Provider Key
-            </button>
-          </div>
-        </div>
-
-        {/* Categories / Providers list */}
-        {state.map((group) => (
-          <div key={group.group} style={{ marginBottom: 20 }}>
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>{group.group}</div>
-              {group.desc && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 2 }}>{group.desc}</div>}
-            </div>
-            {group.items.length === 0 ? (
-              <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "16px 18px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slateLight, textAlign: "center", background: "#fff" }}>
-                Nothing connected yet in this category — click "Add & Test Provider Key" above.
-              </div>
-            ) : (
-            <div style={{ background: "#FFFFFF", border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden", boxShadow: C.shadowCard }}>
-              {group.items.map((it, idx) => (
-                <div key={it.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderTop: idx === 0 ? "none" : `1px solid ${C.borderLight}` }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                    <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{it.name}</div>
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.slateLight }}>
-                      {it.apiKeyMasked || (it.status === "connected" ? "••••••••••••" : "Not configured")}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Badge status={it.status} small />
-                    <button
-                      onClick={() => setShowAdd(true)}
-                      style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
-                    >
-                      {it.status === "connected" ? "Update Key" : "Connect"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {showAdd && <AddIntegrationModal onClose={() => setShowAdd(false)} onAddSuccess={handleAddSuccess} />}
-
-      {/* Clear Demo Data Confirmation Modal */}
-      {confirmClear && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
-          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 420, padding: 24, boxShadow: "0 24px 60px rgba(0,0,0,0.2)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: C.redSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <AlertTriangle size={18} color={C.red} />
-              </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk }}>
-                Clear Demo Data?
-              </div>
-            </div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, lineHeight: 1.5, marginBottom: 20 }}>
-              This will remove sample mock campaigns, demo live calls, and fake prospects so you can start clean testing with your real list. Your company profile and API keys will remain safe.
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button
-                onClick={() => setConfirmClear(false)}
-                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleClearDemoData}
-                disabled={clearing}
-                style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.red, color: "#fff", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-              >
-                {clearing ? "Clearing..." : "Yes, Clear Demo Data"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-/* ---------------------------------- provider config ---------------------------------- */
-
-const LAYERS = [
-  { key: "voice", label: "Voice Orchestration", paid: "Vapi", oss: "LiveKit (self-hosted)", options: ["Vapi", "Retell", "LiveKit (self-hosted)"] },
-  { key: "llm", label: "LLM · Conversation", paid: "Claude Sonnet 4.5", oss: "DeepSeek V4 Flash", options: ["Claude Sonnet 4.5", "GPT-4o", "DeepSeek V4 Flash"] },
-  { key: "stt", label: "Speech-to-Text", paid: "Deepgram Nova-3", oss: "Faster-Whisper (self-hosted)", options: ["Deepgram Nova-3", "Faster-Whisper (self-hosted)"] },
-  { key: "tts", label: "Text-to-Speech", paid: "ElevenLabs Turbo", oss: "Kokoro (self-hosted)", options: ["ElevenLabs Turbo", "Cartesia Sonic", "Kokoro (self-hosted)"] },
-  { key: "telephony", label: "Telephony", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "Telnyx"] },
-  { key: "calendar", label: "Calendar", paid: "Cal.com (Cloud)", oss: "Cal.com (Self-hosted)", options: ["Cal.com (Cloud)", "Cal.com (Self-hosted)"] },
-];
-
-function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi }) {
-  const [activeTab, setActiveTab] = useState("routing"); // "routing" | "credentials"
-  const [showAdd, setShowAdd] = useState(false);
-  const [editingKey, setEditingKey] = useState(null);
-  const [keyValue, setKeyValue] = useState("");
-  const [savingKeyRow, setSavingKeyRow] = useState(null);
-  const [saveKeyError, setSaveKeyError] = useState("");
-  const [connectionsState, setConnectionsState] = useState(CONNECTIONS);
-  const [dirty, setDirty] = useState(false);
-
-  const mode = commonAi?.mode || "paid";
-  const custom = commonAi?.voiceLayers || Object.fromEntries(LAYERS.map((l) => [l.key, l.paid]));
-
+  // ── Layer Routing helpers ──
   const applyMode = (m) => {
     if (setCommonAi) {
       setCommonAi((prev) => {
@@ -4894,131 +4727,114 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     setTimeout(() => setDirty(false), 1400);
   };
 
-  const isOss = (val) => String(val).toLowerCase().includes("self-hosted") || String(val).toLowerCase().includes("telnyx") || String(val).toLowerCase().includes("deepseek") || String(val).toLowerCase().includes("kokoro") || String(val).toLowerCase().includes("livekit") || String(val).toLowerCase().includes("whisper") || String(val).toLowerCase().includes("local");
-
-  const handleSaveInlineKey = async (groupName, itemName) => {
-    setSaveKeyError("");
-    if (!keyValue.trim()) {
-      setSaveKeyError("API key cannot be empty.");
-      return;
-    }
-    const rowKey = groupName + itemName;
-    setSavingKeyRow(rowKey);
-    try {
-      const res = await api.testAndSaveConnection({
-        layer: groupName,
-        provider: itemName,
-        api_key: keyValue.trim(),
-      });
-      setConnectionsState((s) =>
-        s.map((g) =>
-          g.group === groupName
-            ? { ...g, items: g.items.map((x) => (x.name === itemName ? { ...x, status: "connected", apiKeyMasked: res.maskedKey } : x)) }
-            : g
-        )
-      );
-      setEditingKey(null);
-      setKeyValue("");
-      setSaveKeyError("");
-      setNotifications((ns) => [
-        { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and connected successfully!`, time: "just now", unread: true, type: "success" },
-        ...ns,
-      ]);
-      flash();
-    } catch (err) {
-      setSaveKeyError(err.message || "Authentication rejected by provider.");
-    } finally {
-      setSavingKeyRow(null);
-    }
-  };
-
-  const addIntegration = (form) => {
-    // Add to connectionsState
-    setConnectionsState((s) =>
-      s.map((g) =>
-        g.group === form.category
-          ? { ...g, items: [...g.items, { name: form.name, status: form.key ? "connected" : "not_configured" }] }
-          : g
-      )
+  const isOss = (val) =>
+    ["self-hosted", "telnyx", "deepseek", "kokoro", "livekit", "whisper", "local"].some((kw) =>
+      String(val).toLowerCase().includes(kw)
     );
-
-    // If it is LLM, also add to CommonAi models
-    if (form.category === "LLM" && setCommonAi) {
-      setCommonAi((prev) => ({
-        ...prev,
-        providers: [
-          ...prev.providers,
-          { id: "custom_" + Date.now(), name: form.name, type: "llm", status: "active", keySet: !!form.key, models: [form.name] },
-        ],
-      }));
-    }
-
-    setShowAdd(false);
-    setNotifications((ns) => [{ id: "n_" + Date.now(), text: `${form.name} added under ${form.category}`, time: "just now", unread: true, type: "info" }, ...ns]);
-    flash();
-  };
 
   const allLlmOptions = Array.from(new Set([
     ...LAYERS.find((l) => l.key === "llm").options,
     ...(commonAi?.providers?.filter((p) => p.type === "llm").flatMap((p) => p.models) || []),
   ]));
 
+  // ── Credentials inline test→save helpers ──
+  const setRow = (rowKey, patch) =>
+    setRowState((s) => ({ ...s, [rowKey]: { ...(s[rowKey] || {}), ...patch } }));
+
+  const handleConnect = (rowKey) =>
+    setRow(rowKey, { phase: "editing", keyValue: "", errorMsg: "", testResult: null });
+
+  const handleCancel = (rowKey) =>
+    setRowState((s) => { const n = { ...s }; delete n[rowKey]; return n; });
+
+  const handleTest = async (groupName, itemName, rowKey) => {
+    const key = ((rowState[rowKey] || {}).keyValue || "").trim();
+    if (!key) { setRow(rowKey, { errorMsg: "API key cannot be empty." }); return; }
+    setRow(rowKey, { phase: "testing", errorMsg: "", testResult: null });
+    try {
+      const res = await api.testAndSaveConnection({ layer: groupName, provider: itemName, api_key: key });
+      setRow(rowKey, { phase: "tested_ok", testResult: res.details || "Verified & Active" });
+    } catch (err) {
+      setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Authentication rejected by provider." });
+    }
+  };
+
+  const handleSave = async (groupName, itemName, rowKey) => {
+    const key = ((rowState[rowKey] || {}).keyValue || "").trim();
+    setRow(rowKey, { phase: "saving" });
+    try {
+      const res = await api.testAndSaveConnection({ layer: groupName, provider: itemName, api_key: key });
+      setCredsState((s) =>
+        s.map((g) =>
+          g.group === groupName
+            ? { ...g, items: g.items.map((x) => x.name === itemName ? { ...x, status: "connected", apiKeyMasked: res.maskedKey } : x) }
+            : g
+        )
+      );
+      handleCancel(rowKey);
+      setNotifications((ns) => [
+        { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and connected!`, time: "just now", unread: true, type: "success" },
+        ...ns,
+      ]);
+      flash();
+    } catch (err) {
+      setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Save failed." });
+    }
+  };
+
+  const handleAddSuccess = (newIntegration) => {
+    setCredsState((prev) => {
+      const exists = prev.find((g) => g.group === newIntegration.category);
+      if (exists) {
+        return prev.map((g) =>
+          g.group === newIntegration.category
+            ? { ...g, items: [...g.items.filter((it) => it.name !== newIntegration.name), { name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }
+            : g
+        );
+      }
+      return [...prev, { group: newIntegration.category, desc: "", items: [{ name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }];
+    });
+    if (newIntegration.category === "LLM" && setCommonAi) {
+      setCommonAi((prev) => ({
+        ...prev,
+        providers: [...prev.providers, { id: "custom_" + Date.now(), name: newIntegration.name, type: "llm", status: "active", models: [newIntegration.name] }],
+      }));
+    }
+    setNotifications((ns) => [
+      { id: "n_" + Date.now(), text: `✓ Verified and activated ${newIntegration.name}`, time: "just now", unread: true, type: "success" },
+      ...ns,
+    ]);
+    flash();
+  };
+
   return (
     <>
-      <TopBar title="AI Providers" subtitle="Switch every layer between managed APIs and self-hosted models, or add custom provider keys" notifications={notifications} setNotifications={setNotifications} />
+      <TopBar title="Connections & Providers" subtitle="Layer routing, API keys and live credential testing" notifications={notifications} setNotifications={setNotifications} />
       <div style={{ padding: "20px 32px" }}>
-        
-        {/* Top Header Banner with Add Integration button */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, background: C.amberSoft, border: `1px solid #F0D9A8`, borderRadius: 10, padding: "12px 18px", marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <KeyRound size={16} color="#8A5A05" style={{ flexShrink: 0 }} />
-            <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#8A5A05" }}>
-              Configure models, self-hosted endpoints, or add API keys for any provider. Changes take effect on all new calls.
-            </span>
-          </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            style={{ display: "flex", alignItems: "center", gap: 7, background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
-          >
-            <PlusCircle size={14} /> Add Provider / API Key
-          </button>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+          {[
+            { id: "routing", label: "⚙️ Layer Routing & Models" },
+            { id: "credentials", label: "🔑 API Credentials" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              style={{
+                padding: "8px 16px", borderRadius: 8,
+                border: `1px solid ${activeTab === t.id ? C.ink : C.border}`,
+                background: activeTab === t.id ? C.ink : "#fff",
+                color: activeTab === t.id ? "#fff" : C.slate,
+                fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        {/* View Sub-Tabs */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-          <button
-            onClick={() => setActiveTab("routing")}
-            style={{
-              padding: "8px 16px",
-              borderRadius: 8,
-              border: `1px solid ${activeTab === "routing" ? C.ink : C.border}`,
-              background: activeTab === "routing" ? C.ink : "#fff",
-              color: activeTab === "routing" ? "#fff" : C.slate,
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            ⚙️ Layer Routing & Active Models
-          </button>
-          <button
-            onClick={() => setActiveTab("credentials")}
-            style={{
-              padding: "8px 16px",
-              borderRadius: 8,
-              border: `1px solid ${activeTab === "credentials" ? C.ink : C.border}`,
-              background: activeTab === "credentials" ? C.ink : "#fff",
-              color: activeTab === "credentials" ? "#fff" : C.slate,
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            🔑 API Keys & Provider Credentials
-          </button>
-        </div>
-
-        {/* TAB 1: Layer Routing & Architecture */}
+        {/* TAB 1: Layer Routing */}
         {activeTab === "routing" && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
@@ -5027,18 +4843,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 { id: "opensource", title: "Open Source", desc: "Self-hosted models. Lower cost, full control." },
                 { id: "custom", title: "Custom", desc: "Mix providers per layer." },
               ].map((m) => (
-                <div
-                  key={m.id}
-                  className="hover-float"
-                  onClick={() => applyMode(m.id)}
-                  style={{
-                    border: `2px solid ${mode === m.id ? C.ink : C.border}`,
-                    borderRadius: 12,
-                    padding: 16,
-                    cursor: "pointer",
-                    background: mode === m.id ? C.ink : "#fff",
-                  }}
-                >
+                <div key={m.id} className="hover-float" onClick={() => applyMode(m.id)}
+                  style={{ border: `2px solid ${mode === m.id ? C.ink : C.border}`, borderRadius: 12, padding: 16, cursor: "pointer", background: mode === m.id ? C.ink : "#fff" }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: mode === m.id ? "#fff" : C.textInk }}>{m.title}</div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: mode === m.id ? "#B8BCC8" : C.slate, marginTop: 4 }}>{m.desc}</div>
                 </div>
@@ -5047,9 +4853,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "11px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                <div>Layer</div>
-                <div>Provider / Model Selection</div>
-                <div>Status</div>
+                <div>Layer</div><div>Provider / Model</div><div>Status</div>
               </div>
               {LAYERS.map((l) => {
                 const val = custom[l.key] || l.paid;
@@ -5059,23 +4863,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                   <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
                     <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <select
-                        value={val}
-                        onChange={(e) => updateLayer(l.key, e.target.value)}
-                        style={{
-                          fontFamily: FONT_BODY,
-                          fontSize: 13,
-                          padding: "6px 10px",
-                          borderRadius: 7,
-                          border: `1px solid ${C.border}`,
-                          background: "#fff",
-                          color: C.textInk,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {options.map((o) => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
+                      <select value={val} onChange={(e) => updateLayer(l.key, e.target.value)}
+                        style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}>
+                        {options.map((o) => <option key={o} value={o}>{o}</option>)}
                       </select>
                       <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: oss ? C.tealSoft : C.cobaltSoft, color: oss ? C.teal : C.cobaltDeep }}>
                         {oss ? "SELF-HOSTED" : "PAID API"}
@@ -5092,109 +4882,119 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
           </>
         )}
 
-        {/* TAB 2: API Keys & Credentials */}
+        {/* TAB 2: API Credentials */}
         {activeTab === "credentials" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            {connectionsState.map((group) => (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            {credsState.map((group) => (
               <div key={group.group}>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>{group.group}</div>
                   {group.desc && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 2 }}>{group.desc}</div>}
                 </div>
-                <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+
+                <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
                   {group.items.map((it, idx) => {
-                    const rowKey = group.group + it.name;
-                    const isEditing = editingKey === rowKey;
-                    const isSaving = savingKeyRow === rowKey;
+                    const rowKey = group.group + "|" + it.name;
+                    const rs = rowState[rowKey] || {};
+                    const phase = rs.phase || "idle";
                     return (
-                      <div key={it.name} style={{ display: "flex", flexDirection: "column", borderTop: idx === 0 ? "none" : `1px solid ${C.border}` }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px" }}>
-                          <div style={{ width: 220, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13, color: C.textInk }}>{it.name}</div>
-                          {isEditing ? (
-                            <input
-                              autoFocus
-                              type="password"
-                              value={keyValue}
-                              onChange={(e) => { setKeyValue(e.target.value); setSaveKeyError(""); }}
-                              placeholder="Paste API key / token to test & save..."
-                              onKeyDown={(e) => { if (e.key === "Enter") handleSaveInlineKey(group.group, it.name); }}
-                              style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none" }}
-                            />
-                          ) : (
-                            <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12.5, color: C.slateLight }}>
-                              {it.apiKeyMasked ? it.apiKeyMasked : it.status === "connected" ? "••••••••••••" + it.name.slice(0, 2).toLowerCase() : "Not configured"}
-                            </div>
-                          )}
+                      <div key={it.name} style={{ borderTop: idx === 0 ? "none" : `1px solid ${C.border}` }}>
+                        {/* Main row */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px" }}>
+                          <div style={{ width: 210, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{it.name}</div>
+                          <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12, color: C.slateLight }}>
+                            {it.apiKeyMasked || (it.status === "connected" ? "••••••••••••" : "Not configured")}
+                          </div>
                           <Badge status={it.status} small />
-                          {isEditing ? (
-                            <div style={{ display: "flex", gap: 6 }}>
-                              <button
-                                onClick={() => handleSaveInlineKey(group.group, it.name)}
-                                disabled={isSaving}
-                                style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: isSaving ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 5 }}
-                              >
-                                {isSaving && <RefreshCw size={12} className="animate-spin" />}
-                                <span>{isSaving ? "Testing..." : "Test & Save"}</span>
-                              </button>
-                              <button
-                                onClick={() => { setEditingKey(null); setKeyValue(""); setSaveKeyError(""); }}
-                                style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => { setEditingKey(rowKey); setKeyValue(""); setSaveKeyError(""); }}
-                              style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
-                            >
+
+                          {phase === "idle" && (
+                            <button onClick={() => handleConnect(rowKey)}
+                              style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer", whiteSpace: "nowrap" }}>
                               {it.status === "connected" ? "Update Key" : "Connect"}
                             </button>
                           )}
+                          {(phase === "editing" || phase === "tested_fail") && (
+                            <button onClick={() => handleCancel(rowKey)}
+                              style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}>
+                              Cancel
+                            </button>
+                          )}
+                          {(phase === "testing" || phase === "saving") && (
+                            <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, display: "flex", alignItems: "center", gap: 6 }}>
+                              <RefreshCw size={12} className="animate-spin" /> {phase === "testing" ? "Testing…" : "Saving…"}
+                            </span>
+                          )}
+                          {phase === "tested_ok" && (
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button onClick={() => handleSave(group.group, it.name, rowKey)}
+                                style={{ background: C.green, color: "#fff", border: "none", borderRadius: 7, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                                <Check size={12} /> Save Key
+                              </button>
+                              <button onClick={() => handleCancel(rowKey)}
+                                style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}>
+                                Cancel
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        {isEditing && saveKeyError && (
-                          <div style={{ margin: "0 18px 12px", padding: "6px 12px", background: "#FFEBEE", color: "#C62828", border: "1px solid #FFCDD2", borderRadius: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                            ⚠️ {saveKeyError}
+
+                        {/* Inline input area */}
+                        {(phase === "editing" || phase === "tested_fail") && (
+                          <div style={{ borderTop: `1px solid ${C.border}`, background: C.paper, padding: "12px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
+                            <input
+                              autoFocus
+                              type="password"
+                              value={rs.keyValue || ""}
+                              onChange={(e) => setRow(rowKey, { keyValue: e.target.value, errorMsg: "" })}
+                              onKeyDown={(e) => { if (e.key === "Enter") handleTest(group.group, it.name, rowKey); }}
+                              placeholder="Paste API key / token…"
+                              style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none" }}
+                            />
+                            {rs.errorMsg && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.red }}>
+                                <AlertTriangle size={13} /> {rs.errorMsg}
+                              </div>
+                            )}
+                            <button onClick={() => handleTest(group.group, it.name, rowKey)}
+                              style={{ alignSelf: "flex-start", background: C.cobalt, color: "#fff", border: "none", borderRadius: 7, padding: "7px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                              <ShieldCheck size={13} /> Test Connection
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Test passed banner */}
+                        {phase === "tested_ok" && (
+                          <div style={{ borderTop: `1px solid ${C.border}`, background: C.greenSoft, padding: "10px 18px", display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.green }}>
+                            <CheckCircle2 size={15} /> {rs.testResult}
                           </div>
                         )}
                       </div>
                     );
                   })}
                 </div>
+
+                {/* Subtle add link per category */}
+                <button onClick={() => setShowAdd(true)}
+                  style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, cursor: "pointer", padding: "4px 4px" }}>
+                  <Plus size={12} /> Add {group.group} provider
+                </button>
               </div>
             ))}
           </div>
         )}
-
-        {dirty && (
-          <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10, zIndex: 100 }}>
-            <CheckCircle2 size={15} color={C.teal} /> Provider changes applied successfully
-          </div>
-        )}
       </div>
 
-      {showAdd && <AddIntegrationModal onClose={() => setShowAdd(false)} onAdd={addIntegration} />}
+      {dirty && (
+        <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10, zIndex: 100 }}>
+          <CheckCircle2 size={15} color={C.teal} /> Changes applied successfully
+        </div>
+      )}
+
+      {showAdd && <AddIntegrationModal onClose={() => setShowAdd(false)} onAddSuccess={handleAddSuccess} />}
     </>
   );
 }
 
-/* ---------------------------------- analytics ---------------------------------- */
-
-function MetricCard({ label, value, delta, mono }) {
-  return (
-    <div className="hover-float" style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, cursor: "default" }}>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>{label}</div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
-        <div style={{ fontFamily: mono ? FONT_MONO : FONT_DISPLAY, fontSize: 26, fontWeight: 700, color: C.textInk }}>{value}</div>
-        {delta && (
-          <div style={{ display: "flex", alignItems: "center", gap: 2, color: C.green, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600 }}>
-            <ArrowUpRight size={13} /> {delta}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function AnalyticsView({ notifications, setNotifications }) {
   return (
@@ -11571,7 +11371,6 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
           />
         )}
         {view === "company" && <CompanyProfileView profile={profile} setProfile={setProfile} notifications={notifications} setNotifications={setNotifications} sources={knowledgeSources} setSources={setKnowledgeSources} services={services} setServices={setServices} faq={faq} setFaq={setFaq} />}
-        {view === "connections" && <ConnectionsView notifications={notifications} setNotifications={setNotifications} />}
         {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} />}
         {view === "analytics" && <AnalyticsView notifications={notifications} setNotifications={setNotifications} />}
       </div>
