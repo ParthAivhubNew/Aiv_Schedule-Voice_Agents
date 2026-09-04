@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     LIVEKIT_API_KEY: Optional[str] = None
     LIVEKIT_API_SECRET: Optional[str] = None
     
+    # Calendar & Cal.com (Self-Hosted or Cloud)
+    CALCOM_BASE_URL: str = os.getenv("CALCOM_BASE_URL", "http://calcom:3000/api/v1")
+    CALCOM_API_KEY: Optional[str] = os.getenv("CALCOM_API_KEY", None)
+    CALCOM_EVENT_TYPE_ID: Optional[str] = os.getenv("CALCOM_EVENT_TYPE_ID", None)
+    
     # System mode: "simulation" or "live"
     VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "simulation")
 

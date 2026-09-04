@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. PostgreSQL Database
+  # 1. PostgreSQL Database (Multi-DB: aivhub + calcom)
   postgres:
     image: postgres:16-alpine
     container_name: aivhub_postgres
@@ -12,6 +12,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_2026}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -33,7 +34,24 @@ services:
       timeout: 5s
       retries: 5
 
-  # 3. FastAPI Backend
+  # 3. Self-Hosted Cal.com Engine (Open Source AGPLv3)
+  calcom:
+    image: calcom/cal.com:latest
+    container_name: aivhub_calcom
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/calcom
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-aivhub_calcom_jwt_secret_token_2026_xyz}
+      CALENDSO_ENCRYPTION_KEY: ${CALENDSO_ENCRYPTION_KEY:-aivhub_calcom_encryption_key_32b_x}
+      NEXT_PUBLIC_WEBAPP_URL: ${CALCOM_WEBAPP_URL:-http://localhost:3000}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  # 4. FastAPI Backend
   backend:
     build:
       context: ./backend
@@ -44,6 +62,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aivhub}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-aivhub_production_jwt_secret_key_change_me}
+      CALCOM_BASE_URL: http://calcom:3000/api/v1
+      CALCOM_API_KEY: ${CALCOM_API_KEY:-}
+      CALCOM_EVENT_TYPE_ID: ${CALCOM_EVENT_TYPE_ID:-}
       VOICE_ENGINE_MODE: ${VOICE_ENGINE_MODE:-simulation}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
@@ -65,7 +86,7 @@ services:
     ports:
       - "8000:8000"
 
-  # 4. React Frontend (Served via Nginx on port 8080)
+  # 5. React Frontend (Served via Nginx on port 8080)
   frontend:
     build:
       context: ./frontend
