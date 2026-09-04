@@ -18,6 +18,7 @@ import {
   ArrowUpRight,
   MapPin,
   Search,
+  User,
   ExternalLink,
   ListChecks,
   Radio,
@@ -104,19 +105,22 @@ import {
 } from "recharts";
 
 
+import { api } from "./api/apiClient";
+
+
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
 
 const INITIAL_BUILTIN_PROVIDERS = [
-  { id: "anthropic", name: "Anthropic Claude", type: "llm", badge: "Managed API", status: "connected", latencyMs: 185, baseUrl: "https://api.anthropic.com/v1", apiKey: "sk-ant-api03-live99482741982734a8b7c6d5", models: ["Claude Sonnet 4.5", "Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "Claude 3.5 Haiku"] },
-  { id: "openai", name: "OpenAI", type: "llm", badge: "Managed API", status: "connected", latencyMs: 142, baseUrl: "https://api.openai.com/v1", apiKey: "sk-proj-98a27bc641e901f44d82b61009ab2", models: ["GPT-4o", "GPT-4o-mini", "o3-mini", "text-embedding-3"] },
-  { id: "groq", name: "Groq LPU (Ultra-Fast)", type: "llm", badge: "LPU Accelerator", status: "connected", latencyMs: 38, baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_live_998124801928401928a3f89", models: ["Groq Llama 3.3 70B", "Groq Llama 3.1 8B", "DeepSeek-R1 Distill Llama 70B"] },
-  { id: "gemini", name: "Google Gemini", type: "llm", badge: "Managed API", status: "connected", latencyMs: 110, baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: "AIzaSyLiveProductionKey2026GeminiPro", models: ["Gemini 2.0 Flash", "Gemini 1.5 Pro", "Gemini Embedding"] },
-  { id: "deepseek", name: "DeepSeek AI", type: "llm", badge: "Open-Weight Cloud", status: "connected", latencyMs: 290, baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-ds-live44910294104ab9c", models: ["DeepSeek V4 Flash", "DeepSeek-V3", "DeepSeek-R1"] },
-  { id: "ollama", name: "Ollama / Self-Hosted", type: "llm", badge: "100% Private On-Prem", status: "connected", latencyMs: 24, baseUrl: "http://localhost:11434/v1", apiKey: "local-instance", models: ["Ollama Llama 3.2 (Local)", "Ollama Mistral (Local)", "DeepSeek-R1 (Local)", "Ollama nomic-embed (Local)"] },
-  { id: "deepgram", name: "Deepgram", type: "stt", badge: "Managed STT", status: "connected", latencyMs: 65, baseUrl: "https://api.deepgram.com/v1", apiKey: "dg_live_98124019284019", models: ["Deepgram Nova-3", "Deepgram Nova-2"] },
-  { id: "elevenlabs", name: "ElevenLabs", type: "tts", badge: "Managed Voice", status: "connected", latencyMs: 95, baseUrl: "https://api.elevenlabs.io/v1", apiKey: "xi_live_883019284019", models: ["ElevenLabs Turbo", "ElevenLabs Multilingual v2"] },
-  { id: "vapi", name: "Vapi Voice AI", type: "voice", badge: "Voice Orchestration", status: "connected", latencyMs: 50, baseUrl: "https://api.vapi.ai", apiKey: "vapi_live_4490192840", models: ["Vapi Orchestrator"] },
-  { id: "twilio", name: "Twilio Telephony", type: "telephony", badge: "Carrier", status: "connected", latencyMs: 40, baseUrl: "https://api.twilio.com", apiKey: "AC9981204 / auth_token", models: ["Twilio Voice Trunk"] },
+  { id: "deepseek", name: "DeepSeek AI", type: "llm", badge: "Open-Weight Cloud", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepseek.com/v1", apiKey: "", models: ["DeepSeek V4 Flash", "DeepSeek-V3", "DeepSeek-R1"] },
+  { id: "anthropic", name: "Anthropic Claude", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.anthropic.com/v1", apiKey: "", models: ["Claude Sonnet 4.5", "Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "Claude 3.5 Haiku"] },
+  { id: "openai", name: "OpenAI", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.openai.com/v1", apiKey: "", models: ["GPT-4o", "GPT-4o-mini", "o3-mini", "text-embedding-3"] },
+  { id: "groq", name: "Groq LPU (Ultra-Fast)", type: "llm", badge: "LPU Accelerator", status: "not_configured", latencyMs: null, baseUrl: "https://api.groq.com/openai/v1", apiKey: "", models: ["Groq Llama 3.3 70B", "Groq Llama 3.1 8B", "DeepSeek-R1 Distill Llama 70B"] },
+  { id: "gemini", name: "Google Gemini", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: "", models: ["Gemini 2.0 Flash", "Gemini 1.5 Pro", "Gemini Embedding"] },
+  { id: "ollama", name: "Ollama / Self-Hosted", type: "llm", badge: "100% Private On-Prem", status: "not_configured", latencyMs: null, baseUrl: "http://localhost:11434/v1", apiKey: "", models: ["Ollama Llama 3.2 (Local)", "Ollama Mistral (Local)", "DeepSeek-R1 (Local)", "Ollama nomic-embed (Local)"] },
+  { id: "deepgram", name: "Deepgram", type: "stt", badge: "Managed STT", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepgram.com/v1", apiKey: "", models: ["Deepgram Nova-3", "Deepgram Nova-2"] },
+  { id: "elevenlabs", name: "ElevenLabs", type: "tts", badge: "Managed Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.elevenlabs.io/v1", apiKey: "", models: ["ElevenLabs Turbo", "ElevenLabs Multilingual v2"] },
+  { id: "vapi", name: "Vapi Voice AI", type: "voice", badge: "Voice Orchestration", status: "not_configured", latencyMs: null, baseUrl: "https://api.vapi.ai", apiKey: "", models: ["Vapi Orchestrator"] },
+  { id: "twilio", name: "Twilio Telephony", type: "telephony", badge: "Carrier", status: "not_configured", latencyMs: null, baseUrl: "https://api.twilio.com", apiKey: "", models: ["Twilio Voice Trunk"] },
 ];
 
 const VOICE_LAYERS = [
@@ -136,19 +140,19 @@ const SCHEDULER_LAYERS = [
 ];
 
 const INITIAL_COMMON_AI_CONFIG = {
-  mode: "paid", // "paid" | "opensource" | "custom"
-  baseChatModel: "Claude Sonnet 4.5",
-  baseChatProvider: "Anthropic",
+  mode: "custom", // "paid" | "opensource" | "custom"
+  baseChatModel: "",
+  baseChatProvider: "",
   
   // Extensible Connected Providers (Built-in + Custom User Added)
   providers: INITIAL_BUILTIN_PROVIDERS,
 
   // Voice layers (shared with Voice Agent)
-  voiceLayers: Object.fromEntries(VOICE_LAYERS.map((l) => [l.key, l.paid])),
+  voiceLayers: Object.fromEntries(VOICE_LAYERS.map((l) => [l.key, ""])),
 
   // Scheduler layers (shared with Post Scheduler)
-  schedulerLayers: Object.fromEntries(SCHEDULER_LAYERS.map((l) => [l.key, l.paid])),
-  schedulerMode: "paid",
+  schedulerLayers: Object.fromEntries(SCHEDULER_LAYERS.map((l) => [l.key, ""])),
+  schedulerMode: "custom",
   temperature: 0.8,
   personaPrompt: "Write authoritative, crisp B2B content that teaches actionable lessons without fluff or corporate buzzwords. Speak directly to C-suite and operations leaders.",
   prohibitedWords: "delve, in today's fast-paced world, game-changer, revolutionary, synergy, leverage",
@@ -755,34 +759,36 @@ const INITIAL_NOTIFICATIONS = [
 
 const CONNECTIONS = [
   { group: "LLM", desc: "Powers the AI's conversation, pitch reasoning, and objection handling.", items: [
-    { name: "Anthropic (Claude)", status: "connected" },
-    { name: "OpenAI (GPT-4o)", status: "connected" },
     { name: "DeepSeek", status: "not_configured" },
+    { name: "Anthropic (Claude)", status: "not_configured" },
+    { name: "OpenAI (GPT-4o)", status: "not_configured" },
+    { name: "Groq", status: "not_configured" },
   ]},
   { group: "Speech-to-Text", desc: "Turns the prospect's spoken voice into text the AI can understand.", items: [
-    { name: "Deepgram", status: "connected" },
+    { name: "Deepgram", status: "not_configured" },
     { name: "Faster-Whisper (self-hosted)", status: "not_configured" },
   ]},
   { group: "Text-to-Speech", desc: "Generates the AI's spoken voice on calls.", items: [
-    { name: "ElevenLabs", status: "connected" },
+    { name: "ElevenLabs", status: "not_configured" },
     { name: "Cartesia", status: "not_configured" },
     { name: "Kokoro (self-hosted)", status: "not_configured" },
   ]},
   { group: "Voice Orchestration", desc: "Manages the live call itself — audio streaming, interruptions, turn-taking.", items: [
-    { name: "Vapi", status: "connected" },
+    { name: "LiveKit (self-hosted)", status: "not_configured" },
+    { name: "Vapi", status: "not_configured" },
     { name: "Retell AI", status: "not_configured" },
-    { name: "LiveKit (self-hosted)", status: "error" },
   ]},
   { group: "Telephony", desc: "Places and receives the actual phone calls.", items: [
-    { name: "Twilio", status: "connected" },
+    { name: "Twilio", status: "not_configured" },
     { name: "Telnyx", status: "not_configured" },
   ]},
   { group: "Calendar", desc: "Checks availability and books confirmed meetings.", items: [
-    { name: "Cal.com", status: "connected" },
+    { name: "Cal.com (Self-Hosted)", status: "not_configured" },
+    { name: "Google Calendar", status: "not_configured" },
   ]},
   { group: "Business Discovery", desc: "Finds and researches prospect businesses on the web.", items: [
-    { name: "Google Places API", status: "connected" },
-    { name: "Web Search Provider", status: "connected" },
+    { name: "Google Places API", status: "not_configured" },
+    { name: "Web Search Provider", status: "not_configured" },
   ]},
   { group: "Other", desc: "Anything else your team connects — CRM, spreadsheets, custom internal tools.", items: [] },
 ];
@@ -7775,10 +7781,495 @@ At ${company?.name || "AIVHub"}, we built unified business intelligence so your 
 }
 
 
-function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi }) {
-  const currentMode = commonAi?.mode || "paid";
-  const baseLlm = commonAi?.voiceLayers?.llm || "Claude Sonnet 4.5";
+function TeamUsersModal({ isOpen, onClose, currentUser }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ name: "", username: "", role: "Operator", email: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
+  const loadUsers = async () => {
+    setLoading(true);
+    try {
+      const res = await api.getUsers();
+      if (res && res.length) setUsers(res);
+      else setUsers([{ id: "op_admin", username: "jitendra", name: "Jitendra S.", role: "Admin", email: "admin@aivhub.io" }]);
+    } catch (_) {
+      setUsers([{ id: "op_admin", username: "jitendra", name: "Jitendra S.", role: "Admin", email: "admin@aivhub.io" }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      loadUsers();
+      setShowAdd(false);
+      setError("");
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const isAdmin = currentUser?.role === "Admin";
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!form.name.trim() || !form.username.trim()) {
+      setError("Name and username are required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.createUser({
+        name: form.name.trim(),
+        username: form.username.trim().toLowerCase(),
+        role: form.role,
+        email: form.email.trim() || `${form.username.trim().toLowerCase()}@aivhub.io`,
+      });
+      setForm({ name: "", username: "", role: "Operator", email: "" });
+      setShowAdd(false);
+      await loadUsers();
+    } catch (err) {
+      setError(err.message || "Failed to create user.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleRole = async (u) => {
+    if (!isAdmin) return;
+    if (u.username === currentUser?.username) return;
+    const nextRole = u.role === "Admin" ? "Operator" : "Admin";
+    try {
+      await api.createUser({
+        username: u.username,
+        name: u.name,
+        role: nextRole,
+        email: u.email,
+      });
+      await loadUsers();
+    } catch (_) {}
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 560, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.22)", border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Users size={18} color={C.cobalt} />
+            </div>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Team & User Hierarchy</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Admin manages platform AI & keys; Operators run missions below.</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate }}><X size={18} /></button>
+        </div>
+
+        {/* User list */}
+        <div style={{ maxHeight: 280, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 12, background: C.paper, marginBottom: 16 }}>
+          {loading ? (
+            <div style={{ padding: 24, textAlign: "center", color: C.slate, fontSize: 13, fontFamily: FONT_BODY }}>Loading team members...</div>
+          ) : (
+            users.map((u, idx) => (
+              <div key={u.id || u.username} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderTop: idx === 0 ? "none" : `1px solid ${C.borderLight}`, background: "#fff" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 999, background: u.role === "Admin" ? C.cobalt : C.slate, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>
+                    {initialsFromName(u.name)}
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.textInk }}>
+                      {u.name} {u.username === currentUser?.username && <span style={{ fontSize: 11, color: C.slateLight }}>(you)</span>}
+                    </div>
+                    <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.slateLight }}>
+                      @{u.username} · {u.email || `${u.username}@aivhub.io`}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span
+                    onClick={() => handleToggleRole(u)}
+                    title={isAdmin && u.username !== currentUser?.username ? "Click to toggle role" : ""}
+                    style={{
+                      fontFamily: FONT_BODY,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "3px 8px",
+                      borderRadius: 6,
+                      background: u.role === "Admin" ? C.cobaltSoft : C.paperSoft,
+                      color: u.role === "Admin" ? C.cobaltDeep : C.slate,
+                      cursor: isAdmin && u.username !== currentUser?.username ? "pointer" : "default",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    {u.role}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Add user form */}
+        {showAdd ? (
+          <form onSubmit={handleCreate} style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.paperSoft, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.textInk }}>Add New Team Member</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Full Name (e.g. Alex M.)"
+                style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, background: "#fff" }}
+              />
+              <input
+                value={form.username}
+                onChange={(e) => setForm({ ...form, username: e.target.value })}
+                placeholder="Username (e.g. alex)"
+                style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, background: "#fff" }}
+              />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 10 }}>
+              <input
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="Email (optional)"
+                style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, background: "#fff" }}
+              />
+              <select
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+                style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, background: "#fff" }}
+              >
+                <option value="Operator">Operator (User)</option>
+                <option value="Admin">Admin (Full Access)</option>
+              </select>
+            </div>
+            {error && <div style={{ color: C.red, fontSize: 12, fontFamily: FONT_BODY }}>⚠️ {error}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+              <button type="button" onClick={() => setShowAdd(false)} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button type="submit" disabled={saving} style={{ padding: "6px 16px", borderRadius: 8, border: "none", background: C.cobalt, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{saving ? "Creating..." : "Create User"}</button>
+            </div>
+          </form>
+        ) : (
+          isAdmin && (
+            <button
+              onClick={() => setShowAdd(true)}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 14px", borderRadius: 10, border: `1px dashed ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
+            >
+              <Plus size={14} /> Add Operator / User Account
+            </button>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProfileSettingsModal({ isOpen, onClose, operator, setOperator }) {
+  const [name, setName] = useState(operator?.name || "");
+  const [email, setEmail] = useState(operator?.email || `${operator?.username || "user"}@aivhub.io`);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && operator) {
+      setName(operator.name || "");
+      setEmail(operator.email || `${operator.username || "user"}@aivhub.io`);
+      setSaved(false);
+    }
+  }, [isOpen, operator]);
+
+  if (!isOpen) return null;
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setOperator((prev) => ({ ...prev, name: name.trim(), email: email.trim() }));
+    setSaved(true);
+    setTimeout(() => {
+      setSaved(false);
+      onClose();
+    }, 800);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 440, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.22)", border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: C.paperSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <User size={18} color={C.slate} />
+            </div>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Profile Settings</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Manage your account identity and email.</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate }}><X size={18} /></button>
+        </div>
+
+        <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Display Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Username (Read Only)</label>
+            <input value={`@${operator?.username}`} disabled style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5, background: C.paperSoft, color: C.slate }} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Role Assigned</label>
+            <input value={operator?.role} disabled style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.paperSoft, color: C.slate }} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Email</label>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }} />
+          </div>
+
+          {saved && (
+            <div style={{ padding: "8px 12px", background: C.tealSoft, color: C.teal, borderRadius: 8, fontSize: 12, fontFamily: FONT_BODY, display: "flex", alignItems: "center", gap: 6 }}>
+              <CheckCircle2 size={14} /> Profile updated successfully!
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+            <button type="button" onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button type="submit" style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: C.ink, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const isAdmin = operator?.role === "Admin";
+  const hasConfiguredLlm = commonAi?.providers?.some((p) => p.type === "llm" && (p.status === "connected" || p.apiKey)) || !!commonAi?.baseChatModel;
+  const activeModelDisplay = commonAi?.baseChatModel ? commonAi.baseChatModel.split(" ")[0] : (hasConfiguredLlm ? "Connected" : "Not configured");
+
+  return (
+    <div ref={menuRef} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          background: open ? C.paperSoft : "#fff",
+          border: `1px solid ${C.border}`,
+          borderRadius: 12,
+          padding: "5px 12px 5px 6px",
+          cursor: "pointer",
+          boxShadow: "0 2px 6px rgba(18,20,28,0.04)",
+          transition: "all 0.15s ease",
+        }}
+      >
+        <div style={{
+          width: 32,
+          height: 32,
+          borderRadius: 999,
+          background: isAdmin ? `linear-gradient(135deg, ${C.cobalt}, ${C.cobaltDeep})` : C.slate,
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: FONT_BODY,
+          fontSize: 12,
+          fontWeight: 700,
+        }}>
+          {initialsFromName(operator?.name)}
+        </div>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk, lineHeight: 1.2 }}>
+            {operator?.name}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              padding: "1px 5px",
+              borderRadius: 4,
+              background: isAdmin ? C.cobaltSoft : C.paperSoft,
+              color: isAdmin ? C.cobaltDeep : C.slate,
+            }}>
+              {operator?.role}
+            </span>
+          </div>
+        </div>
+        <ChevronDown size={14} color={C.slate} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s ease", marginLeft: 4 }} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute",
+          top: "calc(100% + 8px)",
+          right: 0,
+          width: 280,
+          background: "#fff",
+          border: `1px solid ${C.border}`,
+          borderRadius: 16,
+          boxShadow: "0 18px 50px rgba(18,20,28,0.16)",
+          padding: 8,
+          zIndex: 150,
+        }}>
+          {/* Header Card */}
+          <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.borderLight}`, marginBottom: 6 }}>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 700, color: C.textInk }}>{operator?.name}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, marginTop: 1 }}>@{operator?.username}</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.slate, marginTop: 3 }}>
+              {operator?.email || `${operator?.username}@aivhub.io`}
+            </div>
+          </div>
+
+          {/* Admin Controls */}
+          {isAdmin && (
+            <>
+              <div style={{ padding: "4px 10px", fontFamily: FONT_BODY, fontSize: 10, fontWeight: 700, color: C.slateLight, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Admin Controls
+              </div>
+
+              {/* AI Configuration */}
+              <button
+                onClick={() => { setOpen(false); onOpenCommonAi(); }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "9px 12px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Settings2 size={15} color={C.cobalt} />
+                  <div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>AI Configuration</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Providers, models & routing</div>
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: 5,
+                  background: hasConfiguredLlm ? C.tealSoft : C.paperSoft,
+                  color: hasConfiguredLlm ? C.teal : C.slate,
+                }}>
+                  {activeModelDisplay}
+                </span>
+              </button>
+
+              {/* Team & Users */}
+              <button
+                onClick={() => { setOpen(false); onOpenTeamUsers(); }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "9px 12px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+              >
+                <Users size={15} color={C.cobalt} />
+                <div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Team & Users</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Manage operators & roles</div>
+                </div>
+              </button>
+
+              <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
+            </>
+          )}
+
+          {/* User Settings */}
+          <button
+            onClick={() => { setOpen(false); onOpenProfileSettings(); }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "9px 12px",
+              borderRadius: 10,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
+            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+          >
+            <User size={15} color={C.slate} />
+            <div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Profile Settings</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Name & email details</div>
+            </div>
+          </button>
+
+          <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
+
+          {/* Logout */}
+          <button
+            onClick={() => { setOpen(false); onLogout(); }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "9px 12px",
+              borderRadius: 10,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              textAlign: "left",
+              color: C.red,
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = C.redSoft}
+            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+          >
+            <LogOut size={15} color={C.red} />
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600 }}>Sign out</div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings }) {
   return (
     <div style={{ minHeight: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, display: "flex", flexDirection: "column" }}>
       <AppChrome />
@@ -7789,62 +8280,15 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi }) {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Common AI Configuration Button in Header */}
-          <button
-            onClick={onOpenCommonAi}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              height: 38,
-              padding: "0 14px",
-              borderRadius: 10,
-              border: `1px solid ${C.cobalt}`,
-              background: C.cobaltSoft,
-              color: C.cobaltDeep,
-              fontFamily: FONT_BODY,
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-            title="Configure common AI models and layers across all plugins"
-          >
-            <Settings2 size={15} color={C.cobalt} />
-            <span>AI Configuration</span>
-            <span style={{ fontSize: 11, background: "#fff", padding: "2px 7px", borderRadius: 4, color: C.cobaltDeep, fontWeight: 700 }}>
-              {currentMode.toUpperCase()} · {baseLlm.split(" ")[0]}
-            </span>
-          </button>
-
-          <div style={{ height: 20, width: 1, background: C.border }} />
-
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>{operator.name}</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slate }}>{operator.role}</div>
-          </div>
-          <div style={{ width: 32, height: 32, borderRadius: 999, background: C.cobalt, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700 }}>
-            {initialsFromName(operator.name)}
-          </div>
-          <button
-            onClick={onLogout}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              height: 36,
-              padding: "0 12px",
-              borderRadius: 10,
-              border: `1px solid ${C.border}`,
-              background: "#fff",
-              fontFamily: FONT_BODY,
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: C.slate,
-              cursor: "pointer",
-            }}
-          >
-            <LogOut size={14} /> Sign out
-          </button>
+          {/* User Profile Menu with embedded AI Config & Team Hierarchy */}
+          <UserProfileMenu
+            operator={operator}
+            onLogout={onLogout}
+            commonAi={commonAi}
+            onOpenCommonAi={onOpenCommonAi}
+            onOpenTeamUsers={onOpenTeamUsers}
+            onOpenProfileSettings={onOpenProfileSettings}
+          />
         </div>
       </div>
 
@@ -11441,6 +11885,8 @@ export default function App() {
   const [faq, setFaq] = useState(INITIAL_FAQ);
   const [commonAi, setCommonAi] = useState(INITIAL_COMMON_AI_CONFIG);
   const [showCommonAiModal, setShowCommonAiModal] = useState(false);
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   if (!operator) return <LoginScreen onLogin={setOperator} />;
   
@@ -11453,6 +11899,8 @@ export default function App() {
           onLogout={() => { setOperator(null); setPlugin(null); }}
           commonAi={commonAi}
           onOpenCommonAi={() => setShowCommonAiModal(true)}
+          onOpenTeamUsers={() => setShowTeamModal(true)}
+          onOpenProfileSettings={() => setShowProfileModal(true)}
         />
       )}
 
@@ -11497,6 +11945,19 @@ export default function App() {
         onClose={() => setShowCommonAiModal(false)}
         commonAi={commonAi}
         setCommonAi={setCommonAi}
+      />
+
+      <TeamUsersModal
+        isOpen={showTeamModal}
+        onClose={() => setShowTeamModal(false)}
+        currentUser={operator}
+      />
+
+      <ProfileSettingsModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        operator={operator}
+        setOperator={setOperator}
       />
     </>
   );

@@ -6,6 +6,13 @@ class LoginRequest(BaseModel):
     username: str
     password: Optional[str] = "password"
 
+class CreateUserRequest(BaseModel):
+    username: str
+    name: str
+    role: Optional[str] = "Operator"
+    email: Optional[str] = None
+    password: Optional[str] = "password"
+
 class OperatorResponse(BaseModel):
     id: str
     username: str

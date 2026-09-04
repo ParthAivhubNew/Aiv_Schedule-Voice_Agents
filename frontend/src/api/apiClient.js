@@ -34,9 +34,11 @@ export async function apiRequest(endpoint, options = {}) {
 }
 
 export const api = {
-  // Auth
+  // Auth & Team
   login: (username, password) => apiRequest('/auth/login', { method: 'POST', body: { username, password } }),
   getMe: (username) => apiRequest(`/auth/me?username=${encodeURIComponent(username)}`),
+  getUsers: () => apiRequest('/auth/users'),
+  createUser: (data) => apiRequest('/auth/users', { method: 'POST', body: data }),
 
   // Missions
   getMissions: () => apiRequest('/missions'),
