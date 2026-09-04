@@ -740,772 +740,6 @@ function applyCallHourPolicy(id) {
   return { callHoursPolicy: p.id, weekdayStart: p.weekdayStart, weekdayEnd: p.weekdayEnd };
 }
 
-/* ---------------------------------- mock data ---------------------------------- */
-
-
-/* ---------------------------------- Rich Batch Contacts & Company Dossier Generator ---------------------------------- */
-
-const SAMPLE_LOGISTICS_COMPANIES = [
-  { name: "Acme Logistics Ltd", contact: "James Whitfield", title: "Ops Director", phone: "+44 161 496 0123", site: "acmelogistics.co.uk", city: "Manchester", fleet: "48 HGVs", rev: "£22M", staff: "140", stack: "Excel, Sage 50, Microlise", notes: "Met at UK Logistics Expo 2026. Struggling with spreadsheet reconciliation delays during end-of-month reporting." },
-  { name: "Northern Freight Co", contact: "Sarah Jenkins", title: "Head of Supply Chain", phone: "+44 161 220 4471", site: "northernfreight.co.uk", city: "Manchester", fleet: "32 HGVs", rev: "£14M", staff: "95", stack: "Spreadsheets, Pegasus Opera", notes: "Downloaded fleet optimization guide. Interested in live route profitability tracking." },
-  { name: "Manchester Transport Group", contact: "David Hughes", title: "Managing Director", phone: "+44 161 883 2200", site: "mtgroup.co.uk", city: "Manchester", fleet: "65 Trucks", rev: "£31M", staff: "210", stack: "Custom Access DB, Xero", notes: "Expanding warehouse hub in Trafford Park. Looking for automated ops reporting." },
-  { name: "Pennine Distribution", contact: "Tom Radcliffe", title: "Operations Lead", phone: "+44 161 998 3345", site: "pennine-dist.co.uk", city: "Manchester", fleet: "24 Vans & HGVs", rev: "£9M", staff: "60", stack: "Excel, QuickBooks", notes: "Asked for pricing breakdown during previous webinar." },
-  { name: "Green Mile Logistics", contact: "Emma Watson", title: "VP Operations", phone: "+44 161 552 9081", site: "greenmilelogistics.co.uk", city: "Salford", fleet: "40 Electric Vans", rev: "£16M", staff: "110", stack: "Excel, Samsara", notes: "Green fleet expansion. Needs weekly carbon and route efficiency metrics." },
-  { name: "Speedy Haulage", contact: "Priya Nair", title: "MD", phone: "+44 161 774 5510", site: "speedyhaulage.co.uk", city: "Bolton", fleet: "18 Trucks", rev: "£6.5M", staff: "45", stack: "Excel, Sage 200", notes: "High fleet utilization, small back-office team." },
-  { name: "Mersey Freight Hub", contact: "Alan Briggs", title: "Fleet Manager", phone: "+44 151 496 0982", site: "merseyfreight.co.uk", city: "Liverpool", fleet: "55 HGVs", rev: "£26M", staff: "180", stack: "Excel, Transporeon", notes: "Port logistics specialist. Needs real-time container turnaround alerts." },
-  { name: "Cheshire Dispatch Co", contact: "Claire Evans", title: "Logistics Director", phone: "+44 124 498 1120", site: "cheshiredispatch.co.uk", city: "Chester", fleet: "28 Trucks", rev: "£11M", staff: "75", stack: "Excel, SAP Business One", notes: "Looking to replace manual driver run-sheets with live mobile sync." },
-  { name: "Lancashire Express Ltd", contact: "Mark Owen", title: "COO", phone: "+44 177 220 8810", site: "lancsexpress.co.uk", city: "Preston", fleet: "38 HGVs", rev: "£17M", staff: "115", stack: "Excel, Sage 50", notes: "Overnight pallet distribution across North West." },
-  { name: "Peak Distribution Group", contact: "Helen Morris", title: "Head of Logistics", phone: "+44 143 388 9012", site: "peakdist.co.uk", city: "Stockport", fleet: "22 Trucks", rev: "£8.5M", staff: "55", stack: "Excel, Xero", notes: "Regional chilled food distribution." },
-];
-
-function generateBatchProspects(count = 240, sector = "Logistics") {
-  const result = [];
-  const prefixes = ["Apex", "Forward", "Pinnacle", "Titan", "Vanguard", "Summit", "Crossland", "Silverline", "Beacon", "Atlas", "Trident", "Horizon", "Matrix", "Direct", "Prime", "Swift", "Premier", "National", "Crown", "Euro"];
-  const types = ["Logistics", "Freight", "Transport", "Distribution", "Haulage", "Express", "Supply Chain", "Couriers", "Storage & Haulage", "Fleet Services"];
-  const firstNames = ["James", "Sarah", "David", "Tom", "Emma", "Priya", "Alan", "Claire", "Mark", "Helen", "Simon", "Laura", "Paul", "Rachel", "Andrew", "Victoria", "Gary", "Nicola", "Richard", "Hannah"];
-  const lastNames = ["Whitfield", "Jenkins", "Hughes", "Radcliffe", "Watson", "Nair", "Briggs", "Evans", "Owen", "Morris", "Clarke", "Taylor", "Wilson", "Davies", "Brown", "Walker", "Hall", "Green", "Harris", "Cooper"];
-  const cities = ["Manchester", "Salford", "Liverpool", "Leeds", "Birmingham", "Preston", "Bolton", "Warrington", "Stockport", "Chester", "Sheffield", "Trafford"];
-
-  for (let i = 0; i < count; i++) {
-    if (i < SAMPLE_LOGISTICS_COMPANIES.length) {
-      const base = SAMPLE_LOGISTICS_COMPANIES[i];
-      const status = i < 4 ? "calling" : i === 4 ? "calling" : i < 12 ? "meeting_booked" : i < 28 ? "left_voicemail" : i < 35 ? "retry" : "queued";
-      result.push({
-        id: "p_" + (i + 1),
-        name: base.name,
-        contact: base.contact,
-        title: base.title,
-        phone: base.phone,
-        site: base.site,
-        city: base.city,
-        fleet: base.fleet,
-        rev: base.rev,
-        staff: base.staff,
-        stack: base.stack,
-        notes: base.notes,
-        status,
-        note: status === "calling" ? `Live call on Line ${i + 1} · negotiating demo time` : status === "meeting_booked" ? "Meeting booked via Cal.com" : status === "left_voicemail" ? "AI Voicemail drop delivered + WhatsApp summary sent" : status === "retry" ? "No answer · retry scheduled in 3 hours" : "Queued for calling · waiting on available line",
-        time: status === "calling" ? "now" : status === "meeting_booked" ? "14:32" : "waiting",
-        line: status === "calling" ? i + 1 : undefined,
-      });
-    } else {
-      const pIndex = i % prefixes.length;
-      const tIndex = (i * 3) % types.length;
-      const cIndex = (i * 7) % cities.length;
-      const fnIndex = (i * 5) % firstNames.length;
-      const lnIndex = (i * 11) % lastNames.length;
-      const compName = `${prefixes[pIndex]} ${types[tIndex]} Ltd`;
-      const contactName = `${firstNames[fnIndex]} ${lastNames[lnIndex]}`;
-      const city = cities[cIndex];
-      const phone = `+44 161 ${Math.floor(100 + (i * 37) % 899)} ${Math.floor(1000 + (i * 53) % 8999)}`;
-      const fleetSize = `${15 + (i * 3) % 45} Vehicles`;
-      const rev = `£${(6 + (i * 1.4) % 25).toFixed(1)}M`;
-      const status = "queued";
-
-      result.push({
-        id: "p_" + (i + 1),
-        name: compName,
-        contact: contactName,
-        title: i % 2 === 0 ? "Operations Director" : "Managing Director",
-        phone,
-        site: compName.toLowerCase().replace(/[^a-z]/g, "") + ".co.uk",
-        city,
-        fleet: fleetSize,
-        rev,
-        staff: `${35 + (i * 4) % 120}`,
-        stack: "Excel Spreadsheets, Sage 50, TomTom Webfleet",
-        notes: `Imported from contact list row #${i + 1}. Mid-market fleet operator in ${city}.`,
-        status,
-        note: "Queued for calling · waiting on available line",
-        time: "in queue",
-      });
-    }
-  }
-  return result;
-}
-
-const FULL_240_CONTACTS = generateBatchProspects(240, "Logistics");
-
-
-const INITIAL_TASKS = [
-  {
-    id: "task_1",
-    title: "UK Logistics & Fleet Directors — Q3 Outreach",
-    file: "UK_MidMarket_Logistics_Contacts.xlsx",
-    fileRows: 240,
-    sector: "Logistics & Supply Chain",
-    region: "Manchester / North West",
-    status: "active",
-    concurrency: 8, // 8 parallel lines
-    activeLines: 4,
-    contacted: 48,
-    total: 240,
-    meetingsBooked: 7,
-    voicemails: 16,
-    avgDuration: "02:18",
-    created: "Today, 09:30",
-    goal: "Appointment & Demo Booking",
-    scriptTemplate: "Hi {{first_name}}, this is Sam from {{our_company}}. I saw you lead operations at {{company_name}} and wanted to share how mid-market logistics fleets eliminate spreadsheet reporting delays.",
-    timezone: "Europe/London",
-    callWindow: "09:00–17:30 (Local Time)",
-    lunchStart: "12:30",
-    lunchEnd: "13:30",
-    noAnswerFallbacks: ["whatsapp", "sms", "email"],
-    prospects: FULL_240_CONTACTS,
-  },
-  {
-    id: "task_2",
-    title: "Midlands Manufacturing SMEs — Plant Directors",
-    file: "Midlands_Manufacturing_SMEs_2026.csv",
-    fileRows: 180,
-    sector: "Manufacturing & Engineering",
-    region: "Birmingham / West Midlands",
-    status: "scheduled",
-    concurrency: 10,
-    activeLines: 0,
-    contacted: 0,
-    total: 180,
-    meetingsBooked: 0,
-    voicemails: 0,
-    avgDuration: "—",
-    created: "Today, 11:15",
-    scheduledFor: "Tomorrow 09:00 AM (Europe/London)",
-    goal: "Lead Qualification & Discovery",
-    scriptTemplate: "Hi {{first_name}}, I'm calling from {{our_company}} regarding operational efficiency benchmarks in {{sector}}.",
-    timezone: "Europe/London",
-    callWindow: "09:00–17:00 (Local Time)",
-    noAnswerFallbacks: ["sms", "email"],
-    prospects: [
-      { id: "p20", name: "Ferrum Manufacturing", contact: "David Oyelaran", phone: "+44 113 220 5541", status: "queued", note: "Ready for batch start", time: "scheduled" },
-      { id: "p21", name: "Yorkshire Components Ltd", contact: "Liam Foster", phone: "+44 113 776 4420", status: "queued", note: "Ready for batch start", time: "scheduled" },
-      { id: "p22", name: "Dales Precision Engineering", contact: "Robert Shaw", phone: "+44 113 554 9912", status: "queued", note: "Ready for batch start", time: "scheduled" },
-    ],
-  },
-  {
-    id: "task_3",
-    title: "Enterprise BI Event Inbound Registrants",
-    file: "Webinar_Inbound_Leads_Aug2026.csv",
-    fileRows: 65,
-    sector: "Technology & Operations",
-    region: "UK-wide",
-    status: "completed",
-    concurrency: 5,
-    activeLines: 0,
-    contacted: 65,
-    total: 65,
-    meetingsBooked: 19,
-    voicemails: 22,
-    avgDuration: "03:12",
-    created: "22 Aug",
-    completedAt: "24 Aug, 16:45",
-    goal: "Event Confirmation & 1-on-1 Consultation",
-    scriptTemplate: "Hi {{first_name}}, thanks for registering for our business intelligence session. Calling to confirm your seat and see if you have any questions on {{notes}}.",
-    timezone: "Europe/London",
-    noAnswerFallbacks: ["whatsapp", "email"],
-    prospects: [
-      { id: "p30", name: "Bright Retail Group", contact: "Michael Scott", phone: "+44 121 233 8890", status: "meeting_booked", note: "Booked 1-on-1 discovery call", time: "23 Aug" },
-      { id: "p31", name: "Midlands Fashion Co", contact: "Sarah Coombs", phone: "+44 121 456 7712", status: "meeting_booked", note: "Booked demo session", time: "24 Aug" },
-      { id: "p32", name: "Colmore Row Boutiques", contact: "Peter Finch", phone: "+44 121 665 4401", status: "left_voicemail", note: "Voicemail drop + follow-up email sent", time: "24 Aug" },
-    ],
-  },
-];
-
-const INITIAL_MISSIONS = INITIAL_TASKS; // backward compatibility alias
-
-const PROSPECTS = [
-  { id: "p1", name: "Acme Logistics Ltd", sector: "Logistics", region: "Manchester", status: "meeting_booked", fit: 92, lastContact: "26 Aug", contact: "James Whitfield · Ops Director", phone: "+44 161 496 0123", site: "acmelogistics.co.uk" },
-  { id: "p2", name: "Northern Freight Co", sector: "Logistics", region: "Manchester", status: "contacted", fit: 81, lastContact: "26 Aug", contact: "—", phone: "+44 161 220 4471", site: "northernfreight.co.uk" },
-  { id: "p3", name: "Manchester Transport Group", sector: "Logistics", region: "Manchester", status: "contacted", fit: 74, lastContact: "26 Aug", contact: "—", phone: "+44 161 883 2200", site: "mtgroup.co.uk" },
-  { id: "p4", name: "Speedy Haulage", sector: "Logistics", region: "Manchester", status: "do_not_call", fit: 58, lastContact: "26 Aug", contact: "Priya Nair · MD", phone: "+44 161 774 5510", site: "speedyhaulage.co.uk" },
-  { id: "p5", name: "Green Mile Logistics", sector: "Logistics", region: "Manchester", status: "cold", fit: 69, lastContact: "—", contact: "—", phone: "+44 161 552 9081", site: "greenmilelogistics.co.uk" },
-  { id: "p6", name: "Pennine Distribution", sector: "Logistics", region: "Manchester", status: "interested", fit: 88, lastContact: "26 Aug", contact: "Tom Radcliffe · Finance Director", phone: "+44 161 998 3345", site: "pennine-dist.co.uk" },
-  { id: "p7", name: "Bright Retail Group", sector: "Retail", region: "Birmingham", status: "contacted", fit: 77, lastContact: "25 Aug", contact: "—", phone: "+44 121 233 8890", site: "brightretail.co.uk" },
-  { id: "p8", name: "Midlands Fashion Co", sector: "Retail", region: "Birmingham", status: "meeting_booked", fit: 85, lastContact: "24 Aug", contact: "Sarah Coombs · CEO", phone: "+44 121 456 7712", site: "midlandsfashion.co.uk" },
-  { id: "p9", name: "Ferrum Manufacturing", sector: "Manufacturing", region: "Leeds", status: "meeting_booked", fit: 90, lastContact: "20 Aug", contact: "David Oyelaran · COO", phone: "+44 113 220 5541", site: "ferrummfg.co.uk" },
-  { id: "p10", name: "Yorkshire Components Ltd", sector: "Manufacturing", region: "Leeds", status: "meeting_booked", fit: 87, lastContact: "20 Aug", contact: "Liam Foster · Plant Manager", phone: "+44 113 776 4420", site: "yorkshirecomponents.co.uk" },
-];
-
-const INITIAL_LIVE_CALLS = [
-  {
-    id: "c1",
-    prospect: "Northern Freight Co",
-    mission: "Logistics — Manchester",
-    state: "negotiating",
-    channel: "voice",
-    duration: "02:14",
-    transcript: [
-      "AI: Would Thursday at 2pm work for a short call with your ops lead?",
-      "Prospect: Let me check — maybe Wednesday instead.",
-      "AI: Wednesday works well — morning or afternoon suits better?",
-    ],
-  },
-  {
-    id: "c2",
-    prospect: "Pennine Distribution",
-    mission: "Logistics — Manchester",
-    state: "human_review",
-    channel: "voice",
-    duration: "04:02",
-    flag: "Pricing question",
-    transcript: [
-      "Prospect: What exactly does this cost us, roughly?",
-      "AI: I can have someone follow up with pricing details directly —",
-    ],
-  },
-  {
-    id: "c3",
-    prospect: "Bright Retail Group",
-    mission: "Retail — Birmingham",
-    state: "pitching",
-    channel: "voice",
-    duration: "00:48",
-    transcript: [
-      "AI: Hi, this is Sam calling on behalf of AIVHub —",
-      "Prospect: Sorry, what is this regarding?",
-    ],
-  },
-  {
-    id: "c4",
-    prospect: "Riverside Manufacturing",
-    mission: "Q3 warm leads",
-    state: "negotiating",
-    channel: "whatsapp",
-    duration: "3 messages",
-    transcript: [
-      "AI: Hi! This is Sam from AIVHub — saw Riverside's expanding the Coventry site. Worth a quick 15-min chat about ops dashboards?",
-      "Prospect: Maybe, send more info first",
-      "AI: Sure — sending a one-pager now. Would Tuesday or Wednesday next week work for a short call either way?",
-    ],
-  },
-  {
-    id: "c5",
-    prospect: "Vale Components",
-    mission: "Q3 warm leads",
-    state: "negotiating",
-    channel: "voice",
-    duration: "01:36",
-    transcript: [
-      "AI: Would a short discovery call this week work for your ops lead?",
-      "Prospect: Not now — please contact us after 6 months, budget is frozen until then.",
-      "AI: Understood — I won't call again until then. I'll park a callback for six months from today.",
-    ],
-  },
-];
-
-const TREND = [
-  { day: "1 Aug", rate: 11 },
-  { day: "6 Aug", rate: 12 },
-  { day: "11 Aug", rate: 13 },
-  { day: "16 Aug", rate: 15 },
-  { day: "21 Aug", rate: 16 },
-  { day: "26 Aug", rate: 18 },
-];
-
-const COST_BREAKDOWN = [
-  { name: "LLM", Paid: 320, "Open Source": 42 },
-  { name: "STT", Paid: 180, "Open Source": 6 },
-  { name: "TTS", Paid: 260, "Open Source": 4 },
-  { name: "Telephony", Paid: 410, "Open Source": 380 },
-];
-
-const INITIAL_SCHEDULE = [
-  { id: "s1", day: "Today, 27 Aug", time: "09:30", prospect: "Green Mile Logistics", mission: "Logistics — Manchester", window: "09:00–17:30", status: "queued" },
-  { id: "s2", day: "Today, 27 Aug", time: "11:00", prospect: "Manchester Transport Group", mission: "Logistics — Manchester", window: "09:00–17:30", status: "queued" },
-  { id: "s3", day: "Today, 27 Aug", time: "13:15", prospect: "Bright Retail Group", mission: "Retail — Birmingham", window: "09:00–17:30", status: "queued" },
-  { id: "s4", day: "Today, 27 Aug", time: "15:00", prospect: "Manchester Transport Group", mission: "Logistics — Manchester", window: "09:00–17:30", status: "retry" },
-  { id: "s5", day: "Tomorrow, 28 Aug", time: "09:15", prospect: "Fintech Prospect Batch (5)", mission: "Fintech startups — London", window: "09:00–17:30", status: "queued" },
-  { id: "s6", day: "Tomorrow, 28 Aug", time: "10:00", prospect: "Riverside Manufacturing", mission: "Q3 warm leads", window: "10:00–16:00", status: "queued" },
-  { id: "s8", day: "Mon, 31 Aug", time: "10:00", prospect: "Coventry Precision Ltd", mission: "Q3 warm leads", window: "09:00–17:30", status: "queued", honored: true, honoredQuote: "Call me back next week, Monday morning if you can." },
-  { id: "s9", day: "Sat, 27 Feb 2027", time: "10:00", prospect: "Helix Packaging Ltd", mission: "Q3 warm leads", window: "09:00–17:30", status: "queued", honored: true, deferred: true, honoredQuote: "Please contact us after 6 months — budget is frozen until then." },
-  { id: "s7", day: "Yesterday, 26 Aug", time: "14:32", prospect: "Acme Logistics Ltd", mission: "Logistics — Manchester", window: "09:00–17:30", status: "completed" },
-];
-
-const INITIAL_NOTIFICATIONS = [
-  { id: "n1", text: "Meeting booked — Acme Logistics Ltd, Thu 2:00 PM", time: "10m ago", unread: true, type: "success" },
-  { id: "n2", text: "Pennine Distribution needs staff input — pricing question", time: "24m ago", unread: true, type: "alert" },
-  { id: "n3", text: "Speedy Haulage marked do-not-call", time: "1h ago", unread: true, type: "info" },
-  { id: "n4", text: "Mission \"Manufacturing SMEs — Leeds\" completed — 6 meetings booked", time: "Yesterday", unread: false, type: "success" },
-  { id: "n5", text: "Provider config changed to Open Source mode", time: "2 days ago", unread: false, type: "info" },
-];
-
-const CONNECTIONS = [
-  { group: "LLM", desc: "Powers the AI's conversation, pitch reasoning, and objection handling.", items: [
-    { name: "Anthropic (Claude)", status: "connected" },
-    { name: "OpenAI (GPT-4o)", status: "connected" },
-    { name: "DeepSeek", status: "not_configured" },
-  ]},
-  { group: "Speech-to-Text", desc: "Turns the prospect's spoken voice into text the AI can understand.", items: [
-    { name: "Deepgram", status: "connected" },
-    { name: "Faster-Whisper (self-hosted)", status: "not_configured" },
-  ]},
-  { group: "Text-to-Speech", desc: "Generates the AI's spoken voice on calls.", items: [
-    { name: "ElevenLabs", status: "connected" },
-    { name: "Cartesia", status: "not_configured" },
-    { name: "Kokoro (self-hosted)", status: "not_configured" },
-  ]},
-  { group: "Voice Orchestration", desc: "Manages the live call itself — audio streaming, interruptions, turn-taking.", items: [
-    { name: "Vapi", status: "connected" },
-    { name: "Retell AI", status: "not_configured" },
-    { name: "LiveKit (self-hosted)", status: "error" },
-  ]},
-  { group: "Telephony", desc: "Places and receives the actual phone calls.", items: [
-    { name: "Twilio", status: "connected" },
-    { name: "Telnyx", status: "not_configured" },
-  ]},
-  { group: "Calendar", desc: "Checks availability and books confirmed meetings.", items: [
-    { name: "Cal.com", status: "connected" },
-  ]},
-  { group: "Business Discovery", desc: "Finds and researches prospect businesses on the web.", items: [
-    { name: "Google Places API", status: "connected" },
-    { name: "Web Search Provider", status: "connected" },
-  ]},
-  { group: "Other", desc: "Anything else your team connects — CRM, spreadsheets, custom internal tools.", items: [] },
-];
-
-const CATEGORY_OPTIONS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Calendar", "Business Discovery", "Other"];
-
-const INITIAL_KNOWLEDGE_SOURCES = [
-  { id: "k1", name: "Company website", type: "Website URL", value: "aivhub.io", status: "indexed", synced: "2 hours ago" },
-  { id: "k2", name: "Service catalogue & pricing", type: "Document upload", value: "aivhub-services-2026.pdf", status: "indexed", synced: "1 day ago" },
-  { id: "k3", name: "Case studies deck", type: "Google Drive link", value: "drive.google.com/aivhub-case-studies", status: "pending", synced: "—" },
-  { id: "k4", name: "Objection handling notes", type: "Manual text", value: "Internal notes on common pushback", status: "indexed", synced: "3 days ago" },
-];
-
-const INITIAL_FAQ = [
-  { id: "f1", q: "What does AIVHub actually do?", a: "We build AI-powered business intelligence dashboards that turn raw operational data into clear, real-time decisions for mid-market teams." },
-  { id: "f2", q: "How much does it cost?", a: "Pricing depends on team size and data sources — I can have someone send exact numbers, or we can cover it on the call we're booking." },
-  { id: "f3", q: "Who else uses this?", a: "We work with logistics, manufacturing, and retail operators across the UK — happy to share relevant examples on the call." },
-];
-
-const INITIAL_SERVICES = [
-  { id: "sv1", name: "BI Dashboard Platform", ideal: "Mid-market ops teams, 50-500 staff", desc: "Real-time operational dashboards pulling from existing systems." },
-  { id: "sv2", name: "Data Pipeline Consulting", ideal: "Companies with fragmented data sources", desc: "Set up reliable pipelines feeding clean data into reporting." },
-];
-
-const INITIAL_COMPANY_PROFILE = {
-  name: "AIVHub",
-  pitch: "AI-powered business intelligence dashboards for mid-market operations teams",
-  industry: "Business intelligence / data consulting",
-  website: "https://aivhub.io",
-  social: "linkedin.com/company/aivhub",
-  callerName: "Sam",
-  callerId: "+44 20 7946 0912",
-  tone: "Professional, concise, friendly",
-  disclosure: "This call may be recorded for quality and training purposes.",
-  legalName: "AIVHub Ltd",
-  icoRef: "ZA774219",
-  dpoContact: "privacy@aivhub.io",
-  dncNotes: "Opt-outs logged immediately and excluded from all future missions. Reviewed weekly by the ops admin.",
-  timezone: "Europe/London",
-  lunchStart: "12:00",
-  lunchEnd: "13:00",
-  callHoursPolicy: "respectful",
-  weekdayStart: "09:00",
-  weekdayEnd: "17:30",
-};
-
-const INITIAL_MEETINGS = [
-  {
-    id: "mt1", prospect: "Acme Logistics Ltd", mission: "Logistics — Manchester", date: "Thu 3 Sep", time: "14:00", duration: "15 min", status: "upcoming", fit: 92,
-    channel: "voice", format: "video", platform: "Google Meet", videoLink: "meet.google.com/aiv-acme-disc",
-    host: "Jitendra S.", attendee: "James Whitfield · Ops Director",
-    prep: "James showed strong interest in real-time dispatch dashboards on the call. Current pain point: manual Excel reporting takes ~2 days/week for his team. Mentioned they're evaluating 2 other vendors — worth asking who.",
-    callTranscript: [
-      { who: "ai", text: "Hi, this is Sam calling on behalf of AIVHub — do you have a quick minute?" },
-      { who: "them", text: "Sure, what's this about?" },
-      { who: "ai", text: "We build BI dashboards for logistics operators — saw Acme's been growing fast in Manchester. Quick question: how does your team currently track dispatch performance?" },
-      { who: "them", text: "Mostly spreadsheets, honestly. It's a mess." },
-      { who: "ai", text: "That's exactly what we help with. Would a 15-minute call with James make sense to see if it's a fit?" },
-      { who: "them", text: "Yeah, put something in for Thursday afternoon." },
-      { who: "ai", text: "Perfect — Thursday 2pm works, I'll send a Google Meet link over." },
-    ],
-    meetingTranscript: null,
-  },
-  {
-    id: "mt2", prospect: "Ferrum Manufacturing", mission: "Manufacturing SMEs — Leeds", date: "Fri 21 Aug", time: "11:00", duration: "20 min", status: "needs_outcome", fit: 90,
-    channel: "voice", format: "phone", dialIn: "+44 113 220 5541",
-    host: "Jitendra S.", attendee: "David Oyelaran · COO",
-    prep: "David was open to a pilot on production-line dashboards. Budget cycle starts in October — timing may matter.",
-    callTranscript: [
-      { who: "ai", text: "Hi David, this is Sam from AIVHub — got 2 minutes?" },
-      { who: "them", text: "Just about, go ahead." },
-      { who: "ai", text: "We work with manufacturers on real-time production dashboards. Would a short call to explore fit work for you?" },
-      { who: "them", text: "Could do, but budget's tight until October." },
-      { who: "ai", text: "Understood — let's do a no-pressure discovery call so it's ready when budget opens up. Friday 11am?" },
-      { who: "them", text: "Friday works." },
-    ],
-    meetingTranscript: null,
-  },
-  {
-    id: "mt3", prospect: "Yorkshire Components Ltd", mission: "Manufacturing SMEs — Leeds", date: "Wed 19 Aug", time: "10:30", duration: "15 min", status: "converted", fit: 87,
-    channel: "voice", format: "video", platform: "Microsoft Teams", videoLink: "teams.microsoft.com/aiv-yorkshire",
-    host: "Jitendra S.", attendee: "Liam Foster · Plant Manager",
-    prep: "Liam requested a formal proposal after the call.", outcome: "Converted — moved to proposal stage",
-    callTranscript: [
-      { who: "ai", text: "Hi Liam, calling on behalf of AIVHub — is now an OK time?" },
-      { who: "them", text: "Sure, quick one though." },
-      { who: "ai", text: "No problem — we build dashboards for plant operations. Worth a short call with our team?" },
-      { who: "them", text: "Yes, send me a Teams invite for next week." },
-    ],
-    meetingTranscript: [
-      { who: "host", text: "Thanks for making time, Liam — talk us through what you're currently tracking manually." },
-      { who: "them", text: "Mainly downtime and throughput per line, all in spreadsheets updated end of shift." },
-      { who: "host", text: "That's a great fit for what we've built — I'll put a proposal together this week." },
-      { who: "them", text: "Sounds good, send it over and I'll loop in finance." },
-    ],
-  },
-  {
-    id: "mt4", prospect: "Midlands Fashion Co", mission: "Retail chains — Birmingham", date: "Sat 24 Aug", time: "09:30", duration: "15 min", status: "not_fit", fit: 85,
-    channel: "whatsapp", format: "in_person", address: "14 Colmore Row, Birmingham B3 2QD",
-    host: "Jitendra S.", attendee: "Sarah Coombs · CEO",
-    prep: "Sarah was interested but flagged budget constraints for this fiscal year.", outcome: "Not a fit — budget too small this year",
-    callTranscript: [
-      { who: "ai", text: "Hi Sarah, this is AIVHub — we help retail teams with BI dashboards. Open to a quick chat?" },
-      { who: "them", text: "Maybe — what's the cost roughly?" },
-      { who: "ai", text: "Depends on scope, easiest to cover on a short call. Could we grab 15 min in person, since your office is local to our team?" },
-      { who: "them", text: "OK, Saturday morning works, come by the office." },
-    ],
-    meetingTranscript: [
-      { who: "host", text: "Thanks for having us in, Sarah. Talk us through your current reporting setup." },
-      { who: "them", text: "It's fine, but budgets are frozen until next fiscal year — I don't think we can move on this now." },
-      { who: "host", text: "Understood — let's revisit in the new fiscal year, I'll follow up in a few months." },
-    ],
-  },
-];
-
-/* ---------------------------------- identity registry + call log ---------------------------------- */
-
-// one canonical record per real-world company. aliases catch the same firm under
-// different legal spellings ("Acme Logistics Ltd" vs "ACME LOGISTICS LIMITED") so
-// we don't dial them twice from a fresh spreadsheet.
-const INITIAL_CONTACT_REGISTRY = [
-  {
-    id: "cr11",
-    canonicalName: "Helix Packaging Ltd",
-    aliases: ["Helix Packaging", "Helix Packaging Limited"],
-    phones: ["+44 161 440 2288"],
-    websites: ["helixpackaging.co.uk"],
-    region: "Manchester",
-    sector: "Manufacturing",
-    people: [{ id: "cp11", canonicalName: "Nina Cole", aliases: ["N. Cole"], role: "Ops Manager", phone: "+44 161 440 2288" }],
-    doNotCall: false,
-    lastOutcome: "callback_requested",
-    lastContactAt: "25 Aug 2026, 11:22",
-    requestedFollowUp: { day: "Sat, 27 Feb 2027", time: "10:00", exactWords: "Please contact us after 6 months — budget is frozen until then." },
-  },
-  {
-    id: "cr1",
-    canonicalName: "Acme Logistics Ltd",
-    aliases: ["Acme Logistics", "ACME LOGISTICS LIMITED", "Acme Logistics Limited"],
-    phones: ["+44 161 496 0123"],
-    websites: ["acmelogistics.co.uk"],
-    region: "Manchester",
-    sector: "Logistics",
-    people: [{ id: "cp1", canonicalName: "James Whitfield", aliases: ["J. Whitfield", "Jim Whitfield"], role: "Ops Director", phone: "+44 161 496 0123" }],
-    doNotCall: false,
-    lastOutcome: "meeting_booked",
-    lastContactAt: "26 Aug 2026, 14:32",
-  },
-  {
-    id: "cr2",
-    canonicalName: "Northern Freight Co",
-    aliases: ["Northern Freight Company", "Northern Freight", "NFC Ltd"],
-    phones: ["+44 161 220 4471"],
-    websites: ["northernfreight.co.uk"],
-    region: "Manchester",
-    sector: "Logistics",
-    people: [{ id: "cp2", canonicalName: "Ops lead", aliases: [], role: "Ops", phone: "+44 161 220 4471" }],
-    doNotCall: false,
-    lastOutcome: "calling",
-    lastContactAt: "27 Aug 2026, live",
-  },
-  {
-    id: "cr3",
-    canonicalName: "Speedy Haulage",
-    aliases: ["Speedy Haulage Ltd", "Speedy Haulage Limited"],
-    phones: ["+44 161 774 5510"],
-    websites: ["speedyhaulage.co.uk"],
-    region: "Manchester",
-    sector: "Logistics",
-    people: [{ id: "cp3", canonicalName: "Priya Nair", aliases: ["P. Nair"], role: "MD", phone: "+44 161 774 5510" }],
-    doNotCall: true,
-    lastOutcome: "rejected",
-    lastContactAt: "26 Aug 2026, 10:41",
-  },
-  {
-    id: "cr4",
-    canonicalName: "Pennine Distribution",
-    aliases: ["Pennine Dist", "Pennine Distribution Ltd", "Pennine-Dist"],
-    phones: ["+44 161 998 3345"],
-    websites: ["pennine-dist.co.uk"],
-    region: "Manchester",
-    sector: "Logistics",
-    people: [{ id: "cp4", canonicalName: "Tom Radcliffe", aliases: ["Thomas Radcliffe", "T. Radcliffe"], role: "Finance Director", phone: "+44 161 998 3345" }],
-    doNotCall: false,
-    lastOutcome: "human_review",
-    lastContactAt: "26 Aug 2026, 13:12",
-  },
-  {
-    id: "cr5",
-    canonicalName: "Riverside Manufacturing",
-    aliases: ["Riverside Mfg", "Riverside Manufacturing Ltd", "Riverside Manufacturing Co"],
-    phones: ["+44 247 655 0190"],
-    websites: ["riverside-mfg.co.uk"],
-    region: "Coventry",
-    sector: "Manufacturing",
-    people: [{ id: "cp5", canonicalName: "Site contact", aliases: [], role: "Contact", phone: "" }],
-    doNotCall: false,
-    lastOutcome: "calling",
-    lastContactAt: "27 Aug 2026, live",
-  },
-  {
-    id: "cr6",
-    canonicalName: "Bright Retail Group",
-    aliases: ["Bright Retail", "BRG Retail", "Bright Retail Group Ltd"],
-    phones: ["+44 121 233 8890"],
-    websites: ["brightretail.co.uk"],
-    region: "Birmingham",
-    sector: "Retail",
-    people: [],
-    doNotCall: false,
-    lastOutcome: "contacted",
-    lastContactAt: "25 Aug 2026",
-  },
-  {
-    id: "cr7",
-    canonicalName: "Coventry Precision Ltd",
-    aliases: ["Coventry Precision", "Coventry Precision Limited"],
-    phones: ["+44 247 611 4402"],
-    websites: ["coventryprecision.co.uk"],
-    region: "Coventry",
-    sector: "Manufacturing",
-    people: [{ id: "cp7", canonicalName: "Plant contact", aliases: [], role: "Contact", phone: "" }],
-    doNotCall: false,
-    lastOutcome: "callback_requested",
-    lastContactAt: "26 Aug 2026, 16:05",
-    requestedFollowUp: { day: "Mon, 31 Aug", time: "10:00", exactWords: "Call me back next week, Monday morning if you can." },
-  },
-  {
-    id: "cr8",
-    canonicalName: "Ferrum Manufacturing",
-    aliases: ["Ferrum Mfg", "Ferrum Manufacturing Ltd"],
-    phones: ["+44 113 220 5541"],
-    websites: ["ferrummfg.co.uk"],
-    region: "Leeds",
-    sector: "Manufacturing",
-    people: [{ id: "cp8", canonicalName: "David Oyelaran", aliases: ["Dave Oyelaran", "D. Oyelaran"], role: "COO", phone: "+44 113 220 5541" }],
-    doNotCall: false,
-    lastOutcome: "needs_outcome",
-    lastContactAt: "21 Aug 2026, 11:00",
-  },
-  {
-    id: "cr9",
-    canonicalName: "Manchester Transport Group",
-    aliases: ["MT Group", "Manchester Transport", "Manchester Transport Group Ltd"],
-    phones: ["+44 161 883 2200"],
-    websites: ["mtgroup.co.uk"],
-    region: "Manchester",
-    sector: "Logistics",
-    people: [],
-    doNotCall: false,
-    lastOutcome: "retry",
-    lastContactAt: "26 Aug 2026, 11:05",
-  },
-  {
-    id: "cr10",
-    canonicalName: "Midlands Fashion Co",
-    aliases: ["Midlands Fashion", "Midlands Fashion Company"],
-    phones: ["+44 121 456 7712"],
-    websites: ["midlandsfashion.co.uk"],
-    region: "Birmingham",
-    sector: "Retail",
-    people: [{ id: "cp10", canonicalName: "Sarah Coombs", aliases: ["S. Coombs"], role: "CEO", phone: "+44 121 456 7712" }],
-    doNotCall: false,
-    lastOutcome: "not_fit",
-    lastContactAt: "24 Aug 2026, 09:30",
-  },
-];
-
-// append-only. once a line is in here, UI never edits the prospect's words.
-// requestedFollowUp.exactWords is always a verbatim quote, not a paraphrase.
-const INITIAL_CALL_LOG = [
-  {
-    id: "cl1",
-    registryId: "cr1",
-    canonicalName: "Acme Logistics Ltd",
-    listedAs: "ACME LOGISTICS LIMITED",
-    personCanonical: "James Whitfield",
-    personListedAs: "James Whitfield · Ops Director",
-    channel: "voice",
-    mission: "Logistics — Manchester",
-    startedAt: "26 Aug 2026, 14:18",
-    endedAt: "26 Aug 2026, 14:32",
-    duration: "14 min",
-    outcome: "meeting_booked",
-    requestedFollowUp: { day: "Thu 3 Sep", time: "14:00", exactWords: "Yeah, put something in for Thursday afternoon." },
-    wordsLocked: true,
-    transcript: [
-      { who: "ai", text: "Hi, this is Sam calling on behalf of AIVHub — do you have a quick minute?" },
-      { who: "them", text: "Sure, what's this about?" },
-      { who: "ai", text: "We build BI dashboards for logistics operators — saw Acme's been growing fast in Manchester. Quick question: how does your team currently track dispatch performance?" },
-      { who: "them", text: "Mostly spreadsheets, honestly. It's a mess." },
-      { who: "ai", text: "That's exactly what we help with. Would a 15-minute call with James make sense to see if it's a fit?" },
-      { who: "them", text: "Yeah, put something in for Thursday afternoon." },
-      { who: "ai", text: "Perfect — Thursday 2pm works, I'll send a Google Meet link over." },
-    ],
-  },
-  {
-    id: "cl2",
-    registryId: "cr3",
-    canonicalName: "Speedy Haulage",
-    listedAs: "Speedy Haulage",
-    personCanonical: "Priya Nair",
-    personListedAs: "Priya Nair · MD",
-    channel: "voice",
-    mission: "Logistics — Manchester",
-    startedAt: "26 Aug 2026, 10:34",
-    endedAt: "26 Aug 2026, 10:41",
-    duration: "7 min",
-    outcome: "rejected",
-    requestedFollowUp: null,
-    wordsLocked: true,
-    transcript: [
-      { who: "ai", text: "Hi Priya, this is Sam from AIVHub — got a minute?" },
-      { who: "them", text: "Not interested, please don't call this number again." },
-      { who: "ai", text: "Understood — I'll take you off the list now. Sorry to have bothered you." },
-    ],
-  },
-  {
-    id: "cl3",
-    registryId: "cr7",
-    canonicalName: "Coventry Precision Ltd",
-    listedAs: "Coventry Precision Ltd",
-    personCanonical: "Plant contact",
-    personListedAs: "Plant contact",
-    channel: "voice",
-    mission: "Q3 warm leads",
-    startedAt: "26 Aug 2026, 15:58",
-    endedAt: "26 Aug 2026, 16:05",
-    duration: "7 min",
-    outcome: "callback_requested",
-    requestedFollowUp: { day: "Mon, 31 Aug", time: "10:00", exactWords: "Call me back next week, Monday morning if you can." },
-    wordsLocked: true,
-    transcript: [
-      { who: "ai", text: "Hi, Sam from AIVHub — is now an OK time for a quick word?" },
-      { who: "them", text: "Caught me on the shop floor. Call me back next week, Monday morning if you can." },
-      { who: "ai", text: "Monday morning — I'll call you then. Thanks." },
-    ],
-  },
-  {
-    id: "cl4",
-    registryId: "cr9",
-    canonicalName: "Manchester Transport Group",
-    listedAs: "Manchester Transport Group",
-    personCanonical: "",
-    personListedAs: "",
-    channel: "voice",
-    mission: "Logistics — Manchester",
-    startedAt: "26 Aug 2026, 11:02",
-    endedAt: "26 Aug 2026, 11:05",
-    duration: "no answer",
-    outcome: "no_answer",
-    requestedFollowUp: null,
-    wordsLocked: true,
-    transcript: [
-      { who: "ai", text: "Hi, this is Sam calling on behalf of AIVHub —" },
-      { who: "them", text: "(no answer — voicemail after 3 rings)" },
-    ],
-  },
-  {
-    id: "cl5",
-    registryId: "cr8",
-    canonicalName: "Ferrum Manufacturing",
-    listedAs: "Ferrum Manufacturing",
-    personCanonical: "David Oyelaran",
-    personListedAs: "David Oyelaran · COO",
-    channel: "voice",
-    mission: "Manufacturing SMEs — Leeds",
-    startedAt: "20 Aug 2026, 10:44",
-    endedAt: "20 Aug 2026, 10:51",
-    duration: "7 min",
-    outcome: "meeting_booked",
-    requestedFollowUp: { day: "Fri 21 Aug", time: "11:00", exactWords: "Friday works." },
-    wordsLocked: true,
-    transcript: [
-      { who: "ai", text: "Hi David, this is Sam from AIVHub — got 2 minutes?" },
-      { who: "them", text: "Just about, go ahead." },
-      { who: "ai", text: "We work with manufacturers on real-time production dashboards. Would a short call to explore fit work for you?" },
-      { who: "them", text: "Could do, but budget's tight until October." },
-      { who: "ai", text: "Understood — let's do a no-pressure discovery call so it's ready when budget opens up. Friday 11am?" },
-      { who: "them", text: "Friday works." },
-    ],
-  },
-  {
-    id: "cl6",
-    registryId: "cr10",
-    canonicalName: "Midlands Fashion Co",
-    listedAs: "Midlands Fashion Co",
-    personCanonical: "Sarah Coombs",
-    personListedAs: "Sarah Coombs · CEO",
-    channel: "whatsapp",
-    mission: "Retail chains — Birmingham",
-    startedAt: "23 Aug 2026, 16:12",
-    endedAt: "23 Aug 2026, 16:18",
-    duration: "4 messages",
-    outcome: "meeting_booked",
-    requestedFollowUp: { day: "Sat 24 Aug", time: "09:30", exactWords: "OK, Saturday morning works, come by the office." },
-    wordsLocked: true,
-    transcript: [
-      { who: "ai", text: "Hi Sarah, this is AIVHub — we help retail teams with BI dashboards. Open to a quick chat?" },
-      { who: "them", text: "Maybe — what's the cost roughly?" },
-      { who: "ai", text: "Depends on scope, easiest to cover on a short call. Could we grab 15 min in person, since your office is local to our team?" },
-      { who: "them", text: "OK, Saturday morning works, come by the office." },
-    ],
-  },
-  {
-    id: "cl7",
-    registryId: "cr4",
-    canonicalName: "Pennine Distribution",
-    listedAs: "Pennine Distribution",
-    personCanonical: "Tom Radcliffe",
-    personListedAs: "Tom Radcliffe · Finance Director",
-    channel: "voice",
-    mission: "Logistics — Manchester",
-    startedAt: "26 Aug 2026, 13:08",
-    endedAt: "26 Aug 2026, 13:12",
-    duration: "4 min",
-    outcome: "human_review",
-    requestedFollowUp: null,
-    wordsLocked: true,
-    transcript: [
-      { who: "ai", text: "Hi Tom, Sam from AIVHub — do you have a moment?" },
-      { who: "them", text: "What exactly does this cost us, roughly?" },
-      { who: "ai", text: "I can have someone follow up with pricing details directly —" },
-    ],
-  },
-  {
-    id: "cl8",
-    registryId: "cr11",
-    canonicalName: "Helix Packaging Ltd",
-    listedAs: "Helix Packaging Ltd",
-    personCanonical: "Nina Cole",
-    personListedAs: "Nina Cole · Ops Manager",
-    channel: "voice",
-    mission: "Q3 warm leads",
-    startedAt: "25 Aug 2026, 11:14",
-    endedAt: "25 Aug 2026, 11:22",
-    duration: "8 min",
-    outcome: "callback_requested",
-    requestedFollowUp: { day: "Sat, 27 Feb 2027", time: "10:00", exactWords: "Please contact us after 6 months — budget is frozen until then." },
-    wordsLocked: true,
-    transcript: [
-      { who: "ai", text: "Hi Nina, this is Sam from AIVHub — is now an OK time?" },
-      { who: "them", text: "Please contact us after 6 months — budget is frozen until then." },
-      { who: "ai", text: "Understood — I won't call again until then. I'll come back in six months." },
-    ],
-  },
-];
-
 /* ---------------------------------- helpers ---------------------------------- */
 
 const STATUS_MAP = {
@@ -5533,17 +4767,19 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const [showAdd, setShowAdd] = useState(false);
   const [editingKey, setEditingKey] = useState(null);
   const [keyValue, setKeyValue] = useState("");
+  const [savingKeyRow, setSavingKeyRow] = useState(null);
+  const [saveKeyError, setSaveKeyError] = useState("");
   const [connectionsState, setConnectionsState] = useState(CONNECTIONS);
   const [dirty, setDirty] = useState(false);
 
   const mode = commonAi?.mode || "paid";
-  const custom = commonAi?.voiceLayers || Object.fromEntries(VOICE_LAYERS.map((l) => [l.key, l.paid]));
+  const custom = commonAi?.voiceLayers || Object.fromEntries(LAYERS.map((l) => [l.key, l.paid]));
 
   const applyMode = (m) => {
     if (setCommonAi) {
       setCommonAi((prev) => {
         const nextLayers = { ...prev.voiceLayers };
-        VOICE_LAYERS.forEach((l) => {
+        LAYERS.forEach((l) => {
           if (m === "paid") nextLayers[l.key] = l.paid;
           if (m === "opensource") nextLayers[l.key] = l.oss;
         });
@@ -5570,6 +4806,42 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   };
 
   const isOss = (val) => String(val).toLowerCase().includes("self-hosted") || String(val).toLowerCase().includes("telnyx") || String(val).toLowerCase().includes("deepseek") || String(val).toLowerCase().includes("kokoro") || String(val).toLowerCase().includes("livekit") || String(val).toLowerCase().includes("whisper") || String(val).toLowerCase().includes("local");
+
+  const handleSaveInlineKey = async (groupName, itemName) => {
+    setSaveKeyError("");
+    if (!keyValue.trim()) {
+      setSaveKeyError("API key cannot be empty.");
+      return;
+    }
+    const rowKey = groupName + itemName;
+    setSavingKeyRow(rowKey);
+    try {
+      const res = await api.testAndSaveConnection({
+        layer: groupName,
+        provider: itemName,
+        api_key: keyValue.trim(),
+      });
+      setConnectionsState((s) =>
+        s.map((g) =>
+          g.group === groupName
+            ? { ...g, items: g.items.map((x) => (x.name === itemName ? { ...x, status: "connected", apiKeyMasked: res.maskedKey } : x)) }
+            : g
+        )
+      );
+      setEditingKey(null);
+      setKeyValue("");
+      setSaveKeyError("");
+      setNotifications((ns) => [
+        { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and connected successfully!`, time: "just now", unread: true, type: "success" },
+        ...ns,
+      ]);
+      flash();
+    } catch (err) {
+      setSaveKeyError(err.message || "Authentication rejected by provider.");
+    } finally {
+      setSavingKeyRow(null);
+    }
+  };
 
   const addIntegration = (form) => {
     // Add to connectionsState
@@ -5598,7 +4870,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   };
 
   const allLlmOptions = Array.from(new Set([
-    ...VOICE_LAYERS.find((l) => l.key === "llm").options,
+    ...LAYERS.find((l) => l.key === "llm").options,
     ...(commonAi?.providers?.filter((p) => p.type === "llm").flatMap((p) => p.models) || []),
   ]));
 
@@ -5690,12 +4962,12 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 <div>Provider / Model Selection</div>
                 <div>Status</div>
               </div>
-              {VOICE_LAYERS.map((l) => {
+              {LAYERS.map((l) => {
                 const val = custom[l.key] || l.paid;
                 const oss = isOss(val);
                 const options = l.key === "llm" ? allLlmOptions : l.options;
                 return (
-                  <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "14px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
+                  <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
                     <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <select
@@ -5744,43 +5016,57 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                   {group.items.map((it, idx) => {
                     const rowKey = group.group + it.name;
                     const isEditing = editingKey === rowKey;
+                    const isSaving = savingKeyRow === rowKey;
                     return (
-                      <div key={it.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderTop: idx === 0 ? "none" : `1px solid ${C.border}` }}>
-                        <div style={{ width: 220, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13, color: C.textInk }}>{it.name}</div>
-                        {isEditing ? (
-                          <input
-                            autoFocus
-                            type="password"
-                            value={keyValue}
-                            onChange={(e) => setKeyValue(e.target.value)}
-                            placeholder="Paste API key / token..."
-                            style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none" }}
-                          />
-                        ) : (
-                          <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12.5, color: C.slateLight }}>
-                            {it.status === "connected" ? "••••••••••••" + it.name.slice(0, 2).toLowerCase() : "Not configured"}
+                      <div key={it.name} style={{ display: "flex", flexDirection: "column", borderTop: idx === 0 ? "none" : `1px solid ${C.border}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px" }}>
+                          <div style={{ width: 220, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13, color: C.textInk }}>{it.name}</div>
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              type="password"
+                              value={keyValue}
+                              onChange={(e) => { setKeyValue(e.target.value); setSaveKeyError(""); }}
+                              placeholder="Paste API key / token to test & save..."
+                              onKeyDown={(e) => { if (e.key === "Enter") handleSaveInlineKey(group.group, it.name); }}
+                              style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none" }}
+                            />
+                          ) : (
+                            <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12.5, color: C.slateLight }}>
+                              {it.apiKeyMasked ? it.apiKeyMasked : it.status === "connected" ? "••••••••••••" + it.name.slice(0, 2).toLowerCase() : "Not configured"}
+                            </div>
+                          )}
+                          <Badge status={it.status} small />
+                          {isEditing ? (
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button
+                                onClick={() => handleSaveInlineKey(group.group, it.name)}
+                                disabled={isSaving}
+                                style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: isSaving ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                              >
+                                {isSaving && <RefreshCw size={12} className="animate-spin" />}
+                                <span>{isSaving ? "Testing..." : "Test & Save"}</span>
+                              </button>
+                              <button
+                                onClick={() => { setEditingKey(null); setKeyValue(""); setSaveKeyError(""); }}
+                                style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setEditingKey(rowKey); setKeyValue(""); setSaveKeyError(""); }}
+                              style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
+                            >
+                              {it.status === "connected" ? "Update Key" : "Connect"}
+                            </button>
+                          )}
+                        </div>
+                        {isEditing && saveKeyError && (
+                          <div style={{ margin: "0 18px 12px", padding: "6px 12px", background: "#FFEBEE", color: "#C62828", border: "1px solid #FFCDD2", borderRadius: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                            ⚠️ {saveKeyError}
                           </div>
-                        )}
-                        <Badge status={it.status} small />
-                        {isEditing ? (
-                          <button
-                            onClick={() => {
-                              setConnectionsState((s) => s.map((g) => g.group === group.group ? { ...g, items: g.items.map((x) => x.name === it.name ? { ...x, status: "connected" } : x) } : g));
-                              setEditingKey(null);
-                              setKeyValue("");
-                              flash();
-                            }}
-                            style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}
-                          >
-                            Save Key
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => { setEditingKey(rowKey); setKeyValue(""); }}
-                            style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
-                          >
-                            {it.status === "connected" ? "Update Key" : "Connect"}
-                          </button>
                         )}
                       </div>
                     );
@@ -7259,9 +6545,12 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [dirty, setDirty] = useState(false);
   const [showKeys, setShowKeys] = useState({});
   const [testingId, setTestingId] = useState(null);
+  const [testStatus, setTestStatus] = useState({});
   
   // Adding Custom Provider Form State
   const [showAddProviderModal, setShowAddProviderModal] = useState(false);
+  const [addProviderTesting, setAddProviderTesting] = useState(false);
+  const [addProviderError, setAddProviderError] = useState("");
   const [newProvider, setNewProvider] = useState({
     name: "",
     type: "llm",
@@ -7278,51 +6567,107 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     setTimeout(() => setDirty(false), 1400);
   };
 
-  const testConnection = (id) => {
+  const testConnection = async (id) => {
+    const p = commonAi.providers.find((prov) => prov.id === id);
+    if (!p) return;
+
+    if (!p.apiKey && p.id !== "ollama") {
+      setTestStatus((prev) => ({ ...prev, [id]: { status: "error", msg: "Please enter an API key to test." } }));
+      return;
+    }
+
     setTestingId(id);
-    setTimeout(() => {
-      setTestingId(null);
+    setTestStatus((prev) => ({ ...prev, [id]: null }));
+    const startTime = Date.now();
+
+    try {
+      const res = await api.testAndSaveConnection({
+        layer: p.type || "LLM",
+        provider: p.name,
+        api_key: p.apiKey || "dummy_key",
+        base_url: p.baseUrl || undefined,
+      });
+
+      const latency = Math.max(Date.now() - startTime, 25);
       setCommonAi((prev) => ({
         ...prev,
-        providers: prev.providers.map((p) => (p.id === id ? { ...p, status: "connected", latencyMs: Math.floor(Math.random() * 80) + 20 } : p)),
+        providers: prev.providers.map((item) =>
+          item.id === id ? { ...item, status: "connected", latencyMs: latency } : item
+        ),
+      }));
+      setTestStatus((prev) => ({
+        ...prev,
+        [id]: { status: "success", msg: res.details || "Authenticated & verified successfully." },
       }));
       flash();
-    }, 600);
+    } catch (err) {
+      setTestStatus((prev) => ({
+        ...prev,
+        [id]: { status: "error", msg: err.message || "Key rejected by provider." },
+      }));
+    } finally {
+      setTestingId(null);
+    }
   };
 
-  const handleAddCustomProvider = (e) => {
+  const handleAddCustomProvider = async (e) => {
     e.preventDefault();
-    if (!newProvider.name.trim()) return;
+    setAddProviderError("");
+    if (!newProvider.name.trim()) {
+      setAddProviderError("Provider name is required.");
+      return;
+    }
+    if (!newProvider.baseUrl.trim()) {
+      setAddProviderError("Endpoint Base URL is required.");
+      return;
+    }
 
-    const newId = "custom_" + Date.now();
-    const modelList = newProvider.modelsText.split(",").map((m) => m.trim()).filter(Boolean);
-    const created = {
-      id: newId,
-      name: newProvider.name,
-      type: newProvider.type,
-      badge: "Custom Endpoint",
-      status: "connected",
-      latencyMs: 45,
-      baseUrl: newProvider.baseUrl,
-      apiKey: newProvider.apiKey || "sk-custom-••••••••",
-      models: modelList.length ? modelList : [newProvider.name + " Model"],
-    };
+    setAddProviderTesting(true);
+    const startTime = Date.now();
 
-    setCommonAi((prev) => ({
-      ...prev,
-      providers: [...prev.providers, created],
-    }));
+    try {
+      const res = await api.testAndSaveConnection({
+        layer: newProvider.type || "LLM",
+        provider: newProvider.name.trim(),
+        api_key: newProvider.apiKey.trim() || "no_auth_needed",
+        base_url: newProvider.baseUrl.trim(),
+      });
 
-    setNewProvider({
-      name: "",
-      type: "llm",
-      baseUrl: "https://api.custom-llm.com/v1",
-      apiKey: "",
-      modelsText: "custom-model-v1, custom-model-v2",
-      badge: "Custom Endpoint",
-    });
-    setShowAddProviderModal(false);
-    flash();
+      const latency = Math.max(Date.now() - startTime, 30);
+      const newId = "custom_" + Date.now();
+      const modelList = newProvider.modelsText.split(",").map((m) => m.trim()).filter(Boolean);
+      const created = {
+        id: newId,
+        name: newProvider.name.trim(),
+        type: newProvider.type,
+        badge: "Custom Endpoint",
+        status: "connected",
+        latencyMs: latency,
+        baseUrl: newProvider.baseUrl.trim(),
+        apiKey: newProvider.apiKey.trim() || "••••••••",
+        models: modelList.length ? modelList : [newProvider.name.trim() + " Model"],
+      };
+
+      setCommonAi((prev) => ({
+        ...prev,
+        providers: [...prev.providers, created],
+      }));
+
+      setNewProvider({
+        name: "",
+        type: "llm",
+        baseUrl: "https://api.custom-llm.com/v1",
+        apiKey: "",
+        modelsText: "custom-model-v1, custom-model-v2",
+        badge: "Custom Endpoint",
+      });
+      setShowAddProviderModal(false);
+      flash();
+    } catch (err) {
+      setAddProviderError(err.message || "Failed to validate custom provider endpoint. Please check URL and token.");
+    } finally {
+      setAddProviderTesting(false);
+    }
   };
 
   const removeProvider = (id) => {
@@ -7708,9 +7053,27 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                           style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11.5, fontWeight: 600, cursor: isTesting ? "wait" : "pointer" }}
                         >
                           <RefreshCw size={12} className={isTesting ? "animate-spin" : ""} />
-                          <span>{isTesting ? "Ping..." : "Test"}</span>
+                          <span>{isTesting ? "Testing..." : "Test"}</span>
                         </button>
                       </div>
+
+                      {testStatus[p.id] && (
+                        <div style={{
+                          marginBottom: 10,
+                          padding: "6px 10px",
+                          borderRadius: 6,
+                          fontSize: 11.5,
+                          background: testStatus[p.id].status === "success" ? "#E8F5E9" : "#FFEBEE",
+                          color: testStatus[p.id].status === "success" ? "#1B5E20" : "#C62828",
+                          border: `1px solid ${testStatus[p.id].status === "success" ? "#C8E6C9" : "#FFCDD2"}`,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6
+                        }}>
+                          <span>{testStatus[p.id].status === "success" ? "✓" : "⚠️"}</span>
+                          <span>{testStatus[p.id].msg}</span>
+                        </div>
+                      )}
 
                       <div style={{ fontSize: 11.5, color: C.slate, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <span>Endpoint: <code style={{ fontSize: 10.5 }}>{p.baseUrl}</code></span>
@@ -8023,19 +7386,28 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 />
               </div>
 
+              {addProviderError && (
+                <div style={{ padding: "8px 12px", background: "#FFEBEE", color: "#C62828", border: "1px solid #FFCDD2", borderRadius: 8, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>⚠️</span>
+                  <span>{addProviderError}</span>
+                </div>
+              )}
+
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
                 <button
                   type="button"
-                  onClick={() => setShowAddProviderModal(false)}
+                  onClick={() => { setShowAddProviderModal(false); setAddProviderError(""); }}
                   style={{ padding: "9px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  style={{ padding: "9px 18px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+                  disabled={addProviderTesting}
+                  style={{ padding: "9px 18px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: addProviderTesting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
                 >
-                  Save & Connect Provider
+                  {addProviderTesting && <RefreshCw size={13} className="animate-spin" />}
+                  <span>{addProviderTesting ? "Validating Provider..." : "Test & Connect Provider"}</span>
                 </button>
               </div>
             </form>

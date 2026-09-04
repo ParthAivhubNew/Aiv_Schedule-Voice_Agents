@@ -114,7 +114,77 @@ async def validate_api_key(
                 else:
                     return {"valid": False, "error": "Groq authentication failed (Invalid API key)."}
 
-            # 8. Twilio (Telephony)
+            # 8. Google Gemini
+            elif "gemini" in p or "google" in p:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+                res = await client.get(url)
+                if res.status_code == 200:
+                    return {"valid": True, "provider": "Google Gemini", "details": "Authenticated successfully (Gemini 1.5 / 2.0 Flash ready)."}
+                elif res.status_code in [400, 403]:
+                    return {"valid": False, "error": "Google Gemini authentication failed (Invalid API key)."}
+                else:
+                    return {"valid": False, "error": f"Google Gemini returned status {res.status_code}: {res.text[:150]}"}
+
+            # 9. OpenRouter
+            elif "openrouter" in p:
+                url = "https://openrouter.ai/api/v1/models"
+                headers = {"Authorization": f"Bearer {api_key}"}
+                res = await client.get(url, headers=headers)
+                if res.status_code == 200:
+                    return {"valid": True, "provider": "OpenRouter", "details": "Authenticated successfully (Unified Router ready)."}
+                elif res.status_code in [401, 403]:
+                    return {"valid": False, "error": "OpenRouter authentication failed (Invalid API key)."}
+                else:
+                    return {"valid": False, "error": f"OpenRouter returned status {res.status_code}: {res.text[:150]}"}
+
+            # 10. Mistral AI
+            elif "mistral" in p:
+                url = "https://api.mistral.ai/v1/models"
+                headers = {"Authorization": f"Bearer {api_key}"}
+                res = await client.get(url, headers=headers)
+                if res.status_code == 200:
+                    return {"valid": True, "provider": "Mistral AI", "details": "Authenticated successfully (Mistral Large ready)."}
+                elif res.status_code in [401, 403]:
+                    return {"valid": False, "error": "Mistral AI authentication failed (Invalid API key)."}
+                else:
+                    return {"valid": False, "error": f"Mistral AI returned status {res.status_code}: {res.text[:150]}"}
+
+            # 11. Together AI
+            elif "together" in p:
+                url = "https://api.together.xyz/v1/models"
+                headers = {"Authorization": f"Bearer {api_key}"}
+                res = await client.get(url, headers=headers)
+                if res.status_code == 200:
+                    return {"valid": True, "provider": "Together AI", "details": "Authenticated successfully."}
+                elif res.status_code in [401, 403]:
+                    return {"valid": False, "error": "Together AI authentication failed (Invalid API key)."}
+                else:
+                    return {"valid": False, "error": f"Together AI returned status {res.status_code}: {res.text[:150]}"}
+
+            # 12. Perplexity
+            elif "perplexity" in p:
+                url = "https://api.perplexity.ai/models"
+                headers = {"Authorization": f"Bearer {api_key}"}
+                res = await client.get(url, headers=headers)
+                if res.status_code == 200:
+                    return {"valid": True, "provider": "Perplexity", "details": "Authenticated successfully (Sonar online search ready)."}
+                elif res.status_code in [401, 403]:
+                    return {"valid": False, "error": "Perplexity authentication failed (Invalid API key)."}
+                else:
+                    return {"valid": False, "error": f"Perplexity returned status {res.status_code}: {res.text[:150]}"}
+
+            # 13. Ollama (Local)
+            elif "ollama" in p:
+                target_url = (base_url or "http://localhost:11434").rstrip("/") + "/api/tags"
+                try:
+                    res = await client.get(target_url)
+                    if res.status_code == 200:
+                        return {"valid": True, "provider": "Ollama", "details": "Local Ollama host reachable and active."}
+                except Exception:
+                    pass
+                return {"valid": True, "provider": "Ollama", "details": "Configured for local Ollama host."}
+
+            # 14. Twilio (Telephony)
             elif "twilio" in p:
                 sid = account_sid or "AC"
                 url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}.json"
@@ -135,7 +205,7 @@ async def validate_api_key(
                         return {"valid": False, "error": "Twilio requires both Account SID and Auth Token (format: ACxxx:auth_token)."}
                     return {"valid": False, "error": f"Twilio returned status {res.status_code}"}
 
-            # 9. Cal.com
+            # 15. Cal.com
             elif "calcom" in p or "cal" in p:
                 target_url = (base_url or "http://calcom:3000/api/v1").rstrip("/")
                 headers = {"Authorization": f"Bearer {api_key}"}
@@ -153,7 +223,7 @@ async def validate_api_key(
                         return {"valid": True, "provider": "Cal.com Cloud", "details": "Cal.com Cloud API key verified."}
                 return {"valid": False, "error": "Could not authenticate with Cal.com (Check API key or server URL)."}
 
-            # 10. Custom / Other Provider with Base URL
+            # 16. Custom / Other Provider with Base URL
             else:
                 if not base_url:
                     return {"valid": False, "error": "Custom provider requires a valid Base URL endpoint."}
