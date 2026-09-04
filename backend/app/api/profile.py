@@ -42,32 +42,43 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
     }
 
 @router.put("", response_model=dict)
-async def update_profile(req: CompanyProfileSchema, db: AsyncSession = Depends(get_db)):
+async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
     profile = result.scalars().first()
     if not profile:
         profile = CompanyProfile(id="default")
         db.add(profile)
         
-    profile.name = req.name
-    profile.pitch = req.pitch
-    profile.industry = req.industry
-    profile.website = req.website
-    profile.social = req.social
-    profile.caller_name = req.caller_name
-    profile.caller_id = req.caller_id
-    profile.tone = req.tone
-    profile.disclosure = req.disclosure
-    profile.legal_name = req.legal_name
-    profile.ico_ref = req.ico_ref
-    profile.dpo_contact = req.dpo_contact
-    profile.dnc_notes = req.dnc_notes
-    profile.timezone = req.timezone
-    profile.lunch_start = req.lunch_start
-    profile.lunch_end = req.lunch_end
-    profile.call_hours_policy = req.call_hours_policy
-    profile.weekday_start = req.weekday_start
-    profile.weekday_end = req.weekday_end
+    if "name" in payload: profile.name = payload["name"]
+    if "pitch" in payload: profile.pitch = payload["pitch"]
+    if "industry" in payload: profile.industry = payload["industry"]
+    if "website" in payload: profile.website = payload["website"]
+    if "social" in payload: profile.social = payload["social"]
+    if "callerName" in payload or "caller_name" in payload:
+        profile.caller_name = payload.get("callerName") or payload.get("caller_name", profile.caller_name)
+    if "callerId" in payload or "caller_id" in payload:
+        profile.caller_id = payload.get("callerId") or payload.get("caller_id", profile.caller_id)
+    if "tone" in payload: profile.tone = payload["tone"]
+    if "disclosure" in payload: profile.disclosure = payload["disclosure"]
+    if "legalName" in payload or "legal_name" in payload:
+        profile.legal_name = payload.get("legalName") or payload.get("legal_name", profile.legal_name)
+    if "icoRef" in payload or "ico_ref" in payload:
+        profile.ico_ref = payload.get("icoRef") or payload.get("ico_ref", profile.ico_ref)
+    if "dpoContact" in payload or "dpo_contact" in payload:
+        profile.dpo_contact = payload.get("dpoContact") or payload.get("dpo_contact", profile.dpo_contact)
+    if "dncNotes" in payload or "dnc_notes" in payload:
+        profile.dnc_notes = payload.get("dncNotes") or payload.get("dnc_notes", profile.dnc_notes)
+    if "timezone" in payload: profile.timezone = payload["timezone"]
+    if "lunchStart" in payload or "lunch_start" in payload:
+        profile.lunch_start = payload.get("lunchStart") or payload.get("lunch_start", profile.lunch_start)
+    if "lunchEnd" in payload or "lunch_end" in payload:
+        profile.lunch_end = payload.get("lunchEnd") or payload.get("lunch_end", profile.lunch_end)
+    if "callHoursPolicy" in payload or "call_hours_policy" in payload:
+        profile.call_hours_policy = payload.get("callHoursPolicy") or payload.get("call_hours_policy", profile.call_hours_policy)
+    if "weekdayStart" in payload or "weekday_start" in payload:
+        profile.weekday_start = payload.get("weekdayStart") or payload.get("weekday_start", profile.weekday_start)
+    if "weekdayEnd" in payload or "weekday_end" in payload:
+        profile.weekday_end = payload.get("weekdayEnd") or payload.get("weekday_end", profile.weekday_end)
     
     await db.commit()
     return {"status": "ok", "message": "Company profile updated"}

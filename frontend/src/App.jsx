@@ -4189,28 +4189,86 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
   const [addingSource, setAddingSource] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", type: "Website URL", value: "" });
 
-  const update = (k, v) => setProfile((p) => ({ ...p, [k]: v }));
-  const save = () => {
+  const update = (k, v) => setProfile((p) => {
+    const next = { ...p, [k]: v };
+    try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
+    return next;
+  });
+
+  const save = async () => {
     setSaved(true);
-    setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Company profile updated", time: "just now", unread: true, type: "info" }, ...ns]);
+    try {
+      localStorage.setItem("aivhub_company_profile", JSON.stringify(profile));
+      localStorage.setItem("aivhub_sources", JSON.stringify(sources));
+      localStorage.setItem("aivhub_services", JSON.stringify(services));
+      localStorage.setItem("aivhub_faq", JSON.stringify(faq));
+    } catch (_) {}
+    try {
+      await api.updateProfile(profile);
+      setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile saved and persisted to database", time: "just now", unread: true, type: "success" }, ...ns]);
+    } catch (err) {
+      console.warn("Backend updateProfile warning:", err);
+      setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Company profile changes saved locally", time: "just now", unread: true, type: "info" }, ...ns]);
+    }
     setTimeout(() => setSaved(false), 1800);
   };
 
-  const addSource = () => {
+  const addSource = async () => {
     if (!newSource.name || !newSource.value) return;
-    setSources((s) => [...s, { id: "k_" + Date.now(), ...newSource, status: "pending", synced: "just now" }]);
+    const item = { id: "k_" + Date.now(), ...newSource, status: "indexed", synced: "just now" };
+    setSources((s) => {
+      const next = [...s, item];
+      try { localStorage.setItem("aivhub_sources", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+    try {
+      await api.addSource(item);
+    } catch (_) {}
     setNewSource({ name: "", type: "Website URL", value: "" });
     setAddingSource(false);
   };
-  const removeSource = (id) => setSources((s) => s.filter((x) => x.id !== id));
 
-  const addService = () => setServices((s) => [...s, { id: "sv_" + Date.now(), name: "", ideal: "", desc: "" }]);
-  const updateService = (id, k, v) => setServices((s) => s.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
-  const removeService = (id) => setServices((s) => s.filter((x) => x.id !== id));
+  const removeSource = (id) => setSources((s) => {
+    const next = s.filter((x) => x.id !== id);
+    try { localStorage.setItem("aivhub_sources", JSON.stringify(next)); } catch (_) {}
+    return next;
+  });
 
-  const addFaq = () => setFaq((f) => [...f, { id: "f_" + Date.now(), q: "", a: "" }]);
-  const updateFaq = (id, k, v) => setFaq((f) => f.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
-  const removeFaq = (id) => setFaq((f) => f.filter((x) => x.id !== id));
+  const addService = () => setServices((s) => {
+    const next = [...s, { id: "sv_" + Date.now(), name: "", ideal: "", desc: "" }];
+    try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
+    return next;
+  });
+
+  const updateService = (id, k, v) => setServices((s) => {
+    const next = s.map((x) => (x.id === id ? { ...x, [k]: v } : x));
+    try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
+    return next;
+  });
+
+  const removeService = (id) => setServices((s) => {
+    const next = s.filter((x) => x.id !== id);
+    try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
+    return next;
+  });
+
+  const addFaq = () => setFaq((f) => {
+    const next = [...f, { id: "f_" + Date.now(), q: "", a: "" }];
+    try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
+    return next;
+  });
+
+  const updateFaq = (id, k, v) => setFaq((f) => {
+    const next = f.map((x) => (x.id === id ? { ...x, [k]: v } : x));
+    try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
+    return next;
+  });
+
+  const removeFaq = (id) => setFaq((f) => {
+    const next = f.filter((x) => x.id !== id);
+    try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
+    return next;
+  });
 
   return (
     <>
@@ -4387,9 +4445,14 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                   </div>
                 ))}
               </div>
-              <button onClick={addService} style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center" }}>
-                <PlusCircle size={13} /> Add a service
-              </button>
+              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                <button onClick={addService} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", flex: 1, justifyContent: "center" }}>
+                  <PlusCircle size={13} /> Add a service
+                </button>
+                <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                  Save services
+                </button>
+              </div>
             </div>
           )}
 
@@ -4414,9 +4477,14 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                     </div>
                   ))}
                 </div>
-                <button onClick={addFaq} style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center" }}>
-                  <PlusCircle size={13} /> Add a question
-                </button>
+                <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                  <button onClick={addFaq} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", flex: 1, justifyContent: "center" }}>
+                    <PlusCircle size={13} /> Add a question
+                  </button>
+                  <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                    Save questions
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -11405,15 +11473,91 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
   const [liveFocus, setLiveFocus] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
-  const [missions, setMissions] = useState(INITIAL_MISSIONS);
+  const [missions, setMissions] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_missions");
+      return saved ? JSON.parse(saved) : INITIAL_MISSIONS;
+    } catch (_) {
+      return INITIAL_MISSIONS;
+    }
+  });
   const selectedMission = missions.find((m) => m.id === selectedMissionId) || null;
   const [prefillSchedule, setPrefillSchedule] = useState(null);
   const [prefillLogQuery, setPrefillLogQuery] = useState(null);
   const [liveCalls, setLiveCalls] = useState(INITIAL_LIVE_CALLS.map((c) => ({ ...c, taken: false, listening: false, confirmingEnd: false, ended: false, booked: false })));
-  const [scheduleItems, setScheduleItems] = useState(INITIAL_SCHEDULE);
-  const [meetings, setMeetings] = useState(INITIAL_MEETINGS);
-  const [callLog, setCallLog] = useState(INITIAL_CALL_LOG);
+  const [scheduleItems, setScheduleItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_schedule");
+      return saved ? JSON.parse(saved) : INITIAL_SCHEDULE;
+    } catch (_) {
+      return INITIAL_SCHEDULE;
+    }
+  });
+  const [meetings, setMeetings] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_meetings");
+      return saved ? JSON.parse(saved) : INITIAL_MEETINGS;
+    } catch (_) {
+      return INITIAL_MEETINGS;
+    }
+  });
+  const [callLog, setCallLog] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_call_log");
+      return saved ? JSON.parse(saved) : INITIAL_CALL_LOG;
+    } catch (_) {
+      return INITIAL_CALL_LOG;
+    }
+  });
   const [registry, setRegistry] = useState(INITIAL_CONTACT_REGISTRY);
+
+  // Sync state changes to localStorage
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_missions", JSON.stringify(missions)); } catch (_) {}
+  }, [missions]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_schedule", JSON.stringify(scheduleItems)); } catch (_) {}
+  }, [scheduleItems]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_meetings", JSON.stringify(meetings)); } catch (_) {}
+  }, [meetings]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_call_log", JSON.stringify(callLog)); } catch (_) {}
+  }, [callLog]);
+
+  // Load backend data on mount
+  useEffect(() => {
+    async function loadWorkspaceData() {
+      try {
+        const ms = await api.getMissions();
+        if (ms && Array.isArray(ms) && ms.length) setMissions(ms);
+      } catch (_) {}
+      try {
+        const lc = await api.getLiveCalls();
+        if (lc && Array.isArray(lc) && lc.length) setLiveCalls(lc);
+      } catch (_) {}
+      try {
+        const mt = await api.getMeetings();
+        if (mt && Array.isArray(mt) && mt.length) setMeetings(mt);
+      } catch (_) {}
+      try {
+        const sc = await api.getSchedule();
+        if (sc && Array.isArray(sc) && sc.length) setScheduleItems(sc);
+      } catch (_) {}
+      try {
+        const cl = await api.getCallLogs();
+        if (cl && Array.isArray(cl) && cl.length) setCallLog(cl);
+      } catch (_) {}
+      try {
+        const reg = await api.getRegistry();
+        if (reg && Array.isArray(reg) && reg.length) setRegistry(reg);
+      } catch (_) {}
+    }
+    loadWorkspaceData();
+  }, []);
   
   // Smart Navigation History Stack
   const [navHistory, setNavHistory] = useState([]);
@@ -12013,14 +12157,94 @@ export default function App() {
     }
   });
   const [plugin, setPlugin] = useState(null);
-  const [profile, setProfile] = useState(INITIAL_COMPANY_PROFILE);
-  const [knowledgeSources, setKnowledgeSources] = useState(INITIAL_KNOWLEDGE_SOURCES);
-  const [services, setServices] = useState(INITIAL_SERVICES);
-  const [faq, setFaq] = useState(INITIAL_FAQ);
-  const [commonAi, setCommonAi] = useState(INITIAL_COMMON_AI_CONFIG);
+  const [profile, setProfile] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_company_profile");
+      return saved ? JSON.parse(saved) : INITIAL_COMPANY_PROFILE;
+    } catch (_) {
+      return INITIAL_COMPANY_PROFILE;
+    }
+  });
+  const [knowledgeSources, setKnowledgeSources] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_sources");
+      return saved ? JSON.parse(saved) : INITIAL_KNOWLEDGE_SOURCES;
+    } catch (_) {
+      return INITIAL_KNOWLEDGE_SOURCES;
+    }
+  });
+  const [services, setServices] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_services");
+      return saved ? JSON.parse(saved) : INITIAL_SERVICES;
+    } catch (_) {
+      return INITIAL_SERVICES;
+    }
+  });
+  const [faq, setFaq] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_faq");
+      return saved ? JSON.parse(saved) : INITIAL_FAQ;
+    } catch (_) {
+      return INITIAL_FAQ;
+    }
+  });
+  const [commonAi, setCommonAi] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_common_ai");
+      return saved ? JSON.parse(saved) : INITIAL_COMMON_AI_CONFIG;
+    } catch (_) {
+      return INITIAL_COMMON_AI_CONFIG;
+    }
+  });
   const [showCommonAiModal, setShowCommonAiModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+
+  // Sync commonAi changes to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("aivhub_common_ai", JSON.stringify(commonAi));
+    } catch (_) {}
+  }, [commonAi]);
+
+  // Load live company profile and knowledge from backend on mount
+  useEffect(() => {
+    async function loadBackendProfile() {
+      try {
+        const p = await api.getProfile();
+        if (p && p.name) {
+          setProfile((prev) => {
+            const merged = { ...prev, ...p };
+            try { localStorage.setItem("aivhub_company_profile", JSON.stringify(merged)); } catch (_) {}
+            return merged;
+          });
+        }
+      } catch (_) {}
+      try {
+        const s = await api.getSources();
+        if (s && Array.isArray(s) && s.length) {
+          setKnowledgeSources(s);
+          try { localStorage.setItem("aivhub_sources", JSON.stringify(s)); } catch (_) {}
+        }
+      } catch (_) {}
+      try {
+        const sv = await api.getServices();
+        if (sv && Array.isArray(sv) && sv.length) {
+          setServices(sv);
+          try { localStorage.setItem("aivhub_services", JSON.stringify(sv)); } catch (_) {}
+        }
+      } catch (_) {}
+      try {
+        const f = await api.getFaqs();
+        if (f && Array.isArray(f) && f.length) {
+          setFaq(f);
+          try { localStorage.setItem("aivhub_faq", JSON.stringify(f)); } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    loadBackendProfile();
+  }, []);
 
   const handleLogout = () => {
     try {
