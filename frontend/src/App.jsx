@@ -6339,14 +6339,29 @@ function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!username.trim() || !password) {
-      setError("Enter username and password.");
+      setError("Please enter username and password.");
       return;
     }
-    onLogin(operatorFromLogin(username));
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api.login(username.trim(), password);
+      if (res && res.operator) {
+        sessionStorage.setItem("aivhub_operator", JSON.stringify(res.operator));
+        onLogin(res.operator);
+      } else {
+        setError("Invalid response from authentication server.");
+      }
+    } catch (err) {
+      setError(err.message || "Invalid username or password. Access restricted.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const field = {
@@ -6382,15 +6397,32 @@ function LoginScreen({ onLogin }) {
           }}
         >
           <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Username</label>
-          <input autoFocus value={username} onChange={(e) => { setUsername(e.target.value); setError(""); }} placeholder="e.g. jitendra" style={{ ...field, marginBottom: 16 }} />
+          <input
+            autoFocus
+            value={username}
+            onChange={(e) => { setUsername(e.target.value); setError(""); }}
+            placeholder="e.g. Admin"
+            style={{ ...field, marginBottom: 16 }}
+          />
           <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Password</label>
           <div style={{ position: "relative", marginBottom: 8 }}>
             <Lock size={14} color={C.slateLight} style={{ position: "absolute", left: 14, top: 15 }} />
-            <input type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} placeholder="••••••••" style={{ ...field, paddingLeft: 36 }} />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setError(""); }}
+              placeholder="••••••••"
+              style={{ ...field, paddingLeft: 36 }}
+            />
           </div>
-          {error && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.red, margin: "8px 0 4px" }}>{error}</div>}
+          {error && (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.red, background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 8, padding: "8px 12px", margin: "10px 0 4px", display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={14} /> {error}
+            </div>
+          )}
           <button
             type="submit"
+            disabled={loading}
             style={{
               width: "100%",
               height: 46,
@@ -6402,13 +6434,24 @@ function LoginScreen({ onLogin }) {
               fontFamily: FONT_DISPLAY,
               fontWeight: 600,
               fontSize: 15,
-              cursor: "pointer",
+              cursor: loading ? "wait" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
             }}
           >
-            Sign in
+            {loading ? (
+              <>
+                <RefreshCw size={15} className="animate-spin" />
+                <span>Authenticating...</span>
+              </>
+            ) : (
+              <span>Sign in</span>
+            )}
           </button>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 14, lineHeight: 1.45 }}>
-            Prototype login — any username and password works. Try <span style={{ color: C.textInk, fontWeight: 600 }}>jitendra</span> to land as the seeded operator.
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 14, lineHeight: 1.45, textAlign: "center" }}>
+            Authorized access only. Primary profile: <span style={{ color: C.textInk, fontWeight: 600 }}>Admin</span> / <span style={{ color: C.textInk, fontWeight: 600 }}>password</span>
           </div>
         </div>
       </form>
@@ -11877,7 +11920,14 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
 }
 
 export default function App() {
-  const [operator, setOperator] = useState({ username: "jitendra", name: "Jitendra S.", role: "Admin" });
+  const [operator, setOperator] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("aivhub_operator");
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) {
+      return null;
+    }
+  });
   const [plugin, setPlugin] = useState(null);
   const [profile, setProfile] = useState(INITIAL_COMPANY_PROFILE);
   const [knowledgeSources, setKnowledgeSources] = useState(INITIAL_KNOWLEDGE_SOURCES);
@@ -11888,7 +11938,29 @@ export default function App() {
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
 
-  if (!operator) return <LoginScreen onLogin={setOperator} />;
+  const handleLogout = () => {
+    try {
+      sessionStorage.removeItem("aivhub_operator");
+    } catch (_) {}
+    setOperator(null);
+    setPlugin(null);
+  };
+
+  const handleUpdateOperator = (updater) => {
+    setOperator((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try {
+        if (next) {
+          sessionStorage.setItem("aivhub_operator", JSON.stringify(next));
+        } else {
+          sessionStorage.removeItem("aivhub_operator");
+        }
+      } catch (_) {}
+      return next;
+    });
+  };
+
+  if (!operator) return <LoginScreen onLogin={handleUpdateOperator} />;
   
   return (
     <>
@@ -11896,7 +11968,7 @@ export default function App() {
         <PluginHub
           operator={operator}
           onPick={setPlugin}
-          onLogout={() => { setOperator(null); setPlugin(null); }}
+          onLogout={handleLogout}
           commonAi={commonAi}
           onOpenCommonAi={() => setShowCommonAiModal(true)}
           onOpenTeamUsers={() => setShowTeamModal(true)}
@@ -11908,7 +11980,7 @@ export default function App() {
         <PostSchedulerPlugin
           operator={operator}
           onBackToHub={() => setPlugin(null)}
-          onLogout={() => { setOperator(null); setPlugin(null); }}
+          onLogout={handleLogout}
           profile={profile}
           setProfile={setProfile}
           knowledgeSources={knowledgeSources}
@@ -11925,7 +11997,7 @@ export default function App() {
         <VoiceOperatorApp
           operator={operator}
           onBackToHub={() => setPlugin(null)}
-          onLogout={() => { setOperator(null); setPlugin(null); }}
+          onLogout={handleLogout}
           profile={profile}
           setProfile={setProfile}
           knowledgeSources={knowledgeSources}
@@ -11957,7 +12029,7 @@ export default function App() {
         isOpen={showProfileModal}
         onClose={() => setShowProfileModal(false)}
         operator={operator}
-        setOperator={setOperator}
+        setOperator={handleUpdateOperator}
       />
     </>
   );

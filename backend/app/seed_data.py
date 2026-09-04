@@ -35,13 +35,23 @@ async def seed_database():
         # 1. Operators
         admin = Operator(
             id="op_admin",
+            username="admin",
+            name="Admin",
+            role="Admin",
+            email="admin@aivhub.io",
+            hashed_password="password"
+        )
+        db.add(admin)
+
+        jitendra = Operator(
+            id="op_jitendra",
             username="jitendra",
             name="Jitendra S.",
             role="Admin",
-            email="admin@aivhub.io",
-            hashed_password="mock_password"
+            email="jitendra@aivhub.io",
+            hashed_password="password"
         )
-        db.add(admin)
+        db.add(jitendra)
         
         # 2. Default Company Profile
         profile = CompanyProfile(

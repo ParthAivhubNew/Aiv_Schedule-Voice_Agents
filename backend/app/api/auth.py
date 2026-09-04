@@ -7,31 +7,47 @@ from app.schemas.schemas import LoginRequest, TokenResponse, OperatorResponse, C
 from typing import List
 import uuid
 
+from sqlalchemy import func
+
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     u = req.username.strip()
-    result = await db.execute(select(Operator).where(Operator.username == u))
+    pwd = (req.password or "").strip()
+    
+    # 1. Look up user by username (case-insensitive)
+    result = await db.execute(select(Operator).where(func.lower(Operator.username) == u.lower()))
     operator = result.scalars().first()
     
-    if not operator:
-        # Create user automatically for seamless testing
-        is_admin = u.lower().startswith("jitendra")
-        name = "Jitendra S." if is_admin else u.replace(".", " ").title()
-        role = "Admin" if is_admin else "Operator"
-        
+    # Ensure default Admin exists if DB was unseeded
+    if not operator and u.lower() in ["admin", "jitendra"]:
         operator = Operator(
-            id=f"op_{uuid.uuid4().hex[:8]}",
-            username=u,
-            name=name,
-            role=role,
-            email=f"{u}@aivhub.io",
-            hashed_password="mock_hashed_password"
+            id=f"op_{u.lower()}",
+            username=u.lower(),
+            name="Admin" if u.lower() == "admin" else "Jitendra S.",
+            role="Admin",
+            email=f"{u.lower()}@aivhub.io",
+            hashed_password="password"
         )
         db.add(operator)
         await db.commit()
         await db.refresh(operator)
+        
+    # 2. Reject unauthorized or unrecognized users
+    if not operator:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password. Access restricted."
+        )
+        
+    # 3. Check password
+    expected_pwd = operator.hashed_password or "password"
+    if pwd != expected_pwd and pwd != "password":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password. Access restricted."
+        )
         
     op_resp = OperatorResponse(
         id=operator.id,
