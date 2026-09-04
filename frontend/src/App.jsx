@@ -740,6 +740,95 @@ function applyCallHourPolicy(id) {
   return { callHoursPolicy: p.id, weekdayStart: p.weekdayStart, weekdayEnd: p.weekdayEnd };
 }
 
+const INITIAL_MEETINGS = [];
+const INITIAL_SCHEDULE = [];
+const INITIAL_TASKS = [];
+const INITIAL_MISSIONS = [];
+const PROSPECTS = [];
+const INITIAL_LIVE_CALLS = [];
+const INITIAL_CALL_LOG = [];
+const INITIAL_CONTACT_REGISTRY = [];
+
+const INITIAL_NOTIFICATIONS = [
+  { id: "n1", text: "AIVHub Platform ready for production testing", time: "just now", unread: true, type: "info" },
+];
+
+const CONNECTIONS = [
+  { group: "LLM", desc: "Powers the AI's conversation, pitch reasoning, and objection handling.", items: [
+    { name: "Anthropic (Claude)", status: "connected" },
+    { name: "OpenAI (GPT-4o)", status: "connected" },
+    { name: "DeepSeek", status: "not_configured" },
+  ]},
+  { group: "Speech-to-Text", desc: "Turns the prospect's spoken voice into text the AI can understand.", items: [
+    { name: "Deepgram", status: "connected" },
+    { name: "Faster-Whisper (self-hosted)", status: "not_configured" },
+  ]},
+  { group: "Text-to-Speech", desc: "Generates the AI's spoken voice on calls.", items: [
+    { name: "ElevenLabs", status: "connected" },
+    { name: "Cartesia", status: "not_configured" },
+    { name: "Kokoro (self-hosted)", status: "not_configured" },
+  ]},
+  { group: "Voice Orchestration", desc: "Manages the live call itself — audio streaming, interruptions, turn-taking.", items: [
+    { name: "Vapi", status: "connected" },
+    { name: "Retell AI", status: "not_configured" },
+    { name: "LiveKit (self-hosted)", status: "error" },
+  ]},
+  { group: "Telephony", desc: "Places and receives the actual phone calls.", items: [
+    { name: "Twilio", status: "connected" },
+    { name: "Telnyx", status: "not_configured" },
+  ]},
+  { group: "Calendar", desc: "Checks availability and books confirmed meetings.", items: [
+    { name: "Cal.com", status: "connected" },
+  ]},
+  { group: "Business Discovery", desc: "Finds and researches prospect businesses on the web.", items: [
+    { name: "Google Places API", status: "connected" },
+    { name: "Web Search Provider", status: "connected" },
+  ]},
+  { group: "Other", desc: "Anything else your team connects — CRM, spreadsheets, custom internal tools.", items: [] },
+];
+
+const CATEGORY_OPTIONS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Calendar", "Business Discovery", "Other"];
+
+const INITIAL_KNOWLEDGE_SOURCES = [
+  { id: "k1", name: "Company website", type: "Website URL", value: "aivhub.io", status: "indexed", synced: "2 hours ago" },
+  { id: "k2", name: "Service catalogue & pricing", type: "Document upload", value: "aivhub-services-2026.pdf", status: "indexed", synced: "1 day ago" },
+  { id: "k3", name: "Case studies deck", type: "Google Drive link", value: "drive.google.com/aivhub-case-studies", status: "pending", synced: "—" },
+  { id: "k4", name: "Objection handling notes", type: "Manual text", value: "Internal notes on common pushback", status: "indexed", synced: "3 days ago" },
+];
+
+const INITIAL_FAQ = [
+  { id: "f1", q: "What does AIVHub actually do?", a: "We build AI-powered business intelligence dashboards that turn raw operational data into clear, real-time decisions for mid-market teams." },
+  { id: "f2", q: "How much does it cost?", a: "Pricing depends on team size and data sources — I can have someone send exact numbers, or we can cover it on the call we're booking." },
+  { id: "f3", q: "Who else uses this?", a: "We work with logistics, manufacturing, and retail operators across the UK — happy to share relevant examples on the call." },
+];
+
+const INITIAL_SERVICES = [
+  { id: "sv1", name: "BI Dashboard Platform", ideal: "Mid-market ops teams, 50-500 staff", desc: "Real-time operational dashboards pulling from existing systems." },
+  { id: "sv2", name: "Data Pipeline Consulting", ideal: "Companies with fragmented data sources", desc: "Set up reliable pipelines feeding clean data into reporting." },
+];
+
+const INITIAL_COMPANY_PROFILE = {
+  name: "AIVHub",
+  pitch: "AI-powered business intelligence dashboards for mid-market operations teams",
+  industry: "Business intelligence / data consulting",
+  website: "https://aivhub.io",
+  social: "linkedin.com/company/aivhub",
+  callerName: "Sam",
+  callerId: "+44 20 7946 0912",
+  tone: "Professional, concise, friendly",
+  disclosure: "This call may be recorded for quality and compliance purposes.",
+  legalName: "AIVHub Ltd",
+  icoRef: "ZA774219",
+  dpoContact: "privacy@aivhub.io",
+  dncNotes: "Opt-outs logged immediately and excluded from all future missions. Reviewed weekly by the ops admin.",
+  timezone: "Europe/London",
+  lunchStart: "12:00",
+  lunchEnd: "13:00",
+  callHoursPolicy: "respectful",
+  weekdayStart: "09:00",
+  weekdayEnd: "17:30",
+};
+
 /* ---------------------------------- helpers ---------------------------------- */
 
 const STATUS_MAP = {
