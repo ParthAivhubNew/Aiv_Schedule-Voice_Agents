@@ -16,7 +16,7 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
   });
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", background: C.bg }}>
+    <div style={{ flex: 1, overflowY: "auto", background: C.paper }}>
       <TopBar
         title="Call Log"
         subtitle="Append-only immutable record of all calls with verbatim quotes and locked transcripts."
@@ -49,15 +49,14 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
           </select>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {filtered.map((log) => {
             const isExpanded = expandedId === log.id;
             return (
               <div
                 key={log.id}
                 style={{
-                  background: "rgba(18, 22, 41, 0.75)",
-                  backdropFilter: "blur(16px)",
+                  background: "#FFFFFF",
                   borderRadius: 16,
                   border: `1px solid ${C.border}`,
                   padding: 20,
@@ -69,12 +68,12 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
                   style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                    <div style={{ width: 38, height: 38, borderRadius: 10, background: "rgba(255,255,255,0.04)", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${C.borderLight}` }}>
-                      {log.channel === "voice" ? <PhoneCall size={18} color={C.cobaltDeep} /> : <MessageCircle size={18} color={C.teal} />}
+                    <div style={{ width: 38, height: 38, borderRadius: 10, background: C.paperSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {log.channel === "voice" ? <PhoneCall size={18} color={C.cobalt} /> : <MessageCircle size={18} color={C.teal} />}
                     </div>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 15, color: "#FFFFFF" }}>
+                        <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                           {log.canonicalName}
                         </span>
                         {log.wordsLocked && <Lock size={12} color={C.slateLight} title="Transcript verbatim and locked" />}
@@ -94,18 +93,18 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
                 {isExpanded && (
                   <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.borderLight}` }}>
                     {log.requestedFollowUp && (
-                      <div style={{ background: "rgba(75,115,255,0.1)", border: "1px solid rgba(75,115,255,0.25)", padding: "10px 14px", borderRadius: 10, marginBottom: 14, fontSize: 12.5, color: "#93C5FD" }}>
+                      <div style={{ background: C.cobaltSoft, border: `1px solid #C7D7FA`, padding: "10px 14px", borderRadius: 10, marginBottom: 14, fontSize: 12.5, color: C.cobaltDeep }}>
                         <b>Requested Follow-Up:</b> {log.requestedFollowUp.day} at {log.requestedFollowUp.time} — “{log.requestedFollowUp.exactWords}”
                       </div>
                     )}
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 8 }}>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
                       Verbatim Call Transcript
                     </div>
-                    <div style={{ background: "rgba(9, 11, 19, 0.7)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8, border: `1px solid ${C.borderLight}` }}>
+                    <div style={{ background: C.paperSoft, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                       {(log.transcript || []).map((t, idx) => (
                         <div key={idx} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
-                          <b style={{ color: t.who === "ai" ? C.cobaltDeep : "#FFFFFF" }}>{t.who === "ai" ? "AI (Sam): " : "Prospect: "}</b>
-                          <span style={{ color: "#CBD5E1" }}>{t.text}</span>
+                          <b style={{ color: t.who === "ai" ? C.cobalt : C.ink }}>{t.who === "ai" ? "AI (Sam): " : "Prospect: "}</b>
+                          <span style={{ color: C.textInk }}>{t.text}</span>
                         </div>
                       ))}
                     </div>

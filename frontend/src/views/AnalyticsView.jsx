@@ -42,7 +42,7 @@ export function AnalyticsView({ notifications, setNotifications, analyticsData =
   ];
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", background: C.bg }}>
+    <div style={{ flex: 1, overflowY: "auto", background: C.paper }}>
       <TopBar
         title="Analytics & Unit Economics"
         subtitle="Live conversion tracking, booking velocity, and infrastructure cost benchmarks."
@@ -53,58 +53,56 @@ export function AnalyticsView({ notifications, setNotifications, analyticsData =
       <div style={{ padding: 32 }}>
         {/* Metric Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 18, marginBottom: 32 }}>
-          <div style={{ background: "rgba(18, 22, 41, 0.75)", backdropFilter: "blur(16px)", borderRadius: 18, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 16, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
             <div style={{ fontSize: 12, color: C.slate, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Conversion Rate</div>
             <div style={{ fontFamily: FONT_MONO, fontSize: 28, fontWeight: 700, color: C.teal, marginTop: 8 }}>{metrics.conversionRate}</div>
             <div style={{ fontSize: 12, color: C.teal, marginTop: 4 }}>{metrics.conversionDelta}</div>
           </div>
-          <div style={{ background: "rgba(18, 22, 41, 0.75)", backdropFilter: "blur(16px)", borderRadius: 18, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 16, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
             <div style={{ fontSize: 12, color: C.slate, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Meetings Booked</div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 28, fontWeight: 700, color: C.cobaltDeep, marginTop: 8 }}>{metrics.meetingsBooked}</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 28, fontWeight: 700, color: C.cobalt, marginTop: 8 }}>{metrics.meetingsBooked}</div>
             <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{metrics.meetingsDelta}</div>
           </div>
-          <div style={{ background: "rgba(18, 22, 41, 0.75)", backdropFilter: "blur(16px)", borderRadius: 18, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 16, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
             <div style={{ fontSize: 12, color: C.slate, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Prospects Contacted</div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 28, fontWeight: 700, color: "#FFFFFF", marginTop: 8 }}>{metrics.prospectsReached}</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 28, fontWeight: 700, color: C.ink, marginTop: 8 }}>{metrics.prospectsReached}</div>
             <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>Across {metrics.activeMissions} missions</div>
           </div>
         </div>
 
         {/* Charts */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-          {/* Conversion Rate Trend */}
-          <div style={{ background: "rgba(18, 22, 41, 0.75)", backdropFilter: "blur(16px)", borderRadius: 20, border: `1px solid ${C.border}`, padding: 26, boxShadow: C.shadowCard }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: "#FFFFFF", marginBottom: 18 }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 18, border: `1px solid ${C.border}`, padding: 24, boxShadow: C.shadowCard }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink, marginBottom: 18 }}>
               Booking Conversion Trend (%)
             </div>
             <div style={{ height: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={trend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#EAE8E2" />
                   <XAxis dataKey="day" stroke={C.slate} fontSize={11.5} />
                   <YAxis stroke={C.slate} fontSize={11.5} />
-                  <Tooltip contentStyle={{ background: "#121629", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "#fff" }} />
-                  <Line type="monotone" dataKey="rate" stroke="#9353FF" strokeWidth={3} dot={{ r: 5, fill: "#9353FF" }} />
+                  <Tooltip contentStyle={{ background: "#FFFFFF", border: `1px solid ${C.border}`, borderRadius: 8, color: C.textInk }} />
+                  <Line type="monotone" dataKey="rate" stroke={C.cobalt} strokeWidth={3} dot={{ r: 4, fill: C.cobalt }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Cost Comparison */}
-          <div style={{ background: "rgba(18, 22, 41, 0.75)", backdropFilter: "blur(16px)", borderRadius: 20, border: `1px solid ${C.border}`, padding: 26, boxShadow: C.shadowCard }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: "#FFFFFF", marginBottom: 18 }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 18, border: `1px solid ${C.border}`, padding: 24, boxShadow: C.shadowCard }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink, marginBottom: 18 }}>
               Cost per 10k Calls ($) — Paid vs Open Source
             </div>
             <div style={{ height: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={costBreakdown}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#EAE8E2" />
                   <XAxis dataKey="name" stroke={C.slate} fontSize={11.5} />
                   <YAxis stroke={C.slate} fontSize={11.5} />
-                  <Tooltip contentStyle={{ background: "#121629", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "#fff" }} />
+                  <Tooltip contentStyle={{ background: "#FFFFFF", border: `1px solid ${C.border}`, borderRadius: 8, color: C.textInk }} />
                   <Legend />
-                  <Bar dataKey="Paid" fill="#4B73FF" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="Open Source" fill="#00E5C3" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="Paid" fill={C.cobalt} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Open Source" fill={C.teal} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

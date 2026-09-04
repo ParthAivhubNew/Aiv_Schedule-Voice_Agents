@@ -1,164 +1,104 @@
 import React, { useState } from "react";
-import { Lock, ArrowRight, PhoneCall, Sparkles } from "lucide-react";
+import { Lock, PhoneCall, ArrowRight } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../tokens";
-import { AppChrome } from "../components/AppChrome";
+import { BrandMark } from "../components/Badges";
 
 export function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState("jitendra");
   const [password, setPassword] = useState("••••••••");
+  const [error, setError] = useState("");
 
-  const handleSubmit = (e) => {
+  const submit = (e) => {
     e.preventDefault();
-    if (!username.trim()) return;
-    onLogin(username);
+    if (!username.trim()) {
+      setError("Please enter a username");
+      return;
+    }
+    onLogin({
+      username: username.trim(),
+      name: username.toLowerCase().startsWith("jitendra") ? "Jitendra S." : username.trim(),
+      role: "Admin",
+    });
+  };
+
+  const field = {
+    width: "100%",
+    height: 44,
+    borderRadius: 10,
+    border: `1px solid ${C.border}`,
+    background: "#fff",
+    padding: "0 14px",
+    fontFamily: FONT_BODY,
+    fontSize: 14,
+    color: C.textInk,
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#090B13",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: FONT_BODY,
-        padding: 24,
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      <AppChrome />
-      
-      {/* Background Radiant Neon Glow Orbs */}
-      <div
-        style={{
-          position: "absolute",
-          width: 550,
-          height: 550,
-          borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(147,83,255,0.2) 0%, rgba(75,115,255,0.12) 40%, rgba(255,84,226,0.06) 70%, transparent 80%)",
-          filter: "blur(80px)",
-          top: "30%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          pointerEvents: "none",
-        }}
-      />
-
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          width: "100%",
-          maxWidth: 420,
-          background: "rgba(18, 22, 41, 0.8)",
-          backdropFilter: "blur(24px)",
-          borderRadius: 24,
-          border: `1px solid rgba(255, 255, 255, 0.1)`,
-          padding: "42px 38px",
-          boxShadow: "0 24px 60px rgba(0,0,0,0.6), 0 0 30px rgba(147,83,255,0.15)",
-          position: "relative",
-          zIndex: 1,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 28 }}>
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 13,
-              background: C.gradientPrimary,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: C.glowPrimary,
-            }}
-          >
-            <PhoneCall size={22} color="#fff" strokeWidth={2.4} />
+    <div style={{ minHeight: "100vh", background: HUB_PAPER, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: FONT_BODY }}>
+      <form onSubmit={submit} style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
+          <BrandMark size={44} />
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 28, color: C.ink, letterSpacing: "-0.03em", marginTop: 14 }}>
+            AIVHub
           </div>
-          <div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 21, color: "#FFFFFF", letterSpacing: "-0.03em" }}>
-              AIVHub
-            </div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>
-              Voice AI & Outreach Platform
-            </div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.slate, marginTop: 6, textAlign: "center" }}>
+            Sign in to open your workspace plugins
           </div>
         </div>
-
-        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 24, color: "#FFFFFF", marginBottom: 6, letterSpacing: "-0.02em" }}>
-          Sign in to Platform
-        </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginBottom: 26, lineHeight: 1.45 }}>
-          Access your SDR campaigns, live dialers, and post scheduler workspace.
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div>
-            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: "#CBD5E1", marginBottom: 6 }}>
-              Username or Email
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. jitendra"
-              style={{
-                width: "100%",
-                height: 44,
-                padding: "0 14px",
-                borderRadius: 11,
-                fontFamily: FONT_BODY,
-                fontSize: 13.5,
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: "#CBD5E1", marginBottom: 6 }}>
-              Password
-            </label>
+        <div
+          style={{
+            background: "#fff",
+            border: `1px solid ${C.border}`,
+            borderRadius: 20,
+            padding: "28px 28px 24px",
+            boxShadow: "0 18px 50px rgba(18,20,28,0.06)",
+          }}
+        >
+          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>
+            Username
+          </label>
+          <input
+            autoFocus
+            value={username}
+            onChange={(e) => { setUsername(e.target.value); setError(""); }}
+            placeholder="e.g. jitendra"
+            style={{ ...field, marginBottom: 16 }}
+          />
+          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>
+            Password
+          </label>
+          <div style={{ position: "relative", marginBottom: 8 }}>
+            <Lock size={14} color={C.slateLight} style={{ position: "absolute", left: 14, top: 15 }} />
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                width: "100%",
-                height: 44,
-                padding: "0 14px",
-                borderRadius: 11,
-                fontFamily: FONT_BODY,
-                fontSize: 13.5,
-              }}
+              onChange={(e) => { setPassword(e.target.value); setError(""); }}
+              placeholder="••••••••"
+              style={{ ...field, paddingLeft: 36 }}
             />
           </div>
-
+          {error && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.red, margin: "8px 0 4px" }}>{error}</div>}
           <button
             type="submit"
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
+              width: "100%",
               height: 46,
+              marginTop: 16,
               borderRadius: 12,
               border: "none",
-              background: C.gradientPrimary,
+              background: C.ink,
               color: "#fff",
-              fontFamily: FONT_BODY,
-              fontSize: 14,
+              fontFamily: FONT_DISPLAY,
               fontWeight: 600,
+              fontSize: 15,
               cursor: "pointer",
-              marginTop: 10,
-              boxShadow: C.glowPrimary,
             }}
           >
-            Continue to Workspace <ArrowRight size={16} />
+            Sign in
           </button>
-        </div>
-
-        <div style={{ marginTop: 26, paddingTop: 18, borderTop: `1px solid rgba(255,255,255,0.08)`, display: "flex", alignItems: "center", gap: 8, color: C.slateLight, fontSize: 12 }}>
-          <Lock size={13} />
-          <span>Development account — type <b>jitendra</b> for admin access.</span>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 14, lineHeight: 1.45 }}>
+            Prototype login — any username and password works. Try <span style={{ color: C.textInk, fontWeight: 600 }}>jitendra</span> to land as the seeded operator.
+          </div>
         </div>
       </form>
     </div>

@@ -3,7 +3,7 @@ import { C, FONT_BODY } from "../tokens";
 import { TopBar } from "../components/TopBar";
 import { Badge, FitScore } from "../components/Badges";
 
-export function ProspectsView({ notifications, setNotifications, prospects = [], registry = [] }) {
+export function ProspectsView({ notifications, setNotifications, prospects = [] }) {
   const [query, setQuery] = useState("");
 
   const filtered = prospects.filter((p) =>
@@ -11,7 +11,7 @@ export function ProspectsView({ notifications, setNotifications, prospects = [],
   );
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", background: C.bg }}>
+    <div style={{ flex: 1, overflowY: "auto", background: C.paper }}>
       <TopBar
         title="Prospects"
         subtitle="Canonical master directory of all researched, contacted, and qualified UK companies."
@@ -30,10 +30,10 @@ export function ProspectsView({ notifications, setNotifications, prospects = [],
           />
         </div>
 
-        <div style={{ background: "rgba(18, 22, 41, 0.75)", backdropFilter: "blur(16px)", borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: C.shadowCard }}>
+        <div style={{ background: "#FFFFFF", borderRadius: 18, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: C.shadowCard }}>
           <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontFamily: FONT_BODY, fontSize: 13 }}>
             <thead>
-              <tr style={{ background: "rgba(255, 255, 255, 0.03)", borderBottom: `1px solid ${C.border}`, color: C.slate, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              <tr style={{ background: C.paperSoft, borderBottom: `1px solid ${C.border}`, color: C.slate, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 <th style={{ padding: "14px 18px" }}>Company</th>
                 <th style={{ padding: "14px 18px" }}>Sector & Region</th>
                 <th style={{ padding: "14px 18px" }}>Contact Person</th>
@@ -45,13 +45,13 @@ export function ProspectsView({ notifications, setNotifications, prospects = [],
               {filtered.map((p) => (
                 <tr key={p.id} style={{ borderBottom: `1px solid ${C.borderLight}` }}>
                   <td style={{ padding: "16px 18px" }}>
-                    <div style={{ fontWeight: 600, color: "#FFFFFF" }}>{p.name}</div>
+                    <div style={{ fontWeight: 600, color: C.ink }}>{p.name}</div>
                     <div style={{ fontSize: 11.5, color: C.slate }}>{p.phone}</div>
                   </td>
                   <td style={{ padding: "16px 18px", color: C.slate }}>
                     {p.sector} · {p.region}
                   </td>
-                  <td style={{ padding: "16px 18px", color: "#CBD5E1" }}>
+                  <td style={{ padding: "16px 18px", color: C.textInk }}>
                     {p.contact || "—"}
                   </td>
                   <td style={{ padding: "16px 18px" }}>
