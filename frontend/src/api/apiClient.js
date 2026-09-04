@@ -72,9 +72,11 @@ export const api = {
   getFaqs: () => apiRequest('/profile/faqs'),
   getNotifications: () => apiRequest('/profile/notifications'),
 
-  // Connections
+  // Connections & Key Testing
   getConnections: () => apiRequest('/connections'),
   addConnection: (conn) => apiRequest('/connections', { method: 'POST', body: conn }),
+  testAndSaveConnection: (payload) => apiRequest('/connections/test-and-save', { method: 'POST', body: payload }),
+  resetDemoData: () => apiRequest('/connections/reset-demo-data', { method: 'POST' }),
 
   // Analytics
   getAnalytics: () => apiRequest('/analytics'),

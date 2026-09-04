@@ -5108,48 +5108,244 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
   );
 }
 
-/* ---------------------------------- connections ---------------------------------- */
+/* ---------------------------------- connections & key validator ---------------------------------- */
 
-function AddIntegrationModal({ onClose, onAdd }) {
-  const [form, setForm] = useState({ category: "LLM", name: "", key: "", endpoint: "" });
-  const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const canSave = form.name.trim().length > 0;
+const FAMOUS_PROVIDERS_BY_LAYER = {
+  "LLM": ["DeepSeek", "OpenAI (GPT-4o)", "Anthropic (Claude 3.5 Sonnet)", "Groq", "Mistral", "Together AI", "Other (Custom Base URL)"],
+  "Speech-to-Text": ["Deepgram (Nova-2)", "Faster-Whisper (Self-Hosted)", "OpenAI Whisper", "Gladia", "Speechmatics", "Other (Custom Base URL)"],
+  "Text-to-Speech": ["ElevenLabs", "Cartesia (Sonic)", "PlayHT", "Kokoro-82M (Self-Hosted)", "Other (Custom Base URL)"],
+  "Telephony": ["Twilio", "Telnyx", "Plivo", "SIP Trunk (Custom)", "Other (Custom Base URL)"],
+  "Calendar": ["Cal.com (Self-Hosted)", "Cal.com (Cloud)", "Google Calendar", "Microsoft Outlook", "Other (Custom Base URL)"],
+  "Voice Orchestration": ["LiveKit (Self-Hosted)", "Retell AI", "Vapi", "Other (Custom Base URL)"],
+  "Business Discovery": ["Apollo.io", "LeadMagic", "Google Places API", "Other (Custom Base URL)"],
+  "Other": ["Other (Custom Base URL)"]
+};
+
+function AddIntegrationModal({ onClose, onAddSuccess }) {
+  const [category, setCategory] = useState("LLM");
+  const [providerChoice, setProviderChoice] = useState("DeepSeek");
+  const [customName, setCustomName] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [accountSid, setAccountSid] = useState("");
+
+  const [testing, setTesting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+
+  const isOther = providerChoice.startsWith("Other") || category === "Other";
+  const isTwilio = providerChoice === "Twilio";
+  const providerList = FAMOUS_PROVIDERS_BY_LAYER[category] || ["Other (Custom Base URL)"];
+
+  const handleCategoryChange = (cat) => {
+    setCategory(cat);
+    const firstChoice = (FAMOUS_PROVIDERS_BY_LAYER[cat] || ["Other (Custom Base URL)"])[0];
+    setProviderChoice(firstChoice);
+    setErrorMsg("");
+    setSuccessMsg("");
+  };
+
+  const handleTestAndSave = async (e) => {
+    e.preventDefault();
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    if (!apiKey.trim()) {
+      setErrorMsg("API key cannot be empty.");
+      return;
+    }
+
+    if (isOther && !baseUrl.trim()) {
+      setErrorMsg("Custom providers require a valid Base URL.");
+      return;
+    }
+
+    if (isTwilio && !accountSid.trim() && !apiKey.includes(":")) {
+      setErrorMsg("Twilio requires your Account SID and Auth Token.");
+      return;
+    }
+
+    setTesting(true);
+
+    const effProviderName = isOther ? (customName.trim() || "Custom Provider") : providerChoice.split(" (")[0];
+
+    try {
+      // 1. Call Backend Validator
+      const res = await api.testAndSaveConnection({
+        layer: category,
+        provider: effProviderName,
+        api_key: apiKey.trim(),
+        base_url: baseUrl.trim() || undefined,
+        account_sid: accountSid.trim() || undefined,
+      });
+
+      setSuccessMsg(`✓ ${res.details || "API Key verified & active!"}`);
+      setTimeout(() => {
+        onAddSuccess({
+          category,
+          name: effProviderName,
+          status: "connected",
+          key: apiKey.trim(),
+          masked: res.maskedKey,
+        });
+        onClose();
+      }, 900);
+    } catch (err) {
+      setErrorMsg(err.message || "Authentication failed. Key was rejected by the provider.");
+    } finally {
+      setTesting(false);
+    }
+  };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-      <div style={{ background: "#fff", borderRadius: 14, width: 440, padding: 22, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>Add integration</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={17} color={C.slate} /></button>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 480, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk, display: "flex", alignItems: "center", gap: 8 }}>
+            <KeyRound size={18} color={C.cobalt} /> Add & Validate Provider Key
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate }}><X size={18} /></button>
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginBottom: 14 }}>
-          Connect any provider not already listed — a new LLM, a CRM, a spreadsheet tool, anything your team relies on.
+
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginBottom: 18, lineHeight: 1.45 }}>
+          Keys are <strong>actively tested and authenticated</strong> against the provider before saving to ensure 100% reliable calls.
         </div>
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Category</div>
-          <select value={form.category} onChange={(e) => upd("category", e.target.value)} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}>
-            {CATEGORY_OPTIONS.map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Provider name</div>
-          <input value={form.name} onChange={(e) => upd("name", e.target.value)} placeholder="e.g. HubSpot, Mistral, custom internal API" style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>API key / credential <span style={{ color: C.slateLight, fontWeight: 400 }}>(optional for now)</span></div>
-          <input type="password" value={form.key} onChange={(e) => upd("key", e.target.value)} placeholder="Paste API key..." style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none", boxSizing: "border-box" }} />
-        </div>
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Endpoint URL <span style={{ color: C.slateLight, fontWeight: 400 }}>(optional)</span></div>
-          <input value={form.endpoint} onChange={(e) => upd("endpoint", e.target.value)} placeholder="https://api.example.com/v1" style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
-        <button
-          disabled={!canSave}
-          onClick={() => canSave && onAdd(form)}
-          style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: canSave ? C.ink : C.paperSoft, color: canSave ? "#fff" : C.slateLight, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, cursor: canSave ? "pointer" : "default" }}
-        >
-          Add integration
-        </button>
+
+        <form onSubmit={handleTestAndSave} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Layer Category */}
+          <div>
+            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+              Infrastructure Layer
+            </label>
+            <select
+              value={category}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+              style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+            >
+              {Object.keys(FAMOUS_PROVIDERS_BY_LAYER).map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Provider Dropdown */}
+          <div>
+            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+              Provider
+            </label>
+            <select
+              value={providerChoice}
+              onChange={(e) => { setProviderChoice(e.target.value); setErrorMsg(""); setSuccessMsg(""); }}
+              style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+            >
+              {providerList.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+
+          {/* Custom Name if Other */}
+          {isOther && (
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                Custom Provider Name
+              </label>
+              <input
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="e.g. TogetherAI, Local vLLM, Custom SIP"
+                style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
+              />
+            </div>
+          )}
+
+          {/* Twilio SID */}
+          {isTwilio && (
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                Twilio Account SID
+              </label>
+              <input
+                value={accountSid}
+                onChange={(e) => setAccountSid(e.target.value)}
+                placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
+              />
+            </div>
+          )}
+
+          {/* API Key */}
+          <div>
+            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+              {isTwilio ? "Auth Token" : "API Key / Token"}
+            </label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => { setApiKey(e.target.value); setErrorMsg(""); setSuccessMsg(""); }}
+              placeholder={providerChoice.includes("DeepSeek") ? "sk-..." : providerChoice.includes("OpenAI") ? "sk-proj-..." : providerChoice.includes("Deepgram") ? "Token..." : "Paste API key..."}
+              style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
+            />
+          </div>
+
+          {/* Base URL (if custom or Cal.com) */}
+          {(isOther || providerChoice.includes("Cal.com")) && (
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                Base URL / Endpoint
+              </label>
+              <input
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder={providerChoice.includes("Cal.com") ? "http://calcom:3000/api/v1" : "https://api.your-custom-llm.com/v1"}
+                style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
+              />
+            </div>
+          )}
+
+          {/* Error Message */}
+          {errorMsg && (
+            <div style={{ background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 8, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.red, display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <AlertTriangle size={15} style={{ marginTop: 2, flexShrink: 0 }} />
+              <div>{errorMsg}</div>
+            </div>
+          )}
+
+          {/* Success Message */}
+          {successMsg && (
+            <div style={{ background: C.tealSoft, border: `1px solid #BFE6DF`, borderRadius: 8, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.teal, display: "flex", alignItems: "center", gap: 8 }}>
+              <CheckCircle2 size={15} />
+              <div>{successMsg}</div>
+            </div>
+          )}
+
+          {/* Action Button */}
+          <button
+            type="submit"
+            disabled={testing}
+            style={{
+              width: "100%",
+              height: 44,
+              borderRadius: 10,
+              border: "none",
+              background: testing ? C.slateLight : C.cobalt,
+              color: "#fff",
+              fontFamily: FONT_BODY,
+              fontWeight: 600,
+              fontSize: 14,
+              cursor: testing ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              marginTop: 4,
+            }}
+          >
+            {testing ? (
+              <>Testing live authentication...</>
+            ) : (
+              <>
+                <ShieldCheck size={16} /> Test & Save Key
+              </>
+            )}
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -5157,97 +5353,166 @@ function AddIntegrationModal({ onClose, onAdd }) {
 
 function ConnectionsView({ notifications, setNotifications }) {
   const [state, setState] = useState(CONNECTIONS);
-  const [editingKey, setEditingKey] = useState(null);
-  const [keyValue, setKeyValue] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
-  const setStatus = (group, name, status) => {
-    setState((s) => s.map((g) => (g.group === group ? { ...g, items: g.items.map((it) => (it.name === name ? { ...it, status } : it)) } : g)));
+  // Fetch backend connections on mount
+  useEffect(() => {
+    async function loadConns() {
+      try {
+        const conns = await api.getConnections();
+        if (conns && conns.length) setState(conns);
+      } catch (e) {}
+    }
+    loadConns();
+  }, []);
+
+  const handleAddSuccess = (newIntegration) => {
+    setState((prev) => {
+      const exists = prev.find((g) => g.group === newIntegration.category);
+      if (exists) {
+        return prev.map((g) =>
+          g.group === newIntegration.category
+            ? { ...g, items: [...g.items.filter((it) => it.name !== newIntegration.name), { name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }
+            : g
+        );
+      }
+      return [...prev, { group: newIntegration.category, desc: "", items: [{ name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }];
+    });
+
+    setNotifications((ns) => [
+      { id: "n_" + Date.now(), text: `✓ Verified and activated ${newIntegration.name}`, time: "just now", unread: true, type: "success" },
+      ...ns,
+    ]);
   };
 
-  const addIntegration = (form) => {
-    setState((s) => s.map((g) => (g.group === form.category ? { ...g, items: [...g.items, { name: form.name, status: form.key ? "connected" : "not_configured" }] } : g)));
-    setShowAdd(false);
-    setNotifications((ns) => [{ id: "n_" + Date.now(), text: `${form.name} added under ${form.category}`, time: "just now", unread: true, type: "info" }, ...ns]);
+  const handleClearDemoData = async () => {
+    setClearing(true);
+    try {
+      await api.resetDemoData();
+      setNotifications((ns) => [
+        { id: "n_" + Date.now(), text: "Demo data cleared. Workspace is now fresh for real data.", time: "just now", unread: true, type: "info" },
+        ...ns,
+      ]);
+      setConfirmClear(false);
+      setTimeout(() => window.location.reload(), 600);
+    } catch (e) {
+      alert("Error clearing demo data: " + e.message);
+    } finally {
+      setClearing(false);
+    }
   };
 
   return (
     <>
-      <TopBar title="Connections" subtitle="API keys and credentials for every provider across the stack" notifications={notifications} setNotifications={setNotifications} />
+      <TopBar title="Connections & Integrations" subtitle="API keys and credentials with real-time live authentication testing" notifications={notifications} setNotifications={setNotifications} />
       <div style={{ padding: "20px 32px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: C.amberSoft, border: `1px solid #F0D9A8`, borderRadius: 8, padding: "10px 14px", marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <KeyRound size={14} color="#8A5A05" style={{ marginTop: 2, flexShrink: 0 }} />
-            <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#8A5A05" }}>
-              Add credentials here for any provider you might use — which one is <em style={{ fontStyle: "italic" }}>active</em> is chosen separately under AI Providers. Don't see something you use? Add it below.
-            </span>
+        
+        {/* Top Header Banner with Add Provider & Clear Demo Data buttons */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "#FFFFFF", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", marginBottom: 20, boxShadow: C.shadowCard }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <KeyRound size={17} color={C.cobalt} />
+            </div>
+            <div>
+              <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13.5, color: C.textInk }}>
+                Live Key Authentication & Testing
+              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>
+                Keys are automatically tested with live API pings before saving.
+              </div>
+            </div>
           </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            style={{ display: "flex", alignItems: "center", gap: 6, background: C.ink, color: "#fff", border: "none", borderRadius: 7, padding: "7px 12px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
-          >
-            <PlusCircle size={13} /> Add integration
-          </button>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={() => setConfirmClear(true)}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: C.redSoft, color: C.red, border: `1px solid #F0C4B8`, borderRadius: 8, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              <Trash2 size={13} /> Clear Demo Data
+            </button>
+            <button
+              onClick={() => setShowAdd(true)}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: C.cobalt, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+            >
+              <PlusCircle size={14} /> Add & Test Provider Key
+            </button>
+          </div>
         </div>
 
+        {/* Categories / Providers list */}
         {state.map((group) => (
-          <div key={group.group} style={{ marginBottom: 18 }}>
+          <div key={group.group} style={{ marginBottom: 20 }}>
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>{group.group}</div>
               {group.desc && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 2 }}>{group.desc}</div>}
             </div>
             {group.items.length === 0 ? (
-              <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "16px 18px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slateLight, textAlign: "center" }}>
-                Nothing connected yet in this category — use "Add integration" above.
+              <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "16px 18px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slateLight, textAlign: "center", background: "#fff" }}>
+                Nothing connected yet in this category — click "Add & Test Provider Key" above.
               </div>
             ) : (
-            <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-              {group.items.map((it, idx) => {
-                const rowKey = group.group + it.name;
-                const isEditing = editingKey === rowKey;
-                return (
-                  <div key={it.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderTop: idx === 0 ? "none" : `1px solid ${C.border}` }}>
-                    <div style={{ width: 200, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13, color: C.textInk }}>{it.name}</div>
-                    {isEditing ? (
-                      <input
-                        autoFocus
-                        type="password"
-                        value={keyValue}
-                        onChange={(e) => setKeyValue(e.target.value)}
-                        placeholder="Paste API key..."
-                        style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none" }}
-                      />
-                    ) : (
-                      <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12.5, color: C.slateLight }}>
-                        {it.status === "connected" ? "••••••••••••" + it.name.slice(0, 2).toLowerCase() : "Not set"}
-                      </div>
-                    )}
-                    <Badge status={it.status} small />
-                    {isEditing ? (
-                      <button
-                        onClick={() => { setStatus(group.group, it.name, "connected"); setEditingKey(null); setKeyValue(""); }}
-                        style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}
-                      >
-                        Save
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => { setEditingKey(rowKey); setKeyValue(""); }}
-                        style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
-                      >
-                        {it.status === "connected" ? "Update" : "Connect"}
-                      </button>
-                    )}
+            <div style={{ background: "#FFFFFF", border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden", boxShadow: C.shadowCard }}>
+              {group.items.map((it, idx) => (
+                <div key={it.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderTop: idx === 0 ? "none" : `1px solid ${C.borderLight}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{it.name}</div>
+                    <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.slateLight }}>
+                      {it.apiKeyMasked || (it.status === "connected" ? "••••••••••••" : "Not configured")}
+                    </div>
                   </div>
-                );
-              })}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Badge status={it.status} small />
+                    <button
+                      onClick={() => setShowAdd(true)}
+                      style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
+                    >
+                      {it.status === "connected" ? "Update Key" : "Connect"}
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
             )}
           </div>
         ))}
       </div>
 
-      {showAdd && <AddIntegrationModal onClose={() => setShowAdd(false)} onAdd={addIntegration} />}
+      {showAdd && <AddIntegrationModal onClose={() => setShowAdd(false)} onAddSuccess={handleAddSuccess} />}
+
+      {/* Clear Demo Data Confirmation Modal */}
+      {confirmClear && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
+          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 420, padding: 24, boxShadow: "0 24px 60px rgba(0,0,0,0.2)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 9, background: C.redSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <AlertTriangle size={18} color={C.red} />
+              </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk }}>
+                Clear Demo Data?
+              </div>
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, lineHeight: 1.5, marginBottom: 20 }}>
+              This will remove sample mock campaigns, demo live calls, and fake prospects so you can start clean testing with your real list. Your company profile and API keys will remain safe.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setConfirmClear(false)}
+                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearDemoData}
+                disabled={clearing}
+                style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.red, color: "#fff", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >
+                {clearing ? "Clearing..." : "Yes, Clear Demo Data"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
