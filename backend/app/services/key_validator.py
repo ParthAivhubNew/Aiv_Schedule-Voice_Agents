@@ -114,6 +114,18 @@ async def validate_api_key(
                 else:
                     return {"valid": False, "error": "Groq authentication failed (Invalid API key)."}
 
+            # 7b. xAI (Grok)
+            elif "xai" in p or "grok" in p:
+                url = (base_url or "https://api.x.ai/v1").rstrip("/") + "/models"
+                headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+                res = await client.get(url, headers=headers)
+                if res.status_code == 200:
+                    return {"valid": True, "provider": "xAI (Grok)", "details": "Authenticated successfully (Grok-2 / Grok-4 ready)."}
+                elif res.status_code == 401:
+                    return {"valid": False, "error": "xAI authentication failed (Invalid API key - 401 Unauthorized)."}
+                else:
+                    return {"valid": False, "error": f"xAI returned status {res.status_code}: {res.text[:150]}"}
+
             # 8. Google Gemini
             elif "gemini" in p or "google" in p:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"

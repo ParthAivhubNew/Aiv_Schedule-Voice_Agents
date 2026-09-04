@@ -111,6 +111,7 @@ import { api } from "./api/apiClient";
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
 
 const INITIAL_BUILTIN_PROVIDERS = [
+  { id: "xai", name: "xAI (Grok)", type: "llm", badge: "xAI Voice & LPU", status: "not_configured", latencyMs: null, baseUrl: "https://api.x.ai/v1", apiKey: "", phoneNumber: "", agentId: "", models: ["xAI Grok-2", "xAI Grok-beta", "xAI Grok-4.6", "xAI Grok-4.5"] },
   { id: "deepseek", name: "DeepSeek AI", type: "llm", badge: "Open-Weight Cloud", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepseek.com/v1", apiKey: "", models: ["DeepSeek V4 Flash", "DeepSeek-V3", "DeepSeek-R1"] },
   { id: "anthropic", name: "Anthropic Claude", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.anthropic.com/v1", apiKey: "", models: ["Claude Sonnet 4.5", "Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "Claude 3.5 Haiku"] },
   { id: "openai", name: "OpenAI", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.openai.com/v1", apiKey: "", models: ["GPT-4o", "GPT-4o-mini", "o3-mini", "text-embedding-3"] },
@@ -124,18 +125,18 @@ const INITIAL_BUILTIN_PROVIDERS = [
 ];
 
 const VOICE_LAYERS = [
-  { key: "voice", label: "Voice Orchestration", paid: "Vapi", oss: "LiveKit (self-hosted)", options: ["Vapi", "Retell", "LiveKit (self-hosted)", "Bland AI"] },
-  { key: "llm", label: "LLM · Conversation / Chat", paid: "Claude Sonnet 4.5", oss: "DeepSeek V4 Flash", options: ["Claude Sonnet 4.5", "Claude 3.7 Sonnet", "GPT-4o", "GPT-4o mini", "DeepSeek V4 Flash", "Gemini 2.5 Flash", "Groq Llama 3.3 70B", "Ollama Llama 3.2 (Local)"] },
+  { key: "voice", label: "Voice Orchestration", paid: "Vapi", oss: "LiveKit (self-hosted)", options: ["Vapi", "xAI Voice Agent", "Retell", "LiveKit (self-hosted)", "Bland AI"] },
+  { key: "llm", label: "LLM · Conversation / Chat", paid: "xAI Grok-2", oss: "DeepSeek V4 Flash", options: ["xAI Grok-2", "xAI Grok-4.6", "Groq Llama 3.3 70B", "Claude Sonnet 4.5", "Claude 3.7 Sonnet", "GPT-4o", "GPT-4o mini", "DeepSeek V4 Flash", "Gemini 2.5 Flash", "Ollama Llama 3.2 (Local)"] },
   { key: "stt", label: "Speech-to-Text", paid: "Deepgram Nova-3", oss: "Faster-Whisper (self-hosted)", options: ["Deepgram Nova-3", "Faster-Whisper (self-hosted)", "OpenAI Whisper", "AssemblyAI"] },
   { key: "tts", label: "Text-to-Speech", paid: "ElevenLabs Turbo", oss: "Kokoro (self-hosted)", options: ["ElevenLabs Turbo", "Cartesia Sonic", "Kokoro (self-hosted)", "PlayHT 2.0", "Amazon Polly"] },
-  { key: "telephony", label: "Telephony", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "Telnyx", "Plivo", "Vonage"] },
+  { key: "telephony", label: "Telephony", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "xAI Voice Number", "Telnyx", "Plivo", "Vonage"] },
   { key: "calendar", label: "Calendar", paid: "Cal.com (Cloud)", oss: "Cal.com (Self-hosted)", options: ["Cal.com (Cloud)", "Cal.com (Self-hosted)", "Google Calendar", "Calendly"] },
 ];
 
 const SCHEDULER_LAYERS = [
-  { key: "postWriter", label: "Post Drafting & Copywriting", paid: "Claude 3.5 Sonnet", oss: "Ollama Llama 3.2 (Local)", options: ["Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "GPT-4o", "Groq Llama 3.3 70B", "Ollama Llama 3.2 (Local)"] },
-  { key: "topicResearch", label: "Topic Research & Trend Discovery", paid: "Gemini 2.0 Flash", oss: "Ollama Mistral (Local)", options: ["Gemini 2.0 Flash", "GPT-4o (Web Knowledge)", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Mistral (Local)"] },
-  { key: "chatPlanner", label: "Plan Chat Assistant", paid: "Groq Llama 3.3 70B", oss: "DeepSeek-R1 (Local)", options: ["Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
+  { key: "postWriter", label: "Post Drafting & Copywriting", paid: "xAI Grok-2", oss: "Ollama Llama 3.2 (Local)", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "GPT-4o", "Groq Llama 3.3 70B", "Ollama Llama 3.2 (Local)"] },
+  { key: "topicResearch", label: "Topic Research & Trend Discovery", paid: "xAI Grok-2", oss: "Ollama Mistral (Local)", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o (Web Knowledge)", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Mistral (Local)"] },
+  { key: "chatPlanner", label: "Plan Chat Assistant", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
   { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", paid: "OpenAI text-embedding-3", oss: "Ollama nomic-embed (Local)", options: ["OpenAI text-embedding-3", "Gemini Embedding", "Ollama nomic-embed (Local)"] },
 ];
 
@@ -759,10 +760,11 @@ const INITIAL_NOTIFICATIONS = [
 
 const CONNECTIONS = [
   { group: "LLM", desc: "Powers the AI's conversation, pitch reasoning, and objection handling.", items: [
+    { name: "xAI (Grok)", status: "not_configured" },
+    { name: "Groq", status: "not_configured" },
     { name: "DeepSeek", status: "not_configured" },
     { name: "Anthropic (Claude)", status: "not_configured" },
     { name: "OpenAI (GPT-4o)", status: "not_configured" },
-    { name: "Groq", status: "not_configured" },
   ]},
   { group: "Speech-to-Text", desc: "Turns the prospect's spoken voice into text the AI can understand.", items: [
     { name: "Deepgram", status: "not_configured" },
@@ -774,11 +776,13 @@ const CONNECTIONS = [
     { name: "Kokoro (self-hosted)", status: "not_configured" },
   ]},
   { group: "Voice Orchestration", desc: "Manages the live call itself — audio streaming, interruptions, turn-taking.", items: [
+    { name: "xAI Voice Agent", status: "not_configured" },
     { name: "LiveKit (self-hosted)", status: "not_configured" },
     { name: "Vapi", status: "not_configured" },
     { name: "Retell AI", status: "not_configured" },
   ]},
   { group: "Telephony", desc: "Places and receives the actual phone calls.", items: [
+    { name: "xAI Voice Number", status: "not_configured" },
     { name: "Twilio", status: "not_configured" },
     { name: "Telnyx", status: "not_configured" },
   ]},
@@ -1579,6 +1583,7 @@ function TasksView({
   notifications,
   setNotifications,
   companyName,
+  callerId,
   onOpenTask,
   onWatchLive,
 }) {
@@ -1917,6 +1922,7 @@ function TasksView({
           onClose={() => setShowWizard(false)}
           onCreateTask={handleCreateTask}
           companyName={companyName}
+          companyCallerId={callerId}
         />
       )}
     </>
@@ -1925,12 +1931,13 @@ function TasksView({
 
 /* ---------------------------------- 4-Step Batch Task Wizard Modal ---------------------------------- */
 
-function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName }) {
+function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, companyCallerId }) {
   const [step, setStep] = useState(1); // 1: Mapping, 2: Scripting, 3: Dialing & Smart Timing, 4: Pre-Flight Cockpit & Test Call
   const fileInputRef = useRef(null);
 
   // Registered Outbound Numbers in Software
   const REGISTERED_CALLER_IDS = [
+    ...(companyCallerId ? [{ id: "cid_custom", number: companyCallerId, label: `Assigned Voice Line (${companyCallerId})`, region: "Primary Outbound", status: "Active" }] : []),
     { id: "cid_1", number: "+44 20 7946 0912", label: "Primary London HQ (Twilio SIP Trunk)", region: "London / UK-wide", status: "Active" },
     { id: "cid_2", number: "+44 161 883 0044", label: "Manchester Regional Direct DID", region: "North West", status: "Active" },
     { id: "cid_3", number: "+44 121 496 0550", label: "Birmingham Local DID", region: "Midlands", status: "Active" },
@@ -1978,7 +1985,7 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName }) {
   const [lunchPause, setLunchPause] = useState(true); // 12:30 - 13:30 pause
 
   // Step 4: Outbound Caller ID & Operator Test Call State
-  const [selectedCallerId, setSelectedCallerId] = useState("+44 20 7946 0912");
+  const [selectedCallerId, setSelectedCallerId] = useState(companyCallerId || "+44 20 7946 0912");
   const [selectedOperatorPhone, setSelectedOperatorPhone] = useState("+44 7700 900123");
   const [customMobile, setCustomMobile] = useState("");
   const [testingCall, setTestingCall] = useState(false);
@@ -4692,7 +4699,7 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
 
 const LAYERS = VOICE_LAYERS;
 
-function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi }) {
+function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile }) {
   const [activeTab, setActiveTab] = useState("routing");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -4778,7 +4785,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     setRowState((s) => ({ ...s, [rowKey]: { ...(s[rowKey] || {}), ...patch } }));
 
   const handleConnect = (rowKey) =>
-    setRow(rowKey, { phase: "editing", keyValue: "", errorMsg: "", testResult: null });
+    setRow(rowKey, { phase: "editing", keyValue: "", phoneValue: profile?.callerId || "", agentIdValue: "", errorMsg: "", testResult: null });
 
   const handleCancel = (rowKey) =>
     setRowState((s) => { const n = { ...s }; delete n[rowKey]; return n; });
@@ -4796,7 +4803,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   };
 
   const handleSave = async (groupName, itemName, rowKey) => {
-    const key = ((rowState[rowKey] || {}).keyValue || "").trim();
+    const row = rowState[rowKey] || {};
+    const key = (row.keyValue || "").trim();
     setRow(rowKey, { phase: "saving" });
     try {
       const res = await api.testAndSaveConnection({ layer: groupName, provider: itemName, api_key: key });
@@ -4807,9 +4815,12 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             : g
         )
       );
+      if (row.phoneValue && setProfile) {
+        setProfile((prev) => ({ ...prev, callerId: row.phoneValue }));
+      }
       handleCancel(rowKey);
       setNotifications((ns) => [
-        { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and saved!`, time: "just now", unread: true, type: "success" },
+        { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and saved!${row.phoneValue ? ` (Caller ID: ${row.phoneValue})` : ""}`, time: "just now", unread: true, type: "success" },
         ...ns,
       ]);
       flash();
@@ -4990,6 +5001,36 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                 </button>
                               </div>
                             </div>
+
+                            {/* Optional Phone Number & Agent ID fields for xAI / Telephony / Voice */}
+                            {(it.name.toLowerCase().includes("xai") || group.group === "Telephony" || group.group === "Voice Orchestration" || it.name.toLowerCase().includes("twilio")) && (
+                              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 10, marginTop: 4 }}>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                    Assigned Outbound Phone Number
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={rs.phoneValue || ""}
+                                    onChange={(e) => setRow(rowKey, { phoneValue: e.target.value })}
+                                    placeholder="+44 20... or +1..."
+                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                  />
+                                </div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                    Voice Agent ID (Optional)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={rs.agentIdValue || ""}
+                                    onChange={(e) => setRow(rowKey, { agentIdValue: e.target.value })}
+                                    placeholder="agent_... or sid_..."
+                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                  />
+                                </div>
+                              </div>
+                            )}
 
                             {rs.errorMsg && (
                               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.red }}>
@@ -11873,6 +11914,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             notifications={notifications}
             setNotifications={setNotifications}
             companyName={profile.name}
+            callerId={profile.callerId}
             onOpenTask={openMission}
             onWatchLive={goLive}
           />
@@ -11952,7 +11994,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
           />
         )}
         {view === "company" && <CompanyProfileView profile={profile} setProfile={setProfile} notifications={notifications} setNotifications={setNotifications} sources={knowledgeSources} setSources={setKnowledgeSources} services={services} setServices={setServices} faq={faq} setFaq={setFaq} />}
-        {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} />}
+        {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} profile={profile} setProfile={setProfile} />}
         {view === "analytics" && <AnalyticsView notifications={notifications} setNotifications={setNotifications} />}
       </div>
 
