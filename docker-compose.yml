@@ -43,7 +43,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/calcom
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-aivhub_calcom_jwt_secret_token_2026_xyz}
       CALENDSO_ENCRYPTION_KEY: ${CALENDSO_ENCRYPTION_KEY:-aivhub_calcom_encryption_key_32b_x}
-      NEXT_PUBLIC_WEBAPP_URL: ${CALCOM_WEBAPP_URL:-http://localhost:3000}
+      NEXT_PUBLIC_WEBAPP_URL: ${CALCOM_WEBAPP_URL:-https://3000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai}
+      NEXTAUTH_URL: ${CALCOM_WEBAPP_URL:-https://3000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai}
+      NEXT_PUBLIC_LICENSE_CONSENT: "agree"
       NODE_ENV: production
     depends_on:
       postgres:
