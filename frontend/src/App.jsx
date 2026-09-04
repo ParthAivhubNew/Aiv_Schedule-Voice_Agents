@@ -18,7 +18,6 @@ import { ProviderConfigView } from "./views/ProviderConfigView";
 import { AnalyticsView } from "./views/AnalyticsView";
 import { NewMissionModal } from "./views/NewMissionModal";
 import { api } from "./api/apiClient";
-import { WebSocketClient } from "./api/wsClient";
 
 const INITIAL_PROFILE = {
   name: "AIVHub Logistics AI",
@@ -132,8 +131,8 @@ const INITIAL_PROSPECTS = [
 ];
 
 export default function App() {
-  const [operator, setOperator] = useState({ username: "jitendra", name: "Jitendra S.", role: "Admin" });
-  const [plugin, setPlugin] = useState("voice"); // Default into Voice SDR
+  const [operator, setOperator] = useState(null); // Default to login screen so user enters credentials
+  const [plugin, setPlugin] = useState(null);
   const [view, setView] = useState("missions");
   const [notifications, setNotifications] = useState(3);
   const [showNewMission, setShowNewMission] = useState(false);
@@ -180,7 +179,7 @@ export default function App() {
         <PluginHub
           operator={operator}
           onPick={(p) => setPlugin(p)}
-          onLogout={() => setOperator(null)}
+          onLogout={() => { setOperator(null); setPlugin(null); }}
         />
       )}
 
@@ -189,22 +188,24 @@ export default function App() {
         <PostSchedulerPlugin
           operator={operator}
           onBackToHub={() => setPlugin(null)}
-          onLogout={() => setOperator(null)}
+          onLogout={() => { setOperator(null); setPlugin(null); }}
+          profile={profile}
         />
       )}
 
       {/* 3. Voice Operator SDR App */}
       {plugin === "voice" && (
-        <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden", background: C.bg }}>
+        <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden", background: C.paper }}>
           <Sidebar
-            currentView={view}
+            view={view}
             setView={setView}
-            operator={operator}
-            onOpenHub={() => setPlugin(null)}
-            onLogout={() => setOperator(null)}
-            liveCallCount={liveCalls.filter((c) => c.status === "engaged" || c.status === "dialing").length}
-            unreadTasks={notifications}
-            onSwitchToScheduler={() => setPlugin("scheduler")}
+            companyName={profile.name}
+            callerName={profile.callerName}
+            timezone={profile.timezone}
+            operatorName={operator?.name}
+            operatorRole={operator?.role}
+            onBackToHub={() => setPlugin(null)}
+            onLogout={() => { setOperator(null); setPlugin(null); }}
           />
 
           <main style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
