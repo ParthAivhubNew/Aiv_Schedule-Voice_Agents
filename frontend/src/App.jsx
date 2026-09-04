@@ -4454,6 +4454,7 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
   const [providerChoice, setProviderChoice] = useState("DeepSeek");
   const [customName, setCustomName] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [accountSid, setAccountSid] = useState("");
 
@@ -4603,13 +4604,23 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
             <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
               {isTwilio ? "Auth Token" : "API Key / Token"}
             </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); setErrorMsg(""); setSuccessMsg(""); }}
-              placeholder={providerChoice.includes("DeepSeek") ? "sk-..." : providerChoice.includes("OpenAI") ? "sk-proj-..." : providerChoice.includes("Deepgram") ? "Token..." : "Paste API key..."}
-              style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
-            />
+            <div style={{ position: "relative", width: "100%" }}>
+              <input
+                type={showApiKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); setErrorMsg(""); setSuccessMsg(""); }}
+                placeholder={providerChoice.includes("DeepSeek") ? "sk-..." : providerChoice.includes("OpenAI") ? "sk-proj-..." : providerChoice.includes("Deepgram") ? "Token..." : "Paste API key..."}
+                style={{ width: "100%", boxSizing: "border-box", height: 38, padding: "0 38px 0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", color: C.slateLight }}
+                title={showApiKey ? "Hide key" : "Show key"}
+              >
+                {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
           </div>
 
           {/* Base URL (if custom or Cal.com) */}
@@ -4953,21 +4964,31 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                                 {it.name} API Key / Token
                               </label>
-                              <input
-                                autoFocus={phase === "editing"}
-                                type="password"
-                                disabled={phase === "testing" || phase === "saving"}
-                                value={rs.keyValue || ""}
-                                onChange={(e) => setRow(rowKey, { keyValue: e.target.value, errorMsg: "", phase: "editing", testResult: null })}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    if (phase === "tested_ok") handleSave(group.group, it.name, rowKey);
-                                    else handleTest(group.group, it.name, rowKey);
-                                  }
-                                }}
-                                placeholder="Paste API key / token to test & connect..."
-                                style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : phase === "tested_ok" ? C.green : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none", background: "#fff" }}
-                              />
+                              <div style={{ position: "relative", width: "100%" }}>
+                                <input
+                                  autoFocus={phase === "editing"}
+                                  type={rs.showKey ? "text" : "password"}
+                                  disabled={phase === "testing" || phase === "saving"}
+                                  value={rs.keyValue || ""}
+                                  onChange={(e) => setRow(rowKey, { keyValue: e.target.value, errorMsg: "", phase: "editing", testResult: null })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      if (phase === "tested_ok") handleSave(group.group, it.name, rowKey);
+                                      else handleTest(group.group, it.name, rowKey);
+                                    }
+                                  }}
+                                  placeholder="Paste API key / token to test & connect..."
+                                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 38px 8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : phase === "tested_ok" ? C.green : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none", background: "#fff" }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setRow(rowKey, { showKey: !rs.showKey })}
+                                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", color: C.slateLight }}
+                                  title={rs.showKey ? "Hide key" : "Show key"}
+                                >
+                                  {rs.showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                                </button>
+                              </div>
                             </div>
 
                             {rs.errorMsg && (
@@ -6340,6 +6361,7 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -6408,12 +6430,32 @@ function LoginScreen({ onLogin }) {
           <div style={{ position: "relative", marginBottom: 8 }}>
             <Lock size={14} color={C.slateLight} style={{ position: "absolute", left: 14, top: 15 }} />
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => { setPassword(e.target.value); setError(""); }}
               placeholder="••••••••"
-              style={{ ...field, paddingLeft: 36 }}
+              style={{ ...field, paddingLeft: 36, paddingRight: 40 }}
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={{
+                position: "absolute",
+                right: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 4,
+                display: "flex",
+                alignItems: "center",
+                color: C.slateLight,
+              }}
+              title={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
           </div>
           {error && (
             <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.red, background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 8, padding: "8px 12px", margin: "10px 0 4px", display: "flex", alignItems: "center", gap: 6 }}>
