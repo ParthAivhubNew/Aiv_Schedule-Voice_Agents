@@ -75,6 +75,7 @@ export const api = {
   // Connections & Key Testing
   getConnections: () => apiRequest('/connections'),
   addConnection: (conn) => apiRequest('/connections', { method: 'POST', body: conn }),
+  testConnection: (payload) => apiRequest('/connections/test', { method: 'POST', body: payload }),
   testAndSaveConnection: (payload) => apiRequest('/connections/test-and-save', { method: 'POST', body: payload }),
   resetDemoData: () => apiRequest('/connections/reset-demo-data', { method: 'POST' }),
 

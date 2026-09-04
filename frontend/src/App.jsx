@@ -4673,6 +4673,8 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
   );
 }
 
+const LAYERS = VOICE_LAYERS;
+
 function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi }) {
   const [activeTab, setActiveTab] = useState("routing");
   const [showAdd, setShowAdd] = useState(false);
@@ -4682,7 +4684,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const mode = commonAi?.mode || "paid";
   const custom = commonAi?.voiceLayers || Object.fromEntries(LAYERS.map((l) => [l.key, l.paid]));
 
-  // ── Credentials: loaded live from backend ──
+  // ── Credentials: loaded live from backend with template fallback ──
   const [credsState, setCredsState] = useState(CONNECTIONS);
   const [rowState, setRowState] = useState({});
 
@@ -4690,7 +4692,24 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     async function loadConns() {
       try {
         const conns = await api.getConnections();
-        if (conns && conns.length) setCredsState(conns);
+        if (conns && Array.isArray(conns) && conns.length) {
+          // Merge live backend connections onto CONNECTIONS template
+          setCredsState((prev) => {
+            const backendMap = {};
+            conns.forEach((g) => {
+              (g.items || []).forEach((it) => {
+                backendMap[`${g.group}|${it.name}`] = it;
+              });
+            });
+            return prev.map((group) => ({
+              ...group,
+              items: (group.items || []).map((it) => {
+                const live = backendMap[`${group.group}|${it.name}`];
+                return live ? { ...it, status: live.status, apiKeyMasked: live.apiKeyMasked } : it;
+              }),
+            }));
+          });
+        }
       } catch (_) {}
     }
     loadConns();
@@ -4752,8 +4771,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     if (!key) { setRow(rowKey, { errorMsg: "API key cannot be empty." }); return; }
     setRow(rowKey, { phase: "testing", errorMsg: "", testResult: null });
     try {
-      const res = await api.testAndSaveConnection({ layer: groupName, provider: itemName, api_key: key });
-      setRow(rowKey, { phase: "tested_ok", testResult: res.details || "Verified & Active" });
+      const res = await api.testConnection({ layer: groupName, provider: itemName, api_key: key });
+      setRow(rowKey, { phase: "tested_ok", testResult: res.details || "Authentication verified! Ready to save." });
     } catch (err) {
       setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Authentication rejected by provider." });
     }
@@ -4767,13 +4786,13 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       setCredsState((s) =>
         s.map((g) =>
           g.group === groupName
-            ? { ...g, items: g.items.map((x) => x.name === itemName ? { ...x, status: "connected", apiKeyMasked: res.maskedKey } : x) }
+            ? { ...g, items: (g.items || []).map((x) => x.name === itemName ? { ...x, status: "connected", apiKeyMasked: res.maskedKey } : x) }
             : g
         )
       );
       handleCancel(rowKey);
       setNotifications((ns) => [
-        { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and connected!`, time: "just now", unread: true, type: "success" },
+        { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and saved!`, time: "just now", unread: true, type: "success" },
         ...ns,
       ]);
       flash();
@@ -4788,7 +4807,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       if (exists) {
         return prev.map((g) =>
           g.group === newIntegration.category
-            ? { ...g, items: [...g.items.filter((it) => it.name !== newIntegration.name), { name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }
+            ? { ...g, items: [...(g.items || []).filter((it) => it.name !== newIntegration.name), { name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }
             : g
         );
       }
@@ -4797,7 +4816,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     if (newIntegration.category === "LLM" && setCommonAi) {
       setCommonAi((prev) => ({
         ...prev,
-        providers: [...prev.providers, { id: "custom_" + Date.now(), name: newIntegration.name, type: "llm", status: "active", models: [newIntegration.name] }],
+        providers: [...(prev.providers || []), { id: "custom_" + Date.now(), name: newIntegration.name, type: "llm", status: "active", models: [newIntegration.name] }],
       }));
     }
     setNotifications((ns) => [
@@ -4913,59 +4932,92 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               {it.status === "connected" ? "Update Key" : "Connect"}
                             </button>
                           )}
-                          {(phase === "editing" || phase === "tested_fail") && (
+                          {phase !== "idle" && (
                             <button onClick={() => handleCancel(rowKey)}
                               style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}>
                               Cancel
                             </button>
                           )}
-                          {(phase === "testing" || phase === "saving") && (
-                            <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, display: "flex", alignItems: "center", gap: 6 }}>
-                              <RefreshCw size={12} className="animate-spin" /> {phase === "testing" ? "Testing…" : "Saving…"}
-                            </span>
-                          )}
-                          {phase === "tested_ok" && (
-                            <div style={{ display: "flex", gap: 6 }}>
-                              <button onClick={() => handleSave(group.group, it.name, rowKey)}
-                                style={{ background: C.green, color: "#fff", border: "none", borderRadius: 7, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
-                                <Check size={12} /> Save Key
-                              </button>
-                              <button onClick={() => handleCancel(rowKey)}
-                                style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}>
+                        </div>
+
+                        {/* Inline input area with Test -> Save transition */}
+                        {phase !== "idle" && (
+                          <div style={{ borderTop: `1px solid ${C.border}`, background: C.paper, padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                {it.name} API Key / Token
+                              </label>
+                              <input
+                                autoFocus={phase === "editing"}
+                                type="password"
+                                disabled={phase === "testing" || phase === "saving"}
+                                value={rs.keyValue || ""}
+                                onChange={(e) => setRow(rowKey, { keyValue: e.target.value, errorMsg: "", phase: "editing", testResult: null })}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    if (phase === "tested_ok") handleSave(group.group, it.name, rowKey);
+                                    else handleTest(group.group, it.name, rowKey);
+                                  }
+                                }}
+                                placeholder="Paste API key / token to test & connect..."
+                                style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : phase === "tested_ok" ? C.green : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none", background: "#fff" }}
+                              />
+                            </div>
+
+                            {rs.errorMsg && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.red }}>
+                                <AlertTriangle size={14} /> {rs.errorMsg}
+                              </div>
+                            )}
+
+                            {phase === "tested_ok" && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: C.greenSoft, border: `1px solid #BFE6DF`, borderRadius: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.green }}>
+                                <CheckCircle2 size={14} /> {rs.testResult}
+                              </div>
+                            )}
+
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                              {phase !== "tested_ok" ? (
+                                <button
+                                  onClick={() => handleTest(group.group, it.name, rowKey)}
+                                  disabled={phase === "testing"}
+                                  style={{ background: C.cobalt, color: "#fff", border: "none", borderRadius: 7, padding: "8px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "testing" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                                >
+                                  {phase === "testing" ? (
+                                    <>
+                                      <RefreshCw size={13} className="animate-spin" /> Testing live connection...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ShieldCheck size={13} /> Test Connection
+                                    </>
+                                  )}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleSave(group.group, it.name, rowKey)}
+                                  disabled={phase === "saving"}
+                                  style={{ background: C.green, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "saving" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                                >
+                                  {phase === "saving" ? (
+                                    <>
+                                      <RefreshCw size={13} className="animate-spin" /> Saving key...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check size={14} /> Save Verified Key
+                                    </>
+                                  )}
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleCancel(rowKey)}
+                                style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}
+                              >
                                 Cancel
                               </button>
                             </div>
-                          )}
-                        </div>
-
-                        {/* Inline input area */}
-                        {(phase === "editing" || phase === "tested_fail") && (
-                          <div style={{ borderTop: `1px solid ${C.border}`, background: C.paper, padding: "12px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
-                            <input
-                              autoFocus
-                              type="password"
-                              value={rs.keyValue || ""}
-                              onChange={(e) => setRow(rowKey, { keyValue: e.target.value, errorMsg: "" })}
-                              onKeyDown={(e) => { if (e.key === "Enter") handleTest(group.group, it.name, rowKey); }}
-                              placeholder="Paste API key / token…"
-                              style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none" }}
-                            />
-                            {rs.errorMsg && (
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.red }}>
-                                <AlertTriangle size={13} /> {rs.errorMsg}
-                              </div>
-                            )}
-                            <button onClick={() => handleTest(group.group, it.name, rowKey)}
-                              style={{ alignSelf: "flex-start", background: C.cobalt, color: "#fff", border: "none", borderRadius: 7, padding: "7px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                              <ShieldCheck size={13} /> Test Connection
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Test passed banner */}
-                        {phase === "tested_ok" && (
-                          <div style={{ borderTop: `1px solid ${C.border}`, background: C.greenSoft, padding: "10px 18px", display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.green }}>
-                            <CheckCircle2 size={15} /> {rs.testResult}
                           </div>
                         )}
                       </div>

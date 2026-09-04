@@ -52,6 +52,27 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
         
     return list(grouped.values())
 
+@router.post("/test")
+async def test_connection_only(req: TestKeyRequest):
+    """
+    Performs live test against provider API without saving.
+    """
+    validation = await validate_api_key(
+        provider=req.provider,
+        api_key=req.api_key,
+        base_url=req.base_url,
+        account_sid=req.account_sid
+    )
+    if not validation["valid"]:
+        raise HTTPException(
+            status_code=400,
+            detail=validation.get("error", f"Authentication failed for {req.provider}.")
+        )
+    return {
+        "success": True,
+        "details": validation.get("details", "Verified & Active")
+    }
+
 @router.post("/test-and-save")
 async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depends(get_db)):
     """
@@ -77,17 +98,29 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     masked = clean_key[:3] + "••••••••" + clean_key[-4:] if len(clean_key) > 8 else "••••••••"
     
     # 3. Save or update connection in database
-    conn_id = f"conn_{uuid.uuid4().hex[:6]}"
     display_name = f"{req.provider}" + (f" ({req.base_url})" if req.provider.lower() == "other" and req.base_url else "")
     
-    conn = Connection(
-        id=conn_id,
-        group_name=req.layer,
-        name=display_name,
-        status="connected",
-        api_key_masked=masked
+    # Check if this connection already exists in this group
+    result = await db.execute(
+        select(Connection).where(Connection.group_name == req.layer, Connection.name == display_name)
     )
-    db.add(conn)
+    existing = result.scalars().first()
+    
+    if existing:
+        existing.status = "connected"
+        existing.api_key_masked = masked
+        conn_id = existing.id
+    else:
+        conn_id = f"conn_{uuid.uuid4().hex[:6]}"
+        conn = Connection(
+            id=conn_id,
+            group_name=req.layer,
+            name=display_name,
+            status="connected",
+            api_key_masked=masked
+        )
+        db.add(conn)
+
     await db.commit()
     
     return {
