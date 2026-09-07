@@ -5378,12 +5378,12 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 /* ---------------------------------- connections & key validator ---------------------------------- */
 
 const FAMOUS_PROVIDERS_BY_LAYER = {
-  "LLM": ["DeepSeek", "OpenAI (GPT-4o)", "Anthropic (Claude 3.5 Sonnet)", "Groq", "Mistral", "Together AI", "Other (Custom Base URL)"],
+  "LLM": ["xAI (Grok-2 / Grok-4)", "DeepSeek", "OpenAI (GPT-4o)", "Anthropic (Claude 3.5 Sonnet)", "Groq", "Mistral", "Together AI", "Other (Custom Base URL)"],
   "Speech-to-Text": ["Deepgram (Nova-2)", "Faster-Whisper (Self-Hosted)", "OpenAI Whisper", "Gladia", "Speechmatics", "Other (Custom Base URL)"],
   "Text-to-Speech": ["ElevenLabs", "Cartesia (Sonic)", "PlayHT", "Kokoro-82M (Self-Hosted)", "Other (Custom Base URL)"],
   "Telephony": ["Twilio", "Telnyx", "Plivo", "SIP Trunk (Custom)", "Other (Custom Base URL)"],
   "Calendar": ["Cal.com (Self-Hosted)", "Cal.com (Cloud)", "Google Calendar", "Microsoft Outlook", "Other (Custom Base URL)"],
-  "Voice Orchestration": ["LiveKit (Self-Hosted)", "Retell AI", "Vapi", "Other (Custom Base URL)"],
+  "Voice Orchestration": ["xAI Realtime Voice (Direct SIP)", "OpenAI Realtime API", "LiveKit (Self-Hosted)", "Retell AI", "Vapi", "Other (Custom Base URL)"],
   "Business Discovery": ["Apollo.io", "LeadMagic", "Google Places API", "Other (Custom Base URL)"],
   "Other": ["Other (Custom Base URL)"]
 };
@@ -5657,10 +5657,578 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
   );
 }
 
+/* ---------------------------------- Voice & Telephony Trunking Hub (Multi-Provider) ---------------------------------- */
+
+function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProfile }) {
+  const [hubData, setHubData] = useState({
+    activeCarrier: "Telnyx",
+    activeEngine: "xAI Realtime",
+    phoneNumber: profile?.callerId || "+1 (202) 555-0199",
+    voiceName: "rex",
+    status: "connected",
+    webhookUrl: "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook",
+    xaiFqdn: "sip.voice.x.ai",
+    codecs: ["G.711 μ-law (PCMU)", "G.711 A-law (PCMA)", "G.722"],
+    isLive: true
+  });
+  const [carrierChoice, setCarrierChoice] = useState("telnyx");
+  const [engineChoice, setEngineChoice] = useState("xai");
+  const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || "+12025550199");
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [accountSid, setAccountSid] = useState("");
+  const [voiceName, setVoiceName] = useState("rex");
+  const [webhookUrl, setWebhookUrl] = useState("https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook");
+
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionMsg, setProvisionMsg] = useState(null);
+  const [provisionErr, setProvisionErr] = useState("");
+
+  const [pinging, setPinging] = useState(false);
+  const [pingResult, setPingResult] = useState(null);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [copiedFqdn, setCopiedFqdn] = useState(false);
+
+  const fetchStatus = async () => {
+    try {
+      const data = await api.getTelephonyHub();
+      if (data) {
+        setHubData(data);
+        if (data.phoneNumber) setPhoneNumber(data.phoneNumber);
+        if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
+        if (data.voiceName) setVoiceName(data.voiceName);
+        if (data.activeCarrier) {
+          const cLower = data.activeCarrier.toLowerCase();
+          setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : cLower.includes("sim") ? "simulation" : "telnyx");
+        }
+        if (data.activeEngine) {
+          const eLower = data.activeEngine.toLowerCase();
+          setEngineChoice(eLower.includes("openai") ? "openai" : eLower.includes("modular") ? "modular" : eLower.includes("sim") ? "simulation" : "xai");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load telephony hub data:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
+
+  const handlePing = async () => {
+    setPinging(true);
+    setPingResult(null);
+    try {
+      const res = await api.testTelephonyPing();
+      setPingResult(res);
+    } catch (err) {
+      setPingResult({ success: false, latencyMs: 0, details: { error: String(err) } });
+    } finally {
+      setPinging(false);
+    }
+  };
+
+  const handleProvision = async (e) => {
+    e.preventDefault();
+    setProvisioning(true);
+    setProvisionErr("");
+    setProvisionMsg(null);
+
+    if (!phoneNumber.trim()) {
+      setProvisionErr("Phone number is required.");
+      setProvisioning(false);
+      return;
+    }
+
+    try {
+      const res = await api.provisionTelephonyHub({
+        carrier: carrierChoice,
+        engine: engineChoice,
+        phone_number: phoneNumber,
+        api_key: apiKey,
+        account_sid: accountSid,
+        voice_name: voiceName,
+        webhook_url: webhookUrl
+      });
+      setProvisionMsg(res);
+      await fetchStatus();
+      if (setProfile) {
+        setProfile((prev) => ({ ...prev, callerId: phoneNumber }));
+      }
+      setNotifications((ns) => [
+        { id: "n_" + Date.now(), text: `✓ Activated ${res.carrier} + ${res.engine} on ${phoneNumber}`, time: "just now", unread: true, type: "success" },
+        ...ns
+      ]);
+    } catch (err) {
+      setProvisionErr(err.message || "Failed to provision stack.");
+    } finally {
+      setProvisioning(false);
+    }
+  };
+
+  const copyToClipboard = (text, type) => {
+    navigator.clipboard.writeText(text);
+    if (type === "webhook") {
+      setCopiedWebhook(true);
+      setTimeout(() => setCopiedWebhook(false), 2000);
+    } else {
+      setCopiedFqdn(true);
+      setTimeout(() => setCopiedFqdn(false), 2000);
+    }
+  };
+
+  const carriers = [
+    {
+      id: "telnyx",
+      name: "Telnyx (BYO SIP Trunk)",
+      badge: "Direct SIP FQDN • Recommended",
+      desc: "Direct SIP audio handoff into xAI speech engine with E.164 routing and ultra-low latency.",
+      icon: Radio
+    },
+    {
+      id: "twilio",
+      name: "Twilio Programmable Voice",
+      badge: "Global PSTN • Media Streams",
+      desc: "Carrier coverage across 180+ countries with bi-directional WebSocket media streaming.",
+      icon: PhoneCall
+    },
+    {
+      id: "generic_sip",
+      name: "Generic SIP Trunk / PBX",
+      badge: "FreePBX / Asterisk / Plivo",
+      desc: "Connect any corporate on-premise PBX or custom SIP proxy using standard SIP URIs.",
+      icon: Globe
+    },
+    {
+      id: "simulation",
+      name: "Local Testing Simulator",
+      badge: "Zero Cost • Demo Mode",
+      desc: "Simulate live inbound voice calls directly in the browser without carrier account charges.",
+      icon: Sparkles
+    }
+  ];
+
+  const engines = [
+    {
+      id: "xai",
+      name: "xAI Realtime Voice (Grok)",
+      badge: "<500ms • Speech-to-Speech",
+      desc: "All-in-one multimodal voice engine with native server VAD, dynamic pgvector RAG, and Grok intelligence.",
+      icon: Sparkles
+    },
+    {
+      id: "openai",
+      name: "OpenAI Realtime API",
+      badge: "GPT-4o Multimodal Audio",
+      desc: "Low-latency voice engine with natural turn-taking supporting Alloy, Echo, Shimmer and function calls.",
+      icon: Headphones
+    },
+    {
+      id: "modular",
+      name: "Modular Voice Pipeline",
+      badge: "Deepgram + Groq + ElevenLabs",
+      desc: "Best-of-breed component stitching: Nova-2 STT, ultra-fast Groq Llama-3-70B, and Cartesia/ElevenLabs TTS.",
+      icon: Layers
+    },
+    {
+      id: "simulation",
+      name: "Simulated Voice Engine",
+      badge: "Scripted Walker",
+      desc: "Instant scripted conversational turns for product demos, automated walkthroughs, and UI testing.",
+      icon: Play
+    }
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* 1. HERO ACTIVE STACK CARD */}
+      <div
+        style={{
+          background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+          borderRadius: 14,
+          padding: "24px 28px",
+          color: "#fff",
+          border: "1px solid #334155",
+          boxShadow: "0 10px 25px -5px rgba(0,0,0,0.15)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 18
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 10, background: "rgba(59, 130, 246, 0.2)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(59, 130, 246, 0.3)" }}>
+              <Radio size={22} color="#60A5FA" />
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Active Voice & Telephony Trunk</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 12, background: "rgba(16, 185, 129, 0.2)", border: "1px solid rgba(16, 185, 129, 0.3)", color: "#34D399", fontSize: 11, fontWeight: 600 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10B981" }} /> Live Call Ready
+                </span>
+              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#94A3B8", marginTop: 2 }}>
+                Provider-agnostic speech-to-speech carrier bridge with dynamic pgvector RAG context.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={handlePing}
+              disabled={pinging}
+              style={{
+                background: "rgba(255, 255, 255, 0.08)",
+                border: "1px solid rgba(255, 255, 255, 0.15)",
+                borderRadius: 8,
+                padding: "8px 14px",
+                color: "#F1F5F9",
+                fontFamily: FONT_BODY,
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: pinging ? "wait" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }}
+            >
+              {pinging ? <RefreshCw size={13} className="animate-spin" /> : <PhoneCall size={13} />}
+              Test Inbound Ping
+            </button>
+          </div>
+        </div>
+
+        {/* Status Metrics Bar */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, paddingTop: 14, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Inbound Caller Line</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 15, fontWeight: 700, color: "#38BDF8", marginTop: 4 }}>{hubData.phoneNumber}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Carrier Route</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: "#F8FAFC", marginTop: 4 }}>{hubData.activeCarrier} (Direct SIP)</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Voice AI Engine</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: "#A78BFA", marginTop: 4 }}>{hubData.activeEngine} ({hubData.voiceName})</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>SIP Inbound FQDN</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: "#CBD5E1", marginTop: 4 }}>{hubData.xaiFqdn}:5060</div>
+          </div>
+        </div>
+
+        {/* Live Ping Result Banner */}
+        {pingResult && (
+          <div style={{ padding: "10px 14px", borderRadius: 8, background: pingResult.success ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", border: `1px solid ${pingResult.success ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)"}`, display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12.5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: pingResult.success ? "#34D399" : "#F87171" }}>
+              {pingResult.success ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+              <span>{pingResult.success ? `Webhook Healthy! Roundtrip latency: ${pingResult.latencyMs}ms` : `Diagnostic ping failed: ${pingResult.details?.error || "Check server"}`}</span>
+            </div>
+            <span style={{ fontFamily: FONT_MONO, color: "#94A3B8", fontSize: 11 }}>HTTP {pingResult.statusCode}</span>
+          </div>
+        )}
+      </div>
+
+      {/* 2. PLUGGABLE STACK SELECTOR FORM */}
+      <form onSubmit={handleProvision} style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        
+        {/* Step 1: Telephony Carrier Selection */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 22, height: 22, borderRadius: "50%", background: C.ink, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>1</span>
+            <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Select Telephony / Number Provider</h3>
+          </div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginBottom: 12 }}>Choose the carrier that owns your phone numbers and carries the call audio.</div>
+          
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+            {carriers.map((c) => {
+              const Icon = c.icon;
+              const isSelected = carrierChoice === c.id;
+              return (
+                <div
+                  key={c.id}
+                  onClick={() => setCarrierChoice(c.id)}
+                  style={{
+                    border: `2px solid ${isSelected ? C.cobalt : C.border}`,
+                    background: isSelected ? "#F8FAFC" : "#fff",
+                    borderRadius: 12,
+                    padding: 16,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Icon size={18} color={isSelected ? C.cobalt : C.slate} />
+                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: isSelected ? C.cobalt : C.textInk }}>{c.name}</span>
+                    </div>
+                    <span style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${isSelected ? C.cobalt : C.slateLight}`, background: isSelected ? C.cobalt : "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {isSelected && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? C.cobalt : C.slate, background: isSelected ? "#EFF6FF" : "#F1F5F9", padding: "2px 6px", borderRadius: 4, alignSelf: "flex-start" }}>
+                    {c.badge}
+                  </span>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.4 }}>{c.desc}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Step 2: Voice AI Engine Selection */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 22, height: 22, borderRadius: "50%", background: C.ink, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>2</span>
+            <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Select AI Voice Intelligence Engine</h3>
+          </div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginBottom: 12 }}>Choose the brain powering speech synthesis, speech recognition, and tool execution.</div>
+          
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+            {engines.map((e) => {
+              const Icon = e.icon;
+              const isSelected = engineChoice === e.id;
+              return (
+                <div
+                  key={e.id}
+                  onClick={() => setEngineChoice(e.id)}
+                  style={{
+                    border: `2px solid ${isSelected ? "#7C3AED" : C.border}`,
+                    background: isSelected ? "#FAF5FF" : "#fff",
+                    borderRadius: 12,
+                    padding: 16,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Icon size={18} color={isSelected ? "#7C3AED" : C.slate} />
+                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: isSelected ? "#7C3AED" : C.textInk }}>{e.name}</span>
+                    </div>
+                    <span style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${isSelected ? "#7C3AED" : C.slateLight}`, background: isSelected ? "#7C3AED" : "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {isSelected && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? "#7C3AED" : C.slate, background: isSelected ? "#F3E8FF" : "#F1F5F9", padding: "2px 6px", borderRadius: 4, alignSelf: "flex-start" }}>
+                    {e.badge}
+                  </span>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.4 }}>{e.desc}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Step 3: Credentials & Dynamic Form */}
+        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+            <span style={{ width: 22, height: 22, borderRadius: "50%", background: C.ink, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>3</span>
+            <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Configure Line Credentials</h3>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                Phone Number (E.164 format)
+              </label>
+              <input
+                type="text"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="+1 (202) 555-0199 or +44..."
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13, outline: "none" }}
+              />
+              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>The active caller ID that triggers this voice trunk.</div>
+            </div>
+
+            {engineChoice !== "simulation" && (
+              <div>
+                <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                  {engineChoice === "xai" ? "xAI API Key" : engineChoice === "openai" ? "OpenAI API Key" : "Engine Primary API Key"}
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showKey ? "text" : "password"}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder={engineChoice === "xai" ? "xai-••••••••••••••••" : "sk-••••••••••••••••"}
+                    style={{ width: "100%", boxSizing: "border-box", padding: "10px 38px 10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13, outline: "none" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.slateLight }}
+                  >
+                    {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>Stored securely in database. Never exposed to callers.</div>
+              </div>
+            )}
+
+            {carrierChoice === "twilio" && (
+              <div>
+                <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                  Twilio Account SID
+                </label>
+                <input
+                  type="text"
+                  value={accountSid}
+                  onChange={(e) => setAccountSid(e.target.value)}
+                  placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13, outline: "none" }}
+                />
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                AI Voice Persona
+              </label>
+              <select
+                value={voiceName}
+                onChange={(e) => setVoiceName(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+              >
+                {engineChoice === "xai" ? (
+                  <>
+                    <option value="rex">Rex (Male — Warm, Confident, Executive)</option>
+                    <option value="eve">Eve (Female — Articulate, Engaging, Professional)</option>
+                    <option value="ara">Ara (Neutral — Crisp, Modern, Direct)</option>
+                  </>
+                ) : engineChoice === "openai" ? (
+                  <>
+                    <option value="alloy">Alloy (Versatile, balanced)</option>
+                    <option value="echo">Echo (Warm, natural)</option>
+                    <option value="shimmer">Shimmer (Clear, upbeat)</option>
+                    <option value="onyx">Onyx (Deep, authoritative)</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="rachel">Rachel (ElevenLabs Calm)</option>
+                    <option value="adam">Adam (ElevenLabs Narration)</option>
+                    <option value="sonic">Cartesia Sonic (90ms Ultra-Fast)</option>
+                  </>
+                )}
+              </select>
+            </div>
+          </div>
+
+          {/* Dynamic SIP & Webhook Routing Info */}
+          <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk, marginBottom: 10 }}>
+              📡 Inbound Routing Configuration for {carrierChoice === "telnyx" ? "Telnyx Portal" : carrierChoice === "twilio" ? "Twilio Console" : "Carrier / PBX"}
+            </div>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+              {/* Webhook Box */}
+              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Public Inbound Webhook URL</span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(webhookUrl, "webhook")}
+                    style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
+                  >
+                    {copiedWebhook ? <Check size={11} color={C.green} /> : <Copy size={11} />}
+                    {copiedWebhook ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.ink, wordBreak: "break-all" }}>{webhookUrl}</div>
+              </div>
+
+              {/* Carrier SIP Box */}
+              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Inbound FQDN Target</span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard("sip.voice.x.ai:5060", "fqdn")}
+                    style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
+                  >
+                    {copiedFqdn ? <Check size={11} color={C.green} /> : <Copy size={11} />}
+                    {copiedFqdn ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink }}>sip.voice.x.ai:5060</div>
+                <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>
+                  Destination: <b>+E.164</b> • Codecs: <b>G.711 μ-law (PCMU), G.722</b>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Feedback Alerts */}
+        {provisionErr && (
+          <div style={{ padding: "12px 16px", borderRadius: 8, background: C.redSoft, border: `1px solid #FCA5A5`, color: C.red, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+            <AlertTriangle size={16} /> {provisionErr}
+          </div>
+        )}
+
+        {provisionMsg && (
+          <div style={{ padding: "14px 18px", borderRadius: 8, background: C.greenSoft, border: `1px solid #A7F3D0`, color: C.green, display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
+              <CheckCircle2 size={16} /> {provisionMsg.message}
+            </div>
+            {provisionMsg.signingSecret && (
+              <div style={{ fontSize: 12, color: C.slate, background: "#fff", padding: "6px 10px", borderRadius: 6, border: "1px solid #D1FAE5", fontFamily: FONT_MONO }}>
+                Signing Secret: {provisionMsg.signingSecret} (Saved securely to database)
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Submit Button */}
+        <div>
+          <button
+            type="submit"
+            disabled={provisioning}
+            style={{
+              background: C.ink,
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "12px 28px",
+              fontFamily: FONT_DISPLAY,
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: provisioning ? "wait" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              boxShadow: "0 4px 14px rgba(0,0,0,0.12)"
+            }}
+          >
+            {provisioning ? (
+              <>
+                <RefreshCw size={15} className="animate-spin" /> Auto-Provisioning & Linking Line...
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={16} /> ⚡ Auto-Register Line & Activate Stack
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+
 const LAYERS = VOICE_LAYERS;
 
 function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile }) {
-  const [activeTab, setActiveTab] = useState("routing");
+  const [activeTab, setActiveTab] = useState("telephony-hub");
   const [showAdd, setShowAdd] = useState(false);
 
   // ── Layer Routing state ──
@@ -5822,6 +6390,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         {/* Tabs */}
         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
           {[
+            { id: "telephony-hub", label: "⚡ Voice & Telephony Trunking Hub" },
             { id: "routing", label: "⚙️ Layer Routing & Models" },
             { id: "credentials", label: "🔑 API Credentials" },
           ].map((t) => (
@@ -5840,6 +6409,16 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             </button>
           ))}
         </div>
+
+        {/* TAB 0: Voice & Telephony Trunking Hub */}
+        {activeTab === "telephony-hub" && (
+          <VoiceTrunkingHubTab
+            notifications={notifications}
+            setNotifications={setNotifications}
+            profile={profile}
+            setProfile={setProfile}
+          />
+        )}
 
         {/* TAB 1: Layer Routing */}
         {activeTab === "routing" && (

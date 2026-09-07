@@ -84,6 +84,9 @@ export const api = {
   testConnection: (payload) => apiRequest('/connections/test', { method: 'POST', body: payload }),
   testAndSaveConnection: (payload) => apiRequest('/connections/test-and-save', { method: 'POST', body: payload }),
   resetDemoData: () => apiRequest('/connections/reset-demo-data', { method: 'POST' }),
+  getTelephonyHub: () => apiRequest('/connections/telephony-hub'),
+  provisionTelephonyHub: (payload) => apiRequest('/connections/telephony-hub/provision', { method: 'POST', body: payload }),
+  testTelephonyPing: () => apiRequest('/connections/telephony-hub/test-ping', { method: 'POST' }),
 
   // Analytics
   getAnalytics: () => apiRequest('/analytics'),
