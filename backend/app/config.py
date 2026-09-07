@@ -50,7 +50,8 @@ class Settings(BaseSettings):
     
     # Telnyx Telephony Configuration
     TELNYX_API_KEY: Optional[str] = os.getenv("TELNYX_API_KEY", None)
-    TELNYX_PHONE_NUMBER: Optional[str] = os.getenv("TELNYX_PHONE_NUMBER", None)
+    TELNYX_PHONE_NUMBER: Optional[str] = os.getenv("TELNYX_PHONE_NUMBER", "+19096866918")
+
     
     # System mode: "simulation" or "live"
     VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "simulation")

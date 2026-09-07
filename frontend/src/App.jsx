@@ -5663,7 +5663,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [hubData, setHubData] = useState({
     activeCarrier: "Telnyx",
     activeEngine: "xAI Realtime",
-    phoneNumber: profile?.callerId || "+1 (202) 555-0199",
+    phoneNumber: profile?.callerId || "+19096866918",
     voiceName: "rex",
     status: "connected",
     webhookUrl: "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook",
@@ -5673,7 +5673,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   });
   const [carrierChoice, setCarrierChoice] = useState("telnyx");
   const [engineChoice, setEngineChoice] = useState("xai");
-  const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || "+12025550199");
+  const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || "+19096866918");
+
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [accountSid, setAccountSid] = useState("");

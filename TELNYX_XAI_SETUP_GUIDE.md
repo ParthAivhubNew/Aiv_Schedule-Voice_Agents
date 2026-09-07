@@ -43,7 +43,7 @@ Live Call Session
    - **Connection Type:** Select **FQDN**
    - **Primary FQDN:** `sip.voice.x.ai` (Port: `5060`, Transport: `UDP` or `Auto`)
    - **Inbound Settings Section:**
-     - **Destination Number Format:** `+E.164` (e.g., `+14302446060`)
+     - **Destination Number Format:** `+E.164` (e.g., `+19096866918`)
    - **Codecs Section:**
      - ✅ **G.711 μ-law (PCMU)** *(Required)*
      - ✅ **G.711 A-law (PCMA)**
@@ -52,7 +52,7 @@ Live Call Session
 
 #### Screen 2: Assign Your Number to This Connection
 1. In Telnyx Portal, go to **Numbers** ➔ **My Numbers**.
-2. Click on your purchased number (e.g. `+14302446060`).
+2. Click on your purchased number (e.g. `+19096866918`).
 3. Under **Voice Settings**, locate the **Connection or Application** dropdown.
 4. Select the FQDN SIP connection created in Screen 1 (`xAI-Voice-Agent`).
 5. Click **Save Changes**.
