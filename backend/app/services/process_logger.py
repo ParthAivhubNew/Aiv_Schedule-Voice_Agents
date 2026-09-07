@@ -23,11 +23,49 @@ SUBSYSTEM_LOG_FILES = {
     "all": LOGS_DIR / "all_processes.log",
 }
 
+import re
+
+# Secret and PII Scrubbing Patterns
+RE_WHSEC = re.compile(r"whsec_[A-Za-z0-9+/=_-]+", re.IGNORECASE)
+RE_XAI_KEY = re.compile(r"xai-[A-Za-z0-9_-]{10,}", re.IGNORECASE)
+RE_BEARER = re.compile(r"Bearer\s+[A-Za-z0-9._~+/-]+", re.IGNORECASE)
+RE_GENERIC_KEY = re.compile(r"(api[-_]?key|secret|password|token)\s*[:=]\s*['\"]?([A-Za-z0-9._~+/-]{8,})['\"]?", re.IGNORECASE)
+RE_PHONE = re.compile(r"(\+\d{1,3})(\d{3,4})(\d{3,4})")
+
+def scrub_text(text: str) -> str:
+    """Scrubs sensitive API tokens, secrets, and masks phone numbers."""
+    if not isinstance(text, str):
+        return text
+    text = RE_WHSEC.sub("whsec_***REDACTED***", text)
+    text = RE_XAI_KEY.sub("xai-***REDACTED***", text)
+    text = RE_BEARER.sub("Bearer ***REDACTED***", text)
+    text = RE_GENERIC_KEY.sub(r"\1: '***REDACTED***'", text)
+    # Mask phone: +12025550199 -> +1202***0199
+    text = RE_PHONE.sub(r"\1***\3", text)
+    return text
+
+def scrub_data(obj: Any) -> Any:
+    """Recursively scrubs secrets from dicts, lists, and primitives."""
+    if isinstance(obj, str):
+        return scrub_text(obj)
+    elif isinstance(obj, dict):
+        sanitized = {}
+        for k, v in obj.items():
+            k_lower = str(k).lower()
+            if any(s in k_lower for s in ["secret", "password", "token", "auth", "key", "signature"]):
+                sanitized[k] = "***REDACTED***"
+            else:
+                sanitized[k] = scrub_data(v)
+        return sanitized
+    elif isinstance(obj, list):
+        return [scrub_data(item) for item in obj]
+    return obj
+
 def _write_to_file(filepath: Path, line: str):
     """Safely appends a log entry line to a file."""
     try:
         with open(filepath, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+            f.write(scrub_text(line) + "\n")
     except Exception as err:
         logger.error(f"Failed to write log to {filepath}: {err}")
 
@@ -49,12 +87,13 @@ async def log_process_event(
     """
     timestamp_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     event_id = f"plog_{uuid.uuid4().hex[:10]}"
-    details_dict = details or {}
+    details_dict = scrub_data(details or {})
+    clean_message = scrub_text(message)
     
     # 1. Format file log string
     duration_tag = f" [{duration_ms:.1f}ms]" if duration_ms is not None else ""
     details_preview = f" | {json.dumps(details_dict, ensure_ascii=False)}" if details_dict else ""
-    log_line = f"[{timestamp_str}] [{level.upper()}] [{subsystem.upper()}] [{process_name}]{duration_tag} {message}{details_preview}"
+    log_line = f"[{timestamp_str}] [{level.upper()}] [{subsystem.upper()}] [{process_name}]{duration_tag} {clean_message}{details_preview}"
     
     # 2. Write to dedicated subsystem file
     sub_file = SUBSYSTEM_LOG_FILES.get(subsystem, SUBSYSTEM_LOG_FILES["system"])
@@ -66,7 +105,7 @@ async def log_process_event(
         "subsystem": subsystem,
         "level": level.upper(),
         "processName": process_name,
-        "message": message,
+        "message": clean_message,
         "details": details_dict,
         "durationMs": duration_ms,
         "createdAt": datetime.utcnow().isoformat()

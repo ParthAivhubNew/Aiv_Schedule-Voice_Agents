@@ -41,6 +41,17 @@ class Settings(BaseSettings):
     CALCOM_API_KEY: Optional[str] = os.getenv("CALCOM_API_KEY", None)
     CALCOM_EVENT_TYPE_ID: Optional[str] = os.getenv("CALCOM_EVENT_TYPE_ID", None)
     
+    # xAI Realtime Voice Agent Configuration
+    XAI_API_KEY: Optional[str] = os.getenv("XAI_API_KEY", None)
+    XAI_WEBHOOK_SECRET: Optional[str] = os.getenv("XAI_WEBHOOK_SECRET", None)
+    XAI_VOICE_NAME: str = os.getenv("XAI_VOICE_NAME", "rex")  # rex, eve, ara
+    XAI_REALTIME_WS_URL: str = os.getenv("XAI_REALTIME_WS_URL", "wss://api.x.ai/v1/realtime")
+    XAI_SIP_FQDN: str = os.getenv("XAI_SIP_FQDN", "sip.voice.x.ai")
+    
+    # Telnyx Telephony Configuration
+    TELNYX_API_KEY: Optional[str] = os.getenv("TELNYX_API_KEY", None)
+    TELNYX_PHONE_NUMBER: Optional[str] = os.getenv("TELNYX_PHONE_NUMBER", None)
+    
     # System mode: "simulation" or "live"
     VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "simulation")
 
