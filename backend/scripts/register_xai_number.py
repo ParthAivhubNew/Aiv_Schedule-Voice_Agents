@@ -1,7 +1,7 @@
 ﻿"""
-xAI Voice Agent & Telnyx Number Setup Utility
-Usage:
-    py -3.11 scripts/register_xai_number.py --webhook-url https://your-domain.com/api/sip-webhook
+xAI Voice Agent & Telnyx Number Registration Utility
+Registers your BYO Trunk (Telnyx) phone number with xAI API:
+POST https://api.x.ai/v2/phone-numbers
 """
 
 import argparse
@@ -10,79 +10,76 @@ import os
 import sys
 import httpx
 
-# Add parent directory to path to import app config
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from app.config import settings
 
 def main():
-    parser = argparse.ArgumentParser(description="xAI Voice Agent Phone Registration & Diagnostics")
-    parser.add_argument("--webhook-url", type=str, help="Public HTTPS webhook URL (e.g. https://xyz.ngrok-free.app/api/sip-webhook)")
-    parser.add_argument("--phone-number", type=str, help="Telnyx phone number in E.164 format (e.g. +12025550199)")
+    parser = argparse.ArgumentParser(description="Register Telnyx Phone Number with xAI Voice Agent")
+    parser.add_argument("--api-key", type=str, help="Your xAI API Key (xai-...)")
+    parser.add_argument("--phone-number", type=str, help="Telnyx phone number in E.164 (e.g. +12025550199)")
+    parser.add_argument("--webhook-url", type=str, default="https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook", help="Public Webhook URL")
     args = parser.parse_args()
 
+    api_key = args.api_key or settings.XAI_API_KEY or os.getenv("XAI_API_KEY")
     phone_number = args.phone_number or settings.TELNYX_PHONE_NUMBER or os.getenv("TELNYX_PHONE_NUMBER")
-    api_key = settings.XAI_API_KEY or os.getenv("XAI_API_KEY")
-
-    print("\n" + "=" * 60)
-    print("  xAI Voice Agent + Telnyx Pre-Flight Check")
-    print("=" * 60)
-
-    print(f"[*] Voice Engine:        {settings.PROJECT_NAME}")
-    print(f"[*] Telnyx Phone Number: {phone_number or 'Not set (set in .env as TELNYX_PHONE_NUMBER)'}")
-    print(f"[*] xAI API Key:         {'Configured (***)' if api_key else 'Missing (set in .env as XAI_API_KEY)'}")
-    print(f"[*] xAI Voice Name:      {settings.XAI_VOICE_NAME}")
-    print(f"[*] xAI SIP FQDN:        {settings.XAI_SIP_FQDN}")
-    print(f"[*] Webhook Secret:      {'Configured (whsec_***)' if settings.XAI_WEBHOOK_SECRET else 'Pending registration'}")
-
     webhook_url = args.webhook_url
-    if not webhook_url:
-        print("\n[!] Notice: No --webhook-url provided.")
-        print("    If testing locally, start your tunnel first:")
-        print("      ngrok http 8000")
-        print("    Then re-run:")
-        print("      py -3.11 scripts/register_xai_number.py --webhook-url https://<your-ngrok>.ngrok-free.app/api/sip-webhook\n")
+
+    print("\n" + "=" * 65)
+    print("   xAI Voice Agent Phone Number Registration")
+    print("=" * 65)
+
+    if not api_key:
+        print("\n[!] ERROR: Missing xAI API Key.")
+        print("    Pass it with --api-key xai-xxxxxxxx or set XAI_API_KEY in .env")
         return
 
-    print(f"[*] Target Webhook URL:  {webhook_url}")
+    if not phone_number:
+        print("\n[!] ERROR: Missing Phone Number.")
+        print("    Pass it with --phone-number +1xxxxxxxxxx or set TELNYX_PHONE_NUMBER in .env")
+        return
 
-    # Check local webhook accessibility
+    payload = {
+        "origin": "byo_trunk",
+        "name": "AIVHub Voice Agent",
+        "phone_number": phone_number,
+        "webhook": {
+            "name": "AIVHub SIP Webhook",
+            "url": webhook_url
+        }
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    endpoint = "https://api.x.ai/v2/phone-numbers"
+    print(f"\n[*] Submitting registration to {endpoint}...")
+    print(f"[*] Phone Number: {phone_number}")
+    print(f"[*] Webhook URL:  {webhook_url}")
+
     try:
-        health_url = webhook_url.rstrip("/") + "/health" if not webhook_url.endswith("/health") else webhook_url
-        print(f"\n[*] Testing Webhook reachability at {health_url}...")
-        resp = httpx.get(health_url, timeout=5.0)
-        if resp.status_code == 200:
-            print(f"    [+] Success! Webhook responded: {resp.json()}")
+        response = httpx.post(endpoint, json=payload, headers=headers, timeout=15.0)
+        print(f"[*] HTTP Status:  {response.status_code}")
+        
+        if response.status_code in [200, 201]:
+            data = response.json()
+            signing_secret = data.get("signing_secret") or data.get("webhook_secret") or data.get("secret")
+            print("\n" + "*" * 65)
+            print("  SUCCESS! NUMBER REGISTERED WITH xAI VOICE AGENT")
+            print("*" * 65)
+            print(f"  Number ID:       {data.get('id', 'N/A')}")
+            print(f"  Signing Secret:  {signing_secret}")
+            print("*" * 65)
+            print("\nSave this signing secret in your backend/.env file:")
+            print(f"  XAI_WEBHOOK_SECRET={signing_secret}")
+            print(f"  XAI_API_KEY={api_key}")
+            print(f"  TELNYX_PHONE_NUMBER={phone_number}")
+            print(f"  VOICE_ENGINE_MODE=live\n")
         else:
-            print(f"    [?] Webhook returned status {resp.status_code}")
+            print(f"\n[!] Registration failed: {response.text}")
     except Exception as e:
-        print(f"    [!] Warning: Could not reach {health_url}: {e}")
-        print("    Ensure your server is running (uvicorn app.main:app) and tunnel is active.")
-
-    print("\n" + "-" * 60)
-    print("  TELNYX PORTAL INSTRUCTIONS")
-    print("-" * 60)
-    print("1. Log in to https://portal.telnyx.com")
-    print("2. Navigate to 'Voice' -> 'SIP Trunking' -> 'Add SIP Connection'")
-    print("3. Set SIP Connection Type to 'FQDN Connection':")
-    print("   - Connection Name:          xAI-Voice-Agent")
-    print("   - Primary FQDN:             sip.voice.x.ai")
-    print("   - Port:                     5060")
-    print("   - Inbound Destination Type: +E.164")
-    print("   - Enabled Audio Codecs:     G.711 u-law (PCMU), G.711 a-law (PCMA), G.722")
-    print(f"4. Navigate to 'Numbers' -> Assign your number ({phone_number or '+1...'}) to this connection.")
-
-    print("\n" + "-" * 60)
-    print("  xAI REGISTRATION COMMAND")
-    print("-" * 60)
-    print(f"""To register via xAI CLI or API, supply:
-  - Phone Number: {phone_number or '<YOUR_TELNYX_NUMBER>'}
-  - Webhook URL:  {webhook_url}
-  - Voice:        {settings.XAI_VOICE_NAME}
-
-Copy the returned 'whsec_...' secret into your .env file:
-  XAI_WEBHOOK_SECRET=whsec_...
-""")
-    print("=" * 60 + "\n")
+        print(f"\n[!] Error contacting xAI API: {e}")
 
 if __name__ == "__main__":
     main()
