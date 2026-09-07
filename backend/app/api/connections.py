@@ -224,125 +224,161 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
     2. Auto-provisions webhook registration if xAI / Telnyx is selected.
     3. Saves active stack and phone number directly into database without server reboots.
     """
-    carrier = req.carrier.lower()
-    engine = req.engine.lower()
-    phone_clean = req.phone_number.strip()
-    key_clean = (req.api_key or "").strip()
-    
-    signing_secret = None
-    auto_registered = False
+    try:
+        carrier = req.carrier.lower()
+        engine = req.engine.lower()
+        phone_clean = req.phone_number.strip()
+        key_clean = (req.api_key or "").strip()
+        
+        signing_secret = None
+        auto_registered = False
 
-    # 1. Real-time credential validation
-    if key_clean and not key_clean.startswith("mock") and carrier != "simulation" and engine != "simulation":
-        # Validate engine key if provided
-        if "xai" in engine:
-            v_res = await validate_api_key(provider="xAI (Grok)", api_key=key_clean)
-            if not v_res["valid"]:
-                raise HTTPException(status_code=400, detail=v_res.get("error", "xAI authentication failed."))
+        # 1. Real-time credential validation
+        if key_clean and not key_clean.startswith("mock") and carrier != "simulation" and engine != "simulation":
+            # Validate engine key if provided
+            if "xai" in engine:
+                v_res = await validate_api_key(provider="xAI (Grok)", api_key=key_clean)
+                if not v_res["valid"]:
+                    raise HTTPException(status_code=400, detail=v_res.get("error", "xAI authentication failed."))
 
-            # Auto-register number with xAI BYO trunk API
-            target_webhook = req.webhook_url or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
-            try:
-                async with httpx.AsyncClient(timeout=12.0) as client:
-                    reg_res = await client.post(
-                        "https://api.x.ai/v2/phone-numbers",
-                        headers={"Authorization": f"Bearer {key_clean}", "Content-Type": "application/json"},
-                        json={
-                            "origin": "byo_trunk",
-                            "name": "AIVHub Voice Agent",
-                            "phone_number": phone_clean,
-                            "webhook": {"name": "AIVHub SIP Webhook", "url": target_webhook}
-                        }
-                    )
-                    if reg_res.status_code in [200, 201]:
-                        reg_data = reg_res.json()
-                        signing_secret = reg_data.get("signing_secret") or reg_data.get("webhook_secret")
-                        auto_registered = True
-            except Exception as reg_err:
-                logger.warning(f"Could not auto-register with xAI endpoint: {reg_err}")
+                # Auto-register number with xAI BYO trunk API
+                target_webhook = req.webhook_url or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
+                try:
+                    async with httpx.AsyncClient(timeout=12.0) as client:
+                        reg_res = await client.post(
+                            "https://api.x.ai/v2/phone-numbers",
+                            headers={"Authorization": f"Bearer {key_clean}", "Content-Type": "application/json"},
+                            json={
+                                "origin": "byo_trunk",
+                                "name": "AIVHub Voice Agent",
+                                "phone_number": phone_clean,
+                                "webhook": {"name": "AIVHub SIP Webhook", "url": target_webhook}
+                            }
+                        )
+                        if reg_res.status_code in [200, 201]:
+                            reg_data = reg_res.json()
+                            signing_secret = reg_data.get("signing_secret") or reg_data.get("webhook_secret")
+                            auto_registered = True
+                except Exception as reg_err:
+                    logger.warning(f"Could not auto-register with xAI endpoint: {reg_err}")
 
-        elif "openai" in engine:
-            v_res = await validate_api_key(provider="OpenAI", api_key=key_clean)
-            if not v_res["valid"]:
-                raise HTTPException(status_code=400, detail=v_res.get("error", "OpenAI authentication failed."))
+            elif "openai" in engine:
+                v_res = await validate_api_key(provider="OpenAI", api_key=key_clean)
+                if not v_res["valid"]:
+                    raise HTTPException(status_code=400, detail=v_res.get("error", "OpenAI authentication failed."))
 
-        elif "twilio" in carrier:
-            v_res = await validate_api_key(provider="Twilio", api_key=key_clean, account_sid=req.account_sid)
-            if not v_res["valid"]:
-                raise HTTPException(status_code=400, detail=v_res.get("error", "Twilio authentication failed."))
+            elif "twilio" in carrier:
+                v_res = await validate_api_key(provider="Twilio", api_key=key_clean, account_sid=req.account_sid)
+                if not v_res["valid"]:
+                    raise HTTPException(status_code=400, detail=v_res.get("error", "Twilio authentication failed."))
 
-    # 2. Update Company Profile Caller ID
-    prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
-    profile = prof_res.scalars().first()
-    if profile:
-        profile.caller_id = phone_clean
-    else:
-        db.add(CompanyProfile(id="default", caller_id=phone_clean))
+        # 2. Update Company Profile Caller ID
+        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+        profile = prof_res.scalars().first()
+        if profile:
+            profile.caller_id = phone_clean
+        else:
+            db.add(CompanyProfile(id="default", caller_id=phone_clean))
 
-    # 3. Save or Update Carrier in Connection table
-    carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
-    c_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
-    c_entry = c_res.scalars().first()
-    masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
+        # 3. Save or Update Carrier in Connection table
+        carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
+        c_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+        c_entry = c_res.scalars().first()
+        masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
 
-    if c_entry:
-        c_entry.name = carrier_name
-        c_entry.status = "connected"
-        if key_clean:
-            c_entry.api_key_masked = masked_key
-    else:
-        db.add(Connection(
-            id=f"conn_{uuid.uuid4().hex[:6]}",
-            group_name="Telephony",
-            name=carrier_name,
-            status="connected",
-            api_key_masked=masked_key
-        ))
+        if c_entry:
+            c_entry.name = carrier_name
+            c_entry.status = "connected"
+            if key_clean:
+                c_entry.api_key_masked = masked_key
+        else:
+            db.add(Connection(
+                id=f"conn_{uuid.uuid4().hex[:6]}",
+                group_name="Telephony",
+                name=carrier_name,
+                status="connected",
+                api_key_masked=masked_key
+            ))
 
-    # 4. Save or Update Voice Engine in Connection table
-    engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
-    e_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
-    e_entry = e_res.scalars().first()
-    if e_entry:
-        e_entry.name = engine_name
-        e_entry.status = "connected"
-        if key_clean:
-            e_entry.api_key_masked = masked_key
-    else:
-        db.add(Connection(
-            id=f"conn_{uuid.uuid4().hex[:6]}",
-            group_name="Voice Orchestration",
-            name=engine_name,
-            status="connected",
-            api_key_masked=masked_key
-        ))
+        # 4. Save or Update Voice Engine in Connection table
+        engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
+        e_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+        e_entry = e_res.scalars().first()
+        if e_entry:
+            e_entry.name = engine_name
+            e_entry.status = "connected"
+            if key_clean:
+                e_entry.api_key_masked = masked_key
+        else:
+            db.add(Connection(
+                id=f"conn_{uuid.uuid4().hex[:6]}",
+                group_name="Voice Orchestration",
+                name=engine_name,
+                status="connected",
+                api_key_masked=masked_key
+            ))
 
-    await db.commit()
+        await db.commit()
 
-    await log_process_event(
-        subsystem="telephony",
-        process_name="telephony_hub_provisioned",
-        message=f"Telephony & Voice Hub activated: Carrier={carrier_name}, Engine={engine_name}, Phone={phone_clean}.",
-        level="SUCCESS",
-        details={
+        try:
+            await log_process_event(
+                subsystem="telephony",
+                process_name="telephony_hub_provisioned",
+                message=f"Telephony & Voice Hub activated: Carrier={carrier_name}, Engine={engine_name}, Phone={phone_clean}.",
+                level="SUCCESS",
+                details={
+                    "carrier": carrier_name,
+                    "engine": engine_name,
+                    "phone": phone_clean,
+                    "autoRegistered": auto_registered,
+                    "hasSigningSecret": bool(signing_secret)
+                }
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
             "carrier": carrier_name,
             "engine": engine_name,
-            "phone": phone_clean,
+            "phoneNumber": phone_clean,
             "autoRegistered": auto_registered,
-            "hasSigningSecret": bool(signing_secret)
+            "signingSecret": signing_secret,
+            "status": "connected",
+            "fqdn": settings.XAI_SIP_FQDN,
+            "message": f"{carrier_name} & {engine_name} successfully linked to {phone_clean}."
         }
-    )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        err_tb = traceback.format_exc()
+        logger.error(f"Error in provision_telephony_hub: {err_tb}")
+        raise HTTPException(status_code=500, detail=f"Provision error: {str(exc)}")
 
+@router.get("/telephony-hub/debug")
+async def get_telephony_hub_debug(db: AsyncSession = Depends(get_db)):
+    """Diagnostic endpoint returning server environment, git commit, and test DB query."""
+    import subprocess, sys
+    
+    git_commit = "unknown"
+    try:
+        git_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception as e:
+        git_commit = str(e)
+        
+    db_status = "ok"
+    try:
+        from sqlalchemy import text
+        res = await db.execute(text("SELECT 1;"))
+        db_val = res.scalar()
+    except Exception as e:
+        db_status = str(e)
+        
     return {
-        "success": True,
-        "carrier": carrier_name,
-        "engine": engine_name,
-        "phoneNumber": phone_clean,
-        "autoRegistered": auto_registered,
-        "signingSecret": signing_secret,
-        "status": "connected",
-        "fqdn": settings.XAI_SIP_FQDN,
-        "message": f"{carrier_name} & {engine_name} successfully linked to {phone_clean}."
+        "git_commit": git_commit,
+        "python_version": sys.version,
+        "db_status": db_status
     }
 
 @router.post("/telephony-hub/test-ping")
