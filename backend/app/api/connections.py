@@ -154,10 +154,14 @@ async def reset_demo_data(db: AsyncSession = Depends(get_db)):
 # ----------------------------------------------------------------------
 # UNIVERSAL VOICE & TELEPHONY HUB (MULTI-PROVIDER ORCHESTRATION)
 # ----------------------------------------------------------------------
+import time
+import logging
+import httpx
 from app.models.models import CompanyProfile
 from app.services.process_logger import log_process_event
 from app.config import settings
-import httpx
+
+logger = logging.getLogger(__name__)
 
 class TelephonyHubProvisionRequest(BaseModel):
     carrier: str = "telnyx"        # telnyx, twilio, generic_sip, simulation
@@ -174,21 +178,28 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     Returns current active carrier, active engine, configured phone numbers,
     and webhook routing diagnostics.
     """
-    # 1. Fetch Company Profile for caller ID
-    prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
-    profile = prof_res.scalars().first()
-    active_phone = profile.caller_id if profile and profile.caller_id else settings.TELNYX_PHONE_NUMBER or "+1 (202) 555-0199"
+    try:
+        # 1. Fetch Company Profile for caller ID
+        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+        profile = prof_res.scalars().first()
+        active_phone = profile.caller_id if profile and profile.caller_id else settings.TELNYX_PHONE_NUMBER or "+1 (202) 555-0199"
 
-    # 2. Fetch connections for Telephony and Voice Orchestration
-    conns_res = await db.execute(select(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
-    conns = conns_res.scalars().all()
+        # 2. Fetch connections for Telephony and Voice Orchestration
+        conns_res = await db.execute(select(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
+        conns = conns_res.scalars().all()
 
-    carrier_conn = next((c for c in conns if c.group_name == "Telephony"), None)
-    engine_conn = next((c for c in conns if c.group_name == "Voice Orchestration"), None)
+        carrier_conn = next((c for c in conns if c.group_name == "Telephony"), None)
+        engine_conn = next((c for c in conns if c.group_name == "Voice Orchestration"), None)
 
-    active_carrier = carrier_conn.name if carrier_conn else ("Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Simulation")
-    active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Simulation")
-    is_connected = bool((carrier_conn and carrier_conn.status == "connected") or settings.XAI_API_KEY)
+        active_carrier = carrier_conn.name if carrier_conn else ("Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Simulation")
+        active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Simulation")
+        is_connected = bool((carrier_conn and carrier_conn.status == "connected") or settings.XAI_API_KEY)
+    except Exception as err:
+        logger.warning(f"Error reading telephony hub status: {err}")
+        active_carrier = "Telnyx" if settings.TELNYX_PHONE_NUMBER else "Simulation"
+        active_engine = "xAI Realtime" if settings.XAI_API_KEY else "Simulation"
+        active_phone = settings.TELNYX_PHONE_NUMBER or "+1 (202) 555-0199"
+        is_connected = bool(settings.XAI_API_KEY)
 
     # 3. Detect public webhook URL
     default_webhook = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
@@ -265,6 +276,8 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
     profile = prof_res.scalars().first()
     if profile:
         profile.caller_id = phone_clean
+    else:
+        db.add(CompanyProfile(id="default", caller_id=phone_clean))
 
     # 3. Save or Update Carrier in Connection table
     carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
@@ -338,18 +351,16 @@ async def test_telephony_hub_ping():
     Sends an instant diagnostic health ping through the internal webhook router
     to measure roundtrip response time and log telemetry.
     """
+    from app.api.sip_webhook import webhook_health_check
     start_time = time.time()
-    health_url = "http://127.0.0.1:8000/api/sip-webhook/health"
     status_code = 200
     details = {}
 
     try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
-            resp = await client.get(health_url)
-            status_code = resp.status_code
-            details = resp.json()
-    except Exception:
-        details = {"status": "ok", "mode": "in-process", "latency": "direct"}
+        details = await webhook_health_check()
+    except Exception as e:
+        status_code = 500
+        details = {"error": str(e)}
 
     elapsed_ms = (time.time() - start_time) * 1000
 
