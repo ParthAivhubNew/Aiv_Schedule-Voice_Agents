@@ -215,7 +215,19 @@ async def validate_api_key(
                     # If user just provided auth token without SID, provide guidance
                     if not account_sid and not ":" in api_key:
                         return {"valid": False, "error": "Twilio requires both Account SID and Auth Token (format: ACxxx:auth_token)."}
-                    return {"valid": False, "error": f"Twilio returned status {res.status_code}"}
+            # 14b. Telnyx (Telephony)
+            elif "telnyx" in p:
+                url = "https://api.telnyx.com/v2/phone_numbers"
+                headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+                res = await client.get(url, headers=headers)
+                if res.status_code == 200:
+                    data = res.json()
+                    count = len(data.get("data", []))
+                    return {"valid": True, "provider": "Telnyx", "details": f"Telnyx API key verified successfully ({count} active phone numbers)."}
+                elif res.status_code in [401, 403]:
+                    return {"valid": False, "error": "Telnyx authentication failed (Invalid API Key - 401 Unauthorized)."}
+                else:
+                    return {"valid": False, "error": f"Telnyx returned status {res.status_code}: {res.text[:150]}"}
 
             # 15. Cal.com
             elif "calcom" in p or "cal" in p:

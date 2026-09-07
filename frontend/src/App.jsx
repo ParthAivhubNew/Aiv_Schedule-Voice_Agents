@@ -5006,7 +5006,10 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
 
   const isOther = providerChoice.startsWith("Other") || category === "Other";
   const isTwilio = providerChoice === "Twilio";
+  const isTelnyx = providerChoice.toLowerCase().includes("telnyx");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const providerList = FAMOUS_PROVIDERS_BY_LAYER[category] || ["Other (Custom Base URL)"];
+
 
   const handleCategoryChange = (cat) => {
     setCategory(cat);
@@ -5050,6 +5053,13 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
         account_sid: accountSid.trim() || undefined,
       });
 
+      if (isTelnyx && phoneNumber.trim()) {
+        try {
+          localStorage.setItem("aivhub_caller_id", phoneNumber.trim());
+          await api.updateProfile({ callerId: phoneNumber.trim() });
+        } catch (_) {}
+      }
+
       setSuccessMsg(`✓ ${res.details || "API Key verified & active!"}`);
       setTimeout(() => {
         onAddSuccess({
@@ -5058,6 +5068,7 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
           status: "connected",
           key: apiKey.trim(),
           masked: res.maskedKey,
+          phoneNumber: phoneNumber.trim() || undefined,
         });
         onClose();
       }, 900);
@@ -5141,17 +5152,34 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
             </div>
           )}
 
+          {isTelnyx && (
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                Telnyx Outbound Phone Number
+              </label>
+              <input
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="+15551234567 or +442079460912"
+                style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
+              />
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                This number is verified on your Telnyx portal and used as your outbound Caller ID.
+              </div>
+            </div>
+          )}
+
           {/* API Key */}
           <div>
             <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
-              {isTwilio ? "Auth Token" : "API Key / Token"}
+              {isTwilio ? "Auth Token" : isTelnyx ? "Telnyx API V2 Key" : "API Key / Token"}
             </label>
             <div style={{ position: "relative", width: "100%" }}>
               <input
                 type={showApiKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => { setApiKey(e.target.value); setErrorMsg(""); setSuccessMsg(""); }}
-                placeholder={providerChoice.includes("DeepSeek") ? "sk-..." : providerChoice.includes("OpenAI") ? "sk-proj-..." : providerChoice.includes("Deepgram") ? "Token..." : "Paste API key..."}
+                placeholder={isTelnyx ? "KEY018..." : providerChoice.includes("DeepSeek") ? "sk-..." : providerChoice.includes("OpenAI") ? "sk-proj-..." : providerChoice.includes("Deepgram") ? "Token..." : "Paste API key..."}
                 style={{ width: "100%", boxSizing: "border-box", height: 38, padding: "0 38px 0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
               />
               <button
