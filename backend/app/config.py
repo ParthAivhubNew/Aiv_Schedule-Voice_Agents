@@ -43,10 +43,12 @@ class Settings(BaseSettings):
     
     # xAI Realtime Voice Agent Configuration
     XAI_API_KEY: Optional[str] = os.getenv("XAI_API_KEY", None)
+    XAI_AGENT_ID: str = os.getenv("XAI_AGENT_ID", "agent_QDoRHfWcKMybf197")
     XAI_WEBHOOK_SECRET: Optional[str] = os.getenv("XAI_WEBHOOK_SECRET", None)
     XAI_VOICE_NAME: str = os.getenv("XAI_VOICE_NAME", "rex")  # rex, eve, ara
     XAI_REALTIME_WS_URL: str = os.getenv("XAI_REALTIME_WS_URL", "wss://api.x.ai/v1/realtime")
     XAI_SIP_FQDN: str = os.getenv("XAI_SIP_FQDN", "sip.voice.x.ai")
+
     
     # Telnyx Telephony Configuration
     TELNYX_API_KEY: Optional[str] = os.getenv("TELNYX_API_KEY", None)

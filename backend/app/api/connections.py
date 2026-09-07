@@ -157,8 +157,6 @@ async def reset_demo_data(db: AsyncSession = Depends(get_db)):
 import time
 import logging
 import httpx
-from app.models.models import CompanyProfile
-from app.services.process_logger import log_process_event
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -169,6 +167,7 @@ class TelephonyHubProvisionRequest(BaseModel):
     phone_number: str
     api_key: Optional[str] = None
     account_sid: Optional[str] = None
+    agent_id: Optional[str] = "agent_QDoRHfWcKMybf197"
     voice_name: Optional[str] = "rex"
     webhook_url: Optional[str] = None
     signing_secret: Optional[str] = None
@@ -223,6 +222,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "activeCarrier": active_carrier,
         "activeEngine": active_engine,
         "phoneNumber": active_phone,
+        "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
         "voiceName": settings.XAI_VOICE_NAME,
         "status": "connected" if is_connected else "configured",
         "webhookUrl": default_webhook,
@@ -264,7 +264,6 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
         signing_secret = None
         auto_registered = False
 
-
         # 1. Real-time credential validation
         if key_clean and not key_clean.startswith("mock") and carrier != "simulation" and engine != "simulation":
             # Validate engine key if provided
@@ -275,6 +274,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
 
                 # Auto-register number with xAI BYO trunk API
                 target_webhook = req.webhook_url or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
+                target_agent_id = req.agent_id or getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197")
                 try:
                     async with httpx.AsyncClient(timeout=12.0) as client:
                         reg_res = await client.post(
@@ -284,6 +284,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                                 "origin": "byo_trunk",
                                 "name": "AIVHub Voice Agent",
                                 "phone_number": phone_clean,
+                                "agent_id": target_agent_id,
                                 "webhook": {"name": "AIVHub SIP Webhook", "url": target_webhook}
                             }
                         )
@@ -293,6 +294,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                             auto_registered = True
                 except Exception as reg_err:
                     logger.warning(f"Could not auto-register with xAI endpoint: {reg_err}")
+
 
             elif "openai" in engine:
                 v_res = await validate_api_key(provider="OpenAI", api_key=key_clean)

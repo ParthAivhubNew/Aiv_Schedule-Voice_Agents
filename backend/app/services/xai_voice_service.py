@@ -366,7 +366,8 @@ async def join_xai_call_session(
     (wss://api.x.ai/v1/realtime?call_id=...) for an incoming/outgoing call.
     """
     start_ts = time.time()
-    ws_url = f"{settings.XAI_REALTIME_WS_URL}?call_id={call_id}"
+    agent_id = getattr(settings, "XAI_AGENT_ID", None) or "agent_QDoRHfWcKMybf197"
+    ws_url = f"{settings.XAI_REALTIME_WS_URL}?agent_id={agent_id}&call_id={call_id}"
     api_key = settings.XAI_API_KEY
     if not api_key:
         try:
