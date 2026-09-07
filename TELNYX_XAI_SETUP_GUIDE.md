@@ -1,4 +1,4 @@
-﻿# Telnyx & xAI Voice Agent Live Calling Guide
+# Telnyx & xAI Voice Agent Live Calling Guide
 
 This guide details the complete, step-by-step process for connecting **Telnyx (Carrier)** and **xAI Realtime API (Speech-to-Speech Engine)** to your **FastAPI Backend** so you can place and receive live calls today.
 
@@ -31,28 +31,42 @@ Live Call Session
 
 ## 📋 Checklist to Go Live Today
 
-### Step 1: Configure Telnyx Inbound SIP Routing (3 mins)
+### Step 1: Configure Telnyx Inbound SIP Routing (2 Screens in Telnyx Portal)
 
-1. Log in to your [Telnyx Mission Control Portal](https://portal.telnyx.com).
-2. Go to **Voice** ➔ **SIP Trunking** (or **SIP Connections**).
-3. Click **Add SIP Connection**:
+> [!NOTE]
+> **Important Portal Nuance:** The destination FQDN does **NOT** go directly onto the phone number page. It lives in the **SIP Connection** settings. The phone number page only **assigns** which connection handles the number.
+
+#### Screen 1: Create or Edit the SIP Connection (Where FQDN Goes)
+1. In Telnyx Mission Control Portal, go to **Voice** (left menu) ➔ **SIP Trunking**.
+2. Click **+ Add SIP Connection** (or click the small edit icon on the far right of an existing connection row):
    - **Connection Name:** `xAI-Voice-Agent`
-   - **SIP Connection Type:** Select **FQDN**
-   - **Primary FQDN:** `sip.voice.x.ai`
-   - **Port:** `5060`
-   - **Transport Protocol:** `UDP` (or `Auto`)
-   - **Inbound Destination Format:** `+E.164` (e.g. `+12025550199`)
-   - **Supported Audio Codecs:** 
+   - **Connection Type:** Select **FQDN**
+   - **Primary FQDN:** `sip.voice.x.ai` (Port: `5060`, Transport: `UDP` or `Auto`)
+   - **Inbound Settings Section:**
+     - **Destination Number Format:** `+E.164` (e.g., `+14302446060`)
+   - **Codecs Section:**
      - ✅ **G.711 μ-law (PCMU)** *(Required)*
      - ✅ **G.711 A-law (PCMA)**
      - ✅ **G.722** *(HD Voice)*
-     *(Important: Do not disable PCMU/PCMA; xAI and standard carrier handshakes require G.711).*
-4. Click **Save Connection**.
-5. Go to **Numbers** ➔ **My Numbers** in the Telnyx portal:
-   - Find your purchased phone number.
-   - Click **Edit / Assign Connection**.
-   - Set **Connection** to `xAI-Voice-Agent`.
-   - Save changes.
+3. Click **Save Connection**.
+
+#### Screen 2: Assign Your Number to This Connection
+1. In Telnyx Portal, go to **Numbers** ➔ **My Numbers**.
+2. Click on your purchased number (e.g. `+14302446060`).
+3. Under **Voice Settings**, locate the **Connection or Application** dropdown.
+4. Select the FQDN SIP connection created in Screen 1 (`xAI-Voice-Agent`).
+5. Click **Save Changes**.
+
+> [!TIP]
+> **Account Verification Gotcha:** If the Connection dropdown on the number page is greyed out or empty, check your Telnyx account verification status. Assigning an FQDN SIP Connection to a phone number requires **Level 1 Account Verification**.
+
+#### Quick Summary of Where Each Setting Lives:
+| Setting | Exact Location in Telnyx |
+|---|---|
+| Destination FQDN (`sip.voice.x.ai`) | **Voice ➔ SIP Trunking ➔ SIP Connection (FQDN field)** |
+| Destination format `+E.164` | **SIP Connection ➔ Inbound settings** |
+| Audio Codecs (PCMU / PCMA / G.722) | **SIP Connection ➔ Codecs section** |
+| Assign Connection to Number | **Numbers ➔ My Numbers ➔ Click Number ➔ Connection dropdown** |
 
 ---
 
