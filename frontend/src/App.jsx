@@ -4183,6 +4183,14 @@ const PROFILE_TABS = [
   { id: "compliance", label: "Compliance", icon: ShieldCheck },
 ];
 
+const SOURCE_TYPES = [
+  { id: "Website URL", label: "Website URL", icon: Globe, placeholder: "https://www.aivhub.com/", hint: "Public company website, product documentation, or case study URL." },
+  { id: "Document upload", label: "Document / PDF", icon: FileText, placeholder: "e.g. pricing-matrix-2026.pdf or cloud link", hint: "Upload or reference pricing sheets, service catalogues, and sales decks." },
+  { id: "Google Drive link", label: "Google Drive", icon: Link2, placeholder: "https://drive.google.com/drive/folders/...", hint: "Shared team drive folder or presentation link." },
+  { id: "Google Docs link", label: "Google Docs", icon: FileText, placeholder: "https://docs.google.com/document/d/...", hint: "Live internal playbooks, FAQs, and competitor battlecards." },
+  { id: "Manual text", label: "Direct Text / Notes", icon: PenLine, placeholder: "Paste raw objection rebuttals, customer Q&As, or pricing rules here...", hint: "Paste custom scripts or internal knowledge directly into the AI's memory." },
+];
+
 function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq }) {
   const [tab, setTab] = useState("identity");
   const [saved, setSaved] = useState(false);
@@ -4293,7 +4301,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           })}
         </div>
 
-        <div style={{ maxWidth: 680 }}>
+        <div style={{ width: "100%", maxWidth: tab === "services" ? 1040 : 760, transition: "max-width 0.25s ease" }}>
           {tab === "identity" && (
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={Users} title="Company identity" desc="Basic facts the AI introduces itself with and uses to explain who it's calling on behalf of." />
@@ -4392,31 +4400,85 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
               </div>
 
               {addingSource ? (
-                <div style={{ marginTop: 12, border: `1px dashed ${C.cobalt}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                  <input
-                    value={newSource.name}
-                    onChange={(e) => setNewSource((n) => ({ ...n, name: e.target.value }))}
-                    placeholder="Name this source, e.g. 'Pricing sheet'"
-                    style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }}
-                  />
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <select
-                      value={newSource.type}
-                      onChange={(e) => setNewSource((n) => ({ ...n, type: e.target.value }))}
-                      style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5 }}
-                    >
-                      {["Website URL", "Document upload", "Google Drive link", "Google Docs link", "Manual text"].map((o) => <option key={o}>{o}</option>)}
-                    </select>
+                <div style={{ marginTop: 14, border: `1.5px solid ${C.cobalt}`, background: C.paper, borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                      1. Select Source Format
+                    </label>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {SOURCE_TYPES.map((st) => {
+                        const Icon = st.icon;
+                        const active = (newSource.type || "Website URL") === st.id;
+                        return (
+                          <button
+                            key={st.id}
+                            type="button"
+                            onClick={() => setNewSource((n) => ({ ...n, type: st.id }))}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "7px 12px",
+                              borderRadius: 8,
+                              border: `1.5px solid ${active ? C.ink : C.border}`,
+                              background: active ? C.ink : "#fff",
+                              color: active ? "#fff" : C.textInk,
+                              fontFamily: FONT_BODY,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              transition: "all 0.15s ease",
+                              boxShadow: active ? "0 2px 6px rgba(0,0,0,0.08)" : "none"
+                            }}
+                          >
+                            <Icon size={13} color={active ? "#fff" : C.slate} />
+                            {st.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+                      2. Source Name / Identifier
+                    </label>
                     <input
-                      value={newSource.value}
-                      onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
-                      placeholder={newSource.type === "Manual text" ? "Paste or type the content" : "Paste link, or filename if uploading"}
-                      style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }}
+                      value={newSource.name}
+                      onChange={(e) => setNewSource((n) => ({ ...n, name: e.target.value }))}
+                      placeholder={newSource.type === "Website URL" ? "e.g. Main Company Website" : newSource.type === "Manual text" ? "e.g. Pricing Objection Playbook" : "e.g. Service Catalogue 2026"}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff" }}
                     />
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={addSource} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Add source</button>
-                    <button onClick={() => setAddingSource(false)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 14px", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Cancel</button>
+
+                  <div>
+                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+                      3. {newSource.type === "Manual text" ? "Content / Script Notes" : "URL / Document Path"}
+                    </label>
+                    {newSource.type === "Manual text" ? (
+                      <textarea
+                        value={newSource.value}
+                        onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
+                        placeholder={SOURCE_TYPES.find((st) => st.id === newSource.type)?.placeholder}
+                        rows={4}
+                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff", resize: "vertical" }}
+                      />
+                    ) : (
+                      <input
+                        value={newSource.value}
+                        onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
+                        placeholder={SOURCE_TYPES.find((st) => st.id === (newSource.type || "Website URL"))?.placeholder}
+                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff" }}
+                      />
+                    )}
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                      {SOURCE_TYPES.find((st) => st.id === (newSource.type || "Website URL"))?.hint}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    <button onClick={addSource} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Add to Knowledge Base</button>
+                    <button onClick={() => setAddingSource(false)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>Cancel</button>
                   </div>
                 </div>
               ) : (
@@ -4432,24 +4494,125 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 
           {tab === "services" && (
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-              <SectionIntro icon={Package} title="Services & ideal customer" desc="What you're pitching, and who it's a good fit for — helps the AI tailor the pitch to each prospect's sector and size." />
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {services.map((s) => (
-                  <div key={s.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input value={s.name} onChange={(e) => updateService(s.id, "name", e.target.value)} placeholder="Service name" style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }} />
-                      <button onClick={() => removeService(s.id)} style={{ background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} color={C.slateLight} /></button>
+              <SectionIntro icon={Package} title="Services & ideal customer" desc="What you're pitching, and who it's a good fit for — helps the AI tailor the pitch dynamically to each prospect's sector and size." />
+              
+              {services.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "36px 20px", border: `1px dashed ${C.border}`, borderRadius: 10, background: "#fff", color: C.slate, margin: "14px 0" }}>
+                  <Package size={28} color={C.slateLight} style={{ margin: "0 auto 8px" }} />
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>No services listed yet</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, marginTop: 4 }}>Add what you offer so the voice AI can accurately pitch and answer prospect questions.</div>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 14, marginTop: 14 }}>
+                  {services.map((s, idx) => (
+                    <div
+                      key={s.id}
+                      style={{
+                        background: "#fff",
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 10,
+                        padding: 14,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 10,
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                        position: "relative"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.borderLight}`, paddingBottom: 8 }}>
+                        <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", color: C.slate, background: C.paper, padding: "2px 8px", borderRadius: 4 }}>
+                          SERVICE {String(idx + 1).padStart(2, "0")}
+                        </span>
+                        <button
+                          onClick={() => removeService(s.id)}
+                          title="Remove service"
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: "3px 6px",
+                            borderRadius: 4,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            color: C.slateLight,
+                            transition: "all 0.15s ease"
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = "#dc2626"; e.currentTarget.style.background = "#fef2f2"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = C.slateLight; e.currentTarget.style.background = "none"; }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Service Name
+                        </label>
+                        <input
+                          value={s.name}
+                          onChange={(e) => updateService(s.id, "name", e.target.value)}
+                          placeholder="e.g. AI Customer Support Automation"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Ideal Customer / Target
+                        </label>
+                        <input
+                          value={s.ideal}
+                          onChange={(e) => updateService(s.id, "ideal", e.target.value)}
+                          placeholder="e.g. Mid-market SaaS ops teams 50-500 staff"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Description & Value Proposition
+                        </label>
+                        <textarea
+                          value={s.desc}
+                          onChange={(e) => updateService(s.id, "desc", e.target.value)}
+                          placeholder="Short description of what it does, key ROI points, and deliverables..."
+                          rows={3}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", resize: "vertical" }}
+                        />
+                      </div>
                     </div>
-                    <input value={s.ideal} onChange={(e) => updateService(s.id, "ideal", e.target.value)} placeholder="Ideal customer, e.g. mid-market ops teams 50-500 staff" style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }} />
-                    <textarea value={s.desc} onChange={(e) => updateService(s.id, "desc", e.target.value)} placeholder="Short description of what it does" style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", minHeight: 50, resize: "none" }} />
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-                <button onClick={addService} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", flex: 1, justifyContent: "center" }}>
-                  <PlusCircle size={13} /> Add a service
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center" }}>
+                <button
+                  onClick={addService}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "#fff",
+                    border: `1px dashed ${C.border}`,
+                    borderRadius: 8,
+                    padding: "9px 16px",
+                    fontFamily: FONT_BODY,
+                    fontSize: 12.5,
+                    color: C.slate,
+                    cursor: "pointer",
+                    flex: 1,
+                    justifyContent: "center",
+                    transition: "all 0.15s ease"
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.ink; e.currentTarget.style.color = C.ink; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.slate; }}
+                >
+                  <PlusCircle size={14} /> Add another service
                 </button>
-                <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                <button
+                  onClick={save}
+                  style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}
+                >
                   Save services
                 </button>
               </div>
