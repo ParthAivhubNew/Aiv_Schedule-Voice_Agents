@@ -290,9 +290,17 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
             import os
             os.environ["XAI_WEBHOOK_SECRET"] = signing_secret
 
+        if "xai" in engine and key_clean and not key_clean.startswith("mock"):
+            settings.XAI_API_KEY = key_clean
+            settings.VOICE_ENGINE_MODE = "live"
+            import os
+            os.environ["XAI_API_KEY"] = key_clean
+            os.environ["VOICE_ENGINE_MODE"] = "live"
+
         carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
         engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
         masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
+
 
         try:
             # Update Company Profile Caller ID
@@ -322,6 +330,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 status="connected",
                 api_key_masked=masked_key,
                 config={
+                    "api_key": key_clean,
                     "signing_secret": signing_secret,
                     "phoneNumber": phone_clean,
                     "engine": engine_name

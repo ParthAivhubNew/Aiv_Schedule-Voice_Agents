@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -368,13 +368,27 @@ async def join_xai_call_session(
     start_ts = time.time()
     ws_url = f"{settings.XAI_REALTIME_WS_URL}?call_id={call_id}"
     api_key = settings.XAI_API_KEY
+    if not api_key:
+        try:
+            from app.models.models import Connection
+            async with AsyncSessionLocal() as db:
+                c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+                c = c_res.scalars().first()
+                if c and c.config and isinstance(c.config, dict):
+                    stored_key = c.config.get("api_key")
+                    if stored_key:
+                        api_key = stored_key
+                        settings.XAI_API_KEY = stored_key
+                        settings.VOICE_ENGINE_MODE = "live"
+        except Exception as k_err:
+            logger.warning(f"Could not load xAI key from DB config: {k_err}")
 
     await log_process_event(
         subsystem="telephony",
         process_name="xai_ws_connecting",
         message=f"Connecting WebSocket to xAI Realtime API for call_id={call_id} from caller={caller_number}",
         level="INFO",
-        details={"callId": call_id, "caller": caller_number}
+        details={"callId": call_id, "caller": caller_number, "isLiveKey": bool(api_key and api_key.startswith("xai-"))}
     )
 
     # 1. Update or create LiveCall record in DB
@@ -404,7 +418,7 @@ async def join_xai_call_session(
     })
 
     # If in mock / simulation mode without real xAI key, run simulation bridge
-    if not api_key or api_key.startswith("mock") or settings.VOICE_ENGINE_MODE == "simulation":
+    if not api_key or api_key.startswith("mock") or (settings.VOICE_ENGINE_MODE == "simulation" and not api_key.startswith("xai-")):
         logger.info(f"Running xAI Call {call_id} in local simulation mode.")
         await _run_simulated_xai_session(call_id, caller_number)
         return
