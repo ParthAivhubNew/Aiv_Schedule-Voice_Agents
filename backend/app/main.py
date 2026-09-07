@@ -26,10 +26,19 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Initializing database tables...")
     async with engine.begin() as conn:
+        # Enable pgvector extension if running on PostgreSQL
+        if not str(engine.url).startswith("sqlite"):
+            try:
+                from sqlalchemy import text
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                logger.info("Verified pgvector extension enabled.")
+            except Exception as ext_err:
+                logger.warning(f"Could not enable pgvector extension directly: {ext_err}")
         await conn.run_sync(Base.metadata.create_all)
     await seed_database()
     yield
     logger.info("Shutting down AIVHub Voice Agent API...")
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

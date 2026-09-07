@@ -4196,6 +4196,11 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
   const [saved, setSaved] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", type: "Website URL", value: "" });
+  const [activeChunkModal, setActiveChunkModal] = useState(null);
+  const [testQuery, setTestQuery] = useState("");
+  const [testResults, setTestResults] = useState(null);
+  const [testingQuery, setTestingQuery] = useState(false);
+  const [resyncingId, setResyncingId] = useState(null);
 
   const update = (k, v) => setProfile((p) => {
     const next = { ...p, [k]: v };
@@ -4223,24 +4228,85 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 
   const addSource = async () => {
     if (!newSource.name || !newSource.value) return;
-    const item = { id: "k_" + Date.now(), ...newSource, status: "indexed", synced: "just now" };
+    const tempId = "k_" + Date.now();
+    const item = { id: tempId, ...newSource, status: "crawling", synced: "just now", chunkCount: 0 };
     setSources((s) => {
-      const next = [...s, item];
+      const next = [item, ...s];
+      try { localStorage.setItem("aivhub_sources", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+    setNewSource({ name: "", type: "Website URL", value: "" });
+    setAddingSource(false);
+
+    try {
+      await api.addSource(item);
+      setNotifications((ns) => [{ id: "n_" + Date.now(), text: `✓ Web crawling & vector indexing started for ${item.name}`, time: "just now", unread: true, type: "info" }, ...ns]);
+      setTimeout(async () => {
+        try {
+          const fresh = await api.getSources();
+          if (Array.isArray(fresh) && fresh.length) setSources(fresh);
+        } catch (_) {}
+      }, 3500);
+    } catch (err) {
+      console.warn("Backend addSource error:", err);
+    }
+  };
+
+  const resyncSource = async (id) => {
+    setResyncingId(id);
+    setSources((s) => s.map((x) => (x.id === id ? { ...x, status: "crawling" } : x)));
+    try {
+      await api.resyncSource(id);
+      setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Re-crawling and re-embedding triggered", time: "just now", unread: true, type: "info" }, ...ns]);
+      setTimeout(async () => {
+        try {
+          const fresh = await api.getSources();
+          if (Array.isArray(fresh) && fresh.length) setSources(fresh);
+        } catch (_) {}
+        setResyncingId(null);
+      }, 4000);
+    } catch (err) {
+      console.warn("Resync error:", err);
+      setResyncingId(null);
+    }
+  };
+
+  const viewChunks = async (source) => {
+    setActiveChunkModal({ source, chunks: [], loading: true });
+    try {
+      const data = await api.getSourceChunks(source.id);
+      setActiveChunkModal({ source, chunks: data || [], loading: false });
+    } catch (err) {
+      console.warn("Error loading chunks:", err);
+      setActiveChunkModal({ source, chunks: [], loading: false, error: "No chunks indexed yet." });
+    }
+  };
+
+  const removeSource = async (id) => {
+    setSources((s) => {
+      const next = s.filter((x) => x.id !== id);
       try { localStorage.setItem("aivhub_sources", JSON.stringify(next)); } catch (_) {}
       return next;
     });
     try {
-      await api.addSource(item);
+      await api.deleteSource(id);
     } catch (_) {}
-    setNewSource({ name: "", type: "Website URL", value: "" });
-    setAddingSource(false);
   };
 
-  const removeSource = (id) => setSources((s) => {
-    const next = s.filter((x) => x.id !== id);
-    try { localStorage.setItem("aivhub_sources", JSON.stringify(next)); } catch (_) {}
-    return next;
-  });
+  const runTestQuery = async () => {
+    if (!testQuery.trim()) return;
+    setTestingQuery(true);
+    setTestResults(null);
+    try {
+      const res = await api.testKnowledgeQuery(testQuery.trim());
+      setTestResults(res);
+    } catch (err) {
+      setTestResults({ query: testQuery, matches: [], count: 0, error: err.message || "Failed to search" });
+    } finally {
+      setTestingQuery(false);
+    }
+  };
+
 
   const addService = () => setServices((s) => {
     const next = [...s, { id: "sv_" + Date.now(), name: "", ideal: "", desc: "" }];
@@ -4301,7 +4367,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           })}
         </div>
 
-        <div style={{ width: "100%", maxWidth: tab === "services" ? 1040 : 760, transition: "max-width 0.25s ease" }}>
+        <div style={{ width: "100%", maxWidth: (tab === "services" || tab === "knowledge") ? 1040 : 760, transition: "max-width 0.25s ease" }}>
           {tab === "identity" && (
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={Users} title="Company identity" desc="Basic facts the AI introduces itself with and uses to explain who it's calling on behalf of." />
@@ -4373,121 +4439,359 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           )}
 
           {tab === "knowledge" && (
-            <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-              <SectionIntro icon={BookOpen} title="Knowledge sources" desc="Website pages, documents, or links the AI can reference when a prospect asks something specific — pricing, case studies, technical detail. Add anything you'd hand a new salesperson on day one." />
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {sources.map((s) => (
-                  <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", border: `1px solid ${C.border}`, borderRadius: 9 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: 7, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {s.type === "Website URL" ? <Globe size={14} color={C.slate} /> : s.type.includes("Drive") ? <Link2 size={14} color={C.slate} /> : s.type === "Document upload" ? <FileText size={14} color={C.slate} /> : <FileText size={14} color={C.slate} />}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13, color: C.textInk }}>{s.name}</div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.type} · {s.value}</div>
-                    </div>
-                    <Badge status={s.status} small />
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, width: 78, textAlign: "right" }}>{s.synced}</div>
-                    <button onClick={() => removeSource(s.id)} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                      <Trash2 size={14} color={C.slateLight} />
-                    </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+                  <SectionIntro
+                    icon={BookOpen}
+                    title="Knowledge sources & vector database"
+                    desc="Websites, PDFs, documents, or objection playbooks. The crawler automatically extracts text, splits it into semantic chunks, and indexes it with pgvector for instant sub-second recall during calls."
+                  />
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "4px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, color: "#065f46" }}>
+                    <Sparkles size={12} /> pgvector RAG Active
                   </div>
-                ))}
-                {sources.length === 0 && (
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slateLight, padding: "16px 0", textAlign: "center" }}>
-                    No knowledge sources yet — add your website or a pricing doc to get started.
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {sources.map((s) => {
+                    const isCrawling = s.status === "crawling" || resyncingId === s.id;
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                          padding: "12px 16px",
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 10,
+                          background: "#fff",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.02)"
+                        }}
+                      >
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          {s.type === "Website URL" ? <Globe size={15} color={C.cobalt} /> : s.type.includes("Drive") ? <Link2 size={15} color={C.slate} /> : s.type === "Manual text" ? <PenLine size={15} color="#d97706" /> : <FileText size={15} color={C.slate} />}
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.textInk }}>{s.name}</span>
+                            <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, color: C.slate, background: C.paper, padding: "1px 6px", borderRadius: 4 }}>
+                              {s.type}
+                            </span>
+                          </div>
+                          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>
+                            {s.value}
+                          </div>
+                        </div>
+
+                        {/* Crawling / Indexed Badge */}
+                        <div>
+                          {isCrawling ? (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fef3c7", color: "#b45309", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
+                              <RefreshCw size={11} style={{ animation: "spin 1.5s linear infinite" }} /> Crawling & Indexing...
+                            </span>
+                          ) : s.status === "failed" ? (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fee2e2", color: "#dc2626", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }} title={s.lastError || "Extraction failed"}>
+                              Failed
+                            </span>
+                          ) : (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#dcfce7", color: "#15803d", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
+                              Indexed · {s.chunkCount || 0} chunks
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <button
+                            onClick={() => viewChunks(s)}
+                            title="Inspect text chunks"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              background: "#fff",
+                              border: `1px solid ${C.border}`,
+                              borderRadius: 6,
+                              padding: "5px 9px",
+                              fontFamily: FONT_BODY,
+                              fontSize: 11.5,
+                              color: C.slate,
+                              cursor: "pointer"
+                            }}
+                          >
+                            <Layers size={12} /> Chunks
+                          </button>
+                          
+                          <button
+                            onClick={() => resyncSource(s.id)}
+                            disabled={isCrawling}
+                            title="Re-crawl and update vector index"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              background: "#fff",
+                              border: `1px solid ${C.border}`,
+                              borderRadius: 6,
+                              padding: "5px 9px",
+                              fontFamily: FONT_BODY,
+                              fontSize: 11.5,
+                              color: C.slate,
+                              cursor: isCrawling ? "default" : "pointer"
+                            }}
+                          >
+                            <RefreshCw size={12} /> Re-crawl
+                          </button>
+
+                          <button
+                            onClick={() => removeSource(s.id)}
+                            title="Delete knowledge source"
+                            style={{ background: "none", border: "none", cursor: "pointer", padding: "5px 6px", borderRadius: 6, color: C.slateLight }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = "#dc2626"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = C.slateLight; }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {sources.length === 0 && (
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slateLight, padding: "28px 0", textAlign: "center", border: `1px dashed ${C.border}`, borderRadius: 10, background: "#fff" }}>
+                      No knowledge sources yet — add your company website or objection playbook to activate RAG.
+                    </div>
+                  )}
+                </div>
+
+                {addingSource ? (
+                  <div style={{ marginTop: 14, border: `1.5px solid ${C.cobalt}`, background: C.paper, borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div>
+                      <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                        1. Select Source Format
+                      </label>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {SOURCE_TYPES.map((st) => {
+                          const Icon = st.icon;
+                          const active = (newSource.type || "Website URL") === st.id;
+                          return (
+                            <button
+                              key={st.id}
+                              type="button"
+                              onClick={() => setNewSource((n) => ({ ...n, type: st.id }))}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "7px 12px",
+                                borderRadius: 8,
+                                border: `1.5px solid ${active ? C.ink : C.border}`,
+                                background: active ? C.ink : "#fff",
+                                color: active ? "#fff" : C.textInk,
+                                fontFamily: FONT_BODY,
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: "pointer",
+                                transition: "all 0.15s ease",
+                                boxShadow: active ? "0 2px 6px rgba(0,0,0,0.08)" : "none"
+                              }}
+                            >
+                              <Icon size={13} color={active ? "#fff" : C.slate} />
+                              {st.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+                        2. Source Name / Identifier
+                      </label>
+                      <input
+                        value={newSource.name}
+                        onChange={(e) => setNewSource((n) => ({ ...n, name: e.target.value }))}
+                        placeholder={newSource.type === "Website URL" ? "e.g. Main Company Website" : newSource.type === "Manual text" ? "e.g. Pricing Objection Playbook" : "e.g. Service Catalogue 2026"}
+                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+                        3. {newSource.type === "Manual text" ? "Content / Script Notes" : "URL / Document Path"}
+                      </label>
+                      {newSource.type === "Manual text" ? (
+                        <textarea
+                          value={newSource.value}
+                          onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
+                          placeholder={SOURCE_TYPES.find((st) => st.id === newSource.type)?.placeholder}
+                          rows={4}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff", resize: "vertical" }}
+                        />
+                      ) : (
+                        <input
+                          value={newSource.value}
+                          onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
+                          placeholder={SOURCE_TYPES.find((st) => st.id === (newSource.type || "Website URL"))?.placeholder}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff" }}
+                        />
+                      )}
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                        {SOURCE_TYPES.find((st) => st.id === (newSource.type || "Website URL"))?.hint}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                      <button onClick={addSource} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                        Start Crawl & Ingest
+                      </button>
+                      <button onClick={() => setAddingSource(false)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setAddingSource(true)}
+                    style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center" }}
+                  >
+                    <PlusCircle size={14} /> Add knowledge source to crawl
+                  </button>
+                )}
+              </div>
+
+              {/* Interactive RAG Vector Retrieval Tester */}
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
+                <SectionIntro
+                  icon={Sparkles}
+                  title="Test AI knowledge retrieval (Semantic vector search)"
+                  desc="Simulate a prospect asking a specific question. This runs real-time cosine vector matching against your stored chunks to verify what exact facts the AI retrieves on calls."
+                />
+                
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <input
+                    value={testQuery}
+                    onChange={(e) => setTestQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && runTestQuery()}
+                    placeholder="e.g. What is your pricing structure? or Do you support CRM integration?"
+                    style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+                  />
+                  <button
+                    onClick={runTestQuery}
+                    disabled={testingQuery || !testQuery.trim()}
+                    style={{
+                      background: C.ink,
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "9px 20px",
+                      fontFamily: FONT_BODY,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: testingQuery ? "default" : "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6
+                    }}
+                  >
+                    {testingQuery ? <RefreshCw size={13} style={{ animation: "spin 1.5s linear infinite" }} /> : <Search size={13} />}
+                    Test Retrieval
+                  </button>
+                </div>
+
+                {testResults && (
+                  <div style={{ marginTop: 14, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.textInk }}>
+                        Retrieved Chunks for: <span style={{ color: C.cobalt }}>"{testResults.query}"</span>
+                      </span>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>
+                        {testResults.matches?.length || 0} matches found
+                      </span>
+                    </div>
+
+                    {(!testResults.matches || testResults.matches.length === 0) ? (
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, padding: "10px 0" }}>
+                        No vector chunks matched above the similarity threshold. Add more sources or re-crawl your website.
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {testResults.matches.map((m, i) => (
+                          <div key={m.id || i} style={{ background: C.paper, borderRadius: 8, padding: 10, border: `1px solid ${C.borderLight}` }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                              <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.textInk }}>
+                                {m.title || "Knowledge Chunk"}
+                              </span>
+                              <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: 4 }}>
+                                {Math.round((m.score || 0) * 100)}% Match
+                              </span>
+                            </div>
+                            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.textInk, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
+                              {m.content}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {addingSource ? (
-                <div style={{ marginTop: 14, border: `1.5px solid ${C.cobalt}`, background: C.paper, borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div>
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
-                      1. Select Source Format
-                    </label>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {SOURCE_TYPES.map((st) => {
-                        const Icon = st.icon;
-                        const active = (newSource.type || "Website URL") === st.id;
-                        return (
-                          <button
-                            key={st.id}
-                            type="button"
-                            onClick={() => setNewSource((n) => ({ ...n, type: st.id }))}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 6,
-                              padding: "7px 12px",
-                              borderRadius: 8,
-                              border: `1.5px solid ${active ? C.ink : C.border}`,
-                              background: active ? C.ink : "#fff",
-                              color: active ? "#fff" : C.textInk,
-                              fontFamily: FONT_BODY,
-                              fontSize: 12,
-                              fontWeight: 600,
-                              cursor: "pointer",
-                              transition: "all 0.15s ease",
-                              boxShadow: active ? "0 2px 6px rgba(0,0,0,0.08)" : "none"
-                            }}
-                          >
-                            <Icon size={13} color={active ? "#fff" : C.slate} />
-                            {st.label}
-                          </button>
-                        );
-                      })}
+              {/* Chunks Inspection Modal */}
+              {activeChunkModal && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }}>
+                  <div style={{ background: "#fff", borderRadius: 12, maxWidth: 640, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.2)" }}>
+                    <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.textInk }}>
+                          Extracted Chunks: {activeChunkModal.source.name}
+                        </div>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight }}>
+                          {activeChunkModal.chunks.length} semantic passages indexed in pgvector
+                        </div>
+                      </div>
+                      <button onClick={() => setActiveChunkModal(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+                        <X size={18} color={C.slate} />
+                      </button>
                     </div>
-                  </div>
 
-                  <div>
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
-                      2. Source Name / Identifier
-                    </label>
-                    <input
-                      value={newSource.name}
-                      onChange={(e) => setNewSource((n) => ({ ...n, name: e.target.value }))}
-                      placeholder={newSource.type === "Website URL" ? "e.g. Main Company Website" : newSource.type === "Manual text" ? "e.g. Pricing Objection Playbook" : "e.g. Service Catalogue 2026"}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff" }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
-                      3. {newSource.type === "Manual text" ? "Content / Script Notes" : "URL / Document Path"}
-                    </label>
-                    {newSource.type === "Manual text" ? (
-                      <textarea
-                        value={newSource.value}
-                        onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
-                        placeholder={SOURCE_TYPES.find((st) => st.id === newSource.type)?.placeholder}
-                        rows={4}
-                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff", resize: "vertical" }}
-                      />
-                    ) : (
-                      <input
-                        value={newSource.value}
-                        onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
-                        placeholder={SOURCE_TYPES.find((st) => st.id === (newSource.type || "Website URL"))?.placeholder}
-                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff" }}
-                      />
-                    )}
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
-                      {SOURCE_TYPES.find((st) => st.id === (newSource.type || "Website URL"))?.hint}
+                    <div style={{ padding: 20, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+                      {activeChunkModal.loading ? (
+                        <div style={{ textAlign: "center", padding: 30, color: C.slate }}>Loading chunks...</div>
+                      ) : activeChunkModal.chunks.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: 30, color: C.slateLight }}>
+                          No chunks extracted yet. Click "Re-crawl" to process this source.
+                        </div>
+                      ) : (
+                        activeChunkModal.chunks.map((chk, i) => (
+                          <div key={chk.id || i} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, background: C.paper }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                              <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 800, color: C.slate, letterSpacing: "0.04em" }}>
+                                CHUNK {String(i + 1).padStart(2, "0")} · {chk.content.length} chars
+                              </span>
+                              {chk.hasEmbedding && (
+                                <span style={{ fontFamily: FONT_BODY, fontSize: 10, fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 5px", borderRadius: 4 }}>
+                                  384-dim Vector
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.textInk, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>
+                              {chk.content}
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
-                  </div>
 
-                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                    <button onClick={addSource} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Add to Knowledge Base</button>
-                    <button onClick={() => setAddingSource(false)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>Cancel</button>
+                    <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end" }}>
+                      <button onClick={() => setActiveChunkModal(null)} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                        Close
+                      </button>
+                    </div>
                   </div>
                 </div>
-              ) : (
-                <button
-                  onClick={() => setAddingSource(true)}
-                  style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center" }}
-                >
-                  <PlusCircle size={13} /> Add a knowledge source
-                </button>
               )}
             </div>
           )}

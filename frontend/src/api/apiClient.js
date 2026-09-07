@@ -65,11 +65,15 @@ export const api = {
   getSchedule: () => apiRequest('/schedule'),
   createScheduleItem: (payload) => apiRequest('/schedule', { method: 'POST', body: payload }),
 
-  // Profile & Knowledge
+  // Profile & Knowledge (RAG & Crawler)
   getProfile: () => apiRequest('/profile'),
   updateProfile: (profile) => apiRequest('/profile', { method: 'PUT', body: profile }),
   getSources: () => apiRequest('/profile/sources'),
   addSource: (source) => apiRequest('/profile/sources', { method: 'POST', body: source }),
+  resyncSource: (sourceId) => apiRequest(`/profile/sources/${sourceId}/resync`, { method: 'POST' }),
+  deleteSource: (sourceId) => apiRequest(`/profile/sources/${sourceId}`, { method: 'DELETE' }),
+  getSourceChunks: (sourceId) => apiRequest(`/profile/sources/${sourceId}/chunks`),
+  testKnowledgeQuery: (query, topK = 3) => apiRequest('/profile/sources/test-query', { method: 'POST', body: { query, top_k: topK } }),
   getServices: () => apiRequest('/profile/services'),
   getFaqs: () => apiRequest('/profile/faqs'),
   getNotifications: () => apiRequest('/profile/notifications'),

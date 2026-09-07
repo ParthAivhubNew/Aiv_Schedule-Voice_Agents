@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  # 1. PostgreSQL Database (Multi-DB: aivhub + calcom)
+  # 1. PostgreSQL Database with pgvector extension (Multi-DB: aivhub + calcom)
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: aivhub_postgres
     restart: unless-stopped
     environment:

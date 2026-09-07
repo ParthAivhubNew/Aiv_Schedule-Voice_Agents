@@ -3,6 +3,13 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
 
+try:
+    from pgvector.sqlalchemy import Vector
+except (ImportError, Exception):
+    from sqlalchemy import JSON
+    def Vector(dim):
+        return JSON
+
 class Operator(Base):
     __tablename__ = "operators"
     
@@ -44,11 +51,31 @@ class KnowledgeSource(Base):
     
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    type = Column(String, nullable=False)  # "Website URL", "Document upload", etc.
+    type = Column(String, nullable=False)  # "Website URL", "Document upload", "Manual text", etc.
     value = Column(Text, nullable=False)
-    status = Column(String, default="indexed")
+    status = Column(String, default="pending")  # pending, crawling, indexed, error
     synced = Column(String, default="Just now")
+    chunk_count = Column(Integer, default=0)
+    last_error = Column(Text, nullable=True)
+    crawled_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    chunks = relationship("KnowledgeChunk", back_populates="source", cascade="all, delete-orphan")
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+    
+    id = Column(String, primary_key=True, index=True)
+    source_id = Column(String, ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    url = Column(String, nullable=True)
+    title = Column(String, default="")
+    content = Column(Text, nullable=False)
+    chunk_index = Column(Integer, default=0)
+    embedding = Column(Vector(384), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    source = relationship("KnowledgeSource", back_populates="chunks")
+
 
 class Service(Base):
     __tablename__ = "services"
