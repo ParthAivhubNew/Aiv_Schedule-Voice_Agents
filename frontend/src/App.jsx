@@ -6086,7 +6086,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                     {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
-                <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>Stored securely in database. Never exposed to callers.</div>
+                <div style={{ fontSize: 11, color: hubData.hasApiKey ? "#059669" : C.slateLight, marginTop: 4 }}>
+                  {hubData.hasApiKey ? `✓ Active Key Saved in Database: ${hubData.apiKeyMasked} (Leave blank to keep active key, or enter new key to replace)` : "Stored securely in database. Never exposed to callers."}
+                </div>
               </div>
             )}
 

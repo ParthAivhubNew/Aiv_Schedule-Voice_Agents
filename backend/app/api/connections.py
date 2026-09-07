@@ -193,10 +193,16 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         carrier_conn = next((c for c in conns if c.group_name == "Telephony"), None)
         engine_conn = next((c for c in conns if c.group_name == "Voice Orchestration"), None)
         
-        if not active_secret and engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
-            active_secret = engine_conn.config.get("signing_secret")
-            if active_secret:
-                settings.XAI_WEBHOOK_SECRET = active_secret
+        stored_key = None
+        if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
+            stored_key = engine_conn.config.get("api_key")
+            if not active_secret:
+                active_secret = engine_conn.config.get("signing_secret")
+                if active_secret:
+                    settings.XAI_WEBHOOK_SECRET = active_secret
+
+        active_key = settings.XAI_API_KEY or stored_key
+        masked_active_key = engine_conn.api_key_masked if (engine_conn and engine_conn.api_key_masked) else ((active_key[:4] + "••••" + active_key[-4:]) if active_key and len(active_key) > 8 else "")
 
         active_carrier = carrier_conn.name if carrier_conn else ("Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Simulation")
         active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Simulation")
@@ -207,6 +213,8 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         active_engine = "xAI Realtime" if settings.XAI_API_KEY else "Simulation"
         active_phone = settings.TELNYX_PHONE_NUMBER or "+1 (202) 555-0199"
         is_connected = bool(settings.XAI_API_KEY)
+        active_key = settings.XAI_API_KEY
+        masked_active_key = (active_key[:4] + "••••" + active_key[-4:]) if active_key and len(active_key) > 8 else ""
 
     # 3. Detect public webhook URL
     default_webhook = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
@@ -220,6 +228,8 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "webhookUrl": default_webhook,
         "xaiFqdn": settings.XAI_SIP_FQDN,
         "codecs": ["G.711 μ-law (PCMU)", "G.711 A-law (PCMA)", "G.722"],
+        "hasApiKey": bool(active_key),
+        "apiKeyMasked": masked_active_key,
         "hasSigningSecret": bool(active_secret),
         "signingSecret": active_secret or "",
         "signingSecretMasked": (active_secret[:8] + "••••••••" + active_secret[-4:]) if active_secret and len(active_secret) > 12 else (active_secret or ""),
@@ -240,9 +250,20 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
         engine = req.engine.lower()
         phone_clean = req.phone_number.strip()
         key_clean = (req.api_key or "").strip()
+
+        # If key is left blank, reuse previously stored API key
+        if not key_clean:
+            if settings.XAI_API_KEY:
+                key_clean = settings.XAI_API_KEY
+            else:
+                c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+                prev_c = c_res.scalars().first()
+                if prev_c and prev_c.config and isinstance(prev_c.config, dict):
+                    key_clean = prev_c.config.get("api_key", "")
         
         signing_secret = None
         auto_registered = False
+
 
         # 1. Real-time credential validation
         if key_clean and not key_clean.startswith("mock") and carrier != "simulation" and engine != "simulation":
