@@ -221,6 +221,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "xaiFqdn": settings.XAI_SIP_FQDN,
         "codecs": ["G.711 μ-law (PCMU)", "G.711 A-law (PCMA)", "G.722"],
         "hasSigningSecret": bool(active_secret),
+        "signingSecret": active_secret or "",
         "signingSecretMasked": (active_secret[:8] + "••••••••" + active_secret[-4:]) if active_secret and len(active_secret) > 12 else (active_secret or ""),
         "isLive": settings.VOICE_ENGINE_MODE == "live" or is_connected
     }

@@ -5689,6 +5689,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [pingResult, setPingResult] = useState(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [copiedFqdn, setCopiedFqdn] = useState(false);
+  const [copiedSecret, setCopiedSecret] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
 
   const fetchStatus = async () => {
     try {
@@ -5698,7 +5700,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         if (data.phoneNumber) setPhoneNumber(data.phoneNumber);
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
         if (data.voiceName) setVoiceName(data.voiceName);
-        if (data.signingSecretMasked) setSigningSecret(data.signingSecretMasked);
+        if (data.signingSecret) setSigningSecret(data.signingSecret);
+        else if (data.signingSecretMasked) setSigningSecret(data.signingSecretMasked);
         if (data.activeCarrier) {
           const cLower = data.activeCarrier.toLowerCase();
           setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : cLower.includes("sim") ? "simulation" : "telnyx");
@@ -5755,6 +5758,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       });
 
       setProvisionMsg(res);
+      if (res.signingSecret) {
+        setSigningSecret(res.signingSecret);
+      }
       await fetchStatus();
       if (setProfile) {
         setProfile((prev) => ({ ...prev, callerId: phoneNumber }));
@@ -5771,15 +5777,20 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   };
 
   const copyToClipboard = (text, type) => {
+    if (!text) return;
     navigator.clipboard.writeText(text);
     if (type === "webhook") {
       setCopiedWebhook(true);
       setTimeout(() => setCopiedWebhook(false), 2000);
+    } else if (type === "secret") {
+      setCopiedSecret(true);
+      setTimeout(() => setCopiedSecret(false), 2000);
     } else {
       setCopiedFqdn(true);
       setTimeout(() => setCopiedFqdn(false), 2000);
     }
   };
+
 
   const carriers = [
     {
@@ -6151,7 +6162,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               📡 Inbound Routing Configuration for {carrierChoice === "telnyx" ? "Telnyx Portal" : carrierChoice === "twilio" ? "Twilio Console" : "Carrier / PBX"}
             </div>
             
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
               {/* Webhook Box */}
               <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -6166,6 +6177,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   </button>
                 </div>
                 <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.ink, wordBreak: "break-all" }}>{webhookUrl}</div>
+                <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>Destination for xAI live call handoff.</div>
               </div>
 
               {/* Carrier SIP Box */}
@@ -6183,7 +6195,38 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 </div>
                 <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink }}>sip.voice.x.ai:5060</div>
                 <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>
-                  Destination: <b>+E.164</b> • Codecs: <b>G.711 μ-law (PCMU), G.722</b>
+                  Destination: <b>+E.164</b> • Codecs: <b>G.711 μ-law, G.722</b>
+                </div>
+              </div>
+
+              {/* Webhook Signing Secret Box */}
+              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Webhook Signing Secret (Svix)</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret(!showSecret)}
+                      style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
+                    >
+                      {showSecret ? <EyeOff size={11} /> : <Eye size={11} />}
+                      {showSecret ? "Hide" : "Reveal"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(hubData.signingSecret || signingSecret, "secret")}
+                      style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
+                    >
+                      {copiedSecret ? <Check size={11} color={C.green} /> : <Copy size={11} />}
+                      {copiedSecret ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                </div>
+                <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.ink, wordBreak: "break-all" }}>
+                  {showSecret ? (hubData.signingSecret || signingSecret || "whsec_••••••••••••••••") : (hubData.signingSecretMasked || (signingSecret ? signingSecret.slice(0, 8) + "••••••••" : "whsec_••••••••"))}
+                </div>
+                <div style={{ fontSize: 11, color: hubData.hasSigningSecret ? "#059669" : C.slate, marginTop: 4 }}>
+                  {hubData.hasSigningSecret ? "✓ Verified & saved to database" : "Auto-generated by xAI upon registration"}
                 </div>
               </div>
             </div>
@@ -6198,17 +6241,29 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         )}
 
         {provisionMsg && (
-          <div style={{ padding: "14px 18px", borderRadius: 8, background: C.greenSoft, border: `1px solid #A7F3D0`, color: C.green, display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
+          <div style={{ padding: "14px 18px", borderRadius: 8, background: C.greenSoft, border: `1px solid #A7F3D0`, color: C.green, display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
               <CheckCircle2 size={16} /> {provisionMsg.message}
             </div>
             {provisionMsg.signingSecret && (
-              <div style={{ fontSize: 12, color: C.slate, background: "#fff", padding: "6px 10px", borderRadius: 6, border: "1px solid #D1FAE5", fontFamily: FONT_MONO }}>
-                Signing Secret: {provisionMsg.signingSecret} (Saved securely to database)
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", padding: "10px 14px", borderRadius: 8, border: "1px solid #A7F3D0", flexWrap: "wrap", gap: 10 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ fontSize: 11, color: C.slate, fontWeight: 700, textTransform: "uppercase" }}>🔑 Your Webhook Signing Secret (Copy & Save)</span>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: C.ink, wordBreak: "break-all" }}>{provisionMsg.signingSecret}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(provisionMsg.signingSecret, "secret")}
+                  style={{ background: "#ECFDF5", border: "1px solid #059669", borderRadius: 6, padding: "6px 14px", fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: "#065F46", fontWeight: 700 }}
+                >
+                  {copiedSecret ? <Check size={13} color="#059669" /> : <Copy size={13} />}
+                  {copiedSecret ? "Copied to Clipboard!" : "Copy Signing Secret"}
+                </button>
               </div>
             )}
           </div>
         )}
+
 
         {/* Submit Button */}
         <div>
