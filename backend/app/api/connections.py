@@ -272,26 +272,24 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 if not v_res["valid"]:
                     raise HTTPException(status_code=400, detail=v_res.get("error", "Twilio authentication failed."))
 
-        # 2. Update Company Profile Caller ID
-        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
-        profile = prof_res.scalars().first()
-        if profile:
-            profile.caller_id = phone_clean
-        else:
-            db.add(CompanyProfile(id="default", caller_id=phone_clean))
-
-        # 3. Save or Update Carrier in Connection table
+        # 2. Update Company Profile Caller ID and Connection entries
         carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
-        c_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
-        c_entry = c_res.scalars().first()
+        engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
         masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
 
-        if c_entry:
-            c_entry.name = carrier_name
-            c_entry.status = "connected"
-            if key_clean:
-                c_entry.api_key_masked = masked_key
-        else:
+        try:
+            # Update Company Profile Caller ID
+            prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+            profile = prof_res.scalars().first()
+            if profile:
+                profile.caller_id = phone_clean
+            else:
+                db.add(CompanyProfile(id="default", caller_id=phone_clean))
+            await db.flush()
+
+            # Clean and re-insert Telephony and Voice Orchestration connections
+            await db.execute(delete(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
+            
             db.add(Connection(
                 id=f"conn_{uuid.uuid4().hex[:6]}",
                 group_name="Telephony",
@@ -299,17 +297,6 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 status="connected",
                 api_key_masked=masked_key
             ))
-
-        # 4. Save or Update Voice Engine in Connection table
-        engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
-        e_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
-        e_entry = e_res.scalars().first()
-        if e_entry:
-            e_entry.name = engine_name
-            e_entry.status = "connected"
-            if key_clean:
-                e_entry.api_key_masked = masked_key
-        else:
             db.add(Connection(
                 id=f"conn_{uuid.uuid4().hex[:6]}",
                 group_name="Voice Orchestration",
@@ -317,8 +304,14 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 status="connected",
                 api_key_masked=masked_key
             ))
+            await db.commit()
+        except Exception as db_err:
+            logger.warning(f"Database persistence warning in provision_telephony_hub: {db_err}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
-        await db.commit()
 
         try:
             await log_process_event(
