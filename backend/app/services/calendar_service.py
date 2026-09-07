@@ -66,11 +66,25 @@ class CalendarService:
 
         # Native fallback
         slug = prospect_name.lower().replace(" ", "-")[:12]
-        return {
+        booking_result = {
             "synced": True,
             "bookingId": f"cal_local_{slug}",
             "videoLink": f"https://meet.google.com/aiv-{slug}",
             "provider": "native_calendar_engine"
         }
+        try:
+            from app.services.process_logger import log_process_event
+            await log_process_event(
+                subsystem="calendar",
+                process_name="meeting_booked_native",
+                message=f"Created confirmed booking for prospect '{prospect_name}' at {start_time_iso}",
+                level="SUCCESS",
+                details={"prospect": prospect_name, "email": attendee_email, "time": start_time_iso, "videoLink": booking_result["videoLink"]}
+            )
+        except Exception:
+            pass
+
+        return booking_result
 
 calendar_service = CalendarService()
+

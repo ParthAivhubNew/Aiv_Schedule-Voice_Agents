@@ -309,3 +309,16 @@ class SocialEmail(Base):
     status = Column(String, default="unread")  # unread, read, acted
     post_data = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class ProcessLog(Base):
+    __tablename__ = "process_logs"
+    
+    id = Column(String, primary_key=True, index=True)
+    subsystem = Column(String, index=True, nullable=False)  # telephony, voice, crawler_rag, calendar, scheduler, system, auth
+    level = Column(String, default="INFO", index=True)       # INFO, SUCCESS, WARN, ERROR
+    process_name = Column(String, nullable=False)           # specific task or event name
+    message = Column(Text, nullable=False)                  # human readable summary
+    details = Column(JSON, default=dict)                    # full structured payload, headers, metadata
+    duration_ms = Column(Float, nullable=True)              # execution latency in milliseconds
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+

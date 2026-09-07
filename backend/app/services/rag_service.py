@@ -96,6 +96,18 @@ async def search_knowledge(
     except Exception as fb_err:
         logger.error(f"Error in knowledge search fallback: {fb_err}", exc_info=True)
 
+    try:
+        from app.services.process_logger import log_process_event
+        await log_process_event(
+            subsystem="crawler_rag",
+            process_name="vector_query",
+            message=f"Semantic vector search for '{query}' returned {len(results)} chunks",
+            level="INFO" if results else "WARN",
+            details={"query": query, "matchCount": len(results), "topScore": results[0]["score"] if results else 0}
+        )
+    except Exception:
+        pass
+
     return results
 
 async def build_rag_prompt_context(db: AsyncSession, user_utterance: str, top_k: int = 3) -> str:

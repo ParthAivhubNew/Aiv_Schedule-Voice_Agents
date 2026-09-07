@@ -1147,6 +1147,7 @@ const NAV_GROUPS = [
     { id: "meetings", label: "Meetings", icon: CalendarCheck },
     { id: "live", label: "Live Activity", icon: Radio },
     { id: "calllog", label: "Call Log", icon: History },
+    { id: "processlogs", label: "System Process Logs", icon: FileText },
     { id: "prospects", label: "Contacts & Batches", icon: Building2 },
   ]},
   { label: "Configuration", items: [
@@ -3535,7 +3536,403 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
   );
 }
 
+/* ---------------------------------- process logs view (all subsystems) ---------------------------------- */
+
+function ProcessLogsView({ notifications, setNotifications }) {
+  const [logs, setLogs] = useState([]);
+  const [subsystems, setSubsystems] = useState([]);
+  const [activeSubsystem, setActiveSubsystem] = useState("all");
+  const [activeLevel, setActiveLevel] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
+  const [rawModal, setRawModal] = useState(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  const fetchLogs = async () => {
+    try {
+      const params = {};
+      if (activeSubsystem !== "all") params.subsystem = activeSubsystem;
+      if (activeLevel !== "ALL") params.level = activeLevel;
+      if (search.trim()) params.search = search.trim();
+      params.limit = 200;
+
+      const data = await api.getProcessLogs(params);
+      if (Array.isArray(data)) setLogs(data);
+    } catch (err) {
+      console.warn("Failed to fetch process logs:", err);
+    }
+  };
+
+  const fetchSubsystems = async () => {
+    try {
+      const data = await api.getSubsystemsStats();
+      if (Array.isArray(data)) setSubsystems(data);
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([fetchLogs(), fetchSubsystems()]).finally(() => setLoading(false));
+  }, [activeSubsystem, activeLevel]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const timer = setInterval(() => {
+      fetchLogs();
+      fetchSubsystems();
+    }, 3500);
+    return () => clearInterval(timer);
+  }, [autoRefresh, activeSubsystem, activeLevel, search]);
+
+  const handleClear = async () => {
+    const target = activeSubsystem === "all" ? "ALL subsystems" : activeSubsystem;
+    if (!window.confirm(`Are you sure you want to clear logs for ${target}?`)) return;
+    try {
+      await api.clearLogs(activeSubsystem);
+      setLogs([]);
+      fetchSubsystems();
+    } catch (err) {
+      alert("Failed to clear logs: " + err.message);
+    }
+  };
+
+  const handleInspectRaw = async (subId) => {
+    try {
+      const res = await api.getRawFileLogs(subId, 250);
+      setRawModal(res);
+    } catch (err) {
+      alert("Could not load log file: " + err.message);
+    }
+  };
+
+  const LEVEL_COLORS = {
+    SUCCESS: { bg: "#dcfce7", text: "#15803d", border: "#bbf7d0" },
+    INFO:    { bg: "#dbeafe", text: "#1d4ed8", border: "#bfdbfe" },
+    WARN:    { bg: "#fef3c7", text: "#b45309", border: "#fde68a" },
+    ERROR:   { bg: "#fee2e2", text: "#b91c1c", border: "#fecaca" },
+  };
+
+  const SUBSYSTEM_TABS = [
+    { id: "all", label: "All Subsystems", icon: LayoutGrid },
+    { id: "telephony", label: "Telephony (Telnyx)", icon: Phone },
+    { id: "voice", label: "Voice & Calls", icon: Mic },
+    { id: "crawler_rag", label: "Crawler & RAG (pgvector)", icon: Globe },
+    { id: "calendar", label: "Calendar & Bookings", icon: Calendar },
+    { id: "scheduler", label: "Scheduler & Missions", icon: Clock },
+    { id: "system", label: "System & Keys", icon: ShieldCheck },
+    { id: "auth", label: "Auth & Security", icon: KeyRound },
+  ];
+
+  return (
+    <>
+      <TopBar
+        title="System Process Logs"
+        subtitle="Dedicated multi-subsystem audit trail, latencies, and physical file outputs"
+        notifications={notifications}
+        setNotifications={setNotifications}
+      />
+      <div style={{ padding: "20px 32px" }}>
+        
+        {/* Subsystem Navigation Pills */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          {SUBSYSTEM_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const active = activeSubsystem === tab.id;
+            const stat = subsystems.find((s) => s.id === tab.id);
+            const count = stat ? stat.eventCount : null;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSubsystem(tab.id)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "8px 14px",
+                  borderRadius: 9,
+                  border: `1.5px solid ${active ? C.ink : C.border}`,
+                  background: active ? C.ink : "#fff",
+                  color: active ? "#fff" : C.textInk,
+                  fontFamily: FONT_BODY,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  boxShadow: active ? "0 2px 6px rgba(0,0,0,0.08)" : "none"
+                }}
+              >
+                <Icon size={14} color={active ? "#fff" : C.slate} />
+                <span>{tab.label}</span>
+                {count !== null && (
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      background: active ? "rgba(255,255,255,0.2)" : C.paper,
+                      color: active ? "#fff" : C.slate,
+                      padding: "1px 6px",
+                      borderRadius: 10,
+                      marginLeft: 2
+                    }}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Action Controls & Filters */}
+        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 260 }}>
+            <div style={{ position: "relative", flex: 1, maxWidth: 360 }}>
+              <Search size={14} color={C.slateLight} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && fetchLogs()}
+                placeholder="Search log messages, process names, or JSON..."
+                style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 32px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }}
+              />
+            </div>
+
+            {/* Severity Filter */}
+            <div style={{ display: "flex", gap: 4 }}>
+              {["ALL", "SUCCESS", "INFO", "WARN", "ERROR"].map((lvl) => {
+                const active = activeLevel === lvl;
+                return (
+                  <button
+                    key={lvl}
+                    onClick={() => setActiveLevel(lvl)}
+                    style={{
+                      padding: "5px 9px",
+                      borderRadius: 6,
+                      border: `1px solid ${active ? C.ink : C.border}`,
+                      background: active ? C.ink : "#fff",
+                      color: active ? "#fff" : C.slate,
+                      fontFamily: FONT_BODY,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer"
+                    }}
+                  >
+                    {lvl}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => handleInspectRaw(activeSubsystem)}
+              title="View the physical .log file on disk"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                background: C.paper,
+                border: `1px solid ${C.border}`,
+                borderRadius: 7,
+                padding: "6px 12px",
+                fontFamily: FONT_BODY,
+                fontSize: 12,
+                color: C.textInk,
+                cursor: "pointer"
+              }}
+            >
+              <FileText size={13} color={C.slate} /> View Disk File (.log)
+            </button>
+
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              title={autoRefresh ? "Pause live streaming" : "Resume live streaming"}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                background: autoRefresh ? "#ecfdf5" : "#fff",
+                border: `1px solid ${autoRefresh ? "#a7f3d0" : C.border}`,
+                borderRadius: 7,
+                padding: "6px 12px",
+                fontFamily: FONT_BODY,
+                fontSize: 12,
+                color: autoRefresh ? "#065f46" : C.slate,
+                cursor: "pointer",
+                fontWeight: 600
+              }}
+            >
+              <RefreshCw size={12} style={{ animation: autoRefresh ? "spin 2s linear infinite" : "none" }} />
+              {autoRefresh ? "Live Stream (On)" : "Live Stream (Paused)"}
+            </button>
+
+            <button
+              onClick={handleClear}
+              title="Clear logs"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                background: "#fff",
+                border: `1px solid ${C.border}`,
+                borderRadius: 7,
+                padding: "6px 10px",
+                fontFamily: FONT_BODY,
+                fontSize: 12,
+                color: "#dc2626",
+                cursor: "pointer"
+              }}
+            >
+              <Trash2 size={12} /> Clear
+            </button>
+          </div>
+        </div>
+
+        {/* Logs Table */}
+        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.02)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "180px 100px 140px 190px 1fr 90px", padding: "10px 16px", background: C.paper, borderBottom: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            <div>Timestamp</div>
+            <div>Level</div>
+            <div>Subsystem</div>
+            <div>Process Name</div>
+            <div>Message</div>
+            <div style={{ textAlign: "right" }}>Duration</div>
+          </div>
+
+          <div style={{ maxHeight: "calc(100vh - 350px)", overflowY: "auto" }}>
+            {logs.length === 0 ? (
+              <div style={{ padding: "48px 20px", textAlign: "center", color: C.slateLight, fontFamily: FONT_BODY, fontSize: 13 }}>
+                No log entries found for this filter. Run an operation or test a key to generate logs.
+              </div>
+            ) : (
+              logs.map((log) => {
+                const colors = LEVEL_COLORS[log.level] || LEVEL_COLORS.INFO;
+                const isExpanded = expandedId === log.id;
+                const hasDetails = log.details && Object.keys(log.details).length > 0;
+                return (
+                  <div key={log.id} style={{ borderBottom: `1px solid ${C.borderLight}` }}>
+                    <div
+                      onClick={() => hasDetails && setExpandedId(isExpanded ? null : log.id)}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "180px 100px 140px 190px 1fr 90px",
+                        padding: "10px 16px",
+                        alignItems: "center",
+                        cursor: hasDetails ? "pointer" : "default",
+                        background: isExpanded ? C.paper : "#fff",
+                        transition: "background 0.1s ease"
+                      }}
+                      onMouseEnter={(e) => { if (hasDetails) e.currentTarget.style.background = C.paper; }}
+                      onMouseLeave={(e) => { if (hasDetails && !isExpanded) e.currentTarget.style.background = "#fff"; }}
+                    >
+                      <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.slate }}>
+                        {log.createdAt ? new Date(log.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }) : "—"}
+                      </div>
+                      
+                      <div>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "2px 7px",
+                            borderRadius: 4,
+                            fontSize: 10,
+                            fontWeight: 800,
+                            letterSpacing: "0.03em",
+                            background: colors.bg,
+                            color: colors.text,
+                            border: `1px solid ${colors.border}`
+                          }}
+                        >
+                          {log.level}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, background: C.paper, padding: "2px 6px", borderRadius: 4 }}>
+                          {log.subsystem}
+                        </span>
+                      </div>
+
+                      <div style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 600, color: C.textInk, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {log.processName}
+                      </div>
+
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: 10 }}>
+                        {log.message}
+                      </div>
+
+                      <div style={{ textAlign: "right", fontFamily: FONT_MONO, fontSize: 11, color: C.slateLight }}>
+                        {log.durationMs !== null && log.durationMs !== undefined ? `${log.durationMs.toFixed(1)}ms` : "—"}
+                      </div>
+                    </div>
+
+                    {/* Expandable JSON details */}
+                    {isExpanded && hasDetails && (
+                      <div style={{ padding: "10px 16px 14px 16px", background: "#1e293b", color: "#f8fafc", fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, borderTop: `1px dashed ${C.border}` }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase" }}>
+                          Payload / Trace Details:
+                        </div>
+                        <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                          {JSON.stringify(log.details, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+      </div>
+
+      {/* Raw File Modal */}
+      {rawModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }}>
+          <div style={{ background: "#0f172a", borderRadius: 14, maxWidth: 860, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)", border: "1px solid #334155" }}>
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: "#38bdf8" }}>
+                  {rawModal.path}
+                </div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: "#94a3b8" }}>
+                  Tail of physical log file ({rawModal.totalLines} lines on disk)
+                </div>
+              </div>
+              <button onClick={() => setRawModal(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8" }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: 16, overflowY: "auto", flex: 1, fontFamily: FONT_MONO, fontSize: 11.5, color: "#e2e8f0", lineHeight: 1.6, background: "#090d16" }}>
+              {rawModal.lines.length === 0 ? (
+                <div style={{ color: "#64748b", textAlign: "center", padding: 30 }}>Log file is currently empty.</div>
+              ) : (
+                rawModal.lines.map((l, i) => (
+                  <div key={i} style={{ display: "flex", gap: 12, borderBottom: "1px solid rgba(255,255,255,0.03)", padding: "2px 0" }}>
+                    <span style={{ color: "#475569", userSelect: "none", width: 40, textAlign: "right", flexShrink: 0 }}>{i + 1}</span>
+                    <span style={{ wordBreak: "break-all" }}>{l}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ padding: "10px 20px", borderTop: "1px solid #334155", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setRawModal(null)} style={{ background: "#38bdf8", color: "#0f172a", border: "none", borderRadius: 7, padding: "7px 16px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ---------------------------------- schedule ---------------------------------- */
+
 
 function ScheduleCallModal({ onClose, onCreate, prefillName, timezone, lunchStart, lunchEnd, windowStart, windowEnd }) {
   const [prospect, setProspect] = useState(prefillName || "");
@@ -12620,6 +13017,12 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             prefillQuery={prefillLogQuery}
             clearPrefill={() => setPrefillLogQuery(null)}
             onJumpSchedule={goScheduleFor}
+          />
+        )}
+        {view === "processlogs" && (
+          <ProcessLogsView
+            notifications={notifications}
+            setNotifications={setNotifications}
           />
         )}
         {view === "prospects" && (

@@ -1,6 +1,8 @@
 import httpx
 import logging
+import time
 from typing import Dict, Any, Optional
+from app.services.process_logger import log_process_event
 
 logger = logging.getLogger("key_validator")
 
@@ -13,7 +15,38 @@ async def validate_api_key(
     """
     Performs a real-time live probe to the provider's official API endpoint
     to verify that the supplied credentials are authentic and authorized.
+    Logs each probe to dedicated subsystem process logs.
     """
+    start_time = time.time()
+    res = await _do_validate_api_key(provider, api_key, base_url, account_sid)
+    duration_ms = (time.time() - start_time) * 1000
+
+    p_lower = provider.lower()
+    subsystem = (
+        "telephony" if any(k in p_lower for k in ["telnyx", "twilio", "plivo", "sip"])
+        else "calendar" if "cal" in p_lower
+        else "voice" if any(k in p_lower for k in ["deepgram", "elevenlabs", "cartesia", "vapi", "whisper", "kokoro"])
+        else "system"
+    )
+    level = "SUCCESS" if res.get("valid") else "ERROR"
+    msg = f"Key validation for {provider}: {res.get('details') or res.get('error')}"
+    
+    await log_process_event(
+        subsystem=subsystem,
+        process_name=f"{provider.lower().replace(' ', '_')}_validation",
+        message=msg,
+        level=level,
+        details={"provider": provider, "valid": res.get("valid"), "error": res.get("error")},
+        duration_ms=duration_ms
+    )
+    return res
+
+async def _do_validate_api_key(
+    provider: str,
+    api_key: str,
+    base_url: Optional[str] = None,
+    account_sid: Optional[str] = None
+) -> Dict[str, Any]:
     p = provider.lower().replace(" ", "").replace("-", "").replace(".", "")
     api_key = api_key.strip()
 
@@ -21,6 +54,7 @@ async def validate_api_key(
         return {"valid": False, "error": "API Key cannot be empty."}
 
     timeout = httpx.Timeout(8.0, connect=5.0)
+
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:

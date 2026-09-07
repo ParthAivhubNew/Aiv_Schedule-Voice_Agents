@@ -18,6 +18,7 @@ from app.api.profile import router as profile_router
 from app.api.connections import router as connections_router
 from app.api.analytics import router as analytics_router
 from app.api.scheduler import router as scheduler_router
+from app.api.logs import router as logs_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,9 +37,19 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Could not enable pgvector extension directly: {ext_err}")
         await conn.run_sync(Base.metadata.create_all)
     await seed_database()
+    try:
+        from app.services.process_logger import log_process_event
+        await log_process_event(
+            subsystem="system",
+            process_name="backend_startup",
+            message=f"{settings.PROJECT_NAME} v{settings.VERSION} started successfully. All database models and pgvector initialized.",
+            level="SUCCESS",
+            details={"version": settings.VERSION, "dbUrl": str(engine.url).split("@")[-1] if "@" in str(engine.url) else "sqlite"}
+        )
+    except Exception:
+        pass
     yield
     logger.info("Shutting down AIVHub Voice Agent API...")
-
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -67,6 +78,8 @@ app.include_router(profile_router, prefix=settings.API_PREFIX)
 app.include_router(connections_router, prefix=settings.API_PREFIX)
 app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(scheduler_router, prefix=settings.API_PREFIX)
+app.include_router(logs_router, prefix=settings.API_PREFIX)
+
 
 # WebSocket Endpoint
 @app.websocket("/ws/live")

@@ -10,6 +10,8 @@ from sqlalchemy.future import select
 
 from app.models.models import KnowledgeSource, KnowledgeChunk
 from app.services.embedding_service import generate_embeddings_batch
+from app.services.process_logger import log_process_event
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +102,9 @@ async def fetch_url_content(url: str) -> Tuple[str, str]:
 async def crawl_and_index_source_task(source_id: str, db_session_maker):
     """
     Background worker that fetches, cleans, chunks, embeds, and indexes a KnowledgeSource.
+    Logs each step to the crawler_rag subsystem log.
     """
+    start_time = time.time()
     async with db_session_maker() as session:
         try:
             # 1. Fetch source
@@ -112,6 +116,14 @@ async def crawl_and_index_source_task(source_id: str, db_session_maker):
 
             source.status = "crawling"
             await session.commit()
+
+            await log_process_event(
+                subsystem="crawler_rag",
+                process_name="crawl_started",
+                message=f"Beginning crawl and extraction for '{source.name}' ({source.type}): {source.value}",
+                level="INFO",
+                details={"sourceId": source_id, "type": source.type, "url": source.value}
+            )
 
             title = source.name
             raw_text = ""
@@ -140,8 +152,18 @@ async def crawl_and_index_source_task(source_id: str, db_session_maker):
             if not chunks:
                 chunks = [raw_text[:600]]
 
+            await log_process_event(
+                subsystem="crawler_rag",
+                process_name="text_chunked",
+                message=f"Cleaned {len(raw_text)} chars from '{title}' and split into {len(chunks)} semantic chunks",
+                level="INFO",
+                details={"sourceId": source_id, "title": title, "rawLength": len(raw_text), "chunkCount": len(chunks)}
+            )
+
             # 4. Generate batch embeddings
+            emb_start = time.time()
             embeddings = generate_embeddings_batch(chunks)
+            emb_duration = (time.time() - emb_start) * 1000
 
             # 5. Delete old chunks for this source
             await session.execute(delete(KnowledgeChunk).where(KnowledgeChunk.source_id == source_id))
@@ -167,10 +189,26 @@ async def crawl_and_index_source_task(source_id: str, db_session_maker):
             source.synced = "Just now"
             source.last_error = None
             await session.commit()
-            logger.info(f"Successfully indexed source {source_id} with {len(chunks)} chunks.")
+            
+            total_duration = (time.time() - start_time) * 1000
+            await log_process_event(
+                subsystem="crawler_rag",
+                process_name="indexing_complete",
+                message=f"Successfully indexed '{source.name}' with {len(chunks)} vector chunks into pgvector",
+                level="SUCCESS",
+                details={"sourceId": source_id, "chunkCount": len(chunks), "embeddingLatencyMs": round(emb_duration, 1)},
+                duration_ms=round(total_duration, 1)
+            )
 
         except Exception as e:
             logger.error(f"Error crawling/indexing knowledge source {source_id}: {e}", exc_info=True)
+            await log_process_event(
+                subsystem="crawler_rag",
+                process_name="crawl_error",
+                message=f"Crawl/index failed for source {source_id}: {str(e)}",
+                level="ERROR",
+                details={"sourceId": source_id, "error": str(e)}
+            )
             try:
                 result = await session.execute(select(KnowledgeSource).where(KnowledgeSource.id == source_id))
                 source = result.scalars().first()

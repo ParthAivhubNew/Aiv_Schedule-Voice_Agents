@@ -93,4 +93,14 @@ export const api = {
   chatPlan: (text) => apiRequest('/scheduler/chat-plan', { method: 'POST', body: { text } }),
   updatePostStatus: (postId, status, copy) => apiRequest(`/scheduler/posts/${postId}/status`, { method: 'POST', body: { status, copy } }),
   getEmails: () => apiRequest('/scheduler/emails'),
+
+  // Dedicated Process Logs (Multi-Subsystem)
+  getProcessLogs: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiRequest(`/logs${query ? `?${query}` : ''}`);
+  },
+  getSubsystemsStats: () => apiRequest('/logs/subsystems'),
+  getRawFileLogs: (subsystem, lines = 100) => apiRequest(`/logs/raw/${subsystem}?lines=${lines}`),
+  clearLogs: (subsystem) => apiRequest(`/logs${subsystem ? `?subsystem=${subsystem}` : ''}`, { method: 'DELETE' }),
 };
+
