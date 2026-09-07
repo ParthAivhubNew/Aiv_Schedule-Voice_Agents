@@ -171,13 +171,15 @@ class TelephonyHubProvisionRequest(BaseModel):
     account_sid: Optional[str] = None
     voice_name: Optional[str] = "rex"
     webhook_url: Optional[str] = None
+    signing_secret: Optional[str] = None
 
 @router.get("/telephony-hub")
 async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     """
     Returns current active carrier, active engine, configured phone numbers,
-    and webhook routing diagnostics.
+    webhook routing diagnostics, and signing secret status.
     """
+    active_secret = settings.XAI_WEBHOOK_SECRET
     try:
         # 1. Fetch Company Profile for caller ID
         prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
@@ -190,6 +192,11 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
 
         carrier_conn = next((c for c in conns if c.group_name == "Telephony"), None)
         engine_conn = next((c for c in conns if c.group_name == "Voice Orchestration"), None)
+        
+        if not active_secret and engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
+            active_secret = engine_conn.config.get("signing_secret")
+            if active_secret:
+                settings.XAI_WEBHOOK_SECRET = active_secret
 
         active_carrier = carrier_conn.name if carrier_conn else ("Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Simulation")
         active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Simulation")
@@ -213,8 +220,11 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "webhookUrl": default_webhook,
         "xaiFqdn": settings.XAI_SIP_FQDN,
         "codecs": ["G.711 μ-law (PCMU)", "G.711 A-law (PCMA)", "G.722"],
+        "hasSigningSecret": bool(active_secret),
+        "signingSecretMasked": (active_secret[:8] + "••••••••" + active_secret[-4:]) if active_secret and len(active_secret) > 12 else (active_secret or ""),
         "isLive": settings.VOICE_ENGINE_MODE == "live" or is_connected
     }
+
 
 @router.post("/telephony-hub/provision")
 async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSession = Depends(get_db)):
@@ -273,6 +283,12 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                     raise HTTPException(status_code=400, detail=v_res.get("error", "Twilio authentication failed."))
 
         # 2. Update Company Profile Caller ID and Connection entries
+        signing_secret = req.signing_secret.strip() if req.signing_secret else signing_secret
+        if signing_secret:
+            settings.XAI_WEBHOOK_SECRET = signing_secret
+            import os
+            os.environ["XAI_WEBHOOK_SECRET"] = signing_secret
+
         carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
         engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
         masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
@@ -295,14 +311,20 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 group_name="Telephony",
                 name=carrier_name,
                 status="connected",
-                api_key_masked=masked_key
+                api_key_masked=masked_key,
+                config={"phoneNumber": phone_clean, "carrier": carrier_name}
             ))
             db.add(Connection(
                 id=f"conn_{uuid.uuid4().hex[:6]}",
                 group_name="Voice Orchestration",
                 name=engine_name,
                 status="connected",
-                api_key_masked=masked_key
+                api_key_masked=masked_key,
+                config={
+                    "signing_secret": signing_secret,
+                    "phoneNumber": phone_clean,
+                    "engine": engine_name
+                }
             ))
             await db.commit()
         except Exception as db_err:
@@ -361,18 +383,29 @@ async def get_telephony_hub_debug(db: AsyncSession = Depends(get_db)):
         git_commit = str(e)
         
     db_status = "ok"
+    active_secret = settings.XAI_WEBHOOK_SECRET
     try:
         from sqlalchemy import text
         res = await db.execute(text("SELECT 1;"))
         db_val = res.scalar()
+        
+        # Check DB connection table for signing secret if not in settings
+        if not active_secret:
+            c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            c = c_res.scalars().first()
+            if c and c.config and isinstance(c.config, dict):
+                active_secret = c.config.get("signing_secret")
     except Exception as e:
         db_status = str(e)
         
     return {
         "git_commit": git_commit,
         "python_version": sys.version,
-        "db_status": db_status
+        "db_status": db_status,
+        "xai_signing_secret_set": bool(active_secret),
+        "xai_signing_secret_preview": (active_secret[:12] + "...") if active_secret else None
     }
+
 
 @router.post("/telephony-hub/test-ping")
 async def test_telephony_hub_ping():

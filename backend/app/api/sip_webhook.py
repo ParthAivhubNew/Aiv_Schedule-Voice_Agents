@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -30,11 +30,28 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
     headers_dict = dict(request.headers)
 
     # 1. Signature Verification
+    active_secret = settings.XAI_WEBHOOK_SECRET
+    if not active_secret:
+        try:
+            from app.database import AsyncSessionLocal
+            from app.models.models import Connection
+            from sqlalchemy.future import select
+            async with AsyncSessionLocal() as db:
+                c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+                c = c_res.scalars().first()
+                if c and c.config and isinstance(c.config, dict):
+                    active_secret = c.config.get("signing_secret")
+                    if active_secret:
+                        settings.XAI_WEBHOOK_SECRET = active_secret
+        except Exception as lookup_err:
+            logger.warning(f"Could not load signing_secret from database: {lookup_err}")
+
     is_valid = verify_xai_webhook_signature(
         payload_bytes=raw_body,
         headers=headers_dict,
-        secret=settings.XAI_WEBHOOK_SECRET
+        secret=active_secret
     )
+
 
     if not is_valid:
         await log_process_event(

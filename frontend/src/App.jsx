@@ -5677,6 +5677,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [accountSid, setAccountSid] = useState("");
+  const [signingSecret, setSigningSecret] = useState("");
   const [voiceName, setVoiceName] = useState("rex");
   const [webhookUrl, setWebhookUrl] = useState("https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook");
 
@@ -5697,6 +5698,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         if (data.phoneNumber) setPhoneNumber(data.phoneNumber);
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
         if (data.voiceName) setVoiceName(data.voiceName);
+        if (data.signingSecretMasked) setSigningSecret(data.signingSecretMasked);
         if (data.activeCarrier) {
           const cLower = data.activeCarrier.toLowerCase();
           setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : cLower.includes("sim") ? "simulation" : "telnyx");
@@ -5748,8 +5750,10 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         api_key: apiKey,
         account_sid: accountSid,
         voice_name: voiceName,
-        webhook_url: webhookUrl
+        webhook_url: webhookUrl,
+        signing_secret: signingSecret
       });
+
       setProvisionMsg(res);
       await fetchStatus();
       if (setProfile) {
@@ -6073,6 +6077,25 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>Stored securely in database. Never exposed to callers.</div>
               </div>
             )}
+
+            {engineChoice === "xai" && (
+              <div>
+                <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                  Webhook Signing Secret (Svix HMAC Secret)
+                </label>
+                <input
+                  type="text"
+                  value={signingSecret}
+                  onChange={(e) => setSigningSecret(e.target.value)}
+                  placeholder={hubData.hasSigningSecret ? hubData.signingSecretMasked : "Auto-generated upon registration (whsec_...)"}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13, outline: "none" }}
+                />
+                <div style={{ fontSize: 11, color: hubData.hasSigningSecret ? "#059669" : C.slateLight, marginTop: 4 }}>
+                  {hubData.hasSigningSecret ? `✓ Linked to Svix Secret: ${hubData.signingSecretMasked}` : "Auto-populated by xAI BYO trunk registration, or paste manually from console.x.ai."}
+                </div>
+              </div>
+            )}
+
 
             {carrierChoice === "twilio" && (
               <div>
