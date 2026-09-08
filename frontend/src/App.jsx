@@ -1725,7 +1725,7 @@ function TasksView({
                   whiteSpace: "nowrap",
                 }}
               >
-                <Sparkles size={16} /> New Outreach (AI Lead Scout)
+                <Sparkles size={16} /> New Outreach (AI Chat)
               </button>
               <button
                 onClick={(e) => {
@@ -7756,11 +7756,11 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
 
   const parsed = prompt.length > 8;
 
-  // AI Lead Scout Chat state
+  // AI Chat state
   const [copilotMessages, setCopilotMessages] = useState([
     {
       sender: "ai",
-      text: "👋 Hi! I'm your AI Lead Scout. Who would you like to reach? Tell me your company offer, target industry, region, or specific companies (e.g. 'Find 5 logistics dispatchers in Texas to pitch our voice AI'). I'll scout the web for verified switchboard numbers, decision-makers, and personalized hooks."
+      text: "👋 Hi! I'm your AI Chat. Who would you like to reach? Tell me your company offer, target industry, region, or specific companies (e.g. 'Find 5 logistics dispatchers in Texas to pitch our voice AI'). I'll search the web for verified switchboard numbers, decision-makers, and personalized hooks."
     }
   ]);
   const [chatInput, setChatInput] = useState("");
@@ -7976,7 +7976,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
             onClick={() => setTab("discover")}
             style={{ flex: 1, padding: "9px 12px", borderRadius: 7, border: "none", cursor: "pointer", background: tab === "discover" ? "#fff" : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: tab === "discover" ? C.textInk : C.slate, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: tab === "discover" ? "0 1px 3px rgba(0,0,0,0.06)" : "none" }}
           >
-            <Sparkles size={14} /> AI Lead Scout
+            <Sparkles size={14} /> AI Chat
           </button>
           <button
             onClick={() => setTab("manual")}
@@ -8251,6 +8251,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
             )}
             </>
             )}
+            </>
+        )}
 
         <div style={{ marginTop: 18, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
