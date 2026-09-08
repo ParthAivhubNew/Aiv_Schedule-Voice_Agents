@@ -23,7 +23,17 @@ export async function apiRequest(endpoint, options = {}) {
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.detail || `Request failed with status ${response.status}`);
+      let msg = `Request failed with status ${response.status}`;
+      if (typeof errData.detail === 'string') {
+        msg = errData.detail;
+      } else if (Array.isArray(errData.detail)) {
+        msg = errData.detail.map(d => (d.msg ? `${d.loc ? d.loc.slice(-1)[0] + ': ' : ''}${d.msg}` : JSON.stringify(d))).join('; ');
+      } else if (errData.detail && typeof errData.detail === 'object') {
+        msg = JSON.stringify(errData.detail);
+      } else if (errData.error) {
+        msg = typeof errData.error === 'string' ? errData.error : JSON.stringify(errData.error);
+      }
+      throw new Error(msg);
     }
 
     return await response.json();

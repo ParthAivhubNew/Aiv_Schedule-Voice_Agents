@@ -89,6 +89,7 @@ import {
   Plus,
   Play,
   Wand2,
+  Image as ImageIcon,
 } from "lucide-react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -1143,7 +1144,6 @@ function nowStamp() {
 
 const NAV_GROUPS = [
   { label: "Operations", items: [
-    { id: "radar", label: "AI Lead Radar & Discovery", icon: Target },
     { id: "tasks", label: "Tasks & Batches", icon: ListChecks },
     { id: "schedule", label: "Schedule", icon: Calendar },
     { id: "meetings", label: "Meetings", icon: CalendarCheck },
@@ -1589,6 +1589,7 @@ function TasksView({
   callerId,
   onOpenTask,
   onWatchLive,
+  onNewOutreach,
 }) {
   const [taskTab, setTaskTab] = useState("all"); // "all" | "active" | "scheduled" | "completed"
   const [showWizard, setShowWizard] = useState(false);
@@ -1641,6 +1642,7 @@ function TasksView({
         subtitle="Import whole contact files (.xlsx, .csv), configure safe multi-client calling, and supervise parallel dials"
         notifications={notifications}
         setNotifications={setNotifications}
+        onNewMission={onNewOutreach}
       />
 
       <div style={{ padding: "24px 32px", overflowY: "auto", flex: 1, background: HUB_PAPER }}>
@@ -1648,7 +1650,7 @@ function TasksView({
           
           {/* MAIN PROMINENT HERO CARD - Clicking anywhere opens Upload / Setup Wizard */}
           <div
-            onClick={() => setShowWizard(true)}
+            onClick={() => (onNewOutreach ? onNewOutreach() : setShowWizard(true))}
             style={{
               background: "#fff",
               border: `1.5px solid ${C.border}`,
@@ -1691,35 +1693,62 @@ function TasksView({
               </div>
               <div>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17.5, color: C.ink }}>
-                  Batch Contact Calling & Task Management
+                  Batch Contact Calling & AI Lead Outreach
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4, maxWidth: 580, lineHeight: 1.45 }}>
-                  Import customer contact files (.xlsx, .csv), configure dynamic AI voice scripts, enforce timezone calling windows, and supervise live parallel lines.
+                  Discover targeted decision-makers with AI live web intelligence, import customer lists (.xlsx, .csv), and supervise parallel voice calling lines.
                 </div>
               </div>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button
-                onClick={() => setShowWizard(true)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onNewOutreach) onNewOutreach();
+                  else setShowWizard(true);
+                }}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
                   padding: "11px 20px",
                   borderRadius: 10,
-                  background: C.ink,
+                  background: "linear-gradient(135deg, #1A56DB 0%, #7C3AED 100%)",
                   color: "#fff",
                   fontFamily: FONT_BODY,
                   fontSize: 13,
                   fontWeight: 700,
                   border: "none",
                   cursor: "pointer",
-                  boxShadow: "0 4px 12px rgba(18,20,28,0.16)",
+                  boxShadow: "0 4px 14px rgba(26,86,219,0.25)",
                   whiteSpace: "nowrap",
                 }}
               >
-                <Plus size={16} /> New Calling Task
+                <Sparkles size={16} /> New Outreach (AI Copilot)
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowWizard(true);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "11px 18px",
+                  borderRadius: 10,
+                  background: "#fff",
+                  color: C.textInk,
+                  fontFamily: FONT_BODY,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  border: `1px solid ${C.border}`,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Plus size={15} /> Batch Upload Wizard
               </button>
             </div>
           </div>
@@ -9697,9 +9726,12 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     setTestResult(null);
     try {
       const res = await api.testConnection({
+        layer: "LLM",
         provider: aiSettings.provider,
+        api_key: aiSettings.apiKey.trim(),
         apiKey: aiSettings.apiKey.trim(),
-        baseUrl: aiSettings.baseUrl.trim(),
+        base_url: aiSettings.baseUrl ? aiSettings.baseUrl.trim() : undefined,
+        baseUrl: aiSettings.baseUrl ? aiSettings.baseUrl.trim() : undefined,
       });
       if (res.valid) {
         setTestResult({ valid: true, message: res.details || "Connected successfully! Key is active and verified." });
@@ -10130,6 +10162,894 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         )}
 
       </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- Dedicated Post Scheduler AI Image Studio View ---------------------------------- */
+
+function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts, commonAi, company, onNavigate }) {
+  const [sourceMode, setSourceMode] = useState("topic"); // "topic" | "post" | "custom"
+  const [selectedTopicId, setSelectedTopicId] = useState(topics[0]?.id || "");
+  const [selectedPostId, setSelectedPostId] = useState(posts[0]?.id || "");
+  const [targetPostId, setTargetPostId] = useState(posts[0]?.id || "");
+  const [targetTopicId, setTargetTopicId] = useState(topics[0]?.id || "");
+
+  const defaultStyle = commonAi?.schedulerAi?.imageStyle || "modern_saas";
+  const [style, setStyle] = useState(defaultStyle);
+  const [aspectRatio, setAspectRatio] = useState("16:9"); // "16:9" | "1:1" | "9:16"
+  const [prompt, setPrompt] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [toast, setToast] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  // Initial visual
+  const [currentVisual, setCurrentVisual] = useState(() => {
+    const existingPost = posts.find((p) => p.imageUrl);
+    const existingTopic = topics.find((t) => t.imageUrl);
+    if (existingPost) {
+      return {
+        imageUrl: existingPost.imageUrl,
+        prompt: existingPost.imagePrompt || existingPost.title || "Social graphic visual",
+        style: defaultStyle,
+        ratio: "16:9",
+        width: 1200,
+        height: 675,
+      };
+    }
+    if (existingTopic) {
+      return {
+        imageUrl: existingTopic.imageUrl,
+        prompt: existingTopic.imagePrompt || existingTopic.headline,
+        style: defaultStyle,
+        ratio: "16:9",
+        width: 1200,
+        height: 675,
+      };
+    }
+    return {
+      imageUrl: "https://image.pollinations.ai/prompt/Modern%20sleek%20SaaS%20vector%20illustration%20of%20business%20intelligence%20dashboard%20with%20realtime%20analytics%20graphs%2C%20clean%20UI%20gradients%2C%204k?width=1200&height=675&nologo=true&seed=9021",
+      prompt: "Modern sleek SaaS vector illustration of business intelligence dashboard with realtime analytics graphs, clean UI gradients, 4k",
+      style: "modern_saas",
+      ratio: "16:9",
+      width: 1200,
+      height: 675,
+    };
+  });
+
+  const [history, setHistory] = useState(() => {
+    const list = [];
+    if (currentVisual) list.push(currentVisual);
+    topics.filter((t) => t.imageUrl).forEach((t) => {
+      list.push({ imageUrl: t.imageUrl, prompt: t.headline, style: "modern_saas", ratio: "16:9", width: 1200, height: 675 });
+    });
+    posts.filter((p) => p.imageUrl).forEach((p) => {
+      list.push({ imageUrl: p.imageUrl, prompt: p.title || p.copy?.slice(0, 40), style: "modern_saas", ratio: "16:9", width: 1200, height: 675 });
+    });
+    return list.slice(0, 8);
+  });
+
+  useEffect(() => {
+    if (sourceMode === "topic") {
+      const top = topics.find((t) => t.id === selectedTopicId) || topics[0];
+      if (top) {
+        setPrompt(`${top.headline}. Focus on ${top.angle || "operational efficiency and actionable data insights"}. High quality visual concept, no text.`);
+        setTargetTopicId(top.id);
+      }
+    } else if (sourceMode === "post") {
+      const pst = posts.find((p) => p.id === selectedPostId) || posts[0];
+      if (pst) {
+        setPrompt(`${pst.title || pst.topicHeadline || pst.theme || "Operations dashboard analytics"}. Clean composition, high detail, no text.`);
+        setTargetPostId(pst.id);
+      }
+    } else if (sourceMode === "custom" && !prompt) {
+      setPrompt("Automated operations intelligence dashboard with real-time streaming analytics metrics and glowing charts, 4k");
+    }
+  }, [sourceMode, selectedTopicId, selectedPostId]);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 4000);
+  };
+
+  const getDimensions = (ratio) => {
+    if (ratio === "1:1") return { width: 1024, height: 1024 };
+    if (ratio === "9:16") return { width: 720, height: 1280 };
+    return { width: 1200, height: 675 }; // 16:9
+  };
+
+  const handleGenerate = async (forcedSeed) => {
+    const cleanPrompt = (prompt || "").trim() || "Operations intelligence dashboard analytics";
+    setGenerating(true);
+    const { width, height } = getDimensions(aspectRatio);
+    try {
+      const res = await api.generateImage({
+        prompt: cleanPrompt,
+        style,
+        width,
+        height,
+      });
+
+      if (res && res.imageUrl) {
+        let finalUrl = res.imageUrl;
+        if (forcedSeed) {
+          finalUrl = `${finalUrl}&seed=${Math.floor(Math.random() * 999999)}`;
+        }
+        const newVisual = {
+          imageUrl: finalUrl,
+          prompt: cleanPrompt,
+          style,
+          ratio: aspectRatio,
+          width,
+          height,
+        };
+        setCurrentVisual(newVisual);
+        setHistory((prev) => [newVisual, ...prev.filter((h) => h.imageUrl !== finalUrl)].slice(0, 10));
+        showToast("✨ AI visual graphic generated successfully!");
+      }
+    } catch (err) {
+      console.error("Error generating image:", err);
+      const encoded = encodeURIComponent(`${cleanPrompt}, ${style}`);
+      const fallbackUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
+      const fallbackVisual = {
+        imageUrl: fallbackUrl,
+        prompt: cleanPrompt,
+        style,
+        ratio: aspectRatio,
+        width,
+        height,
+      };
+      setCurrentVisual(fallbackVisual);
+      setHistory((prev) => [fallbackVisual, ...prev].slice(0, 10));
+      showToast("✨ Generated AI visual!");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleAttachToPost = async () => {
+    if (!currentVisual || !currentVisual.imageUrl) {
+      showToast("Please generate or select an image first.");
+      return;
+    }
+    const targetPost = posts.find((p) => p.id === targetPostId) || posts[0];
+    if (!targetPost) {
+      showToast("No post found to attach to.");
+      return;
+    }
+
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === targetPost.id
+          ? { ...p, imageUrl: currentVisual.imageUrl, imagePrompt: currentVisual.prompt }
+          : p
+      )
+    );
+
+    try {
+      await api.updatePostStatus(
+        targetPost.id,
+        targetPost.status || "awaiting_approval",
+        targetPost.copy || "",
+        currentVisual.imageUrl,
+        currentVisual.prompt
+      );
+    } catch (e) {
+      console.warn("Updated post in memory, backend sync warning:", e);
+    }
+
+    showToast(`✅ Visual attached to post: "${(targetPost.title || targetPost.id).slice(0, 32)}…"`);
+  };
+
+  const handleAttachToTopic = () => {
+    if (!currentVisual || !currentVisual.imageUrl) {
+      showToast("Please generate or select an image first.");
+      return;
+    }
+    const targetTopic = topics.find((t) => t.id === targetTopicId) || topics[0];
+    if (!targetTopic) {
+      showToast("No topic found to attach to.");
+      return;
+    }
+
+    setTopics((prev) =>
+      prev.map((t) =>
+        t.id === targetTopic.id
+          ? { ...t, imageUrl: currentVisual.imageUrl, imagePrompt: currentVisual.prompt }
+          : t
+      )
+    );
+
+    showToast(`✅ Visual attached to topic: "${targetTopic.headline.slice(0, 32)}…"`);
+  };
+
+  const handleEnhancePrompt = () => {
+    const enhancements = {
+      modern_saas: "isometric 3D visualization, clean gradient backdrop, frosted glassmorphism accents, crisp lighting, high quality 4k render",
+      editorial: "photorealistic 35mm film photography, natural studio side-lighting, sharp professional depth of field, 8k resolution",
+      minimalist_3d: "vibrant pastel clay render, soft ambient occlusion shadows, smooth textures, playful geometric objects, blender cycles 4k",
+      neon_tech: "dark cinematic atmosphere, glowing cyan and violet laser accents, holographic telemetry HUD, high contrast cyber aesthetic",
+    };
+    const suffix = enhancements[style] || enhancements.modern_saas;
+    if (!prompt.includes(suffix.slice(0, 15))) {
+      setPrompt((prev) => (prev ? `${prev.trim()}, ${suffix}` : suffix));
+      showToast("Enhanced prompt with style keywords!");
+    }
+  };
+
+  const handleCopyUrl = () => {
+    if (currentVisual?.imageUrl) {
+      navigator.clipboard?.writeText(currentVisual.imageUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      showToast("Copied image URL to clipboard!");
+    }
+  };
+
+  const styleOptions = [
+    { id: "modern_saas", label: "Modern Tech SaaS", desc: "Clean UI vector gradients, isometric mockups & dashboards" },
+    { id: "editorial", label: "Editorial Photography", desc: "Photorealistic 35mm corporate style, soft natural studio lighting" },
+    { id: "minimalist_3d", label: "3D Clay Minimalist", desc: "Playful isometric clay render, smooth pastel shading" },
+    { id: "neon_tech", label: "Dark Neon Cyberpunk", desc: "Moody high-contrast dark UI, glowing cyan & violet lasers" },
+  ];
+
+  const ratioOptions = [
+    { id: "16:9", label: "16:9 Landscape", hint: "LinkedIn & X Banners (1200×675)" },
+    { id: "1:1", label: "1:1 Square", hint: "Feed Posts & Instagram (1024×1024)" },
+    { id: "9:16", label: "9:16 Vertical", hint: "Stories & Reels (720×1280)" },
+  ];
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px 36px", background: HUB_PAPER, fontFamily: FONT_BODY }}>
+      <div style={{ maxWidth: 1200, width: "100%", margin: "0 auto" }}>
+        
+        {/* Header Ribbon */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14, marginBottom: 24 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${C.teal}, ${C.cobalt})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Sparkles size={18} color="#fff" />
+              </div>
+              <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, margin: 0, letterSpacing: "-0.02em" }}>
+                AI Image Studio
+              </h1>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: C.tealSoft, color: C.teal, border: `1px solid ${C.teal}33` }}>
+                Zero-Config · Instant FLUX Generator
+              </span>
+            </div>
+            <p style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, margin: "6px 0 0 0" }}>
+              Generate, customize, and attach high-resolution visual graphics to your scheduled posts and topic library with one click.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => onNavigate && onNavigate("topics")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                borderRadius: 8,
+                border: `1px solid ${C.border}`,
+                background: "#fff",
+                color: C.ink,
+                fontFamily: FONT_BODY,
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Search size={14} /> Topic library ({topics.length})
+            </button>
+            <button
+              onClick={() => onNavigate && onNavigate("month")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                borderRadius: 8,
+                border: "none",
+                background: C.ink,
+                color: "#fff",
+                fontFamily: FONT_BODY,
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <CalendarDays size={14} /> View Calendar
+            </button>
+          </div>
+        </div>
+
+        {/* 2-Column Main Workspace */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 24, alignItems: "start", marginBottom: 32 }}>
+          
+          {/* Left Column: Creative Controls */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            
+            {/* Card 1: Source & Concept */}
+            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 22, boxShadow: C.shadowCard }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Wand2 size={16} color={C.teal} /> 1. Select Concept Source
+                </div>
+                {/* Source Mode Tabs */}
+                <div style={{ display: "flex", background: HUB_PAPER, padding: 3, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                  {[
+                    { id: "topic", label: "From Topic" },
+                    { id: "post", label: "From Post" },
+                    { id: "custom", label: "Custom" },
+                  ].map((m) => {
+                    const active = sourceMode === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setSourceMode(m.id)}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 6,
+                          border: "none",
+                          background: active ? "#fff" : "transparent",
+                          color: active ? C.ink : C.slate,
+                          fontFamily: FONT_BODY,
+                          fontSize: 12,
+                          fontWeight: active ? 700 : 500,
+                          cursor: "pointer",
+                          boxShadow: active ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                        }}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Source Mode Specific Dropdown */}
+              {sourceMode === "topic" && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                    Select Topic from Library ({topics.length} available)
+                  </label>
+                  <select
+                    value={selectedTopicId}
+                    onChange={(e) => setSelectedTopicId(e.target.value)}
+                    style={{
+                      width: "100%",
+                      height: 40,
+                      padding: "0 12px",
+                      borderRadius: 9,
+                      border: `1px solid ${C.border}`,
+                      fontFamily: FONT_BODY,
+                      fontSize: 13,
+                      background: HUB_PAPER,
+                      color: C.ink,
+                    }}
+                  >
+                    {topics.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.headline} ({t.theme || "Topic"})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {sourceMode === "post" && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                    Select Scheduled Post ({posts.length} available)
+                  </label>
+                  <select
+                    value={selectedPostId}
+                    onChange={(e) => setSelectedPostId(e.target.value)}
+                    style={{
+                      width: "100%",
+                      height: 40,
+                      padding: "0 12px",
+                      borderRadius: 9,
+                      border: `1px solid ${C.border}`,
+                      fontFamily: FONT_BODY,
+                      fontSize: 13,
+                      background: HUB_PAPER,
+                      color: C.ink,
+                    }}
+                  >
+                    {posts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title || (p.copy || "").slice(0, 45) || p.id} [{p.status}]
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Editable Prompt */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
+                    Visual Description Prompt
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleEnhancePrompt}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: C.teal,
+                      fontFamily: FONT_BODY,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                    }}
+                  >
+                    <Sparkles size={12} /> ✨ Enhance Prompt
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe the visual concept in detail (e.g. Modern executive operations dashboard with real-time graphs)..."
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 9,
+                    border: `1px solid ${C.border}`,
+                    fontFamily: FONT_BODY,
+                    fontSize: 13,
+                    lineHeight: 1.45,
+                    color: C.ink,
+                    boxSizing: "border-box",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+
+              {/* Prompt Suggestions Pills */}
+              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {[
+                  "Executive operations KPI dashboard",
+                  "Automated supply chain logistics network",
+                  "Customer retention data stream graph",
+                  "Live AI voice calling telemetric dispatch",
+                ].map((idea, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setPrompt(idea + ", clean UI gradients, 4k render, no text")}
+                    style={{
+                      padding: "4px 9px",
+                      borderRadius: 6,
+                      border: `1px solid ${C.borderLight}`,
+                      background: HUB_PAPER,
+                      color: C.slate,
+                      fontSize: 11,
+                      cursor: "pointer",
+                      fontFamily: FONT_BODY,
+                    }}
+                  >
+                    + {idea}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Card 2: Visual Style Preset */}
+            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 22, boxShadow: C.shadowCard }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                <Sliders size={16} color={C.cobalt} /> 2. Visual Art Style
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {styleOptions.map((opt) => {
+                  const active = style === opt.id;
+                  return (
+                    <div
+                      key={opt.id}
+                      onClick={() => setStyle(opt.id)}
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: 10,
+                        border: `2px solid ${active ? C.teal : C.border}`,
+                        background: active ? C.tealSoft : HUB_PAPER,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: active ? C.teal : C.ink }}>
+                          {opt.label}
+                        </span>
+                        {active && <CheckCircle2 size={14} color={C.teal} />}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.slate, marginTop: 4, lineHeight: 1.35 }}>
+                        {opt.desc}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Aspect Ratio Selector */}
+              <div style={{ marginTop: 18 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 8 }}>
+                  Aspect Ratio & Canvas Dimensions
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                  {ratioOptions.map((r) => {
+                    const active = aspectRatio === r.id;
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setAspectRatio(r.id)}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border: `1px solid ${active ? C.teal : C.border}`,
+                          background: active ? C.tealSoft : "#fff",
+                          color: active ? C.teal : C.slate,
+                          cursor: "pointer",
+                          textAlign: "center",
+                          fontFamily: FONT_BODY,
+                        }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 700 }}>{r.label}</div>
+                        <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>{r.hint.split(" ")[0]}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Action Button: Generate */}
+              <button
+                type="button"
+                disabled={generating}
+                onClick={() => handleGenerate(false)}
+                style={{
+                  marginTop: 20,
+                  width: "100%",
+                  height: 44,
+                  borderRadius: 10,
+                  border: "none",
+                  background: generating ? C.slateLight : `linear-gradient(135deg, ${C.teal}, ${C.cobalt})`,
+                  color: "#fff",
+                  fontFamily: FONT_BODY,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: generating ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  boxShadow: "0 4px 12px rgba(13,148,136,0.25)",
+                }}
+              >
+                {generating ? (
+                  <>
+                    <RefreshCw size={16} className="spin" /> Generating High-Res Graphic…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={16} /> Generate Visual Graphic
+                  </>
+                )}
+              </button>
+            </div>
+
+          </div>
+
+          {/* Right Column: Live Visual Canvas & Attach Hub */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            
+            {/* Canvas Container */}
+            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, boxShadow: C.shadowCard }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, display: "flex", alignItems: "center", gap: 8 }}>
+                  <ImageIcon size={16} color={C.cobalt} /> Visual Preview Canvas
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: HUB_PAPER, color: C.slate, border: `1px solid ${C.border}` }}>
+                    {aspectRatio} · {getDimensions(aspectRatio).width}×{getDimensions(aspectRatio).height}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: C.cobaltSoft, color: C.cobaltDeep }}>
+                    {style}
+                  </span>
+                </div>
+              </div>
+
+              {/* Main Image Viewport */}
+              <div
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  aspectRatio: aspectRatio === "1:1" ? "1 / 1" : aspectRatio === "9:16" ? "9 / 16" : "16 / 9",
+                  maxHeight: 380,
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  background: C.ink,
+                  border: `1px solid ${C.border}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {generating ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, color: "#fff", padding: 20, textAlign: "center" }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 999, border: "3px solid rgba(255,255,255,0.2)", borderTopColor: C.teal, animation: "spin 0.8s linear infinite" }} />
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14 }}>Synthesizing Visual with FLUX…</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: "#9AA0AE", maxWidth: 300 }}>
+                      Rendering photorealistic composition tailored to your topic and style.
+                    </div>
+                  </div>
+                ) : currentVisual?.imageUrl ? (
+                  <img
+                    src={currentVisual.imageUrl}
+                    alt={currentVisual.prompt}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                ) : (
+                  <div style={{ color: "#9AA0AE", fontSize: 13 }}>No visual generated yet. Click "Generate" on the left.</div>
+                )}
+
+                {/* Floating Quick Action Overlay Buttons */}
+                {currentVisual?.imageUrl && !generating && (
+                  <div style={{ position: "absolute", bottom: 12, right: 12, display: "flex", gap: 6 }}>
+                    <a
+                      href={currentVisual.imageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        height: 30,
+                        padding: "0 10px",
+                        borderRadius: 6,
+                        background: "rgba(0,0,0,0.75)",
+                        backdropFilter: "blur(4px)",
+                        color: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        textDecoration: "none",
+                      }}
+                      title="Open full resolution in new tab"
+                    >
+                      <ExternalLink size={12} /> Open Full
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleCopyUrl}
+                      style={{
+                        height: 30,
+                        padding: "0 10px",
+                        borderRadius: 6,
+                        background: "rgba(0,0,0,0.75)",
+                        backdropFilter: "blur(4px)",
+                        color: "#fff",
+                        border: "none",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}
+                      title="Copy URL"
+                    >
+                      {copied ? <Check size={12} color={C.teal} /> : <Copy size={12} />} {copied ? "Copied" : "Copy Link"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleGenerate(true)}
+                      style={{
+                        height: 30,
+                        padding: "0 10px",
+                        borderRadius: 6,
+                        background: "rgba(0,0,0,0.75)",
+                        backdropFilter: "blur(4px)",
+                        color: "#fff",
+                        border: "none",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}
+                      title="Generate another variation"
+                    >
+                      <RefreshCw size={12} /> Variation
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Prompt Caption under Preview */}
+              {currentVisual?.prompt && (
+                <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: HUB_PAPER, border: `1px solid ${C.borderLight}` }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: C.slateLight, textTransform: "uppercase" }}>Generated Concept Prompt</div>
+                  <div style={{ fontSize: 12, color: C.ink, marginTop: 2, lineHeight: 1.35 }}>{currentVisual.prompt}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Attach Hub Card */}
+            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, boxShadow: C.shadowCard }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                <CheckCircle2 size={16} color={C.teal} /> 3. Attach Visual to Posts or Topics
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                
+                {/* Attach to Post */}
+                <div style={{ padding: 12, borderRadius: 10, border: `1px solid ${C.borderLight}`, background: HUB_PAPER }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                    Apply to Scheduled Post
+                  </div>
+                  <select
+                    value={targetPostId}
+                    onChange={(e) => setTargetPostId(e.target.value)}
+                    style={{
+                      width: "100%",
+                      height: 36,
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      fontSize: 12,
+                      fontFamily: FONT_BODY,
+                      background: "#fff",
+                      padding: "0 8px",
+                      marginBottom: 8,
+                    }}
+                  >
+                    {posts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title ? p.title.slice(0, 30) : p.id} ({p.status})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleAttachToPost}
+                    style={{
+                      width: "100%",
+                      height: 34,
+                      borderRadius: 8,
+                      border: "none",
+                      background: C.teal,
+                      color: "#fff",
+                      fontFamily: FONT_BODY,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Check size={14} /> Attach to Post
+                  </button>
+                </div>
+
+                {/* Attach to Topic */}
+                <div style={{ padding: 12, borderRadius: 10, border: `1px solid ${C.borderLight}`, background: HUB_PAPER }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                    Apply to Topic Library
+                  </div>
+                  <select
+                    value={targetTopicId}
+                    onChange={(e) => setTargetTopicId(e.target.value)}
+                    style={{
+                      width: "100%",
+                      height: 36,
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      fontSize: 12,
+                      fontFamily: FONT_BODY,
+                      background: "#fff",
+                      padding: "0 8px",
+                      marginBottom: 8,
+                    }}
+                  >
+                    {topics.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.headline.slice(0, 32)}…
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleAttachToTopic}
+                    style={{
+                      width: "100%",
+                      height: 34,
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      background: "#fff",
+                      color: C.ink,
+                      fontFamily: FONT_BODY,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Plus size={14} /> Attach to Topic
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+        {/* Bottom Ribbon: Recent Visuals History */}
+        {history.length > 0 && (
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, boxShadow: C.shadowCard }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, display: "flex", alignItems: "center", gap: 8 }}>
+                <Layers size={16} color={C.cobalt} /> Session Visual Gallery ({history.length})
+              </div>
+              <span style={{ fontSize: 11.5, color: C.slate }}>
+                Click any thumbnail to preview or attach to another post
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 12 }}>
+              {history.map((h, i) => (
+                <div
+                  key={i}
+                  onClick={() => setCurrentVisual(h)}
+                  style={{
+                    borderRadius: 10,
+                    overflow: "hidden",
+                    border: `2px solid ${currentVisual?.imageUrl === h.imageUrl ? C.teal : C.borderLight}`,
+                    cursor: "pointer",
+                    background: HUB_PAPER,
+                    transition: "transform 0.15s ease",
+                  }}
+                  className="hover-float"
+                >
+                  <div style={{ width: "100%", height: 95, background: C.ink, overflow: "hidden" }}>
+                    <img src={h.imageUrl} alt={h.prompt} style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+                  </div>
+                  <div style={{ padding: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {h.prompt}
+                    </div>
+                    <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>
+                      {h.ratio || "16:9"} · {h.style || "modern_saas"}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {/* Floating Toast Notification */}
+      {toast && (
+        <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 20px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 2000 }}>
+          <CheckCircle2 size={16} color={C.teal} /> {toast}
+        </div>
+      )}
     </div>
   );
 }
@@ -12106,6 +13026,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const nav = [
     { id: "plan", label: "Plan", icon: Calendar },
     { id: "topics", label: "Topic library", icon: Search, count: topics.length },
+    { id: "images", label: "AI Image Studio", icon: ImageIcon },
     { id: "month", label: "Calendar", icon: CalendarDays },
     { id: "approval", label: "Approvals", icon: CheckCircle2, count: awaiting.length + approved.length },
     { id: "inbox", label: "Email inbox", icon: Mail, count: unreadMail },
@@ -12120,6 +13041,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     plan: "Plan — chat, research, save",
     month: (planRange && planRange.label ? planRange.label : PLAN_MONTH.label) + (planSaved ? " · saved" : " · draft"),
     topics: "Topic library",
+    images: "AI Image Studio · Generate Social Graphics",
     approval: "Approvals",
     inbox: "Email inbox",
     published: "Published",
@@ -12264,11 +13186,36 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                   ? "Calendar of the plan. Tweaks can still go through Plan chat."
                   : view === "topics"
                     ? "Saved research from Plan chat. Filter and pin — search lives on Plan."
-                    : "Write from pinned topics → schedule → due = approve → publish."}
+                    : view === "images"
+                      ? "Generate instant FLUX AI visuals for topics and posts, customize styles, and attach with one click."
+                      : "Write from pinned topics → schedule → due = approve → publish."}
               </div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {view !== "images" && (
+              <button
+                onClick={() => navigateSch("images")}
+                style={{
+                  height: 38,
+                  padding: "0 14px",
+                  borderRadius: 10,
+                  border: `1px solid ${C.border}`,
+                  background: "#fff",
+                  color: C.ink,
+                  fontFamily: FONT_BODY,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+                title="Open AI Image Studio"
+              >
+                <Sparkles size={14} color={C.teal} /> AI Image Studio
+              </button>
+            )}
             <div style={{ textAlign: "right", marginRight: 4 }}>
               <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.slateLight }}>Posting as</div>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>{company.name}</div>
@@ -13366,6 +14313,17 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
             </div>
           </div>
         )}
+        {view === "images" && (
+          <SchedulerImageStudioView
+            topics={topics}
+            setTopics={setTopics}
+            posts={posts}
+            setPosts={setPosts}
+            commonAi={commonAi}
+            company={company}
+            onNavigate={navigateSch}
+          />
+        )}
         {view === "ai" && (
           <SchedulerAiConfigView
             commonAi={commonAi || INITIAL_COMMON_AI_CONFIG}
@@ -14330,6 +15288,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             callerId={profile.callerId}
             onOpenTask={openMission}
             onWatchLive={goLive}
+            onNewOutreach={() => setShowNew(true)}
           />
         )}
         {(view === "missionDetail" || view === "taskDetail") && selectedMission && (
@@ -14394,29 +15353,6 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             prefillQuery={prefillLogQuery}
             clearPrefill={() => setPrefillLogQuery(null)}
             onJumpSchedule={goScheduleFor}
-          />
-        )}
-        {view === "radar" && (
-          <LeadRadarView
-            notifications={notifications}
-            setNotifications={setNotifications}
-            onLaunchMission={(leads) => {
-              createMission({
-                tab: "manual",
-                channel: "voice",
-                concurrency: 5,
-                windowStart: profile.weekdayStart || "09:00",
-                windowEnd: profile.weekdayEnd || "17:30",
-                rows: leads.map((l) => ({
-                  name: l.name,
-                  channel: "voice",
-                  contactPerson: l.contactPerson,
-                  phone: l.phone,
-                  site: l.site,
-                  source: "AI Lead Radar"
-                }))
-              });
-            }}
           />
         )}
         {view === "processlogs" && (

@@ -48,18 +48,22 @@ async def generate_image_endpoint(payload: Dict[str, Any]):
     title = payload.get("title", "")
     theme = payload.get("theme", "Operations")
     style = payload.get("style", "modern_saas")
+    width = int(payload.get("width", 1200))
+    height = int(payload.get("height", 675))
     
     if not prompt and title:
         prompt = create_topic_image_prompt(title, theme=theme, style=style)
     elif not prompt:
         prompt = "Business intelligence operations dashboard with real-time analytics"
         
-    img_url = generate_image_url(prompt, style=style)
+    img_url = generate_image_url(prompt, style=style, width=width, height=height)
     return {
         "status": "ok",
         "imageUrl": img_url,
         "imagePrompt": prompt,
-        "style": style
+        "style": style,
+        "width": width,
+        "height": height
     }
 
 @router.post("/chat-plan")

@@ -13,11 +13,21 @@ import uuid
 router = APIRouter(prefix="/connections", tags=["Connections & Providers"])
 
 class TestKeyRequest(BaseModel):
-    layer: str
+    layer: Optional[str] = "LLM"
     provider: str
-    api_key: str
+    api_key: Optional[str] = None
+    apiKey: Optional[str] = None
     base_url: Optional[str] = None
+    baseUrl: Optional[str] = None
     account_sid: Optional[str] = None
+
+    @property
+    def resolved_api_key(self) -> str:
+        return (self.api_key or self.apiKey or "").strip()
+
+    @property
+    def resolved_base_url(self) -> Optional[str]:
+        return self.base_url or self.baseUrl
 
 @router.get("", response_model=list[dict])
 async def list_connections(db: AsyncSession = Depends(get_db)):
@@ -57,10 +67,16 @@ async def test_connection_only(req: TestKeyRequest):
     """
     Performs live test against provider API without saving.
     """
+    key = req.resolved_api_key
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail="API Key is required to perform validation test."
+        )
     validation = await validate_api_key(
         provider=req.provider,
-        api_key=req.api_key,
-        base_url=req.base_url,
+        api_key=key,
+        base_url=req.resolved_base_url,
         account_sid=req.account_sid
     )
     if not validation["valid"]:
@@ -70,6 +86,7 @@ async def test_connection_only(req: TestKeyRequest):
         )
     return {
         "success": True,
+        "valid": True,
         "details": validation.get("details", "Verified & Active")
     }
 
@@ -79,11 +96,17 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     Performs a live validation test against the provider API before saving.
     Rejects the request if credentials fail authentication.
     """
+    key = req.resolved_api_key
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail="API Key is required."
+        )
     # 1. Live Validation Probe
     validation = await validate_api_key(
         provider=req.provider,
-        api_key=req.api_key,
-        base_url=req.base_url,
+        api_key=key,
+        base_url=req.resolved_base_url,
         account_sid=req.account_sid
     )
     
@@ -94,7 +117,7 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         )
     
     # 2. Mask the key for safe storage
-    clean_key = req.api_key.strip()
+    clean_key = key
     masked = clean_key[:3] + "••••••••" + clean_key[-4:] if len(clean_key) > 8 else "••••••••"
     
     # 3. Save or update connection in database
