@@ -88,6 +88,10 @@ export const api = {
   provisionTelephonyHub: (payload) => apiRequest('/connections/telephony-hub/provision', { method: 'POST', body: payload }),
   testTelephonyPing: () => apiRequest('/connections/telephony-hub/test-ping', { method: 'POST' }),
 
+  // AI Lead Radar & Enrichment
+  enrichProspect: (payload) => apiRequest('/enrichment/enrich-prospect', { method: 'POST', body: payload }),
+  discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload }),
+
   // Analytics
   getAnalytics: () => apiRequest('/analytics'),
 

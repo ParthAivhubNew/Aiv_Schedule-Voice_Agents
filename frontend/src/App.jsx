@@ -22,6 +22,7 @@ import {
   ExternalLink,
   ListChecks,
   Radio,
+  Target,
   Calendar,
   Clock,
   KeyRound,
@@ -1142,6 +1143,7 @@ function nowStamp() {
 
 const NAV_GROUPS = [
   { label: "Operations", items: [
+    { id: "radar", label: "AI Lead Radar & Discovery", icon: Target },
     { id: "tasks", label: "Tasks & Batches", icon: ListChecks },
     { id: "schedule", label: "Schedule", icon: Calendar },
     { id: "meetings", label: "Meetings", icon: CalendarCheck },
@@ -6300,6 +6302,385 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/* ---------------------------------- AI Lead Radar & Autonomous Discovery View ---------------------------------- */
+
+function LeadRadarView({ notifications, setNotifications, onLaunchMission }) {
+  const [activeTab, setActiveTab] = useState("discover"); // discover or enrich
+  const [searchQuery, setSearchQuery] = useState("");
+  const [targetRole, setTargetRole] = useState("VP of Operations, CEO, Decision-Maker");
+  const [searching, setSearching] = useState(false);
+  const [discoveredLeads, setDiscoveredLeads] = useState([]);
+  const [searchErr, setSearchErr] = useState("");
+
+  // Single prospect enrich state
+  const [enrichName, setEnrichName] = useState("");
+  const [enrichCompany, setEnrichCompany] = useState("");
+  const [enrichDomain, setEnrichDomain] = useState("");
+  const [enriching, setEnriching] = useState(false);
+  const [enrichResult, setEnrichResult] = useState(null);
+  const [enrichErr, setEnrichErr] = useState("");
+
+  const handleDiscover = async (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setSearchErr("");
+    setDiscoveredLeads([]);
+
+    try {
+      const res = await api.discoverAccounts({ query: searchQuery, target_role: targetRole });
+      if (res && res.leads) {
+        setDiscoveredLeads(res.leads);
+        setNotifications((ns) => [
+          { id: "n_" + Date.now(), text: `Radar discovered ${res.leads.length} target accounts for "${searchQuery}"`, time: "just now", unread: true, type: "success" },
+          ...ns
+        ]);
+      }
+    } catch (err) {
+      setSearchErr(err.message || "Failed to search the web for accounts.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleEnrichSingle = async (e) => {
+    e.preventDefault();
+    if (!enrichName.trim() && !enrichCompany.trim()) return;
+    setEnriching(true);
+    setEnrichErr("");
+    setEnrichResult(null);
+
+    try {
+      const res = await api.enrichProspect({
+        name: enrichName || enrichCompany,
+        company: enrichCompany || enrichName,
+        domain: enrichDomain
+      });
+      if (res && res.dossier) {
+        setEnrichResult(res.dossier);
+        setNotifications((ns) => [
+          { id: "n_" + Date.now(), text: `Enriched deep dossier for ${enrichCompany || enrichName} (${res.dossier.confidenceScore}% confidence)`, time: "just now", unread: true, type: "success" },
+          ...ns
+        ]);
+      }
+    } catch (err) {
+      setEnrichErr(err.message || "Failed to enrich contact.");
+    } finally {
+      setEnriching(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: "28px 32px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1200, margin: "0 auto", width: "100%" }}>
+      {/* Top Banner */}
+      <div style={{ background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)", borderRadius: 14, padding: "24px 28px", color: "#fff", border: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(59, 130, 246, 0.2)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(59, 130, 246, 0.3)" }}>
+              <Target size={22} color="#60A5FA" />
+            </div>
+            <div>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, margin: 0 }}>AI Lead Radar & Account Intelligence</h2>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#94A3B8", marginTop: 2 }}>
+                Autonomous web crawling & research agent. Scours public web, corporate sites & directories to unearth decision-makers, phones, and personalized hooks.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tab Toggle */}
+        <div style={{ display: "flex", background: "rgba(255,255,255,0.06)", padding: 4, borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)" }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab("discover")}
+            style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: activeTab === "discover" ? "#2563EB" : "transparent", color: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <Sparkles size={14} /> 🎯 Discover New Accounts
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("enrich")}
+            style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: activeTab === "enrich" ? "#2563EB" : "transparent", color: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <Search size={14} /> ⚡ Deep Enrich Contact
+          </button>
+        </div>
+      </div>
+
+      {/* MODE 1: DISCOVER TARGET ACCOUNTS */}
+      {activeTab === "discover" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+            <form onSubmit={handleDiscover} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
+                <div>
+                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                    Target Domain, Industry, or Goal (Natural Language)
+                  </label>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="e.g. Dental clinics in Chicago, or logistics startups using automated fleet software"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13.5, outline: "none" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                    Target Decision-Maker Titles
+                  </label>
+                  <input
+                    type="text"
+                    value={targetRole}
+                    onChange={(e) => setTargetRole(e.target.value)}
+                    placeholder="e.g. VP Operations, Office Manager, CEO"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13.5, outline: "none" }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 12, color: C.slate }}>
+                  💡 Scrapes web search engines, corporate registries & executive snippets to compile instant lead dossiers.
+                </div>
+                <button
+                  type="submit"
+                  disabled={searching || !searchQuery.trim()}
+                  style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "11px 22px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: searching ? "wait" : "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}
+                >
+                  {searching ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
+                  {searching ? "Scouring Web Intelligence..." : "Launch Deep Radar Search"}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {searchErr && (
+            <div style={{ padding: "12px 16px", borderRadius: 8, background: C.redSoft, border: `1px solid #FCA5A5`, color: C.red, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <AlertTriangle size={16} /> {searchErr}
+            </div>
+          )}
+
+          {/* Discovered Accounts Grid */}
+          {discoveredLeads.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>
+                  Discovered Accounts ({discoveredLeads.length})
+                </span>
+                <span style={{ fontSize: 12, color: "#059669", fontWeight: 600, background: "#ECFDF5", padding: "4px 10px", borderRadius: 20, border: "1px solid #A7F3D0" }}>
+                  ✓ Web Intelligence Verified
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 }}>
+                {discoveredLeads.map((lead, idx) => (
+                  <div key={lead.id || idx} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 18, display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.textInk }}>{lead.name}</div>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, marginTop: 2 }}>{lead.contactPerson}</div>
+                      </div>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: "#2563EB", background: "#EFF6FF", padding: "2px 8px", borderRadius: 4 }}>
+                        {lead.fit}% Fit
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.4, background: "#F8FAFC", padding: 10, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                      {lead.snippet || "Public web description"}
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.textInk }}>
+                        <Phone size={13} color={C.cobalt} /> <b>Phone:</b> {lead.phone}
+                      </div>
+                      {lead.site && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.slate }}>
+                          <Globe size={13} /> <a href={lead.site} target="_blank" rel="noreferrer" style={{ color: C.cobalt, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lead.site}</a>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* AI Opening Hook Card */}
+                    <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: 10 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", textTransform: "uppercase", marginBottom: 3 }}>
+                        🎙️ Generated Voice Call Hook
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "#92400E", fontStyle: "italic", lineHeight: 1.35 }}>
+                        "{lead.openingHook}"
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onLaunchMission) {
+                            onLaunchMission([lead]);
+                          }
+                        }}
+                        style={{ width: "100%", background: C.cobalt, color: "#fff", border: "none", borderRadius: 6, padding: "8px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                      >
+                        <PhoneCall size={13} /> Add to Live Call Queue
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MODE 2: DEEP ENRICH SINGLE CONTACT */}
+      {activeTab === "enrich" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+            <form onSubmit={handleEnrichSingle} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+                <div>
+                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                    Company or Organization Name
+                  </label>
+                  <input
+                    type="text"
+                    value={enrichCompany}
+                    onChange={(e) => setEnrichCompany(e.target.value)}
+                    placeholder="e.g. Databricks, Stripe, Acme Logistics"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                    Individual Contact Person (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={enrichName}
+                    onChange={(e) => setEnrichName(e.target.value)}
+                    placeholder="e.g. Sarah Connor, VP Engineering"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                    Official Domain (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={enrichDomain}
+                    onChange={(e) => setEnrichDomain(e.target.value)}
+                    placeholder="e.g. stripe.com or https://..."
+                    style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none" }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="submit"
+                  disabled={enriching || (!enrichCompany.trim() && !enrichName.trim())}
+                  style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "11px 22px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: enriching ? "wait" : "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}
+                >
+                  {enriching ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {enriching ? "Crawling & Building Dossier..." : "Run Autonomous Web Intelligence"}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {enrichErr && (
+            <div style={{ padding: "12px 16px", borderRadius: 8, background: C.redSoft, border: `1px solid #FCA5A5`, color: C.red, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <AlertTriangle size={16} /> {enrichErr}
+            </div>
+          )}
+
+          {/* Dossier Output */}
+          {enrichResult && (
+            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, display: "flex", flexDirection: "column", gap: 20, boxShadow: "0 4px 16px rgba(0,0,0,0.06)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, borderBottom: `1px solid ${C.border}`, paddingBottom: 16 }}>
+                <div>
+                  <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk, margin: 0 }}>
+                    {enrichResult.company} — Intelligence Dossier
+                  </h3>
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>
+                    Source: {enrichResult.domain}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20, background: enrichResult.confidenceScore > 70 ? "#ECFDF5" : "#FFFBEB", color: enrichResult.confidenceScore > 70 ? "#059669" : "#B45309", border: `1px solid ${enrichResult.confidenceScore > 70 ? "#A7F3D0" : "#FDE68A"}` }}>
+                    Confidence Score: {enrichResult.confidenceScore}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Overview & Hook */}
+              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 18 }}>
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 6 }}>
+                    Company Intelligence Summary
+                  </div>
+                  <div style={{ fontSize: 13, color: C.textInk, lineHeight: 1.5, background: "#F8FAFC", padding: 14, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                    {enrichResult.overview}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#166534", textTransform: "uppercase", marginBottom: 4 }}>
+                      📞 Discovered Contact Numbers
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {enrichResult.phones.map((p, i) => (
+                        <span key={i} style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: "#15803D" }}>
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {enrichResult.emails && enrichResult.emails.length > 0 && (
+                    <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#1E40AF", textTransform: "uppercase", marginBottom: 4 }}>
+                        ✉️ Discovered Email Patterns
+                      </div>
+                      <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: "#2563EB" }}>
+                        {enrichResult.emails.join(", ")}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Personalized Opening Hook */}
+              <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 10, padding: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#B45309", marginBottom: 6 }}>
+                  <Volume2 size={15} /> Optimized Voice AI Call Script Hook
+                </div>
+                <div style={{ fontSize: 13.5, color: "#78350F", fontStyle: "italic", lineHeight: 1.5 }}>
+                  "{enrichResult.openingHook}"
+                </div>
+              </div>
+
+              {/* Citations */}
+              {enrichResult.citations && enrichResult.citations.length > 0 && (
+                <div style={{ paddingTop: 8, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", fontSize: 11.5, color: C.slate }}>
+                  <span style={{ fontWeight: 700 }}>Verification Citations:</span>
+                  {enrichResult.citations.map((c, i) => (
+                    <a key={i} href={c} target="_blank" rel="noreferrer" style={{ color: C.cobalt, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <ExternalLink size={11} /> {new URL(c).hostname}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -13676,6 +14057,29 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             prefillQuery={prefillLogQuery}
             clearPrefill={() => setPrefillLogQuery(null)}
             onJumpSchedule={goScheduleFor}
+          />
+        )}
+        {view === "radar" && (
+          <LeadRadarView
+            notifications={notifications}
+            setNotifications={setNotifications}
+            onLaunchMission={(leads) => {
+              createMission({
+                tab: "manual",
+                channel: "voice",
+                concurrency: 5,
+                windowStart: profile.weekdayStart || "09:00",
+                windowEnd: profile.weekdayEnd || "17:30",
+                rows: leads.map((l) => ({
+                  name: l.name,
+                  channel: "voice",
+                  contactPerson: l.contactPerson,
+                  phone: l.phone,
+                  site: l.site,
+                  source: "AI Lead Radar"
+                }))
+              });
+            }}
           />
         )}
         {view === "processlogs" && (
