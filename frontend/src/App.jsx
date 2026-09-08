@@ -7727,6 +7727,71 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
 
   const parsed = prompt.length > 8;
 
+  // AI Lead Copilot Chat state
+  const [copilotMessages, setCopilotMessages] = useState([
+    {
+      sender: "ai",
+      text: "👋 Hi! I'm your AI Lead Discovery Copilot. Who would you like to reach? Tell me your company offer, target industry, region, or specific companies (e.g. 'Find 5 logistics dispatchers in Texas to pitch our voice AI'). I'll scour the live web for verified switchboard numbers, decision-makers, and personalized hooks."
+    }
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatSearching, setChatSearching] = useState(false);
+  const [chatDiscoveredLeads, setChatDiscoveredLeads] = useState([]);
+  const chatBottomRef = useRef(null);
+
+  const handleCopilotSend = async (e) => {
+    e.preventDefault();
+    const userMsg = chatInput.trim();
+    if (!userMsg || chatSearching) return;
+
+    setChatInput("");
+    setCopilotMessages((prev) => [...prev, { sender: "user", text: userMsg }]);
+    setChatSearching(true);
+
+    try {
+      const res = await api.copilotChat({ message: userMsg });
+      if (res && res.leads) {
+        setChatDiscoveredLeads(res.leads);
+        setCopilotMessages((prev) => [
+          ...prev,
+          { sender: "ai", text: res.reply, leads: res.leads }
+        ]);
+      }
+    } catch (err) {
+      setCopilotMessages((prev) => [
+        ...prev,
+        { sender: "ai", text: `⚠️ Web search error: ${err.message || "Failed to search the web."}` }
+      ]);
+    } finally {
+      setChatSearching(false);
+      setTimeout(() => {
+        if (chatBottomRef.current) {
+          chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 100);
+    }
+  };
+
+  const handleApplyChatLeads = (leadsToUse) => {
+    const list = leadsToUse || chatDiscoveredLeads;
+    if (!list || !list.length) return;
+    setRows(
+      list.map((l, idx) => ({
+        id: Date.now() + idx,
+        name: l.name,
+        phone: l.phone,
+        contact: l.contactPerson || "",
+        sourceType: "Website URL",
+        source: l.site || "",
+        channel: "voice",
+        fallback: "whatsapp",
+        openingHook: l.openingHook
+      }))
+    );
+    setTab("manual");
+    setManualMode("form");
+  };
+
   const addRow = () => setRows((r) => [...r, { id: Date.now(), name: "", phone: "", sourceType: "Website URL", source: "", channel: "", fallback: "none", contact: "" }]);
   const removeRow = (id) => setRows((r) => r.filter((x) => x.id !== id));
   const updateRow = (id, k, v) => setRows((r) => r.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
@@ -7831,8 +7896,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
     setImportRows([]);
   };
 
-  const canSubmit = tab === "discover" ? parsed : rows.some((r) => r.name && r.phone);
-  const readyToCallCount = tab === "manual" ? rows.filter((r) => r.name && r.phone).length : 0;
+  const canSubmit = tab === "discover" ? (chatDiscoveredLeads.length > 0 || parsed) : rows.some((r) => r.name && r.phone);
+  const readyToCallCount = tab === "manual" ? rows.filter((r) => r.name && r.phone).length : chatDiscoveredLeads.length;
   const queueEstimate = computeQueueEstimate(readyToCallCount, concurrency, windowStart, windowEnd, lunchStart, lunchEnd);
   const noAnswerFallbacks = ["whatsapp", "sms", "email"].filter((k) => noAnswer[k]);
 
@@ -7893,34 +7958,105 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
         </div>
 
         {tab === "discover" && (
-          <>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginBottom: 6 }}>Who should we reach out to?</div>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g. Mid-size logistics companies in Manchester, pitch our BI dashboard, book a 15-min discovery call"
-              style={{ width: "100%", minHeight: 80, padding: 12, borderRadius: 10, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13.5, resize: "none", outline: "none", boxSizing: "border-box" }}
-            />
-            {parsed && (
-              <div style={{ marginTop: 14, background: C.paper, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                  <Globe size={12} /> Parsed — will search the web to find matching businesses
-                </div>
-                {[
-                  ["Sector", "Logistics"],
-                  ["Region", "Manchester"],
-                  ["Pitch", "BI dashboard demo"],
-                  ["Meeting type", "15-min discovery call"],
-                  ["Target count", "20 prospects"],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 12.5 }}>
-                    <span style={{ color: C.slate }}>{k}</span>
-                    <span style={{ color: C.textInk, fontWeight: 600 }}>{v}</span>
-                  </div>
-                ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>
+                Chat with AI to scout target companies, extract decision-makers, and find phone numbers:
               </div>
-            )}
-          </>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#2563EB", background: "#EFF6FF", padding: "2px 8px", borderRadius: 12 }}>
+                Live Web Intelligence
+              </span>
+            </div>
+
+            {/* Chat Messages Container */}
+            <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", minHeight: 220, maxHeight: 340, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+              {copilotMessages.map((m, idx) => (
+                <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: m.sender === "user" ? "flex-end" : "flex-start" }}>
+                  <div style={{
+                    maxWidth: "88%",
+                    padding: "10px 14px",
+                    borderRadius: 12,
+                    fontSize: 13,
+                    fontFamily: FONT_BODY,
+                    lineHeight: 1.45,
+                    background: m.sender === "user" ? C.ink : "#fff",
+                    color: m.sender === "user" ? "#fff" : C.textInk,
+                    border: m.sender === "user" ? "none" : `1px solid ${C.border}`,
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.04)"
+                  }}>
+                    {m.text}
+                  </div>
+
+                  {/* If assistant returned leads in this message */}
+                  {m.leads && m.leads.length > 0 && (
+                    <div style={{ marginTop: 10, width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: "#0F172A", textTransform: "uppercase" }}>
+                          Discovered Candidates ({m.leads.length})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyChatLeads(m.leads)}
+                          style={{ background: "#2563EB", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}
+                        >
+                          <CheckCircle2 size={13} /> Use All {m.leads.length} in Campaign
+                        </button>
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+                        {m.leads.map((l, i) => (
+                          <div key={i} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: 12.5, color: C.textInk, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {l.name}
+                              </div>
+                              <div style={{ fontSize: 11, color: C.slate, display: "flex", alignItems: "center", gap: 6 }}>
+                                <span>👤 {l.contactPerson}</span>
+                                <span>📞 {l.phone}</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleApplyChatLeads([l])}
+                              style={{ background: "#F1F5F9", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", color: C.textInk, whiteSpace: "nowrap" }}
+                            >
+                              + Add
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {chatSearching && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.slate, fontSize: 12.5, padding: "6px 10px" }}>
+                  <RefreshCw size={14} className="animate-spin" color="#2563EB" /> Scouring live web, corporate registries & phone directories...
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Chat Input Bar */}
+            <form onSubmit={handleCopilotSend} style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="e.g. Find 5 trucking dispatchers in Dallas to pitch voice AI..."
+                disabled={chatSearching}
+                style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+              />
+              <button
+                type="submit"
+                disabled={chatSearching || !chatInput.trim()}
+                style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "0 18px", fontSize: 13, fontWeight: 600, cursor: chatSearching ? "wait" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                {chatSearching ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
+                Search
+              </button>
+            </form>
+          </div>
         )}
 
         {tab === "manual" && (
@@ -8255,9 +8391,22 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
           onClick={() =>
             canSubmit &&
             onCreate({
-              tab,
+              tab: (tab === "discover" && chatDiscoveredLeads.length > 0) ? "manual" : tab,
               prompt,
-              rows: tab === "manual" ? rows.filter((r) => r.name && r.phone) : [],
+              rows: tab === "manual"
+                ? rows.filter((r) => r.name && r.phone)
+                : chatDiscoveredLeads.length > 0
+                  ? chatDiscoveredLeads.map((l) => ({
+                      name: l.name,
+                      phone: l.phone,
+                      contact: l.contactPerson || "",
+                      sourceType: "Website URL",
+                      source: l.site || "",
+                      channel: "voice",
+                      fallback: "whatsapp",
+                      openingHook: l.openingHook
+                    }))
+                  : [],
               channel,
               windowStart,
               windowEnd,
@@ -8268,8 +8417,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
               lunchStart,
               lunchEnd,
               noAnswerFallbacks,
-              understood: tab === "manual" ? readyToCallCount : 0,
-              fileRows: tab === "manual" ? Math.max(rows.length, importRecords.length) : 0,
+              understood: readyToCallCount,
+              fileRows: readyToCallCount,
             })
           }
           disabled={!canSubmit}
@@ -9496,408 +9645,487 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
 function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, company }) {
   const [dirty, setDirty] = useState(false);
-  const [activeTab, setActiveTab] = useState("models"); // "models" | "tone" | "channels" | "playground"
-  const [testTopic, setTestTopic] = useState("How modern operations teams eliminate end-of-month spreadsheet reconciliation");
-  const [testChannel, setTestChannel] = useState("linkedin");
-  const [testOutput, setTestOutput] = useState("");
-  const [generating, setGenerating] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null); // { valid: bool, message: string }
 
-  const flash = () => {
-    setDirty(true);
-    setTimeout(() => setDirty(false), 1400);
-  };
+  // Scheduler AI settings (stored within commonAi.schedulerAi or defaults)
+  const [aiSettings, setAiSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_scheduler_ai");
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return {
+      provider: commonAi?.schedulerAi?.provider || "deepseek",
+      apiKey: commonAi?.schedulerAi?.apiKey || "",
+      model: commonAi?.schedulerAi?.model || "deepseek-chat",
+      baseUrl: commonAi?.schedulerAi?.baseUrl || "https://api.deepseek.com",
+      imageEngine: commonAi?.schedulerAi?.imageEngine || "auto_flux",
+      imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas",
+      imageAspectRatio: commonAi?.schedulerAi?.imageAspectRatio || "16:9",
+      temperature: commonAi?.temperature || 0.7,
+    };
+  });
 
-  const applyMode = (m) => {
-    setCommonAi((prev) => {
-      const nextLayers = { ...prev.schedulerLayers };
-      SCHEDULER_LAYERS.forEach((l) => {
-        if (m === "paid") nextLayers[l.key] = l.paid;
-        if (m === "opensource") nextLayers[l.key] = l.oss;
-      });
-      return { ...prev, schedulerMode: m, schedulerLayers: nextLayers };
+  const updateSetting = (key, val) => {
+    setAiSettings((prev) => {
+      const next = { ...prev, [key]: val };
+      // auto-update default model / baseUrl when provider changes
+      if (key === "provider") {
+        if (val === "deepseek") {
+          next.model = "deepseek-chat";
+          next.baseUrl = "https://api.deepseek.com";
+        } else if (val === "openai") {
+          next.model = "gpt-4o-mini";
+          next.baseUrl = "https://api.openai.com/v1";
+        } else if (val === "custom") {
+          next.model = "deepseek-chat";
+          next.baseUrl = "http://localhost:11434/v1";
+        }
+      }
+      return next;
     });
-    flash();
+    setTestResult(null);
   };
 
-  const updateLayer = (key, val) => {
+  const handleTestKey = async () => {
+    if (!aiSettings.apiKey.trim()) {
+      setTestResult({ valid: false, message: "Please paste your API key first." });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await api.testConnection({
+        provider: aiSettings.provider,
+        apiKey: aiSettings.apiKey.trim(),
+        baseUrl: aiSettings.baseUrl.trim(),
+      });
+      if (res.valid) {
+        setTestResult({ valid: true, message: res.details || "Connected successfully! Key is active and verified." });
+      } else {
+        setTestResult({ valid: false, message: res.error || "Authentication failed. Please check your key." });
+      }
+    } catch (err) {
+      setTestResult({ valid: false, message: err.message || "Failed to reach provider endpoint." });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSave = () => {
+    try {
+      localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(aiSettings));
+    } catch (_) {}
     setCommonAi((prev) => ({
       ...prev,
-      schedulerMode: "custom",
-      schedulerLayers: { ...prev.schedulerLayers, [key]: val },
+      schedulerAi: aiSettings,
+      temperature: aiSettings.temperature,
     }));
-    flash();
+    setDirty(true);
+    setTimeout(() => setDirty(false), 2400);
   };
 
-  const updateChannelDirective = (channel, val) => {
-    setCommonAi((prev) => ({
-      ...prev,
-      channelDirectives: {
-        ...(prev.channelDirectives || {}),
-        [channel]: val,
-      },
-    }));
-    flash();
-  };
-
-  const isOss = (val) => String(val).toLowerCase().includes("local") || String(val).toLowerCase().includes("mistral") || String(val).toLowerCase().includes("deepseek");
-
-  const availableLlmOptions = Array.from(new Set([
-    ...SCHEDULER_LAYERS.find((l) => l.key === "postWriter").options,
-    ...(commonAi?.providers?.filter((p) => p.type === "llm").flatMap((p) => p.models) || []),
-  ]));
-
-  const runTestGeneration = () => {
-    setGenerating(true);
-    setTestOutput("");
-    setTimeout(() => {
-      setGenerating(false);
-      const writer = commonAi.schedulerLayers.postWriter;
-      const chName = testChannel.toUpperCase();
-      setTestOutput(`[Generated by ${writer} for ${chName} • Temp ${commonAi.temperature}]
-
-Most ops leaders spend Friday afternoon praying their VLOOKUPs hold together.
-
-Here is what changed: automated data pipelines don't just save 12 hours a week—they eliminate the silent reporting discrepancies that cost six figures in executive misalignment.
-
-At ${company?.name || "AIVHub"}, we built unified business intelligence so your teams look at truth, not reconciliations.
-
-👉 How many hours does your team lose to spreadsheets each week?`);
-    }, 650);
-  };
+  const samplePreviewPrompt = encodeURIComponent(`high tech operations analytics dashboard, ${aiSettings.imageStyle.replace("_", " ")}`);
+  const samplePreviewUrl = `https://image.pollinations.ai/prompt/${samplePreviewPrompt}?width=800&height=450&nologo=true&seed=42`;
 
   return (
-    <div style={{ flex: 1, padding: "24px 36px", overflowY: "auto", background: HUB_PAPER, display: "flex", flexDirection: "column" }}>
-      <div style={{ maxWidth: 940, width: "100%", margin: "0 auto" }}>
+    <div style={{ flex: 1, padding: "28px 36px", overflowY: "auto", background: HUB_PAPER, display: "flex", flexDirection: "column" }}>
+      <div style={{ maxWidth: 840, width: "100%", margin: "0 auto" }}>
         
         {/* Header box */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, letterSpacing: "-0.02em" }}>
-              Post Scheduler · AI Model & Content Engine
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 23, color: C.ink, letterSpacing: "-0.02em" }}>
+              Post Scheduler · AI & Image Configuration
             </div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 3 }}>
-              Configure copywriting LLMs, multi-channel tone rules, creativity temperature, and brand persona instructions
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4 }}>
+              Paste any AI chat key for social planning and customize automatic topic image generation.
             </div>
           </div>
 
           <button
-            onClick={onOpenCommonModal}
+            onClick={handleSave}
             style={{
               display: "flex",
               alignItems: "center",
               gap: 8,
-              padding: "9px 14px",
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              background: "#fff",
+              padding: "10px 22px",
+              borderRadius: 10,
+              border: "none",
+              background: C.gradientTeal,
+              color: "#fff",
               fontFamily: FONT_BODY,
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: C.cobaltDeep,
+              fontSize: 13,
+              fontWeight: 700,
               cursor: "pointer",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+              boxShadow: C.glowTeal,
             }}
           >
-            <Settings2 size={15} /> Platform AI Settings
+            <Save size={15} /> Save Settings
           </button>
         </div>
 
-        {/* Inner Navigation Tabs */}
-        <div style={{ display: "flex", gap: 8, borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>
-          {[
-            { id: "models", label: "Model Assignment & Modes", icon: Cpu },
-            { id: "tone", label: "Brand Persona & Guardrails", icon: Sparkles },
-            { id: "channels", label: "Multi-Channel Directives", icon: Plug },
-            { id: "playground", label: "Live AI Test Playground", icon: Wand2 },
-          ].map((t) => {
-            const Icon = t.icon;
-            const active = activeTab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "10px 16px",
-                  borderRadius: "8px 8px 0 0",
-                  border: "none",
-                  borderBottom: active ? `2px solid ${C.teal}` : "2px solid transparent",
-                  background: active ? "#fff" : "transparent",
-                  color: active ? C.teal : C.slate,
-                  fontFamily: FONT_BODY,
-                  fontSize: 13,
-                  fontWeight: active ? 700 : 500,
-                  cursor: "pointer",
-                }}
-              >
-                <Icon size={15} />
-                <span>{t.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          
+          {/* CARD 1: AI Chat & Planning Key */}
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <KeyRound size={16} color={C.teal} />
+              </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
+                Planning & Content AI Key
+              </div>
+            </div>
+            <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 18 }}>
+              Select your AI provider and paste your API key. Used directly when you chat in the Plan assistant or generate post batches.
+            </div>
 
-        {/* TAB 1: MODELS & MODES */}
-        {activeTab === "models" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            
-            {/* Mode Selector */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-              {[
-                { id: "paid", title: "Paid / Managed Models", desc: "Claude 3.5 Sonnet + Gemini Flash. Highest authority copywriting." },
-                { id: "opensource", title: "Local / Open Source", desc: "Ollama Llama 3.2 + DeepSeek. 100% private on-prem." },
-                { id: "custom", title: "Custom Mix", desc: "Choose specific provider & model per content task." },
-              ].map((m) => {
-                const active = (commonAi.schedulerMode || "paid") === m.id;
-                return (
-                  <div
-                    key={m.id}
-                    onClick={() => applyMode(m.id)}
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 2fr", gap: 16, marginBottom: 16 }}>
+              {/* Provider Selection */}
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                  AI Provider
+                </label>
+                <select
+                  value={aiSettings.provider}
+                  onChange={(e) => updateSetting("provider", e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: 42,
+                    padding: "0 12px",
+                    borderRadius: 9,
+                    border: `1px solid ${C.border}`,
+                    background: "#fff",
+                    fontFamily: FONT_BODY,
+                    fontSize: 13,
+                    color: C.ink,
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="deepseek">DeepSeek (Recommended)</option>
+                  <option value="openai">OpenAI (GPT-4o)</option>
+                  <option value="custom">Custom / Local (Ollama / vLLM)</option>
+                </select>
+              </div>
+
+              {/* Model Selection */}
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                  Model Name
+                </label>
+                {aiSettings.provider === "deepseek" ? (
+                  <select
+                    value={aiSettings.model}
+                    onChange={(e) => updateSetting("model", e.target.value)}
                     style={{
-                      border: `2px solid ${active ? C.teal : C.border}`,
-                      borderRadius: 12,
-                      padding: 16,
+                      width: "100%",
+                      height: 42,
+                      padding: "0 12px",
+                      borderRadius: 9,
+                      border: `1px solid ${C.border}`,
+                      background: "#fff",
+                      fontFamily: FONT_BODY,
+                      fontSize: 13,
+                      color: C.ink,
                       cursor: "pointer",
-                      background: active ? C.teal : "#fff",
-                      transition: "all 0.15s",
                     }}
                   >
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: active ? "#fff" : C.textInk }}>{m.title}</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: active ? "#E4F5F2" : C.slate, marginTop: 4, lineHeight: 1.4 }}>{m.desc}</div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Capability Layers Table */}
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "12px 20px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                <div>Content Capability</div>
-                <div>Assigned Model</div>
-                <div>Execution Tier</div>
-              </div>
-              {SCHEDULER_LAYERS.map((l) => {
-                const val = commonAi.schedulerLayers[l.key] || l.paid;
-                const oss = isOss(val);
-                return (
-                  <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "14px 20px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                    <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <select
-                        value={val}
-                        onChange={(e) => updateLayer(l.key, e.target.value)}
-                        style={{
-                          fontFamily: FONT_BODY,
-                          fontSize: 13,
-                          padding: "7px 10px",
-                          borderRadius: 7,
-                          border: `1px solid ${C.border}`,
-                          background: "#fff",
-                          color: C.textInk,
-                          cursor: "pointer",
-                          minWidth: 200,
-                        }}
-                      >
-                        {availableLlmOptions.map((o) => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, padding: "3px 8px", borderRadius: 5, background: oss ? C.tealSoft : C.cobaltSoft, color: oss ? C.teal : C.cobaltDeep }}>
-                        {oss ? "SELF-HOSTED / LOCAL" : "MANAGED API"}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Creativity Temperature Slider */}
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <label style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Creativity & Engagement Temperature: {commonAi.temperature}</label>
-                <span style={{ fontSize: 12, fontWeight: 600, color: commonAi.temperature > 0.7 ? C.cobaltDeep : C.teal }}>
-                  {commonAi.temperature > 0.8 ? "🔥 High Hook Variance & Engagement" : commonAi.temperature > 0.6 ? "✨ Balanced & Authoritative" : "🎯 Analytical & Fact-Focused"}
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={commonAi.temperature}
-                onChange={(e) => {
-                  setCommonAi((p) => ({ ...p, temperature: parseFloat(e.target.value) }));
-                  flash();
-                }}
-                style={{ width: "100%" }}
-              />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.slate, marginTop: 6 }}>
-                <span>0.0 (Deterministic)</span>
-                <span>0.5 (Balanced)</span>
-                <span>1.0 (Highly Creative)</span>
+                    <option value="deepseek-chat">deepseek-chat (DeepSeek-V3 — Fast & Creative)</option>
+                    <option value="deepseek-reasoner">deepseek-reasoner (DeepSeek-R1 — Deep Thinking)</option>
+                  </select>
+                ) : aiSettings.provider === "openai" ? (
+                  <select
+                    value={aiSettings.model}
+                    onChange={(e) => updateSetting("model", e.target.value)}
+                    style={{
+                      width: "100%",
+                      height: 42,
+                      padding: "0 12px",
+                      borderRadius: 9,
+                      border: `1px solid ${C.border}`,
+                      background: "#fff",
+                      fontFamily: FONT_BODY,
+                      fontSize: 13,
+                      color: C.ink,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="gpt-4o-mini">gpt-4o-mini (Fast & Low Cost)</option>
+                    <option value="gpt-4o">gpt-4o (Flagship Model)</option>
+                  </select>
+                ) : (
+                  <input
+                    value={aiSettings.model}
+                    onChange={(e) => updateSetting("model", e.target.value)}
+                    placeholder="e.g. llama3.2, mistral"
+                    style={{
+                      width: "100%",
+                      height: 42,
+                      padding: "0 12px",
+                      borderRadius: 9,
+                      border: `1px solid ${C.border}`,
+                      background: "#fff",
+                      fontFamily: FONT_BODY,
+                      fontSize: 13,
+                      color: C.ink,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                )}
               </div>
             </div>
 
-          </div>
-        )}
-
-        {/* TAB 2: BRAND PERSONA & GUARDRAILS */}
-        {activeTab === "tone" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>
-                Brand Persona & System Prompt Directives
-              </div>
-              <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12 }}>
-                Instructions automatically fed to the AI model whenever it writes posts, summaries, or hooks for {company?.name || "our company"}.
-              </div>
-              <textarea
-                value={commonAi.personaPrompt}
-                onChange={(e) => {
-                  setCommonAi((p) => ({ ...p, personaPrompt: e.target.value }));
-                  flash();
-                }}
-                rows={3}
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, color: C.ink, boxSizing: "border-box", lineHeight: 1.5 }}
-              />
-            </div>
-
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>
-                Anti-Cliché & Prohibited Buzzwords Filter
-              </div>
-              <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12 }}>
-                Comma-separated list of words and phrases the AI must strictly avoid across all drafted posts.
-              </div>
-              <input
-                value={commonAi.prohibitedWords || ""}
-                onChange={(e) => {
-                  setCommonAi((p) => ({ ...p, prohibitedWords: e.target.value }));
-                  flash();
-                }}
-                placeholder="delve, in today's fast-paced world, game-changer, synergy"
-                style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, color: C.ink, boxSizing: "border-box" }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: MULTI-CHANNEL DIRECTIVES */}
-        {activeTab === "channels" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>
-                Per-Channel Tone & Formatting Rules
-              </div>
-              <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16 }}>
-                Customize formatting and length constraints for each social network.
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {[
-                  { id: "linkedin", name: "LinkedIn Formatting Directive", color: "#0A66C2" },
-                  { id: "threads", name: "Threads Drop Directive", color: "#000000" },
-                  { id: "x", name: "Twitter / X Hook Directive", color: "#111827" },
-                  { id: "facebook", name: "Facebook Community Directive", color: "#1877F2" },
-                  { id: "instagram", name: "Instagram Caption Directive", color: "#E4405F" },
-                ].map((c) => (
-                  <div key={c.id} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 999, background: c.color }} />
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{c.name}</span>
-                    </div>
-                    <textarea
-                      value={(commonAi.channelDirectives && commonAi.channelDirectives[c.id]) || ""}
-                      onChange={(e) => updateChannelDirective(c.id, e.target.value)}
-                      rows={2}
-                      style={{ width: "100%", padding: "8px 12px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", boxSizing: "border-box" }}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: LIVE AI PLAYGROUND */}
-        {activeTab === "playground" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>
-                Live Content Drafting Playground
-              </div>
-              <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16 }}>
-                Test the currently assigned AI model ({commonAi.schedulerLayers.postWriter}) and prompt rules before generating live campaign plans.
-              </div>
-
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Sample Post Topic</label>
+            {/* Custom Base URL if applicable */}
+            {aiSettings.provider === "custom" && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                  API Base URL
+                </label>
                 <input
-                  value={testTopic}
-                  onChange={(e) => setTestTopic(e.target.value)}
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }}
+                  value={aiSettings.baseUrl}
+                  onChange={(e) => updateSetting("baseUrl", e.target.value)}
+                  placeholder="e.g. http://localhost:11434/v1"
+                  style={{
+                    width: "100%",
+                    height: 40,
+                    padding: "0 12px",
+                    borderRadius: 9,
+                    border: `1px solid ${C.border}`,
+                    fontFamily: FONT_MONO,
+                    fontSize: 12.5,
+                    color: C.ink,
+                    boxSizing: "border-box",
+                  }}
                 />
               </div>
+            )}
 
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 4 }}>Target Channel</label>
-                  <select
-                    value={testChannel}
-                    onChange={(e) => setTestChannel(e.target.value)}
-                    style={{ padding: "6px 12px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
+            {/* API Key Input with Show/Hide and Test Connection */}
+            <div>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                API Secret Key
+              </label>
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <input
+                    type={showKey ? "text" : "password"}
+                    value={aiSettings.apiKey}
+                    onChange={(e) => updateSetting("apiKey", e.target.value)}
+                    placeholder="Paste your API key here (sk-...)"
+                    style={{
+                      width: "100%",
+                      height: 42,
+                      padding: "0 42px 0 14px",
+                      borderRadius: 9,
+                      border: `1px solid ${C.border}`,
+                      fontFamily: FONT_MONO,
+                      fontSize: 13,
+                      color: C.ink,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    style={{
+                      position: "absolute",
+                      right: 12,
+                      top: 11,
+                      border: "none",
+                      background: "none",
+                      cursor: "pointer",
+                      color: C.slate,
+                      padding: 0,
+                    }}
+                    title={showKey ? "Hide API key" : "Show API key"}
                   >
-                    <option value="linkedin">LinkedIn</option>
-                    <option value="threads">Threads</option>
-                    <option value="x">Twitter / X</option>
-                    <option value="facebook">Facebook</option>
-                    <option value="instagram">Instagram</option>
-                  </select>
+                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
 
                 <button
-                  onClick={runTestGeneration}
-                  disabled={generating}
+                  type="button"
+                  onClick={handleTestKey}
+                  disabled={testing}
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 6,
-                    padding: "9px 16px",
-                    borderRadius: 8,
-                    background: C.teal,
-                    color: "#fff",
-                    border: "none",
+                    height: 42,
+                    padding: "0 18px",
+                    borderRadius: 9,
+                    border: `1px solid ${C.border}`,
+                    background: HUB_PAPER,
                     fontFamily: FONT_BODY,
                     fontSize: 13,
                     fontWeight: 600,
-                    cursor: generating ? "wait" : "pointer",
-                    marginTop: 18,
+                    color: C.ink,
+                    cursor: testing ? "wait" : "pointer",
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  <Wand2 size={15} className={generating ? "animate-spin" : ""} />
-                  <span>{generating ? "Generating Draft..." : "Generate Test Draft"}</span>
+                  <RefreshCw size={14} className={testing ? "animate-spin" : ""} />
+                  <span>{testing ? "Testing..." : "Test Connection"}</span>
                 </button>
               </div>
 
-              {testOutput && (
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.teal, marginBottom: 6 }}>GENERATED PREVIEW OUTPUT:</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
-                    {testOutput}
-                  </div>
+              {/* Status feedback pill */}
+              {testResult && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: "9px 14px",
+                    borderRadius: 8,
+                    fontSize: 12.5,
+                    fontFamily: FONT_BODY,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    background: testResult.valid ? C.tealSoft : C.amberSoft,
+                    color: testResult.valid ? C.teal : C.amber,
+                    border: `1px solid ${testResult.valid ? "rgba(12,140,125,0.2)" : "rgba(217,119,6,0.2)"}`,
+                  }}
+                >
+                  {testResult.valid ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                  <span>{testResult.message}</span>
                 </div>
               )}
             </div>
           </div>
-        )}
 
+          {/* CARD 2: Topic Image Generation Settings */}
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Sparkles size={16} color={C.cobaltDeep} />
+              </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
+                Automatic Topic Image Generator
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: C.tealSoft, color: C.teal }}>
+                Instant · No Key Needed
+              </span>
+            </div>
+            <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 18 }}>
+              Each scheduled topic automatically receives a high-converting visual graphic tailored to the subject matter.
+            </div>
+
+            {/* Visual Style Selection */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 8 }}>
+                Visual Art Style
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                {[
+                  { id: "modern_saas", label: "Modern Tech SaaS", desc: "Clean UI vector gradients & icons" },
+                  { id: "editorial", label: "Photorealistic Editorial", desc: "Corporate magazine photography" },
+                  { id: "minimalist_3d", label: "3D Clay Minimalist", desc: "Isometric clay shapes & objects" },
+                  { id: "neon_tech", label: "Dark Neon Cyberpunk", desc: "Glowing holographic data charts" },
+                ].map((s) => {
+                  const active = aiSettings.imageStyle === s.id;
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => updateSetting("imageStyle", s.id)}
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: 10,
+                        border: `2px solid ${active ? C.teal : C.border}`,
+                        background: active ? C.tealSoft : HUB_PAPER,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: active ? C.teal : C.ink }}>
+                        {s.label}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.slate, marginTop: 4, lineHeight: 1.3 }}>
+                        {s.desc}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Aspect Ratio & Format */}
+            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                  Default Aspect Ratio
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[
+                    { id: "16:9", label: "16:9 Landscape (LinkedIn & X)", icon: Maximize2 },
+                    { id: "1:1", label: "1:1 Square (Instagram & FB)", icon: LayoutGrid },
+                  ].map((ar) => {
+                    const active = aiSettings.imageAspectRatio === ar.id;
+                    const Icon = ar.icon;
+                    return (
+                      <button
+                        key={ar.id}
+                        type="button"
+                        onClick={() => updateSetting("imageAspectRatio", ar.id)}
+                        style={{
+                          flex: 1,
+                          height: 38,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 8,
+                          borderRadius: 8,
+                          border: `1px solid ${active ? C.teal : C.border}`,
+                          background: active ? C.teal : "#fff",
+                          color: active ? "#fff" : C.slate,
+                          fontFamily: FONT_BODY,
+                          fontSize: 12.5,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <Icon size={14} /> {ar.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* CARD 3: Creativity & Temperature */}
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 22, boxShadow: C.shadowCard }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
+                Copywriting Creativity Temperature: {aiSettings.temperature}
+              </label>
+              <span style={{ fontSize: 12, fontWeight: 600, color: aiSettings.temperature > 0.75 ? C.amber : C.teal }}>
+                {aiSettings.temperature > 0.8 ? "🔥 High Variance & Creative Hooks" : aiSettings.temperature > 0.6 ? "✨ Balanced & Authoritative" : "🎯 Analytical & Deterministic"}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0.1"
+              max="1.0"
+              step="0.05"
+              value={aiSettings.temperature}
+              onChange={(e) => updateSetting("temperature", parseFloat(e.target.value))}
+              style={{ width: "100%", accentColor: C.teal }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.slate, marginTop: 6 }}>
+              <span>0.1 (Strict & Formal)</span>
+              <span>0.7 (Standard B2B Balanced)</span>
+              <span>1.0 (Bold & Viral)</span>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Save confirmation toast */}
         {dirty && (
-          <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.2)" }}>
-            <CheckCircle2 size={15} color={C.teal} /> Post Scheduler AI settings updated & synchronized
+          <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 20px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 1000 }}>
+            <CheckCircle2 size={16} color={C.teal} /> Post Scheduler AI key & image settings saved!
           </div>
         )}
 
@@ -10766,6 +10994,10 @@ function writePostFromTopic(schedule, topic, slot, status, company) {
   const due = slot && isSlotDue(slot);
   const resolved = status || (due ? "awaiting_approval" : "scheduled");
   const kb = (company && company.kbNames) || [];
+  const imagePrompt = t.imagePrompt || `${t.headline || (schedule && schedule.theme) || "Modern operations"}, modern tech illustration, clean design, 4k`;
+  const seed = Math.floor(Math.random() * 900000) + 100000;
+  const imageUrl = t.imageUrl || `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=1200&height=675&nologo=true&seed=${seed}`;
+
   return {
     id: "post_" + (slot && slot.id) + "_" + t.id,
     slotId: slot && slot.id,
@@ -10788,6 +11020,8 @@ function writePostFromTopic(schedule, topic, slot, status, company) {
     variant: 0,
     writtenInApp: true,
     kbUsed: kb.slice(0, 3),
+    imageUrl,
+    imagePrompt,
     emailSent: resolved === "awaiting_approval",
     approvalVia: resolved === "awaiting_approval" ? ["app", "email"] : [],
   };
@@ -11577,7 +11811,37 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       const { list, range } = applyPlan(parsed.schedules, parsed.replace, parsed.horizon, parsed.range);
       const who = parsed.companyName || company.name;
       const lines = list.map((s) => s.weekday + " — " + s.theme).join("\n");
-      pushAi((parsed.replace ? "Draft for " + who + " — " + range.label + ".\n\n" : "Added to the draft.\n\n") + lines + "\n\nStill on Plan. Search a topic in this chat, pin results, keep talking, then save when it's final.");
+      pushAi((parsed.replace ? "Draft for " + who + " — " + range.label + ".\n\n" : "Added to the draft.\n\n") + lines + "\n\nGenerating AI topics and visuals...");
+
+      // Call backend chat-plan with user's AI key
+      const aiConf = commonAi?.schedulerAi || (() => {
+        try {
+          const s = localStorage.getItem("aivhub_scheduler_ai");
+          return s ? JSON.parse(s) : null;
+        } catch (_) { return null; }
+      })();
+
+      api.chatPlan({
+        text,
+        apiKey: aiConf?.apiKey || undefined,
+        provider: aiConf?.provider || "deepseek",
+        model: aiConf?.model || "deepseek-chat",
+        baseUrl: aiConf?.baseUrl || undefined,
+        imageStyle: aiConf?.imageStyle || "modern_saas"
+      }).then((res) => {
+        if (res && res.postsCreated && res.postsCreated.length) {
+          setPosts((ps) => [...res.postsCreated, ...ps]);
+        }
+        if (res && res.topics && res.topics.length) {
+          setTopics((ts) => [...res.topics, ...ts]);
+        }
+        if (res && res.reply) {
+          pushAi(res.reply);
+        }
+      }).catch((e) => {
+        console.warn("Backend chat-plan error:", e);
+      });
+
       return;
     }
     if (parsed.kind === "approve_all") {
@@ -11876,11 +12140,30 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     if (!q) return true;
     return (t.headline + " " + t.angle + " " + (t.query || "")).toLowerCase().includes(q);
   });
+  const handleRegeneratePostImage = async (post, customPrompt) => {
+    try {
+      const topicText = customPrompt || post.imagePrompt || post.topicHeadline || post.title || post.theme || "Operations dashboard analytics";
+      const style = commonAi?.schedulerAi?.imageStyle || "modern_saas";
+      const res = await api.generateImage({ prompt: topicText, title: post.title || post.topicHeadline, theme: post.theme, style });
+      if (res && res.imageUrl) {
+        setPosts((ps) => ps.map((p) => (p.id === post.id ? { ...p, imageUrl: res.imageUrl, imagePrompt: res.imagePrompt } : p)));
+        api.updatePostStatus(post.id, post.status, post.copy, res.imageUrl, res.imagePrompt).catch(() => {});
+      }
+    } catch (err) {
+      console.warn("Could not regenerate image:", err);
+    }
+  };
+
   const renderTopicCard = (t) => {
     const usedBy = slots.find((s) => s.topicId === t.id);
     const tint = tintFor(t.query || t.id);
     return (
       <div key={t.id} className="hover-float" style={{ background: "#fff", border: "1px solid " + (usedBy ? tint.fg : C.border), borderRadius: 14, padding: 16 }}>
+        {t.imageUrl && (
+          <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", marginBottom: 12, border: `1px solid ${C.borderLight}` }}>
+            <img src={t.imageUrl} alt={t.headline} style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+          </div>
+        )}
         <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slateLight }}>{t.freshness} · {t.source}{t.query ? " · " + t.query : ""}{t.saved ? " · saved" : ""}</div>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginTop: 6, lineHeight: 1.3 }}>{t.headline}</div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 8, lineHeight: 1.45 }}>{t.angle}</div>
@@ -12739,6 +13022,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                 onSave={() => saveEdit(p.id)}
                 onCancel={() => setEditingId(null)}
                 onRegenerate={() => regenerate(p)}
+                onRegenerateImage={handleRegeneratePostImage}
                 onApprove={() => approvePost(p.id)}
                 onReject={() => rejectPost(p.id)}
                 onConfirm={() => confirmPublish(p.id)}
@@ -12756,6 +13040,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                 onSave={() => saveEdit(p.id)}
                 onCancel={() => setEditingId(null)}
                 onRegenerate={() => regenerate(p)}
+                onRegenerateImage={handleRegeneratePostImage}
                 onApprove={() => approvePost(p.id)}
                 onReject={() => rejectPost(p.id)}
                 onConfirm={() => confirmPublish(p.id)}
@@ -13330,8 +13615,10 @@ function ChannelPill({ id }) {
   );
 }
 
-function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdit, onSave, onCancel, onRegenerate, onApprove, onReject, onConfirm }) {
+function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdit, onSave, onCancel, onRegenerate, onRegenerateImage, onApprove, onReject, onConfirm }) {
   const editing = editingId === post.id;
+  const [regenPrompt, setRegenPrompt] = useState(post.imagePrompt || post.topicHeadline || post.theme || "");
+
   return (
     <div className="hover-float" style={{ background: "#fff", border: `1px solid ${tone === "confirm" ? C.teal : C.border}`, borderRadius: 18, padding: 24, marginBottom: 16, width: "100%", boxSizing: "border-box", boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
@@ -13349,8 +13636,57 @@ function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdi
           {tone === "confirm" ? "Approved — confirm to post" : "Needs your approval"}
         </span>
       </div>
+
+      {/* Generated Topic Image Banner */}
+      {post.imageUrl && (
+        <div style={{ position: "relative", marginBottom: 16, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.borderLight}`, maxHeight: 280, background: "#0d0f17" }}>
+          <img
+            src={post.imageUrl}
+            alt={post.topicHeadline || post.title || "Topic visual"}
+            style={{ width: "100%", height: "auto", display: "block", objectFit: "cover", maxHeight: 280 }}
+            loading="lazy"
+          />
+          <div style={{ position: "absolute", bottom: 8, left: 10, right: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "rgba(0,0,0,0.72)", color: "#fff", backdropFilter: "blur(6px)" }}>
+              🎨 AI Topic Visual
+            </span>
+            <button
+              type="button"
+              onClick={() => onRegenerateImage && onRegenerateImage(post, regenPrompt)}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 6, border: "none", background: "rgba(0,0,0,0.8)", color: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer", backdropFilter: "blur(6px)" }}
+              title="Generate a fresh visual for this post"
+            >
+              <Sparkles size={13} color={C.teal} /> Regenerate Image
+            </button>
+          </div>
+        </div>
+      )}
+
       {editing ? (
-        <textarea value={editCopy} onChange={(e) => setEditCopy(e.target.value)} rows={5} style={{ width: "100%", borderRadius: 12, border: `1px solid ${C.border}`, padding: 12, fontFamily: FONT_BODY, fontSize: 14, lineHeight: 1.5, resize: "vertical" }} />
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 4 }}>Post Text Copy</label>
+          <textarea value={editCopy} onChange={(e) => setEditCopy(e.target.value)} rows={5} style={{ width: "100%", borderRadius: 12, border: `1px solid ${C.border}`, padding: 12, fontFamily: FONT_BODY, fontSize: 14, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box" }} />
+          
+          <div style={{ marginTop: 10 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 4 }}>Image Prompt / Concept</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                value={regenPrompt}
+                onChange={(e) => setRegenPrompt(e.target.value)}
+                placeholder="Describe image visual concept..."
+                style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5 }}
+              />
+              <button
+                type="button"
+                onClick={() => onRegenerateImage && onRegenerateImage(post, regenPrompt)}
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: HUB_PAPER, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+              >
+                <Sparkles size={13} color={C.teal} /> Update Image
+              </button>
+            </div>
+          </div>
+        </div>
       ) : (
         <div style={{ fontFamily: FONT_BODY, fontSize: 14.5, color: C.textInk, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{post.copy}</div>
       )}
@@ -13371,7 +13707,8 @@ function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdi
         ) : (
           <>
             <SchGhost onClick={onEdit} icon={PenLine}>Edit</SchGhost>
-            <SchGhost onClick={onRegenerate} icon={RefreshCw}>Regenerate</SchGhost>
+            <SchGhost onClick={() => onRegenerateImage && onRegenerateImage(post)} icon={Sparkles}>New Image</SchGhost>
+            <SchGhost onClick={onRegenerate} icon={RefreshCw}>Regenerate Copy</SchGhost>
             <SchGhost onClick={onReject} danger>Reject</SchGhost>
             <SchSolid onClick={onApprove}>Approve</SchSolid>
           </>

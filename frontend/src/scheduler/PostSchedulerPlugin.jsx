@@ -173,6 +173,11 @@ export function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile }
                   }}
                 >
                   <div>
+                    {p.imageUrl && (
+                      <div style={{ width: "100%", height: 140, borderRadius: 12, overflow: "hidden", marginBottom: 12, border: `1px solid ${C.borderLight}` }}>
+                        <img src={p.imageUrl} alt={p.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+                      </div>
+                    )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 6, border: `1px solid rgba(0,191,165,0.2)` }}>
                         {p.theme || "General"}
@@ -221,6 +226,11 @@ export function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile }
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {posts.filter((p) => p.status === "awaiting_approval").map((p) => (
                 <div key={p.id} style={{ background: "#fff", borderRadius: 18, border: `1px solid ${C.border}`, padding: 24, boxShadow: C.shadowCard }}>
+                  {p.imageUrl && (
+                    <div style={{ width: "100%", height: 180, borderRadius: 12, overflow: "hidden", marginBottom: 16, border: `1px solid ${C.borderLight}` }}>
+                      <img src={p.imageUrl} alt={p.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+                    </div>
+                  )}
                   <div style={{ fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 10 }}>{p.title}</div>
                   <div style={{ fontSize: 13, color: C.textInk, whiteSpace: "pre-line", lineHeight: 1.5, background: C.paperSoft, padding: 14, borderRadius: 10 }}>
                     {p.copy}
@@ -291,13 +301,39 @@ export function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile }
       {/* Post Editor Modal */}
       {selectedPost && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(13,15,23,0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-          <div style={{ width: "100%", maxWidth: 560, background: "#fff", borderRadius: 20, border: `1px solid ${C.border}`, padding: 26, boxShadow: "0 24px 60px rgba(0,0,0,0.2)" }}>
-            <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 14 }}>Edit Social Post Copy</div>
+          <div style={{ width: "100%", maxWidth: 620, background: "#fff", borderRadius: 20, border: `1px solid ${C.border}`, padding: 26, boxShadow: "0 24px 60px rgba(0,0,0,0.2)", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>Edit Social Post & Visual</div>
+            
+            {/* Image Preview & Regenerate */}
+            {selectedPost.imageUrl && (
+              <div style={{ position: "relative", marginBottom: 14, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.borderLight}`, maxHeight: 220, background: "#0d0f17" }}>
+                <img src={selectedPost.imageUrl} alt={selectedPost.title} style={{ width: "100%", height: "auto", display: "block", objectFit: "cover", maxHeight: 220 }} />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const res = await api.generateImage({ title: selectedPost.title, theme: selectedPost.theme });
+                      if (res && res.imageUrl) {
+                        setSelectedPost((p) => ({ ...p, imageUrl: res.imageUrl, imagePrompt: res.imagePrompt }));
+                        setPosts((ps) => ps.map((p) => (p.id === selectedPost.id ? { ...p, imageUrl: res.imageUrl, imagePrompt: res.imagePrompt } : p)));
+                      }
+                    } catch (e) {
+                      console.warn(e);
+                    }
+                  }}
+                  style={{ position: "absolute", bottom: 10, right: 10, display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 6, border: "none", background: "rgba(0,0,0,0.75)", color: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer", backdropFilter: "blur(6px)" }}
+                >
+                  <Sparkles size={13} color={C.teal} /> Regenerate Image
+                </button>
+              </div>
+            )}
+
+            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 6 }}>Post Copy</label>
             <textarea
-              rows={8}
+              rows={7}
               value={editingCopy}
               onChange={(e) => setEditingCopy(e.target.value)}
-              style={{ width: "100%", padding: 14, borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13.5, lineHeight: 1.45 }}
+              style={{ width: "100%", padding: 14, borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13.5, lineHeight: 1.45, boxSizing: "border-box" }}
             />
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
               <button onClick={() => setSelectedPost(null)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer" }}>

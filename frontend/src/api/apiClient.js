@@ -91,14 +91,25 @@ export const api = {
   // AI Lead Radar & Enrichment
   enrichProspect: (payload) => apiRequest('/enrichment/enrich-prospect', { method: 'POST', body: payload }),
   discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload }),
+  copilotChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
 
   // Analytics
   getAnalytics: () => apiRequest('/analytics'),
 
   // Post Scheduler
   getPosts: () => apiRequest('/scheduler/posts'),
-  chatPlan: (text) => apiRequest('/scheduler/chat-plan', { method: 'POST', body: { text } }),
-  updatePostStatus: (postId, status, copy) => apiRequest(`/scheduler/posts/${postId}/status`, { method: 'POST', body: { status, copy } }),
+  chatPlan: (payload) => apiRequest('/scheduler/chat-plan', { 
+    method: 'POST', 
+    body: typeof payload === 'string' ? { text: payload } : payload 
+  }),
+  updatePostStatus: (postId, status, copy, imageUrl, imagePrompt) => apiRequest(`/scheduler/posts/${postId}/status`, { 
+    method: 'POST', 
+    body: { status, copy, imageUrl, imagePrompt } 
+  }),
+  generateImage: (payload) => apiRequest('/scheduler/generate-image', { 
+    method: 'POST', 
+    body: typeof payload === 'string' ? { prompt: payload } : payload 
+  }),
   getEmails: () => apiRequest('/scheduler/emails'),
 
   // Dedicated Process Logs (Multi-Subsystem)

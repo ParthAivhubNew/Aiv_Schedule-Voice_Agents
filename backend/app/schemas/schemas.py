@@ -247,6 +247,8 @@ class SocialTopicSchema(BaseModel):
     source_type: str = "Knowledge Base"
     source_name: str = "Company Profile"
     keywords: List[str] = []
+    image_url: Optional[str] = None
+    image_prompt: Optional[str] = None
 
 class SocialPostSchema(BaseModel):
     id: Optional[str] = None
@@ -260,6 +262,15 @@ class SocialPostSchema(BaseModel):
     time: str = "10:00"
     theme: str = "General"
     tone: str = "Professional"
+    image_url: Optional[str] = None
+    image_prompt: Optional[str] = None
+
+class SchedulerAiConfigSchema(BaseModel):
+    provider: str = "deepseek"
+    api_key: Optional[str] = None
+    model: str = "deepseek-chat"
+    base_url: Optional[str] = None
+    image_style: str = "modern_saas"
 
 class SocialEmailSchema(BaseModel):
     id: Optional[str] = None

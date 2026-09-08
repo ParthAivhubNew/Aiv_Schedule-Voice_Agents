@@ -280,6 +280,8 @@ class SocialTopic(Base):
     source_type = Column(String, default="Knowledge Base")
     source_name = Column(String, default="Company Profile")
     keywords = Column(JSON, default=list)
+    image_url = Column(Text, nullable=True)
+    image_prompt = Column(Text, nullable=True)
 
 class SocialPost(Base):
     __tablename__ = "social_posts"
@@ -295,6 +297,8 @@ class SocialPost(Base):
     time = Column(String, default="10:00")
     theme = Column(String, default="General")
     tone = Column(String, default="Professional")
+    image_url = Column(Text, nullable=True)
+    image_prompt = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class SocialEmail(Base):
