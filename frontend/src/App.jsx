@@ -8803,25 +8803,21 @@ function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick }) {
 
 /* ---------------------------------- Common AI Configuration Modal & Views ---------------------------------- */
 
-function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "matrix", onNavigateToPlugin }) {
-  const [tab, setTab] = useState(initialTab); // "matrix" | "providers" | "leadgen" | "scheduler" | "email" | "voice" | "subscription"
+function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin }) {
+  // Tabs: only the 4 plugins + subscription. NO scary unified matrix!
+  const [tab, setTab] = useState(initialTab || "leadgen");
   const [dirty, setDirty] = useState(false);
-  const [showKeys, setShowKeys] = useState({});
+  const [showKey, setShowKey] = useState(false);
   const [testingId, setTestingId] = useState(null);
   const [testStatus, setTestStatus] = useState({});
-  
-  // Adding Custom Provider Form State
-  const [showAddProviderModal, setShowAddProviderModal] = useState(false);
-  const [addProviderTesting, setAddProviderTesting] = useState(false);
-  const [addProviderError, setAddProviderError] = useState("");
-  const [newProvider, setNewProvider] = useState({
-    name: "",
-    type: "llm",
-    baseUrl: "https://api.custom-llm.com/v1",
-    apiKey: "",
-    modelsText: "custom-model-v1, custom-model-v2",
-    badge: "Custom Endpoint",
-  });
+  const [showCustomEndpoint, setShowCustomEndpoint] = useState(false);
+
+  // Synchronize initialTab whenever modal opens
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -8842,6 +8838,28 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const flash = () => {
     setDirty(true);
     setTimeout(() => setDirty(false), 1400);
+  };
+
+  const updateProviderKey = (id, key) => {
+    setCommonAi((prev) => {
+      const provs = (prev && prev.providers) || safeCommonAi.providers;
+      return {
+        ...prev,
+        providers: provs.map((p) => (p.id === id ? { ...p, apiKey: key } : p)),
+      };
+    });
+    flash();
+  };
+
+  const updateProviderBaseUrl = (id, url) => {
+    setCommonAi((prev) => {
+      const provs = (prev && prev.providers) || safeCommonAi.providers;
+      return {
+        ...prev,
+        providers: provs.map((p) => (p.id === id ? { ...p, baseUrl: url } : p)),
+      };
+    });
+    flash();
   };
 
   const testConnection = async (id) => {
@@ -8868,130 +8886,29 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
       const latency = Math.max(Date.now() - startTime, 25);
       setCommonAi((prev) => ({
         ...prev,
-        providers: prev.providers.map((item) =>
+        providers: (prev?.providers || safeCommonAi.providers).map((item) =>
           item.id === id ? { ...item, status: "connected", latencyMs: latency } : item
         ),
       }));
       setTestStatus((prev) => ({
         ...prev,
-        [id]: { status: "success", msg: res.details || "Authenticated & verified successfully." },
+        [id]: { status: "success", msg: res.details || "Verified & connected successfully!" },
       }));
       flash();
     } catch (err) {
       setTestStatus((prev) => ({
         ...prev,
-        [id]: { status: "error", msg: err.message || "Key rejected by provider." },
+        [id]: { status: "error", msg: err.message || "Connection failed. Please check your key or URL." },
       }));
     } finally {
       setTestingId(null);
     }
   };
 
-  const handleAddCustomProvider = async (e) => {
-    e.preventDefault();
-    setAddProviderError("");
-    if (!newProvider.name.trim()) {
-      setAddProviderError("Provider name is required.");
-      return;
-    }
-    if (!newProvider.baseUrl.trim()) {
-      setAddProviderError("Endpoint Base URL is required.");
-      return;
-    }
-
-    setAddProviderTesting(true);
-    const startTime = Date.now();
-
-    try {
-      const res = await api.testAndSaveConnection({
-        layer: newProvider.type || "LLM",
-        provider: newProvider.name.trim(),
-        api_key: newProvider.apiKey.trim() || "no_auth_needed",
-        base_url: newProvider.baseUrl.trim(),
-      });
-
-      const latency = Math.max(Date.now() - startTime, 30);
-      const newId = "custom_" + Date.now();
-      const modelList = newProvider.modelsText.split(",").map((m) => m.trim()).filter(Boolean);
-      const created = {
-        id: newId,
-        name: newProvider.name.trim(),
-        type: newProvider.type,
-        badge: "Custom Endpoint",
-        status: "connected",
-        latencyMs: latency,
-        baseUrl: newProvider.baseUrl.trim(),
-        apiKey: newProvider.apiKey.trim() || "••••••••",
-        models: modelList.length ? modelList : [newProvider.name.trim() + " Model"],
-      };
-
-      setCommonAi((prev) => ({
-        ...prev,
-        providers: [...prev.providers, created],
-      }));
-
-      setNewProvider({
-        name: "",
-        type: "llm",
-        baseUrl: "https://api.custom-llm.com/v1",
-        apiKey: "",
-        modelsText: "custom-model-v1, custom-model-v2",
-        badge: "Custom Endpoint",
-      });
-      setShowAddProviderModal(false);
-      flash();
-    } catch (err) {
-      setAddProviderError(err.message || "Failed to validate custom provider endpoint. Please check URL and token.");
-    } finally {
-      setAddProviderTesting(false);
-    }
-  };
-
-  const removeProvider = (id) => {
+  const updateLeadgenLayer = (key, val) => {
     setCommonAi((prev) => ({
       ...prev,
-      providers: prev.providers.filter((p) => p.id !== id),
-    }));
-    flash();
-  };
-
-  const updateProviderKey = (id, key) => {
-    setCommonAi((prev) => ({
-      ...prev,
-      providers: prev.providers.map((p) => (p.id === id ? { ...p, apiKey: key } : p)),
-    }));
-    flash();
-  };
-
-  const applyVoiceMode = (m) => {
-    setCommonAi((prev) => {
-      const nextLayers = { ...prev.voiceLayers };
-      VOICE_LAYERS.forEach((l) => {
-        if (m === "paid") nextLayers[l.key] = l.paid;
-        if (m === "opensource") nextLayers[l.key] = l.oss;
-      });
-      return { ...prev, mode: m, voiceLayers: nextLayers };
-    });
-    flash();
-  };
-
-  const applySchedulerMode = (m) => {
-    setCommonAi((prev) => {
-      const nextLayers = { ...prev.schedulerLayers };
-      SCHEDULER_LAYERS.forEach((l) => {
-        if (m === "paid") nextLayers[l.key] = l.paid;
-        if (m === "opensource") nextLayers[l.key] = l.oss;
-      });
-      return { ...prev, schedulerMode: m, schedulerLayers: nextLayers };
-    });
-    flash();
-  };
-
-  const updateVoiceLayer = (key, val) => {
-    setCommonAi((prev) => ({
-      ...prev,
-      mode: "custom",
-      voiceLayers: { ...((prev && prev.voiceLayers) || {}), [key]: val },
+      leadgenLayers: { ...((prev && prev.leadgenLayers) || {}), [key]: val },
     }));
     flash();
   };
@@ -8999,16 +8916,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const updateSchedulerLayer = (key, val) => {
     setCommonAi((prev) => ({
       ...prev,
-      schedulerMode: "custom",
       schedulerLayers: { ...((prev && prev.schedulerLayers) || {}), [key]: val },
-    }));
-    flash();
-  };
-
-  const updateLeadgenLayer = (key, val) => {
-    setCommonAi((prev) => ({
-      ...prev,
-      leadgenLayers: { ...((prev && prev.leadgenLayers) || {}), [key]: val },
     }));
     flash();
   };
@@ -9021,36 +8929,188 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     flash();
   };
 
-  const allAvailableLlmModels = Array.from(new Set([
-    ...(LEADGEN_LAYERS.find((l) => l.key === "researchLlm")?.options || []),
-    ...(SCHEDULER_LAYERS.find((l) => l.key === "postWriter")?.options || []),
-    ...(EMAIL_LAYERS.find((l) => l.key === "copywriterLlm")?.options || []),
-    ...(VOICE_LAYERS.find((l) => l.key === "llm")?.options || []),
-    ...((safeCommonAi.providers || []).filter((p) => p.type === "llm").flatMap((p) => p.models || [])),
-  ]));
+  const updateVoiceLayer = (key, val) => {
+    setCommonAi((prev) => ({
+      ...prev,
+      voiceLayers: { ...((prev && prev.voiceLayers) || {}), [key]: val },
+    }));
+    flash();
+  };
 
-  const isOss = (val) => String(val).toLowerCase().includes("self-hosted") || String(val).toLowerCase().includes("telnyx") || String(val).toLowerCase().includes("deepseek") || String(val).toLowerCase().includes("kokoro") || String(val).toLowerCase().includes("livekit") || String(val).toLowerCase().includes("whisper") || String(val).toLowerCase().includes("local");
+  // Helper to map a model name to its required provider
+  const getProviderIdForModel = (modelName) => {
+    const m = String(modelName || "").toLowerCase();
+    if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet") || m.includes("haiku")) return "anthropic";
+    if (m.includes("gpt") || m.includes("o3") || m.includes("openai")) return "openai";
+    if (m.includes("grok") || m.includes("xai")) return "xai";
+    if (m.includes("deepseek")) return "deepseek";
+    if (m.includes("groq") || m.includes("llama")) return "groq";
+    if (m.includes("gemini") || m.includes("google")) return "gemini";
+    if (m.includes("elevenlabs")) return "elevenlabs";
+    if (m.includes("deepgram")) return "deepgram";
+    if (m.includes("twilio")) return "twilio";
+    if (m.includes("telnyx")) return "twilio";
+    if (m.includes("ollama") || m.includes("local")) return "ollama";
+    return "openai";
+  };
 
-  const subTokens = safeCommonAi.subscription?.tokensUsed || 0;
-  const subQuota = safeCommonAi.subscription?.monthlyTokenQuota || 1;
-  const tokenPercent = Math.round((subTokens / subQuota) * 100);
+  // Inline Provider Key Card component
+  const renderProviderKeyCard = (providerId, contextLabel) => {
+    const prov = safeCommonAi.providers.find((p) => p.id === providerId) || {
+      id: providerId,
+      name: providerId.toUpperCase(),
+      apiKey: "",
+      baseUrl: "",
+      status: "not_configured"
+    };
+
+    const isTesting = testingId === prov.id;
+    const testInfo = testStatus[prov.id];
+    const isConnected = prov.status === "connected" || !!prov.apiKey;
+
+    return (
+      <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", marginTop: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                {prov.name} API Key
+              </span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: isConnected ? "#ECFDF5" : "#FEF3C7", color: isConnected ? "#059669" : "#D97706" }}>
+                {isConnected ? "Connected" : "Key Needed"}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+              Used by {contextLabel}
+            </div>
+          </div>
+
+          {prov.latencyMs && (
+            <span style={{ fontSize: 11, fontFamily: FONT_MONO, color: C.teal, background: C.tealSoft, padding: "2px 7px", borderRadius: 4, fontWeight: 600 }}>
+              {prov.latencyMs}ms latency
+            </span>
+          )}
+        </div>
+
+        {/* API Key Input + Test Button */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ position: "relative", flex: 1 }}>
+            <input
+              type={showKey ? "text" : "password"}
+              value={prov.apiKey || ""}
+              onChange={(e) => updateProviderKey(prov.id, e.target.value)}
+              placeholder={`Paste your ${prov.name} API key here (sk-...)`}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "9px 36px 9px 12px",
+                borderRadius: 8,
+                border: `1px solid ${C.border}`,
+                fontFamily: FONT_MONO,
+                fontSize: 12.5,
+                background: HUB_PAPER,
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(!showKey)}
+              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", color: C.slate }}
+            >
+              {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => testConnection(prov.id)}
+            disabled={isTesting}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "9px 16px",
+              borderRadius: 8,
+              border: `1px solid ${C.border}`,
+              background: "#fff",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: C.ink,
+              cursor: isTesting ? "wait" : "pointer",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+            }}
+          >
+            <RefreshCw size={13} className={isTesting ? "animate-spin" : ""} />
+            <span>{isTesting ? "Testing..." : "Test Connection"}</span>
+          </button>
+        </div>
+
+        {testInfo && (
+          <div style={{
+            marginTop: 10,
+            padding: "8px 12px",
+            borderRadius: 7,
+            fontSize: 12,
+            background: testInfo.status === "success" ? "#ECFDF5" : "#FEF2F2",
+            color: testInfo.status === "success" ? "#065F46" : "#991B1B",
+            border: `1px solid ${testInfo.status === "success" ? "#A7F3D0" : "#FECACA"}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}>
+            <span>{testInfo.status === "success" ? "✓" : "⚠️"}</span>
+            <span>{testInfo.msg}</span>
+          </div>
+        )}
+
+        {/* Custom Endpoint Accordion */}
+        <div style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            onClick={() => setShowCustomEndpoint(!showCustomEndpoint)}
+            style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 11.5, color: C.cobalt, padding: 0, fontWeight: 600, textDecoration: "underline" }}
+          >
+            {showCustomEndpoint ? "Hide custom endpoint" : "Use custom endpoint / local proxy URL"}
+          </button>
+
+          {showCustomEndpoint && (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Base URL (e.g. http://localhost:11434/v1 or private proxy)</label>
+              <input
+                type="text"
+                value={prov.baseUrl || ""}
+                onChange={(e) => updateProviderBaseUrl(prov.id, e.target.value)}
+                placeholder="https://api.your-provider.com/v1"
+                style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12 }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Provider needed for currently selected models
+  const leadgenProviderId = getProviderIdForModel(safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3");
+  const schedulerProviderId = getProviderIdForModel(safeCommonAi.schedulerLayers?.postWriter || "Claude 3.5 Sonnet");
+  const emailProviderId = getProviderIdForModel(safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet");
+  const voiceLlmProviderId = getProviderIdForModel(safeCommonAi.voiceLayers?.llm || "xAI Grok-2");
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.7)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px" }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: 1020, maxWidth: "96vw", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 56px rgba(0,0,0,0.28)", border: `1px solid ${C.border}` }}>
+      <div style={{ background: "#fff", borderRadius: 18, width: 880, maxWidth: "96vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 64px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
         
-        {/* Header with spacious padding */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 28px", borderBottom: `1px solid ${C.border}`, background: HUB_PAPER }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 26px", borderBottom: `1px solid ${C.border}`, background: HUB_PAPER }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 4px 12px rgba(52,87,213,0.25)" }}>
-              <Settings2 size={22} />
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 4px 12px rgba(52,87,213,0.25)" }}>
+              <Settings2 size={20} />
             </div>
             <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 19, color: C.ink, letterSpacing: "-0.01em" }}>
-                Platform AI & Provider Configuration
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: "-0.01em" }}>
+                AI Plugin Configuration
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                Unified intelligence matrix powering all 4 chronological workspace plugins
+                Configure models and connect API keys for each workspace plugin
               </div>
             </div>
           </div>
@@ -9059,16 +9119,14 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           </button>
         </div>
 
-        {/* Navigation Tabs */}
-        <div style={{ display: "flex", gap: 4, padding: "0 28px", borderBottom: `1px solid ${C.border}`, background: "#fff", flexWrap: "wrap" }}>
+        {/* Friendly Plugin Tabs: No numbers, clean, intuitive */}
+        <div style={{ display: "flex", gap: 4, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
           {[
-            { id: "matrix", label: "Unified AI Architecture Matrix", icon: LayoutGrid, count: "4 Plugins" },
-            { id: "providers", label: "Connected Providers & Keys", icon: KeyRound, count: `${(safeCommonAi.providers || []).length}` },
-            { id: "leadgen", label: "1. Lead Generation", icon: Search },
-            { id: "scheduler", label: "2. Post Scheduler", icon: CalendarDays },
-            { id: "email", label: "3. Email Outreach", icon: Mail },
-            { id: "voice", label: "4. AI Voice Assistant", icon: PhoneCall },
-            { id: "subscription", label: "Subscription Quotas", icon: BarChart3 },
+            { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
+            { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
+            { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
+            { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
+            { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
           ].map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -9079,633 +9137,183 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 7,
-                  padding: "12px 14px",
+                  gap: 8,
+                  padding: "13px 16px",
                   borderRadius: "8px 8px 0 0",
                   border: "none",
-                  borderBottom: active ? `3px solid ${C.cobalt}` : "3px solid transparent",
+                  borderBottom: active ? `3px solid ${t.color || C.cobalt}` : "3px solid transparent",
                   background: "transparent",
-                  color: active ? C.cobalt : C.slate,
+                  color: active ? (t.color || C.cobalt) : C.slate,
                   fontFamily: FONT_BODY,
-                  fontSize: 12.5,
+                  fontSize: 13,
                   fontWeight: active ? 700 : 500,
                   cursor: "pointer",
                   transition: "all 0.15s",
+                  whiteSpace: "nowrap",
                 }}
               >
-                <Icon size={14} />
+                <Icon size={15} color={active ? (t.color || C.cobalt) : C.slate} />
                 <span>{t.label}</span>
-                {t.count && (
-                  <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 999, background: active ? C.cobaltSoft : C.paperSoft, color: active ? C.cobaltDeep : C.slate, fontWeight: 700 }}>
-                    {t.count}
-                  </span>
-                )}
               </button>
             );
           })}
         </div>
 
-        {/* Body Content with generous scrolling padding */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px" }}>
+        {/* Tab Body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
           
-          {/* TAB 1: PLUGIN MATRIX & REQUIREMENTS INSPECTION (CHRONOLOGICAL 1 TO 4) */}
-          {tab === "matrix" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              
-              <div style={{ background: "linear-gradient(135deg, #F0F4FF, #F5EEFD)", border: `1px solid #D4D8F0`, borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Sparkles size={18} color={C.cobalt} />
-                  <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      Chronological Business Funnel · Unified AI Architecture
-                    </div>
-                    <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                      Inspect and configure the AI connections powering each plugin. Models can be matched from any connected provider or self-hosted endpoint.
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6, background: "#fff", color: C.cobalt, border: `1px solid ${C.cobaltSoft}` }}>
-                    4 Active Plugins
-                  </span>
-                </div>
-              </div>
-
-              {/* 1. LEAD GENERATION PLUGIN */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: "#EDE9FE", color: "#8B5CF6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Search size={18} />
-                    </div>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
-                          1. Lead Generation Plugin
-                        </span>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: "#EDE9FE", color: "#7C3AED" }}>
-                          Step 1: Lead Scout
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                        Generates qualified leads for the user's business through AI web discovery, decision-maker extraction, and deep dossiers
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
-                      ✓ 3/3 Connections Active
-                    </span>
-                    {onNavigateToPlugin && (
-                      <button
-                        onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
-                        style={{ fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 6, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                      >
-                        Open <ChevronRight size={13} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Web Search & Discovery LLM</div>
-                    <select
-                      value={safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3"}
-                      onChange={(e) => updateLeadgenLayer("researchLlm", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {Array.from(new Set([...(LEADGEN_LAYERS[0]?.options || []), ...allAvailableLlmModels])).map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Prospect Intelligence & Extractor</div>
-                    <select
-                      value={safeCommonAi.leadgenLayers?.extractorLlm || "Groq Llama 3.3 70B"}
-                      onChange={(e) => updateLeadgenLayer("extractorLlm", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {Array.from(new Set([...(LEADGEN_LAYERS[1]?.options || []), ...allAvailableLlmModels])).map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Live Web & Domain Crawler</div>
-                    <select
-                      value={safeCommonAi.leadgenLayers?.enrichmentEngine || "DuckDuckGo Live + Crawler"}
-                      onChange={(e) => updateLeadgenLayer("enrichmentEngine", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {(LEADGEN_LAYERS[2]?.options || []).map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. POST SCHEDULER & GENERATOR */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: C.tealSoft, color: C.teal, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <CalendarDays size={18} />
-                    </div>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
-                          2. Post Scheduler & Generator
-                        </span>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: C.tealSoft, color: C.teal }}>
-                          Step 2: Content Marketing
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                        Social content planner, scheduler, multi-channel generator, and image studio
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
-                      ✓ 4/4 Connections Active
-                    </span>
-                    {onNavigateToPlugin && (
-                      <button
-                        onClick={() => { onNavigateToPlugin("scheduler"); onClose(); }}
-                        style={{ fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 6, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                      >
-                        Open <ChevronRight size={13} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Post Drafting LLM</div>
-                    <select
-                      value={safeCommonAi.schedulerLayers?.postWriter || "xAI Grok-2"}
-                      onChange={(e) => updateSchedulerLayer("postWriter", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {allAvailableLlmModels.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Topic Research LLM</div>
-                    <select
-                      value={safeCommonAi.schedulerLayers?.topicResearch || "xAI Grok-2"}
-                      onChange={(e) => updateSchedulerLayer("topicResearch", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {allAvailableLlmModels.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Plan Chat Assistant</div>
-                    <select
-                      value={safeCommonAi.schedulerLayers?.chatPlanner || "xAI Grok-2"}
-                      onChange={(e) => updateSchedulerLayer("chatPlanner", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {allAvailableLlmModels.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. EMAIL GENERATION AND SENDING PLUGIN */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: "#FEF3C7", color: "#D97706", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Mail size={18} />
-                    </div>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
-                          3. Email Generation & Sending Plugin
-                        </span>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: "#FEF3C7", color: "#B45309" }}>
-                          Step 3: Direct Outreach
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                        Generates / drafts emails for approaching or replying to clients, and distributes advertising & generated content
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
-                      ✓ 3/3 Connections Active
-                    </span>
-                    {onNavigateToPlugin && (
-                      <button
-                        onClick={() => { onNavigateToPlugin("emailoutreach"); onClose(); }}
-                        style={{ fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 6, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                      >
-                        Open <ChevronRight size={13} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Outreach Copywriting LLM</div>
-                    <select
-                      value={safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet"}
-                      onChange={(e) => updateEmailLayer("copywriterLlm", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {Array.from(new Set([...(EMAIL_LAYERS[0]?.options || []), ...allAvailableLlmModels])).map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Inbound Reply Drafter</div>
-                    <select
-                      value={safeCommonAi.emailLayers?.replyClassifier || "DeepSeek-V3"}
-                      onChange={(e) => updateEmailLayer("replyClassifier", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {Array.from(new Set([...(EMAIL_LAYERS[1]?.options || []), ...allAvailableLlmModels])).map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Post-to-Email Content Repurposer</div>
-                    <select
-                      value={safeCommonAi.emailLayers?.contentTransformer || "Claude 3.5 Sonnet"}
-                      onChange={(e) => updateEmailLayer("contentTransformer", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {Array.from(new Set([...(EMAIL_LAYERS[2]?.options || []), ...allAvailableLlmModels])).map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. AI VOICE ASSISTANT */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: C.cobaltSoft, color: C.cobalt, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <PhoneCall size={18} />
-                    </div>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
-                          4. AI Voice Assistant
-                        </span>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: C.cobaltSoft, color: C.cobaltDeep }}>
-                          Step 4: Autonomous Closing
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                        Live multi-line outbound voice SDR: dial verified leads, hold natural voice conversations, book meetings
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
-                      ✓ 6/6 Connections Active
-                    </span>
-                    {onNavigateToPlugin && (
-                      <button
-                        onClick={() => { onNavigateToPlugin("voice"); onClose(); }}
-                        style={{ fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 6, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                      >
-                        Open <ChevronRight size={13} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Dialogue & Reasoning LLM</div>
-                    <select
-                      value={safeCommonAi.voiceLayers?.llm || "xAI Grok-2"}
-                      onChange={(e) => updateVoiceLayer("llm", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      {allAvailableLlmModels.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Speech-To-Text (STT)</div>
-                    <select
-                      value={safeCommonAi.voiceLayers?.stt || "Deepgram Nova-3"}
-                      onChange={(e) => updateVoiceLayer("stt", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      <option value="Deepgram Nova-3">Deepgram Nova-3 (Paid)</option>
-                      <option value="Faster-Whisper (self-hosted)">Faster-Whisper (OSS)</option>
-                      <option value="AssemblyAI">AssemblyAI (Cloud)</option>
-                    </select>
-                  </div>
-
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Text-To-Speech (TTS)</div>
-                    <select
-                      value={safeCommonAi.voiceLayers?.tts || "ElevenLabs Turbo"}
-                      onChange={(e) => updateVoiceLayer("tts", e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
-                    >
-                      <option value="ElevenLabs Turbo">ElevenLabs Turbo (Paid)</option>
-                      <option value="Cartesia Sonic">Cartesia Sonic (Paid)</option>
-                      <option value="Kokoro (self-hosted)">Kokoro (OSS)</option>
-                      <option value="PlayHT 2.0">PlayHT 2.0 (Paid)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cross-Plugin Pipeline Flow Ribbon */}
-              <div style={{ background: HUB_PAPER, border: `1px dashed ${C.border}`, borderRadius: 10, padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: C.slate }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Zap size={15} color="#D97706" />
-                  <span><strong>Automated Cross-Plugin Flow:</strong> Leads found in Step 1 can be handed off with 1-click to Email Sequences (Step 3) or AI Voice Calls (Step 4). Posts crafted in Step 2 can be repurposed as Email Blasts (Step 3).</span>
-                </div>
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 2: CONNECTED PROVIDERS & DYNAMIC KEY ADDITION */}
-          {tab === "providers" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
-                    Connected AI Providers ({(safeCommonAi.providers || []).length})
-                  </div>
-                  <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                    Manage API keys, endpoints, or add custom OpenAI-compatible models & providers
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setShowAddProviderModal(true)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "9px 15px",
-                    borderRadius: 8,
-                    background: C.ink,
-                    color: "#fff",
-                    fontFamily: FONT_BODY,
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Plus size={15} /> Connect New Provider / Key
-                </button>
-              </div>
-
-              {/* Providers Grid */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {(safeCommonAi.providers || []).map((p) => {
-                  const isVisible = showKeys[p.id];
-                  const isTesting = testingId === p.id;
-                  const isCustom = p.id.startsWith("custom_");
-                  return (
-                    <div key={p.id} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 999, background: C.green }} />
-                          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>{p.name}</span>
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: C.cobaltSoft, color: C.cobaltDeep }}>
-                            {p.badge}
-                          </span>
-                        </div>
-
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {p.latencyMs && (
-                            <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: C.teal, background: C.tealSoft, padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>
-                              {p.latencyMs}ms
-                            </span>
-                          )}
-                          {isCustom && (
-                            <button onClick={() => removeProvider(p.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.redSolid, padding: 2 }} title="Remove Provider">
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Key input */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                        <input
-                          type={isVisible || p.id === "ollama" ? "text" : "password"}
-                          value={p.apiKey}
-                          onChange={(e) => updateProviderKey(p.id, e.target.value)}
-                          placeholder="API key or token..."
-                          style={{ flex: 1, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, background: "#fff" }}
-                        />
-                        {p.id !== "ollama" && (
-                          <button onClick={() => setShowKeys((prev) => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, padding: 4 }}>
-                            {isVisible ? <EyeOff size={14} /> : <Eye size={14} />}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => testConnection(p.id)}
-                          disabled={isTesting}
-                          style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11.5, fontWeight: 600, cursor: isTesting ? "wait" : "pointer" }}
-                        >
-                          <RefreshCw size={12} className={isTesting ? "animate-spin" : ""} />
-                          <span>{isTesting ? "Testing..." : "Test"}</span>
-                        </button>
-                      </div>
-
-                      {testStatus[p.id] && (
-                        <div style={{
-                          marginBottom: 10,
-                          padding: "6px 10px",
-                          borderRadius: 6,
-                          fontSize: 11.5,
-                          background: testStatus[p.id].status === "success" ? "#E8F5E9" : "#FFEBEE",
-                          color: testStatus[p.id].status === "success" ? "#1B5E20" : "#C62828",
-                          border: `1px solid ${testStatus[p.id].status === "success" ? "#C8E6C9" : "#FFCDD2"}`,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6
-                        }}>
-                          <span>{testStatus[p.id].status === "success" ? "✓" : "⚠️"}</span>
-                          <span>{testStatus[p.id].msg}</span>
-                        </div>
-                      )}
-
-                      <div style={{ fontSize: 11.5, color: C.slate, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <span>Endpoint: <code style={{ fontSize: 10.5 }}>{p.baseUrl}</code></span>
-                        <span>{(p.models || []).length} model{(p.models || []).length > 1 ? "s" : ""}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 3: LEAD GENERATION DEDICATED CONFIG */}
+          {/* TAB 1: LEAD GENERATION */}
           {tab === "leadgen" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ background: "#EDE9FE", border: `1px solid #DDD6FE`, borderRadius: 8, padding: "12px 16px", fontFamily: FONT_BODY, fontSize: 12.5, color: "#6D28D9" }}>
-                Powers the <strong>Lead Generation Plugin</strong>. Directs autonomous web search discovery, contact extraction, and intelligence dossier compilation.
+              <div style={{ background: "#F5F3FF", border: `1px solid #DDD6FE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Search size={18} color="#8B5CF6" />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      Lead Generation AI Configuration
+                    </div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Powers autonomous account discovery, decision-maker extraction, and intelligence dossiers.
+                    </div>
+                  </div>
+                </div>
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Plugin <ChevronRight size={13} />
+                  </button>
+                )}
               </div>
 
-              {/* Lead Gen Layers Table */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
-                  <div>Scouting Capability</div>
-                  <div>Assigned Engine / Model</div>
-                  <div>Status</div>
+              {/* Models Selection */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Lead Discovery & Scouting Model
+                  </label>
+                  <select
+                    value={safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3"}
+                    onChange={(e) => updateLeadgenLayer("researchLlm", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
+                  >
+                    <option value="DeepSeek-V3">DeepSeek-V3 (Fast & Affordable)</option>
+                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet (High Accuracy)</option>
+                    <option value="GPT-4o">OpenAI GPT-4o (Standard)</option>
+                    <option value="Groq Llama 3.3 70B">Groq Llama 3.3 (Ultra-Fast)</option>
+                    <option value="Gemini 2.0 Flash">Google Gemini 2.0 Flash</option>
+                  </select>
                 </div>
-                {LEADGEN_LAYERS.map((l) => {
-                  const val = safeCommonAi.leadgenLayers?.[l.key] || l.paid;
-                  const oss = isOss(val);
-                  return (
-                    <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <select
-                          value={val}
-                          onChange={(e) => updateLeadgenLayer(l.key, e.target.value)}
-                          style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}
-                        >
-                          {l.options.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ width: 7, height: 7, borderRadius: 999, background: C.green }} />
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Operational</span>
-                      </div>
-                    </div>
-                  );
-                })}
+
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Live Web & Crawler Engine
+                  </label>
+                  <select
+                    value={safeCommonAi.leadgenLayers?.enrichmentEngine || "DuckDuckGo Live + Crawler"}
+                    onChange={(e) => updateLeadgenLayer("enrichmentEngine", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
+                  >
+                    <option value="DuckDuckGo Live + Crawler">DuckDuckGo Live Web Crawler</option>
+                    <option value="Direct Domain Scraping">Direct Company Website Scraping</option>
+                    <option value="Google Custom Search">Google Search API</option>
+                  </select>
+                </div>
               </div>
+
+              {/* Directly add API key right inside this plugin tab! */}
+              {renderProviderKeyCard(leadgenProviderId, "Lead Discovery & Research")}
             </div>
           )}
 
-          {/* TAB 4: POST SCHEDULER DEDICATED CONFIG */}
+          {/* TAB 2: POST SCHEDULER */}
           {tab === "scheduler" && (
-            <div>
-              <div style={{ background: C.tealSoft, border: `1px solid ${C.teal}`, borderRadius: 8, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.teal, marginBottom: 16 }}>
-                Shared with the <strong>Post Scheduler</strong> plugin. Powers post drafting, topic research queries, and plan calendar discussions.
-              </div>
-
-              {/* Mode Selector for Scheduler */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-                {[
-                  { id: "paid", title: "Managed Models", desc: "Claude 3.5 + Gemini Flash. Highest quality and speed." },
-                  { id: "opensource", title: "Local / Open Source", desc: "Ollama Llama 3.2 + DeepSeek. 100% private." },
-                  { id: "custom", title: "Custom Mix", desc: "Choose model per content task." },
-                ].map((m) => {
-                  const active = (safeCommonAi.schedulerMode || "paid") === m.id;
-                  return (
-                    <div
-                      key={m.id}
-                      onClick={() => applySchedulerMode(m.id)}
-                      style={{
-                        border: `2px solid ${active ? C.teal : C.border}`,
-                        borderRadius: 10,
-                        padding: 14,
-                        cursor: "pointer",
-                        background: active ? C.teal : "#fff",
-                        transition: "all 0.15s",
-                      }}
-                    >
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: active ? "#fff" : C.textInk }}>{m.title}</div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: active ? "#E4F5F2" : C.slate, marginTop: 4 }}>{m.desc}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ background: "#F0FDF4", border: `1px solid #BBF7D0`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <CalendarDays size={18} color={C.teal} />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      Post Scheduler AI Configuration
                     </div>
-                  );
-                })}
-              </div>
-
-              {/* Scheduler Layers Table */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 18 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
-                  <div>Task / Capability</div>
-                  <div>Assigned Model</div>
-                  <div>Tier</div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Powers multi-channel post drafting, topic ideation, and editorial planning.
+                    </div>
+                  </div>
                 </div>
-                {SCHEDULER_LAYERS.map((l) => {
-                  const val = safeCommonAi.schedulerLayers?.[l.key] || l.paid;
-                  const oss = isOss(val);
-                  return (
-                    <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <select
-                          value={val}
-                          onChange={(e) => updateSchedulerLayer(l.key, e.target.value)}
-                          style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}
-                        >
-                          {l.options.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: oss ? C.tealSoft : C.cobaltSoft, color: oss ? C.teal : C.cobaltDeep }}>
-                          {oss ? "SELF-HOSTED / LOCAL" : "MANAGED API"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("scheduler"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Plugin <ChevronRight size={13} />
+                  </button>
+                )}
               </div>
 
-              {/* Temperature & Brand Tone */}
-              <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
+              {/* Models Selection */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Post Copywriter & Drafting Model
+                  </label>
+                  <select
+                    value={safeCommonAi.schedulerLayers?.postWriter || "Claude 3.5 Sonnet"}
+                    onChange={(e) => updateSchedulerLayer("postWriter", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
+                  >
+                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet (Best for Long-form & Tone)</option>
+                    <option value="xAI Grok-2">xAI Grok-2 (Punchy & Engaging)</option>
+                    <option value="GPT-4o">OpenAI GPT-4o (Consistent)</option>
+                    <option value="DeepSeek-V3">DeepSeek-V3 (Fast & Affordable)</option>
+                    <option value="Ollama Llama 3.2 (Local)">Ollama Llama 3.2 (100% Local / Private)</option>
+                  </select>
+                </div>
+
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Topic Research & Strategy Model
+                  </label>
+                  <select
+                    value={safeCommonAi.schedulerLayers?.topicResearch || "Claude 3.5 Sonnet"}
+                    onChange={(e) => updateSchedulerLayer("topicResearch", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
+                  >
+                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet</option>
+                    <option value="xAI Grok-2">xAI Grok-2 (Live Knowledge)</option>
+                    <option value="Gemini 2.0 Flash">Google Gemini 2.0 Flash</option>
+                    <option value="DeepSeek-V3">DeepSeek-V3</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Writing Persona & Tone */}
+              <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <label style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>Creativity Temperature: {safeCommonAi.temperature || 0.7}</label>
-                  <span style={{ fontSize: 12, color: C.slate }}>{(safeCommonAi.temperature || 0.7) > 0.7 ? "Creative & Engaging" : "Analytical & Focused"}</span>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>
+                    Creativity Temperature: {safeCommonAi.temperature || 0.7}
+                  </label>
+                  <span style={{ fontSize: 11.5, color: C.slate }}>
+                    {(safeCommonAi.temperature || 0.7) > 0.7 ? "Engaging & Creative" : "Factual & Direct"}
+                  </span>
                 </div>
                 <input
                   type="range"
-                  min="0"
-                  max="1"
+                  min="0.2"
+                  max="1.0"
                   step="0.05"
                   value={safeCommonAi.temperature || 0.7}
                   onChange={(e) => {
                     setCommonAi((p) => ({ ...p, temperature: parseFloat(e.target.value) }));
                     flash();
                   }}
-                  style={{ width: "100%", marginBottom: 14 }}
+                  style={{ width: "100%", marginBottom: 12 }}
                 />
 
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 5 }}>Brand Voice Persona Instructions</label>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                  Brand Voice Instructions
+                </label>
                 <textarea
                   value={safeCommonAi.personaPrompt || ""}
                   onChange={(e) => {
@@ -9713,134 +9321,172 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                     flash();
                   }}
                   rows={2}
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, boxSizing: "border-box" }}
+                  placeholder="e.g. Write crisp, actionable B2B posts. Avoid fluff or corporate jargon."
+                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5 }}
                 />
               </div>
+
+              {/* Directly add API key right inside this plugin tab! */}
+              {renderProviderKeyCard(schedulerProviderId, "Post Drafting & Copywriting")}
             </div>
           )}
 
-          {/* TAB 5: EMAIL OUTREACH DEDICATED CONFIG */}
+          {/* TAB 3: EMAIL OUTREACH */}
           {tab === "email" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ background: "#FEF3C7", border: `1px solid #FDE68A`, borderRadius: 8, padding: "12px 16px", fontFamily: FONT_BODY, fontSize: 12.5, color: "#92400E" }}>
-                Powers the <strong>Email Generation & Sending Plugin</strong>. Configures AI draft quality for cold approaches, instant reply generation, and post-to-email repurposing.
+              <div style={{ background: "#FFFBEB", border: `1px solid #FDE68A`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Mail size={18} color="#F59E0B" />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      Email Outreach AI Configuration
+                    </div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Powers cold approach sequences, inbound client reply drafts, and post repurposing.
+                    </div>
+                  </div>
+                </div>
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("emailoutreach"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Plugin <ChevronRight size={13} />
+                  </button>
+                )}
               </div>
 
-              {/* Email Layers Table */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
-                  <div>Email Workflow Stage</div>
-                  <div>Assigned Model</div>
-                  <div>Status</div>
+              {/* Models Selection */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Cold Outreach Drafting Model
+                  </label>
+                  <select
+                    value={safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet"}
+                    onChange={(e) => updateEmailLayer("copywriterLlm", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
+                  >
+                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet (High Deliverability & Conversion)</option>
+                    <option value="GPT-4o">OpenAI GPT-4o</option>
+                    <option value="DeepSeek-V3">DeepSeek-V3</option>
+                    <option value="Groq Llama 3.3 70B">Groq Llama 3.3 70B</option>
+                  </select>
                 </div>
-                {EMAIL_LAYERS.map((l) => {
-                  const val = safeCommonAi.emailLayers?.[l.key] || l.paid;
-                  return (
-                    <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <select
-                          value={val}
-                          onChange={(e) => updateEmailLayer(l.key, e.target.value)}
-                          style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}
-                        >
-                          {l.options.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ width: 7, height: 7, borderRadius: 999, background: C.green }} />
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Connected</span>
-                      </div>
-                    </div>
-                  );
-                })}
+
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Inbound Reply Drafter & Classifier
+                  </label>
+                  <select
+                    value={safeCommonAi.emailLayers?.replyClassifier || "DeepSeek-V3"}
+                    onChange={(e) => updateEmailLayer("replyClassifier", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
+                  >
+                    <option value="DeepSeek-V3">DeepSeek-V3 (Instant Classification)</option>
+                    <option value="GPT-4o-mini">OpenAI GPT-4o-mini</option>
+                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet</option>
+                  </select>
+                </div>
               </div>
+
+              {/* Directly add API key right inside this plugin tab! */}
+              {renderProviderKeyCard(emailProviderId, "Email Outreach & Drafting")}
             </div>
           )}
 
-          {/* TAB 6: VOICE AGENT STACK */}
+          {/* TAB 4: AI VOICE ASSISTANT */}
           {tab === "voice" && (
-            <div>
-              <div style={{ background: C.amberSoft, border: `1px solid #F0D9A8`, borderRadius: 8, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: "#8A5A05", marginBottom: 16 }}>
-                Shared with the <strong>AI Voice Assistant</strong> plugin. Mode changes here instantly take effect on calls and outreach.
-              </div>
-
-              {/* Mode Selector */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-                {[
-                  { id: "paid", title: "Paid / Managed", desc: "Best-in-class APIs. Fastest to run, zero infra." },
-                  { id: "opensource", title: "Open Source", desc: "Self-hosted models. Lower cost, full control." },
-                  { id: "custom", title: "Custom", desc: "Mix providers per layer." },
-                ].map((m) => {
-                  const active = safeCommonAi.mode === m.id;
-                  return (
-                    <div
-                      key={m.id}
-                      onClick={() => applyVoiceMode(m.id)}
-                      style={{
-                        border: `2px solid ${active ? C.ink : C.border}`,
-                        borderRadius: 10,
-                        padding: 14,
-                        cursor: "pointer",
-                        background: active ? C.ink : "#fff",
-                        transition: "all 0.15s",
-                      }}
-                    >
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: active ? "#fff" : C.textInk }}>{m.title}</div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: active ? "#B8BCC8" : C.slate, marginTop: 4 }}>{m.desc}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ background: "#EFF6FF", border: `1px solid #BFDBFE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <PhoneCall size={18} color={C.cobalt} />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      AI Voice Assistant Configuration
                     </div>
-                  );
-                })}
-              </div>
-
-              {/* Layers Table */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
-                  <div>Layer</div>
-                  <div>Provider / Model</div>
-                  <div>Status</div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Powers real-time phone conversations, speech recognition, realistic TTS, and meeting booking.
+                    </div>
+                  </div>
                 </div>
-                {VOICE_LAYERS.map((l) => {
-                  const val = safeCommonAi.voiceLayers?.[l.key] || l.paid;
-                  const oss = isOss(val);
-                  return (
-                    <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <select
-                          value={val}
-                          onChange={(e) => updateVoiceLayer(l.key, e.target.value)}
-                          style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}
-                        >
-                          {l.options.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: oss ? C.tealSoft : C.cobaltSoft, color: oss ? C.teal : C.cobaltDeep }}>
-                          {oss ? "SELF-HOSTED" : "PAID API"}
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ width: 7, height: 7, borderRadius: 999, background: C.green }} />
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Connected</span>
-                      </div>
-                    </div>
-                  );
-                })}
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("voice"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Plugin <ChevronRight size={13} />
+                  </button>
+                )}
               </div>
+
+              {/* Voice Stack Controls */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Dialogue LLM
+                  </label>
+                  <select
+                    value={safeCommonAi.voiceLayers?.llm || "xAI Grok-2"}
+                    onChange={(e) => updateVoiceLayer("llm", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 8px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
+                  >
+                    <option value="xAI Grok-2">xAI Grok-2 (Low Latency)</option>
+                    <option value="DeepSeek-V3">DeepSeek-V3</option>
+                    <option value="Groq Llama 3.3 70B">Groq Llama 3.3 (Fastest)</option>
+                    <option value="GPT-4o">OpenAI GPT-4o</option>
+                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet</option>
+                  </select>
+                </div>
+
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Voice Generation (TTS)
+                  </label>
+                  <select
+                    value={safeCommonAi.voiceLayers?.tts || "ElevenLabs Turbo"}
+                    onChange={(e) => updateVoiceLayer("tts", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 8px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
+                  >
+                    <option value="ElevenLabs Turbo">ElevenLabs Turbo (Most Human)</option>
+                    <option value="Cartesia Sonic">Cartesia Sonic (Ultra-Fast 100ms)</option>
+                    <option value="Kokoro (self-hosted)">Kokoro (Self-Hosted OSS)</option>
+                  </select>
+                </div>
+
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                    Speech Recognition (STT)
+                  </label>
+                  <select
+                    value={safeCommonAi.voiceLayers?.stt || "Deepgram Nova-3"}
+                    onChange={(e) => updateVoiceLayer("stt", e.target.value)}
+                    style={{ width: "100%", height: 38, padding: "0 8px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
+                  >
+                    <option value="Deepgram Nova-3">Deepgram Nova-3 (Real-time)</option>
+                    <option value="Faster-Whisper (self-hosted)">Faster-Whisper (OSS)</option>
+                    <option value="AssemblyAI">AssemblyAI</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Directly add API key right inside this voice tab! */}
+              {renderProviderKeyCard(voiceLlmProviderId, "Voice Dialogue Reasoning")}
             </div>
           )}
 
-          {/* TAB 7: SUBSCRIPTION & QUOTAS */}
+          {/* TAB 5: SUBSCRIPTION & USAGE */}
           {tab === "subscription" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 18 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>{safeCommonAi.subscription?.tenantName || "AIV Enterprise Platform"}</div>
-                    <div style={{ fontSize: 12.5, color: C.slate }}>{safeCommonAi.subscription?.planTier || "Growth Pro Tenant"}</div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
+                      {safeCommonAi.subscription?.tenantName || "AIV Enterprise Platform"}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: C.slate }}>
+                      {safeCommonAi.subscription?.planTier || "Growth Pro Tenant"}
+                    </div>
                   </div>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: C.green, background: C.greenSoft, padding: "4px 10px", borderRadius: 6 }}>
                     Master License Active
@@ -9850,16 +9496,15 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600, color: C.ink, marginBottom: 5 }}>
                     <span>Monthly Token Consumption</span>
-                    <span>{((safeCommonAi.subscription?.tokensUsed || 0) / 1000000).toFixed(2)}M / {((safeCommonAi.subscription?.monthlyTokenQuota || 1) / 1000000).toFixed(1)}M Tokens ({tokenPercent}%)</span>
+                    <span>{((safeCommonAi.subscription?.tokensUsed || 0) / 1000000).toFixed(2)}M / {((safeCommonAi.subscription?.monthlyTokenQuota || 1) / 1000000).toFixed(1)}M Tokens</span>
                   </div>
                   <div style={{ height: 11, background: C.paperSoft, borderRadius: 6, overflow: "hidden", display: "flex" }}>
-                    <div style={{ width: `${tokenPercent}%`, background: `linear-gradient(90deg, ${C.cobalt}, ${C.teal})` }} />
+                    <div style={{ width: `${Math.round(((safeCommonAi.subscription?.tokensUsed || 0) / (safeCommonAi.subscription?.monthlyTokenQuota || 1)) * 100)}%`, background: `linear-gradient(90deg, ${C.cobalt}, ${C.teal})` }} />
                   </div>
                 </div>
 
-                {/* 4-Plugin Usage Breakdown */}
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 10 }}>
-                  Usage Distribution Across 4 Plugins
+                  Usage Distribution Across Workspace Plugins
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
                   {(safeCommonAi.subscription?.pluginBreakdown || []).map((pb) => (
@@ -9880,17 +9525,17 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
         </div>
 
-        {/* Footer with dirty indicator & Close */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER }}>
+        {/* Footer */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 26px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: dirty ? C.teal : C.slate }}>
             <span style={{ width: 8, height: 8, borderRadius: 999, background: dirty ? C.teal : C.green }} />
-            <span>{dirty ? "Saved & synchronized across all 4 plugins" : "All plugin models in sync"}</span>
+            <span>{dirty ? "Saved & synchronized across plugins" : "All plugin models in sync"}</span>
           </div>
 
           <button
             onClick={onClose}
             style={{
-              padding: "9px 22px",
+              padding: "9px 24px",
               borderRadius: 8,
               background: C.ink,
               color: "#fff",
@@ -9906,110 +9551,9 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         </div>
 
       </div>
-
-      {/* Add Custom Provider Modal */}
-      {showAddProviderModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(10,12,18,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000, padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 12, width: 480, maxWidth: "95vw", padding: 24, boxShadow: "0 20px 40px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>Connect Custom AI Provider</div>
-              <button onClick={() => { setShowAddProviderModal(false); setAddProviderError(""); }} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate }}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddCustomProvider} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Provider Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Together AI, Fireworks, vLLM"
-                  value={newProvider.name}
-                  onChange={(e) => setNewProvider((p) => ({ ...p, name: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5 }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Provider Category</label>
-                <select
-                  value={newProvider.type}
-                  onChange={(e) => setNewProvider((p) => ({ ...p, type: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
-                >
-                  <option value="llm">LLM (Language & Reasoning)</option>
-                  <option value="stt">STT (Speech-to-Text)</option>
-                  <option value="tts">TTS (Text-to-Speech)</option>
-                  <option value="voice">Voice Orchestration</option>
-                  <option value="telephony">Telephony Trunk</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>API Base URL (OpenAI Compatible)</label>
-                <input
-                  type="text"
-                  placeholder="https://api.yourprovider.com/v1"
-                  value={newProvider.baseUrl}
-                  onChange={(e) => setNewProvider((p) => ({ ...p, baseUrl: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_MONO }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>API Key / Auth Token (Optional if Local)</label>
-                <input
-                  type="password"
-                  placeholder="sk-••••••••••••••••"
-                  value={newProvider.apiKey}
-                  onChange={(e) => setNewProvider((p) => ({ ...p, apiKey: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_MONO }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Model IDs (comma separated)</label>
-                <input
-                  type="text"
-                  placeholder="model-1, model-2"
-                  value={newProvider.modelsText}
-                  onChange={(e) => setNewProvider((p) => ({ ...p, modelsText: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5 }}
-                />
-              </div>
-
-              {addProviderError && (
-                <div style={{ padding: "8px 12px", borderRadius: 6, background: "#FFEBEE", color: "#C62828", fontSize: 12, border: "1px solid #FFCDD2" }}>
-                  {addProviderError}
-                </div>
-              )}
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
-                <button
-                  type="button"
-                  onClick={() => { setShowAddProviderModal(false); setAddProviderError(""); }}
-                  style={{ padding: "9px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={addProviderTesting}
-                  style={{ padding: "9px 18px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: addProviderTesting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                >
-                  {addProviderTesting && <RefreshCw size={13} className="animate-spin" />}
-                  <span>{addProviderTesting ? "Validating Provider..." : "Test & Connect Provider"}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }
-
 /* ---------------------------------- Dedicated Post Scheduler AI Configuration View ---------------------------------- */
 
 function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, company }) {
@@ -11959,12 +11503,12 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
           display: "flex",
           alignItems: "center",
           gap: 10,
-          background: open ? C.paperSoft : "#fff",
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          padding: "5px 12px 5px 6px",
+          background: open ? "#fff" : "#fff",
+          border: `1px solid ${open ? C.cobalt : C.border}`,
+          borderRadius: 999,
+          padding: "4px 14px 4px 5px",
           cursor: "pointer",
-          boxShadow: "0 2px 6px rgba(18,20,28,0.04)",
+          boxShadow: open ? "0 4px 14px rgba(52,87,213,0.14)" : "0 2px 8px rgba(18,20,28,0.04)",
           transition: "all 0.15s ease",
         }}
       >
@@ -11972,7 +11516,7 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
           width: 32,
           height: 32,
           borderRadius: 999,
-          background: isAdmin ? `linear-gradient(135deg, ${C.cobalt}, ${C.cobaltDeep})` : C.slate,
+          background: isAdmin ? `linear-gradient(135deg, ${C.cobalt}, #6366F1)` : C.slate,
           color: "#fff",
           display: "flex",
           alignItems: "center",
@@ -11980,23 +11524,24 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
           fontFamily: FONT_BODY,
           fontSize: 12,
           fontWeight: 700,
+          boxShadow: "0 2px 6px rgba(52,87,213,0.2)",
         }}>
           {initialsFromName(operator?.name)}
         </div>
         <div style={{ textAlign: "left" }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk, lineHeight: 1.2 }}>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.textInk, lineHeight: 1.2 }}>
             {operator?.name}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 1 }}>
             <span style={{
-              fontSize: 10,
-              fontWeight: 700,
+              fontSize: 9.5,
+              fontWeight: 800,
               textTransform: "uppercase",
-              letterSpacing: "0.04em",
-              padding: "1px 5px",
+              letterSpacing: "0.06em",
+              padding: "1px 6px",
               borderRadius: 4,
-              background: isAdmin ? C.cobaltSoft : C.paperSoft,
-              color: isAdmin ? C.cobaltDeep : C.slate,
+              background: isAdmin ? "#EEF2FF" : C.paperSoft,
+              color: isAdmin ? "#4338CA" : C.slate,
             }}>
               {operator?.role}
             </span>
@@ -12042,7 +11587,7 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  padding: "9px 12px",
+                  padding: "10px 12px",
                   borderRadius: 10,
                   border: "none",
                   background: "transparent",
@@ -12053,22 +11598,47 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                 onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Settings2 size={15} color={C.cobalt} />
+                  <div style={{ width: 28, height: 28, borderRadius: 7, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center", color: C.cobalt }}>
+                    <Settings2 size={15} />
+                  </div>
                   <div>
                     <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>AI Configuration</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Providers, models & routing</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Plugin models & API keys</div>
                   </div>
                 </div>
-                <span style={{
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  padding: "2px 7px",
-                  borderRadius: 5,
-                  background: hasConfiguredLlm ? C.tealSoft : C.paperSoft,
-                  color: hasConfiguredLlm ? C.teal : C.slate,
-                }}>
-                  {activeModelDisplay}
-                </span>
+                {hasConfiguredLlm ? (
+                  <span style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    background: "#ECFDF5",
+                    color: "#059669",
+                    border: "1px solid #A7F3D0",
+                  }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#059669" }} />
+                    Active
+                  </span>
+                ) : (
+                  <span style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    background: "#FEF3C7",
+                    color: "#D97706",
+                    border: "1px solid #FDE68A",
+                  }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#D97706" }} />
+                    Setup AI
+                  </span>
+                )}
               </button>
 
               {/* Team & Users */}
@@ -12185,37 +11755,15 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 32, color: C.ink, letterSpacing: "-0.04em", marginBottom: 8, textAlign: "center" }}>
           Choose a plugin
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 15, color: C.slate, marginBottom: 36, textAlign: "center", maxWidth: 520 }}>
-          Same platform shell, shared AI configuration. Open a plugin to work.
-        </div>
-        {/* Chronological Funnel Pipeline Ribbon */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 22px", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 999, marginBottom: 32, boxShadow: "0 2px 10px rgba(0,0,0,0.03)", flexWrap: "wrap", justifyContent: "center" }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#8B5CF6", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 20, height: 20, borderRadius: 999, background: "#8B5CF6", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>1</span>
-            Lead Generation
-          </span>
-          <ChevronRight size={15} color={C.slateLight} />
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.teal, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 20, height: 20, borderRadius: 999, background: C.teal, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>2</span>
-            Post Scheduler
-          </span>
-          <ChevronRight size={15} color={C.slateLight} />
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#F59E0B", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 20, height: 20, borderRadius: 999, background: "#F59E0B", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>3</span>
-            Email Outreach
-          </span>
-          <ChevronRight size={15} color={C.slateLight} />
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.cobalt, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 20, height: 20, borderRadius: 999, background: C.cobalt, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>4</span>
-            AI Voice Assistant
-          </span>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 15, color: C.slate, marginBottom: 38, textAlign: "center", maxWidth: 640, lineHeight: 1.5 }}>
+          The unified AI growth suite for your business. Scout verified accounts, schedule branded content, run outbound email sequences, and conduct live voice discovery calls.
         </div>
 
-        {/* 4 Plugins in exact chronological business flow */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 310px))", gap: 20, justifyContent: "center", width: "100%", maxWidth: 1320 }}>
+        {/* Workspace Plugins with generous spacing and clean titles */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 310px))", gap: 32, justifyContent: "center", width: "100%", maxWidth: 1360 }}>
           <PluginCard
             icon={Search}
-            title="1. Lead Generation"
+            title="Lead Generation"
             blurb="Autonomous business lead scout: discover target accounts, extract verified decision-makers & numbers, and prepare enriched intelligence dossiers."
             accent="#8B5CF6"
             ready={true}
@@ -12223,23 +11771,23 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
           />
           <PluginCard
             icon={CalendarDays}
-            title="2. Post Scheduler"
-            blurb="Social content planner & generator: multi-channel drafting from knowledge, editorial calendar scheduling, and AI visual creative studio."
+            title="Post Scheduler"
+            blurb="Social content planner & generator: multi-channel drafting from company knowledge, editorial calendar scheduling, and AI visual creative studio."
             accent={C.teal}
             ready={true}
             onClick={() => onPick("scheduler")}
           />
           <PluginCard
             icon={Mail}
-            title="3. Email Outreach"
-            blurb="AI email drafter & campaign sender: cold approach sequences, inbound client reply drafter, and post-to-email content repurposing."
+            title="Email Outreach"
+            blurb="AI email drafter & campaign sender: cold approach sequences, inbound client reply drafter, and 1-click social post-to-email repurposing."
             accent="#F59E0B"
             ready={true}
             onClick={() => onPick("emailoutreach")}
           />
           <PluginCard
             icon={PhoneCall}
-            title="4. AI Voice Assistant"
+            title="AI Voice Assistant"
             blurb="Live multi-line outbound voice agent: import verified prospect contacts, initiate realistic telephone calls, book meetings, and supervise."
             accent={C.cobalt}
             ready={true}
@@ -15924,6 +15472,7 @@ export default function App() {
   const [showCommonAiModal, setShowCommonAiModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [commonAiTab, setCommonAiTab] = useState("leadgen");
 
   // Sync commonAi changes to localStorage
   useEffect(() => {
@@ -16002,7 +15551,7 @@ export default function App() {
           onPick={setPlugin}
           onLogout={handleLogout}
           commonAi={commonAi}
-          onOpenCommonAi={() => setShowCommonAiModal(true)}
+          onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setShowCommonAiModal(true); }}
           onOpenTeamUsers={() => setShowTeamModal(true)}
           onOpenProfileSettings={() => setShowProfileModal(true)}
         />
@@ -16015,7 +15564,7 @@ export default function App() {
           onLogout={handleLogout}
           profile={profile}
           commonAi={commonAi}
-          onOpenCommonAi={() => setShowCommonAiModal(true)}
+          onOpenCommonAi={() => { setCommonAiTab("leadgen"); setShowCommonAiModal(true); }}
           onNavigateToPlugin={(pId) => setPlugin(pId)}
           onPushToEmail={(lead) => {
             setPlugin("emailoutreach");
@@ -16039,7 +15588,7 @@ export default function App() {
           setServices={setServices}
           commonAi={commonAi}
           setCommonAi={setCommonAi}
-          onOpenCommonAi={() => setShowCommonAiModal(true)}
+          onOpenCommonAi={() => { setCommonAiTab("scheduler"); setShowCommonAiModal(true); }}
         />
       )}
 
@@ -16050,7 +15599,7 @@ export default function App() {
           onLogout={handleLogout}
           profile={profile}
           commonAi={commonAi}
-          onOpenCommonAi={() => setShowCommonAiModal(true)}
+          onOpenCommonAi={() => { setCommonAiTab("email"); setShowCommonAiModal(true); }}
           onNavigateToPlugin={(pId) => setPlugin(pId)}
           onEscalateToVoice={(thread) => {
             setPlugin("voice");
@@ -16073,7 +15622,7 @@ export default function App() {
           setFaq={setFaq}
           commonAi={commonAi}
           setCommonAi={setCommonAi}
-          onOpenCommonAi={() => setShowCommonAiModal(true)}
+          onOpenCommonAi={() => { setCommonAiTab("voice"); setShowCommonAiModal(true); }}
         />
       )}
 
@@ -16082,6 +15631,7 @@ export default function App() {
         onClose={() => setShowCommonAiModal(false)}
         commonAi={commonAi}
         setCommonAi={setCommonAi}
+        initialTab={commonAiTab}
         onNavigateToPlugin={(pId) => {
           setShowCommonAiModal(false);
           setPlugin(pId);
