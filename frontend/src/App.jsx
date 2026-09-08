@@ -15564,14 +15564,6 @@ export default function App() {
           onLogout={handleLogout}
           profile={profile}
           commonAi={commonAi}
-          onOpenCommonAi={() => { setCommonAiTab("leadgen"); setShowCommonAiModal(true); }}
-          onNavigateToPlugin={(pId) => setPlugin(pId)}
-          onPushToEmail={(lead) => {
-            setPlugin("emailoutreach");
-          }}
-          onPushToVoice={(lead) => {
-            setPlugin("voice");
-          }}
         />
       )}
 
@@ -15599,11 +15591,6 @@ export default function App() {
           onLogout={handleLogout}
           profile={profile}
           commonAi={commonAi}
-          onOpenCommonAi={() => { setCommonAiTab("email"); setShowCommonAiModal(true); }}
-          onNavigateToPlugin={(pId) => setPlugin(pId)}
-          onEscalateToVoice={(thread) => {
-            setPlugin("voice");
-          }}
         />
       )}
 
