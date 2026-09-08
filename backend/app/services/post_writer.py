@@ -94,20 +94,18 @@ async def call_llm_chat(
     if not api_key:
         return None
 
-    # Determine endpoint & model
+    # Determine endpoint & model (user-provided model has highest priority)
     prov = (provider or "deepseek").lower()
-    if prov == "deepseek" or "deepseek" in (model or "").lower():
-        endpoint = "https://api.deepseek.com/chat/completions"
-        target_model = model or "deepseek-chat"
+    target_model = (model or "").strip()
+    if not target_model:
+        target_model = "gpt-4o-mini" if prov == "openai" else "deepseek-chat"
+
+    if base_url:
+        endpoint = base_url.rstrip("/") + "/chat/completions"
     elif prov == "openai":
         endpoint = "https://api.openai.com/v1/chat/completions"
-        target_model = model or "gpt-4o-mini"
-    elif base_url:
-        endpoint = base_url.rstrip("/") + "/chat/completions"
-        target_model = model or "deepseek-chat"
     else:
         endpoint = "https://api.deepseek.com/chat/completions"
-        target_model = model or "deepseek-chat"
 
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",

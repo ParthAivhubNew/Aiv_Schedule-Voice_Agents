@@ -1696,7 +1696,7 @@ function TasksView({
                   Batch Contact Calling & AI Lead Outreach
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4, maxWidth: 580, lineHeight: 1.45 }}>
-                  Discover targeted decision-makers with AI live web intelligence, import customer lists (.xlsx, .csv), and supervise parallel voice calling lines.
+                  Scout target companies and verified decision-makers with AI, import contact lists (.xlsx, .csv), and supervise parallel voice calling lines.
                 </div>
               </div>
             </div>
@@ -1725,7 +1725,7 @@ function TasksView({
                   whiteSpace: "nowrap",
                 }}
               >
-                <Sparkles size={16} /> New Outreach (AI Copilot)
+                <Sparkles size={16} /> New Outreach (AI Lead Scout)
               </button>
               <button
                 onClick={(e) => {
@@ -7756,11 +7756,11 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
 
   const parsed = prompt.length > 8;
 
-  // AI Lead Copilot Chat state
+  // AI Lead Scout Chat state
   const [copilotMessages, setCopilotMessages] = useState([
     {
       sender: "ai",
-      text: "👋 Hi! I'm your AI Lead Discovery Copilot. Who would you like to reach? Tell me your company offer, target industry, region, or specific companies (e.g. 'Find 5 logistics dispatchers in Texas to pitch our voice AI'). I'll scour the live web for verified switchboard numbers, decision-makers, and personalized hooks."
+      text: "👋 Hi! I'm your AI Lead Scout. Who would you like to reach? Tell me your company offer, target industry, region, or specific companies (e.g. 'Find 5 logistics dispatchers in Texas to pitch our voice AI'). I'll scout the web for verified switchboard numbers, decision-makers, and personalized hooks."
     }
   ]);
   const [chatInput, setChatInput] = useState("");
@@ -7963,9 +7963,9 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: 620, maxHeight: "88vh", overflowY: "auto", padding: 26, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+      <div style={{ background: "#fff", borderRadius: 16, width: tab === "discover" ? 720 : 640, maxHeight: "88vh", overflowY: "auto", padding: 26, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk }}>New outreach</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk }}>New Outreach</div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
             <X size={18} color={C.slate} />
           </button>
@@ -7974,31 +7974,22 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
         <div style={{ display: "flex", gap: 6, marginBottom: 18, background: C.paperSoft, padding: 4, borderRadius: 9 }}>
           <button
             onClick={() => setTab("discover")}
-            style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: "none", cursor: "pointer", background: tab === "discover" ? "#fff" : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: tab === "discover" ? C.textInk : C.slate, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            style={{ flex: 1, padding: "9px 12px", borderRadius: 7, border: "none", cursor: "pointer", background: tab === "discover" ? "#fff" : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: tab === "discover" ? C.textInk : C.slate, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: tab === "discover" ? "0 1px 3px rgba(0,0,0,0.06)" : "none" }}
           >
-            <Sparkles size={13} /> Describe & discover
+            <Sparkles size={14} /> AI Lead Scout
           </button>
           <button
             onClick={() => setTab("manual")}
-            style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: "none", cursor: "pointer", background: tab === "manual" ? "#fff" : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: tab === "manual" ? C.textInk : C.slate, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            style={{ flex: 1, padding: "9px 12px", borderRadius: 7, border: "none", cursor: "pointer", background: tab === "manual" ? "#fff" : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: tab === "manual" ? C.textInk : C.slate, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: tab === "manual" ? "0 1px 3px rgba(0,0,0,0.06)" : "none" }}
           >
-            <Users size={13} /> Provide contact list
+            <Users size={14} /> Provide Contact List / Setup
           </button>
         </div>
 
         {tab === "discover" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>
-                Chat with AI to scout target companies, extract decision-makers, and find phone numbers:
-              </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#2563EB", background: "#EFF6FF", padding: "2px 8px", borderRadius: 12 }}>
-                Live Web Intelligence
-              </span>
-            </div>
-
-            {/* Chat Messages Container */}
-            <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", minHeight: 220, maxHeight: 340, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* Standalone Chat Messages Container */}
+            <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px", height: 480, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
               {copilotMessages.map((m, idx) => (
                 <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: m.sender === "user" ? "flex-end" : "flex-start" }}>
                   <div style={{
@@ -8028,11 +8019,11 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
                           onClick={() => handleApplyChatLeads(m.leads)}
                           style={{ background: "#2563EB", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}
                         >
-                          <CheckCircle2 size={13} /> Use All {m.leads.length} in Campaign
+                          <CheckCircle2 size={13} /> Use in Campaign ({m.leads.length})
                         </button>
                       </div>
 
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 190, overflowY: "auto" }}>
                         {m.leads.map((l, i) => (
                           <div key={i} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                             <div style={{ minWidth: 0 }}>
@@ -8049,7 +8040,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
                               onClick={() => handleApplyChatLeads([l])}
                               style={{ background: "#F1F5F9", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", color: C.textInk, whiteSpace: "nowrap" }}
                             >
-                              + Add
+                              + Use
                             </button>
                           </div>
                         ))}
@@ -8060,7 +8051,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
               ))}
               {chatSearching && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.slate, fontSize: 12.5, padding: "6px 10px" }}>
-                  <RefreshCw size={14} className="animate-spin" color="#2563EB" /> Scouring live web, corporate registries & phone directories...
+                  <RefreshCw size={14} className="animate-spin" color="#2563EB" /> Searching and verifying contacts...
                 </div>
               )}
               <div ref={chatBottomRef} />
@@ -8260,8 +8251,6 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
             )}
             </>
             )}
-          </>
-        )}
 
         <div style={{ marginTop: 18, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -9699,16 +9688,16 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
   const updateSetting = (key, val) => {
     setAiSettings((prev) => {
       const next = { ...prev, [key]: val };
-      // auto-update default model / baseUrl when provider changes
+      // update default baseUrl when provider changes, keep model unless empty
       if (key === "provider") {
         if (val === "deepseek") {
-          next.model = "deepseek-chat";
+          if (!prev.model) next.model = "deepseek-chat";
           next.baseUrl = "https://api.deepseek.com";
         } else if (val === "openai") {
-          next.model = "gpt-4o-mini";
+          if (!prev.model) next.model = "gpt-4o-mini";
           next.baseUrl = "https://api.openai.com/v1";
         } else if (val === "custom") {
-          next.model = "deepseek-chat";
+          if (!prev.model) next.model = "deepseek-chat";
           next.baseUrl = "http://localhost:11434/v1";
         }
       }
@@ -9842,70 +9831,79 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                 </select>
               </div>
 
-              {/* Model Selection */}
+              {/* User-Provided Model Name Input */}
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
-                  Model Name
-                </label>
-                {aiSettings.provider === "deepseek" ? (
-                  <select
-                    value={aiSettings.model}
-                    onChange={(e) => updateSetting("model", e.target.value)}
-                    style={{
-                      width: "100%",
-                      height: 42,
-                      padding: "0 12px",
-                      borderRadius: 9,
-                      border: `1px solid ${C.border}`,
-                      background: "#fff",
-                      fontFamily: FONT_BODY,
-                      fontSize: 13,
-                      color: C.ink,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="deepseek-chat">deepseek-chat (DeepSeek-V3 — Fast & Creative)</option>
-                    <option value="deepseek-reasoner">deepseek-reasoner (DeepSeek-R1 — Deep Thinking)</option>
-                  </select>
-                ) : aiSettings.provider === "openai" ? (
-                  <select
-                    value={aiSettings.model}
-                    onChange={(e) => updateSetting("model", e.target.value)}
-                    style={{
-                      width: "100%",
-                      height: 42,
-                      padding: "0 12px",
-                      borderRadius: 9,
-                      border: `1px solid ${C.border}`,
-                      background: "#fff",
-                      fontFamily: FONT_BODY,
-                      fontSize: 13,
-                      color: C.ink,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="gpt-4o-mini">gpt-4o-mini (Fast & Low Cost)</option>
-                    <option value="gpt-4o">gpt-4o (Flagship Model)</option>
-                  </select>
-                ) : (
-                  <input
-                    value={aiSettings.model}
-                    onChange={(e) => updateSetting("model", e.target.value)}
-                    placeholder="e.g. llama3.2, mistral"
-                    style={{
-                      width: "100%",
-                      height: 42,
-                      padding: "0 12px",
-                      borderRadius: 9,
-                      border: `1px solid ${C.border}`,
-                      background: "#fff",
-                      fontFamily: FONT_BODY,
-                      fontSize: 13,
-                      color: C.ink,
-                      boxSizing: "border-box",
-                    }}
-                  />
-                )}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
+                    Model Name (User Provided)
+                  </label>
+                  <span style={{ fontSize: 11, color: C.slateLight }}>
+                    Type any model identifier
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  list="scheduler-model-suggestions"
+                  value={aiSettings.model}
+                  onChange={(e) => updateSetting("model", e.target.value)}
+                  placeholder={
+                    aiSettings.provider === "deepseek"
+                      ? "e.g. deepseek-chat, deepseek-reasoner"
+                      : aiSettings.provider === "openai"
+                      ? "e.g. gpt-4o, gpt-4o-mini"
+                      : "e.g. mistral, llama-3.3-70b, claude-3-5-sonnet"
+                  }
+                  style={{
+                    width: "100%",
+                    height: 42,
+                    padding: "0 12px",
+                    borderRadius: 9,
+                    border: `1px solid ${C.border}`,
+                    background: "#fff",
+                    fontFamily: FONT_MONO,
+                    fontSize: 13,
+                    color: C.ink,
+                    boxSizing: "border-box",
+                  }}
+                />
+                <datalist id="scheduler-model-suggestions">
+                  <option value="deepseek-chat" />
+                  <option value="deepseek-reasoner" />
+                  <option value="gpt-4o" />
+                  <option value="gpt-4o-mini" />
+                  <option value="o1" />
+                  <option value="o3-mini" />
+                  <option value="claude-3-5-sonnet-20241022" />
+                  <option value="llama-3.3-70b-versatile" />
+                  <option value="qwen-2.5-72b-instruct" />
+                  <option value="mistral-large-latest" />
+                </datalist>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                  {(aiSettings.provider === "deepseek"
+                    ? ["deepseek-chat", "deepseek-reasoner"]
+                    : aiSettings.provider === "openai"
+                    ? ["gpt-4o", "gpt-4o-mini", "o3-mini"]
+                    : ["deepseek-chat", "gpt-4o", "llama-3.3-70b"]
+                  ).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => updateSetting("model", m)}
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 6,
+                        border: `1px solid ${aiSettings.model === m ? C.teal : C.borderLight}`,
+                        background: aiSettings.model === m ? C.tealSoft : HUB_PAPER,
+                        color: aiSettings.model === m ? C.teal : C.slate,
+                        fontSize: 11,
+                        fontFamily: FONT_MONO,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
