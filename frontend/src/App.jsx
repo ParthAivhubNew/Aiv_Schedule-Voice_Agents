@@ -129,31 +129,35 @@ const INITIAL_BUILTIN_PROVIDERS = [
 ];
 
 const VOICE_LAYERS = [
-  { key: "voice", label: "Voice Orchestration", paid: "Vapi", oss: "LiveKit (self-hosted)", options: ["Vapi", "xAI Voice Agent", "Retell", "LiveKit (self-hosted)", "Bland AI"] },
-  { key: "llm", label: "LLM · Conversation / Chat", paid: "xAI Grok-2", oss: "DeepSeek V4 Flash", options: ["xAI Grok-2", "xAI Grok-4.6", "Groq Llama 3.3 70B", "Claude Sonnet 4.5", "Claude 3.7 Sonnet", "GPT-4o", "GPT-4o mini", "DeepSeek V4 Flash", "Gemini 2.5 Flash", "Ollama Llama 3.2 (Local)"] },
-  { key: "stt", label: "Speech-to-Text", paid: "Deepgram Nova-3", oss: "Faster-Whisper (self-hosted)", options: ["Deepgram Nova-3", "Faster-Whisper (self-hosted)", "OpenAI Whisper", "AssemblyAI"] },
-  { key: "tts", label: "Text-to-Speech", paid: "ElevenLabs Turbo", oss: "Kokoro (self-hosted)", options: ["ElevenLabs Turbo", "Cartesia Sonic", "Kokoro (self-hosted)", "PlayHT 2.0", "Amazon Polly"] },
-  { key: "telephony", label: "Telephony", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "xAI Voice Number", "Telnyx", "Plivo", "Vonage"] },
-  { key: "calendar", label: "Calendar", paid: "Cal.com (Cloud)", oss: "Cal.com (Self-hosted)", options: ["Cal.com (Cloud)", "Cal.com (Self-hosted)", "Google Calendar", "Calendly"] },
+  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI Grok-2", oss: "DeepSeek V4 Flash", options: ["xAI Grok-2", "xAI Grok-4.6", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek V4 Flash", "Gemini 2.0 Flash"] },
+  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "ElevenLabs Turbo", oss: "Kokoro (self-hosted)", options: ["ElevenLabs Turbo", "Cartesia Sonic", "Kokoro (self-hosted)", "PlayHT 2.0", "Amazon Polly"] },
+  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "Deepgram Nova-3", oss: "Faster-Whisper (self-hosted)", options: ["Deepgram Nova-3", "Faster-Whisper (self-hosted)", "OpenAI Whisper", "AssemblyAI"] },
+  { key: "voice", label: "Voice Orchestration & Interruption Engine", desc: "Manages audio buffers, turn-taking arbitration, and silence detection", paid: "Vapi Voice AI", oss: "LiveKit (self-hosted)", options: ["Vapi Voice AI", "xAI Voice Agent", "Retell AI", "LiveKit (self-hosted)", "Bland AI"] },
+  { key: "telephony", label: "Telephony Carrier & SIP Trunk", desc: "PSTN inbound numbers, caller ID preservation, and carrier routing", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "xAI Voice Number", "Telnyx", "Plivo", "Vonage"] },
 ];
 
 const LEADGEN_LAYERS = [
-  { key: "researchLlm", label: "Web Search & Account Discovery LLM", paid: "DeepSeek-V3", oss: "Groq Llama 3.3 70B", options: ["DeepSeek-V3", "GPT-4o", "Claude 3.5 Sonnet", "Gemini 2.0 Flash", "Groq Llama 3.3 70B"] },
-  { key: "extractorLlm", label: "Prospect Intelligence & Contact Extractor", paid: "Groq Llama 3.3 70B", oss: "Ollama Llama 3.2 (Local)", options: ["Groq Llama 3.3 70B", "GPT-4o-mini", "DeepSeek-V3", "Claude 3.5 Sonnet", "Ollama Llama 3.2 (Local)"] },
-  { key: "enrichmentEngine", label: "Live Web & Domain Crawler", paid: "DuckDuckGo Live + Crawler", oss: "Direct Domain Scraping", options: ["DuckDuckGo Live + Crawler", "Direct Domain Scraping", "Google Custom Search"] },
+  { key: "researchLlm", label: "Web Search & Account Discovery LLM", desc: "Discovers target accounts matching ICP criteria across sectors", paid: "DeepSeek-V3", oss: "Groq Llama 3.3 70B", options: ["DeepSeek-V3", "Claude 3.5 Sonnet", "GPT-4o", "Gemini 2.0 Flash", "Groq Llama 3.3 70B"] },
+  { key: "extractorLlm", label: "Decision-Maker & Contact Extractor", desc: "Extracts verified names, job titles, and contact signals", paid: "Groq Llama 3.3 70B", oss: "Ollama Llama 3.2 (Local)", options: ["Groq Llama 3.3 70B", "GPT-4o-mini", "DeepSeek-V3", "Claude 3.5 Sonnet", "Ollama Llama 3.2 (Local)"] },
+  { key: "enrichmentEngine", label: "Live Web & Domain Crawler", desc: "Performs real-time scraping of company websites and news", paid: "DuckDuckGo Live + Crawler", oss: "Direct Domain Scraping", options: ["DuckDuckGo Live + Crawler", "Direct Domain Scraping", "Google Custom Search"] },
+  { key: "dossierSynth", label: "Pain-Point & Strategic Hook Synthesizer", desc: "Synthesizes intelligence into conversation openers and cold hooks", paid: "Claude 3.5 Sonnet", oss: "DeepSeek-V3", options: ["Claude 3.5 Sonnet", "DeepSeek-V3", "GPT-4o", "Groq Llama 3.3 70B"] },
+  { key: "intentScoring", label: "Autonomous ICP & Intent Fit Scorer", desc: "Calculates account priority and purchase readiness scores", paid: "DeepSeek-V3", oss: "Groq Llama 3.3 70B", options: ["DeepSeek-V3", "GPT-4o-mini", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet"] },
 ];
 
 const SCHEDULER_LAYERS = [
-  { key: "postWriter", label: "Post Drafting & Copywriting", paid: "xAI Grok-2", oss: "Ollama Llama 3.2 (Local)", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "GPT-4o", "Groq Llama 3.3 70B", "Ollama Llama 3.2 (Local)"] },
-  { key: "topicResearch", label: "Topic Research & Trend Discovery", paid: "xAI Grok-2", oss: "Ollama Mistral (Local)", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o (Web Knowledge)", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Mistral (Local)"] },
-  { key: "chatPlanner", label: "Plan Chat Assistant", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
-  { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", paid: "OpenAI text-embedding-3", oss: "Ollama nomic-embed (Local)", options: ["OpenAI text-embedding-3", "Gemini Embedding", "Ollama nomic-embed (Local)"] },
+  { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "Claude 3.5 Sonnet", oss: "Ollama Llama 3.2 (Local)", options: ["Claude 3.5 Sonnet", "xAI Grok-2", "GPT-4o", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Llama 3.2 (Local)"] },
+  { key: "topicResearch", label: "Topic Research & Trend Discovery", desc: "Monitors industry trends to formulate timely editorial hooks", paid: "xAI Grok-2", oss: "Gemini 2.0 Flash", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o", "Claude 3.5 Sonnet", "DeepSeek-V3"] },
+  { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "DALL-E 3", oss: "Flux Schnell", options: ["DALL-E 3", "Flux Schnell", "Midjourney API", "Stability SDXL"] },
+  { key: "chatPlanner", label: "Plan Chat Editorial Assistant", desc: "Refines campaign concepts and schedules interactively", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
+  { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Indexes brand voice guidelines, product guides, and playbooks", paid: "OpenAI text-embedding-3", oss: "Ollama nomic-embed (Local)", options: ["OpenAI text-embedding-3", "Gemini Embedding", "Ollama nomic-embed (Local)"] },
 ];
 
 const EMAIL_LAYERS = [
-  { key: "copywriterLlm", label: "Cold Approach & Outreach Copywriting", paid: "Claude 3.5 Sonnet", oss: "Groq Llama 3.3 70B", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B", "Gemini 2.0 Flash"] },
-  { key: "replyClassifier", label: "Inbound Reply Drafter & Classifier", paid: "DeepSeek-V3", oss: "Ollama Mistral (Local)", options: ["DeepSeek-V3", "GPT-4o-mini", "Claude 3.5 Sonnet", "Groq Llama 3.3 70B", "Ollama Mistral (Local)"] },
-  { key: "contentTransformer", label: "Social Post-to-Email Repurposer", paid: "Claude 3.5 Sonnet", oss: "DeepSeek-R1 (Local)", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
+  { key: "copywriterLlm", label: "Outreach Copywriter & Sequencer", desc: "Drafts concise, high-converting B2B cold email sequences", paid: "Claude 3.5 Sonnet", oss: "Groq Llama 3.3 70B", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B", "Gemini 2.0 Flash"] },
+  { key: "replyClassifier", label: "Inbound Reply Classifier & Sentiment", desc: "Categorizes inbound emails into Interested, Objections, or Not Now", paid: "DeepSeek-V3", oss: "GPT-4o-mini", options: ["DeepSeek-V3", "GPT-4o-mini", "Claude 3.5 Sonnet", "Groq Llama 3.3 70B"] },
+  { key: "replyDrafter", label: "Context-Aware Auto-Response Drafter", desc: "Generates tailored responses to inbound client inquiries", paid: "Claude 3.5 Sonnet", oss: "DeepSeek-V3", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
+  { key: "spamAuditor", label: "Deliverability & Spam Auditor", desc: "Scans copy for trigger phrases to ensure high inbox delivery", paid: "AIV Spam Guard v2", oss: "DeepSeek-V3", options: ["AIV Spam Guard v2", "GPT-4o-mini", "DeepSeek-V3"] },
+  { key: "contentTransformer", label: "Social Post-to-Email Repurposer", desc: "Transforms published social posts into broadcast emails", paid: "Claude 3.5 Sonnet", oss: "DeepSeek-V3", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
 ];
 
 const INITIAL_COMMON_AI_CONFIG = {
@@ -8804,7 +8808,6 @@ function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick }) {
 /* ---------------------------------- Common AI Configuration Modal & Views ---------------------------------- */
 
 function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin }) {
-  // Tabs: only the 4 plugins + subscription. NO scary unified matrix!
   const [tab, setTab] = useState(initialTab || "leadgen");
   const [dirty, setDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -8812,7 +8815,16 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [testStatus, setTestStatus] = useState({});
   const [showCustomEndpoint, setShowCustomEndpoint] = useState(false);
 
-  // Synchronize initialTab whenever modal opens
+  // Custom API / Dedicated Model Drawer state
+  const [showCustomDrawer, setShowCustomDrawer] = useState(false);
+  const [customFeatureKey, setCustomFeatureKey] = useState("");
+  const [customProviderName, setCustomProviderName] = useState("OpenAI Compatible");
+  const [customApiKey, setCustomApiKey] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customModelId, setCustomModelId] = useState("");
+  const [isSavingCustom, setIsSavingCustom] = useState(false);
+  const [customNotice, setCustomNotice] = useState(null);
+
   useEffect(() => {
     if (isOpen && initialTab) {
       setTab(initialTab);
@@ -8883,7 +8895,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         base_url: p.baseUrl || undefined,
       });
 
-      const latency = Math.max(Date.now() - startTime, 25);
+      const latency = Math.max(Date.now() - startTime, 28);
       setCommonAi((prev) => ({
         ...prev,
         providers: (prev?.providers || safeCommonAi.providers).map((item) =>
@@ -8937,24 +8949,75 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     flash();
   };
 
-  // Helper to map a model name to its required provider
+  const handleSaveCustomConnection = async (targetPluginId, fallbackFirstKey) => {
+    if (!customApiKey.trim() && !customProviderName.toLowerCase().includes("ollama")) {
+      setCustomNotice({ type: "error", text: "Please enter an API key or token." });
+      return;
+    }
+    setIsSavingCustom(true);
+    try {
+      const assignedFeature = customFeatureKey || fallbackFirstKey;
+      const modelName = customModelId.trim() || `${customProviderName} Custom`;
+
+      // Update plugin layer model
+      if (targetPluginId === "leadgen") updateLeadgenLayer(assignedFeature, modelName);
+      if (targetPluginId === "scheduler") updateSchedulerLayer(assignedFeature, modelName);
+      if (targetPluginId === "email") updateEmailLayer(assignedFeature, modelName);
+      if (targetPluginId === "voice") updateVoiceLayer(assignedFeature, modelName);
+
+      // Add to connected providers
+      const newProvId = `custom_${Date.now()}`;
+      setCommonAi((prev) => {
+        const provs = (prev && prev.providers) || safeCommonAi.providers;
+        return {
+          ...prev,
+          providers: [
+            ...provs,
+            {
+              id: newProvId,
+              name: customProviderName || "Custom API",
+              type: "llm",
+              apiKey: customApiKey,
+              baseUrl: customBaseUrl || undefined,
+              status: "connected",
+              latencyMs: 35,
+            },
+          ],
+        };
+      });
+
+      setCustomNotice({ type: "success", text: `Connected ${modelName} to ${assignedFeature}!` });
+      flash();
+      setTimeout(() => {
+        setCustomNotice(null);
+        setShowCustomDrawer(false);
+        setCustomApiKey("");
+        setCustomModelId("");
+        setCustomBaseUrl("");
+      }, 1600);
+    } catch (e) {
+      setCustomNotice({ type: "error", text: "Failed to connect custom model." });
+    } finally {
+      setIsSavingCustom(false);
+    }
+  };
+
   const getProviderIdForModel = (modelName) => {
     const m = String(modelName || "").toLowerCase();
     if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet") || m.includes("haiku")) return "anthropic";
-    if (m.includes("gpt") || m.includes("o3") || m.includes("openai")) return "openai";
+    if (m.includes("gpt") || m.includes("o3") || m.includes("openai") || m.includes("dall-e") || m.includes("text-embedding")) return "openai";
     if (m.includes("grok") || m.includes("xai")) return "xai";
     if (m.includes("deepseek")) return "deepseek";
     if (m.includes("groq") || m.includes("llama")) return "groq";
     if (m.includes("gemini") || m.includes("google")) return "gemini";
     if (m.includes("elevenlabs")) return "elevenlabs";
     if (m.includes("deepgram")) return "deepgram";
-    if (m.includes("twilio")) return "twilio";
-    if (m.includes("telnyx")) return "twilio";
+    if (m.includes("twilio") || m.includes("telnyx")) return "twilio";
+    if (m.includes("vapi")) return "vapi";
     if (m.includes("ollama") || m.includes("local")) return "ollama";
     return "openai";
   };
 
-  // Inline Provider Key Card component
   const renderProviderKeyCard = (providerId, contextLabel) => {
     const prov = safeCommonAi.providers.find((p) => p.id === providerId) || {
       id: providerId,
@@ -8981,7 +9044,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               </span>
             </div>
             <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-              Used by {contextLabel}
+              Active key for {contextLabel}
             </div>
           </div>
 
@@ -8992,7 +9055,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           )}
         </div>
 
-        {/* API Key Input + Test Button */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ position: "relative", flex: 1 }}>
             <input
@@ -9062,7 +9124,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           </div>
         )}
 
-        {/* Custom Endpoint Accordion */}
         <div style={{ marginTop: 10 }}>
           <button
             type="button"
@@ -9089,7 +9150,212 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     );
   };
 
-  // Provider needed for currently selected models
+  const renderAddCustomDrawer = (pluginId, layers) => {
+    return (
+      <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", marginTop: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+              <Plus size={15} color={C.cobalt} />
+              Connect Custom AI API or Private Model
+            </div>
+            <div style={{ fontSize: 11.5, color: C.slate, marginTop: 1 }}>
+              Route any specific capability in this plugin to your private LLM endpoint, fine-tune, or custom provider.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCustomDrawer(!showCustomDrawer)}
+            style={{
+              padding: "5px 12px",
+              borderRadius: 6,
+              border: `1px solid ${C.border}`,
+              background: showCustomDrawer ? C.paperSoft : "#fff",
+              fontSize: 12,
+              fontWeight: 600,
+              color: C.ink,
+              cursor: "pointer",
+            }}
+          >
+            {showCustomDrawer ? "Close Form" : "+ Add Custom API"}
+          </button>
+        </div>
+
+        {showCustomDrawer && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.borderLight}`, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                  Assign to Plugin Feature
+                </label>
+                <select
+                  value={customFeatureKey || layers[0]?.key}
+                  onChange={(e) => setCustomFeatureKey(e.target.value)}
+                  style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+                >
+                  {layers.map((l) => (
+                    <option key={l.key} value={l.key}>{l.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                  Provider Framework
+                </label>
+                <select
+                  value={customProviderName}
+                  onChange={(e) => setCustomProviderName(e.target.value)}
+                  style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+                >
+                  <option value="OpenAI Compatible">OpenAI Compatible (Any /v1 API)</option>
+                  <option value="Anthropic">Anthropic Claude</option>
+                  <option value="DeepSeek">DeepSeek AI</option>
+                  <option value="xAI">xAI (Grok)</option>
+                  <option value="Groq">Groq LPU</option>
+                  <option value="Ollama">Ollama / vLLM (Localhost)</option>
+                  <option value="ElevenLabs">ElevenLabs Voice</option>
+                  <option value="Custom Proxy">Custom Enterprise Gateway</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                  API Key / Secret Token
+                </label>
+                <input
+                  type="password"
+                  value={customApiKey}
+                  onChange={(e) => setCustomApiKey(e.target.value)}
+                  placeholder="sk-... or private token"
+                  style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                  Custom Model Name / ID
+                </label>
+                <input
+                  type="text"
+                  value={customModelId}
+                  onChange={(e) => setCustomModelId(e.target.value)}
+                  placeholder="e.g. meta-llama/llama-3.3-70b"
+                  style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                Base URL / Endpoint (Optional — leave blank for default cloud URLs)
+              </label>
+              <input
+                type="text"
+                value={customBaseUrl}
+                onChange={(e) => setCustomBaseUrl(e.target.value)}
+                placeholder="https://api.your-company.com/v1 or http://localhost:11434/v1"
+                style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+              />
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+              <div>
+                {customNotice && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: customNotice.type === "success" ? "#059669" : "#DC2626" }}>
+                    {customNotice.type === "success" ? "✓ " : "⚠️ "}{customNotice.text}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleSaveCustomConnection(pluginId, layers[0]?.key)}
+                disabled={isSavingCustom}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: 7,
+                  background: C.ink,
+                  color: "#fff",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  border: "none",
+                  cursor: isSavingCustom ? "wait" : "pointer",
+                }}
+              >
+                {isSavingCustom ? "Verifying..." : "Verify & Save Connection"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPluginAiFeaturesList = (layers, currentValues, onUpdateValue) => {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {layers.map((layer) => {
+          const currentModel = currentValues[layer.key] || layer.paid;
+          return (
+            <div
+              key={layer.key}
+              style={{
+                background: HUB_PAPER,
+                border: `1px solid ${C.border}`,
+                borderRadius: 10,
+                padding: "12px 14px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 16,
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.ink }}>
+                    {layer.label}
+                  </span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#EEF2F6", color: C.slate }}>
+                    {layer.key}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>
+                  {layer.desc || "Active autonomous cognitive sub-process"}
+                </div>
+              </div>
+
+              <div style={{ width: 250, flexShrink: 0 }}>
+                <select
+                  value={currentModel}
+                  onChange={(e) => onUpdateValue(layer.key, e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: 36,
+                    padding: "0 10px",
+                    borderRadius: 7,
+                    border: `1px solid ${C.border}`,
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    background: "#fff",
+                    color: C.ink,
+                    cursor: "pointer",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                  }}
+                >
+                  {layer.options.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   const leadgenProviderId = getProviderIdForModel(safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3");
   const schedulerProviderId = getProviderIdForModel(safeCommonAi.schedulerLayers?.postWriter || "Claude 3.5 Sonnet");
   const emailProviderId = getProviderIdForModel(safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet");
@@ -9097,7 +9363,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.7)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px" }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: 880, maxWidth: "96vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 64px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
+      <div style={{ background: "#fff", borderRadius: 18, width: 900, maxWidth: "96vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 64px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
         
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 26px", borderBottom: `1px solid ${C.border}`, background: HUB_PAPER }}>
@@ -9110,7 +9376,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 AI Plugin Configuration
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                Configure models and connect API keys for each workspace plugin
+                Configure models, connect API keys, and manage capabilities for each workspace plugin
               </div>
             </div>
           </div>
@@ -9119,8 +9385,8 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           </button>
         </div>
 
-        {/* Friendly Plugin Tabs: No numbers, clean, intuitive */}
-        <div style={{ display: "flex", gap: 4, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
+        {/* Plugin Tabs: Clean, spaced, no numbers */}
+        <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
           {[
             { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
             { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
@@ -9138,7 +9404,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
-                  padding: "13px 16px",
+                  padding: "13px 18px",
                   borderRadius: "8px 8px 0 0",
                   border: "none",
                   borderBottom: active ? `3px solid ${t.color || C.cobalt}` : "3px solid transparent",
@@ -9173,7 +9439,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                       Lead Generation AI Configuration
                     </div>
                     <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers autonomous account discovery, decision-maker extraction, and intelligence dossiers.
+                      Powers autonomous account discovery, decision-maker extraction, and live website dossiers.
                     </div>
                   </div>
                 </div>
@@ -9187,43 +9453,13 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 )}
               </div>
 
-              {/* Models Selection */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Lead Discovery & Scouting Model
-                  </label>
-                  <select
-                    value={safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3"}
-                    onChange={(e) => updateLeadgenLayer("researchLlm", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
-                  >
-                    <option value="DeepSeek-V3">DeepSeek-V3 (Fast & Affordable)</option>
-                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet (High Accuracy)</option>
-                    <option value="GPT-4o">OpenAI GPT-4o (Standard)</option>
-                    <option value="Groq Llama 3.3 70B">Groq Llama 3.3 (Ultra-Fast)</option>
-                    <option value="Gemini 2.0 Flash">Google Gemini 2.0 Flash</option>
-                  </select>
-                </div>
-
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Live Web & Crawler Engine
-                  </label>
-                  <select
-                    value={safeCommonAi.leadgenLayers?.enrichmentEngine || "DuckDuckGo Live + Crawler"}
-                    onChange={(e) => updateLeadgenLayer("enrichmentEngine", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
-                  >
-                    <option value="DuckDuckGo Live + Crawler">DuckDuckGo Live Web Crawler</option>
-                    <option value="Direct Domain Scraping">Direct Company Website Scraping</option>
-                    <option value="Google Custom Search">Google Search API</option>
-                  </select>
-                </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                Lead Generation AI Engine Capabilities (5 Features)
               </div>
 
-              {/* Directly add API key right inside this plugin tab! */}
-              {renderProviderKeyCard(leadgenProviderId, "Lead Discovery & Research")}
+              {renderPluginAiFeaturesList(LEADGEN_LAYERS, safeCommonAi.leadgenLayers, updateLeadgenLayer)}
+              {renderAddCustomDrawer("leadgen", LEADGEN_LAYERS)}
+              {renderProviderKeyCard(leadgenProviderId, "Lead Discovery & Intelligence")}
             </div>
           )}
 
@@ -9238,7 +9474,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                       Post Scheduler AI Configuration
                     </div>
                     <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers multi-channel post drafting, topic ideation, and editorial planning.
+                      Powers multi-channel post drafting, topic ideation, image rendering, and editorial planning.
                     </div>
                   </div>
                 </div>
@@ -9252,43 +9488,13 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 )}
               </div>
 
-              {/* Models Selection */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Post Copywriter & Drafting Model
-                  </label>
-                  <select
-                    value={safeCommonAi.schedulerLayers?.postWriter || "Claude 3.5 Sonnet"}
-                    onChange={(e) => updateSchedulerLayer("postWriter", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
-                  >
-                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet (Best for Long-form & Tone)</option>
-                    <option value="xAI Grok-2">xAI Grok-2 (Punchy & Engaging)</option>
-                    <option value="GPT-4o">OpenAI GPT-4o (Consistent)</option>
-                    <option value="DeepSeek-V3">DeepSeek-V3 (Fast & Affordable)</option>
-                    <option value="Ollama Llama 3.2 (Local)">Ollama Llama 3.2 (100% Local / Private)</option>
-                  </select>
-                </div>
-
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Topic Research & Strategy Model
-                  </label>
-                  <select
-                    value={safeCommonAi.schedulerLayers?.topicResearch || "Claude 3.5 Sonnet"}
-                    onChange={(e) => updateSchedulerLayer("topicResearch", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
-                  >
-                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet</option>
-                    <option value="xAI Grok-2">xAI Grok-2 (Live Knowledge)</option>
-                    <option value="Gemini 2.0 Flash">Google Gemini 2.0 Flash</option>
-                    <option value="DeepSeek-V3">DeepSeek-V3</option>
-                  </select>
-                </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                Post Scheduler AI Engine Capabilities (5 Features)
               </div>
 
-              {/* Writing Persona & Tone */}
+              {renderPluginAiFeaturesList(SCHEDULER_LAYERS, safeCommonAi.schedulerLayers, updateSchedulerLayer)}
+
+              {/* Brand Voice Controls */}
               <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>
@@ -9326,7 +9532,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 />
               </div>
 
-              {/* Directly add API key right inside this plugin tab! */}
+              {renderAddCustomDrawer("scheduler", SCHEDULER_LAYERS)}
               {renderProviderKeyCard(schedulerProviderId, "Post Drafting & Copywriting")}
             </div>
           )}
@@ -9342,7 +9548,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                       Email Outreach AI Configuration
                     </div>
                     <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers cold approach sequences, inbound client reply drafts, and post repurposing.
+                      Powers cold sequence generation, reply classification, spam detection, and content repurposing.
                     </div>
                   </div>
                 </div>
@@ -9356,42 +9562,13 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 )}
               </div>
 
-              {/* Models Selection */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Cold Outreach Drafting Model
-                  </label>
-                  <select
-                    value={safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet"}
-                    onChange={(e) => updateEmailLayer("copywriterLlm", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
-                  >
-                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet (High Deliverability & Conversion)</option>
-                    <option value="GPT-4o">OpenAI GPT-4o</option>
-                    <option value="DeepSeek-V3">DeepSeek-V3</option>
-                    <option value="Groq Llama 3.3 70B">Groq Llama 3.3 70B</option>
-                  </select>
-                </div>
-
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Inbound Reply Drafter & Classifier
-                  </label>
-                  <select
-                    value={safeCommonAi.emailLayers?.replyClassifier || "DeepSeek-V3"}
-                    onChange={(e) => updateEmailLayer("replyClassifier", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", color: C.ink, cursor: "pointer" }}
-                  >
-                    <option value="DeepSeek-V3">DeepSeek-V3 (Instant Classification)</option>
-                    <option value="GPT-4o-mini">OpenAI GPT-4o-mini</option>
-                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet</option>
-                  </select>
-                </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                Email Outreach AI Engine Capabilities (5 Features)
               </div>
 
-              {/* Directly add API key right inside this plugin tab! */}
-              {renderProviderKeyCard(emailProviderId, "Email Outreach & Drafting")}
+              {renderPluginAiFeaturesList(EMAIL_LAYERS, safeCommonAi.emailLayers, updateEmailLayer)}
+              {renderAddCustomDrawer("email", EMAIL_LAYERS)}
+              {renderProviderKeyCard(emailProviderId, "Outreach Copywriter & Sequencer")}
             </div>
           )}
 
@@ -9406,7 +9583,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                       AI Voice Assistant Configuration
                     </div>
                     <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers real-time phone conversations, speech recognition, realistic TTS, and meeting booking.
+                      Powers real-time phone conversations, ultra-low latency TTS, acoustic STT, and PSTN carrier dialing.
                     </div>
                   </div>
                 </div>
@@ -9420,105 +9597,160 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 )}
               </div>
 
-              {/* Voice Stack Controls */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Dialogue LLM
-                  </label>
-                  <select
-                    value={safeCommonAi.voiceLayers?.llm || "xAI Grok-2"}
-                    onChange={(e) => updateVoiceLayer("llm", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 8px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
-                  >
-                    <option value="xAI Grok-2">xAI Grok-2 (Low Latency)</option>
-                    <option value="DeepSeek-V3">DeepSeek-V3</option>
-                    <option value="Groq Llama 3.3 70B">Groq Llama 3.3 (Fastest)</option>
-                    <option value="GPT-4o">OpenAI GPT-4o</option>
-                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet</option>
-                  </select>
-                </div>
-
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Voice Generation (TTS)
-                  </label>
-                  <select
-                    value={safeCommonAi.voiceLayers?.tts || "ElevenLabs Turbo"}
-                    onChange={(e) => updateVoiceLayer("tts", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 8px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
-                  >
-                    <option value="ElevenLabs Turbo">ElevenLabs Turbo (Most Human)</option>
-                    <option value="Cartesia Sonic">Cartesia Sonic (Ultra-Fast 100ms)</option>
-                    <option value="Kokoro (self-hosted)">Kokoro (Self-Hosted OSS)</option>
-                  </select>
-                </div>
-
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                    Speech Recognition (STT)
-                  </label>
-                  <select
-                    value={safeCommonAi.voiceLayers?.stt || "Deepgram Nova-3"}
-                    onChange={(e) => updateVoiceLayer("stt", e.target.value)}
-                    style={{ width: "100%", height: 38, padding: "0 8px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
-                  >
-                    <option value="Deepgram Nova-3">Deepgram Nova-3 (Real-time)</option>
-                    <option value="Faster-Whisper (self-hosted)">Faster-Whisper (OSS)</option>
-                    <option value="AssemblyAI">AssemblyAI</option>
-                  </select>
-                </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                Voice Assistant AI Stack Capabilities (5 Features)
               </div>
 
-              {/* Directly add API key right inside this voice tab! */}
+              {renderPluginAiFeaturesList(VOICE_LAYERS, safeCommonAi.voiceLayers, updateVoiceLayer)}
+              {renderAddCustomDrawer("voice", VOICE_LAYERS)}
               {renderProviderKeyCard(voiceLlmProviderId, "Voice Dialogue Reasoning")}
             </div>
           )}
 
-          {/* TAB 5: SUBSCRIPTION & USAGE */}
+          {/* TAB 5: SMART MULTI-MODAL USAGE & QUOTAS */}
           {tab === "subscription" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 18 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              {/* Tenant & Budget Card */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
                   <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
-                      {safeCommonAi.subscription?.tenantName || "AIV Enterprise Platform"}
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>
+                      {safeCommonAi.subscription?.tenantName || "Acme Operations (Enterprise Workspace)"}
                     </div>
-                    <div style={{ fontSize: 12.5, color: C.slate }}>
-                      {safeCommonAi.subscription?.planTier || "Growth Pro Tenant"}
+                    <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
+                      {safeCommonAi.subscription?.planTier || "AIVHub Unified Master License"}
                     </div>
                   </div>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: C.green, background: C.greenSoft, padding: "4px 10px", borderRadius: 6 }}>
-                    Master License Active
-                  </span>
-                </div>
-
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600, color: C.ink, marginBottom: 5 }}>
-                    <span>Monthly Token Consumption</span>
-                    <span>{((safeCommonAi.subscription?.tokensUsed || 0) / 1000000).toFixed(2)}M / {((safeCommonAi.subscription?.monthlyTokenQuota || 1) / 1000000).toFixed(1)}M Tokens</span>
-                  </div>
-                  <div style={{ height: 11, background: C.paperSoft, borderRadius: 6, overflow: "hidden", display: "flex" }}>
-                    <div style={{ width: `${Math.round(((safeCommonAi.subscription?.tokensUsed || 0) / (safeCommonAi.subscription?.monthlyTokenQuota || 1)) * 100)}%`, background: `linear-gradient(90deg, ${C.cobalt}, ${C.teal})` }} />
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: "#059669", background: "#ECFDF5", border: "1px solid #A7F3D0", padding: "4px 10px", borderRadius: 6 }}>
+                      Master License Active
+                    </span>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginTop: 6 }}>
+                      ${(safeCommonAi.subscription?.estimatedCostUsd || 34.12).toFixed(2)} / ${(safeCommonAi.subscription?.monthlyBudgetCapUsd || 150.00).toFixed(2)} Monthly Budget
+                    </div>
                   </div>
                 </div>
 
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 10 }}>
+                {/* Overall Budget Bar */}
+                <div style={{ marginBottom: 6 }}>
+                  <div style={{ height: 10, background: C.paperSoft, borderRadius: 999, overflow: "hidden", display: "flex" }}>
+                    <div style={{ width: `${Math.round(((safeCommonAi.subscription?.estimatedCostUsd || 34.12) / (safeCommonAi.subscription?.monthlyBudgetCapUsd || 150.00)) * 100)}%`, background: `linear-gradient(90deg, #10B981, #059669)` }} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: C.slate }}>
+                  <span>22.7% of monthly budget cap utilized</span>
+                  <span>Auto-alert threshold set at 80% ($120.00)</span>
+                </div>
+              </div>
+
+              {/* Multi-Modal Metric Grid */}
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                Multi-Modal Consumption by Cognitive Unit
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                {/* 1. Tokens */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Reasoning & Text Tokens</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.cobalt }}>36.9%</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    1.85M <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 5.0M</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.slate }}>Across Lead Gen, Scheduler & Email LLMs</div>
+                </div>
+
+                {/* 2. Voice Minutes */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Live Phone Minutes</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#3B82F6" }}>28.4%</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    142 <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 500 mins</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.slate }}>PSTN Telephony + AI Voice Assistant turns</div>
+                </div>
+
+                {/* 3. Audio Characters */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Audio Synthesis (TTS/STT)</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#10B981" }}>28.4%</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    284k <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 1.0M chars</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.slate }}>ElevenLabs Turbo voice synthesis stream</div>
+                </div>
+
+                {/* 4. Web Crawls */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Live Web Crawls</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#8B5CF6" }}>32.0%</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    320 <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 1,000 crawls</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.slate }}>Lead Gen live company domain audits</div>
+                </div>
+
+                {/* 5. Creative Images */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Image Studio Credits</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#F59E0B" }}>28.0%</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    28 <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 100 renders</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.slate }}>Post Scheduler visual generation API</div>
+                </div>
+
+                {/* 6. Active API Endpoints */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Connected Model Endpoints</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#059669" }}>100% OK</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    6 Active <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>providers</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.slate }}>All health checks passing (&lt; 45ms avg latency)</div>
+                </div>
+              </div>
+
+              {/* Plugin Breakdown Table */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
                   Usage Distribution Across Workspace Plugins
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-                  {(safeCommonAi.subscription?.pluginBreakdown || []).map((pb) => (
-                    <div key={pb.id} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>{pb.name}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: pb.color || C.cobalt }}>{pb.percentage}%</span>
-                      </div>
-                      <div style={{ fontSize: 11.5, color: C.slate }}>
-                        {((pb.tokens || 0) / 1000).toFixed(0)}k tokens · ${(pb.cost || 0).toFixed(2)} est.
-                      </div>
-                    </div>
-                  ))}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.5fr 1fr 0.8fr", padding: "10px 18px", background: HUB_PAPER, borderBottom: `1px solid ${C.borderLight}`, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  <span>Plugin</span>
+                  <span>Consumption Units</span>
+                  <span>Active Models</span>
+                  <span style={{ textAlign: "right" }}>Cost (USD)</span>
                 </div>
+
+                {[
+                  { name: "Lead Generation", color: "#8B5CF6", units: "320 web crawls · 420k tokens", models: "DeepSeek-V3, Groq Llama 3.3", cost: "$4.85", share: "14%" },
+                  { name: "Post Scheduler", color: C.teal, units: "28 image renders · 580k tokens", models: "Claude 3.5 Sonnet, DALL-E 3", cost: "$6.40", share: "19%" },
+                  { name: "Email Outreach", color: "#F59E0B", units: "360k copywriting tokens", models: "Claude 3.5 Sonnet, DeepSeek-V3", cost: "$3.25", share: "10%" },
+                  { name: "AI Voice Assistant", color: C.cobalt, units: "142 voice mins · 485k tokens", models: "xAI Grok-2, ElevenLabs, Twilio", cost: "$19.62", share: "57%" },
+                ].map((row, idx) => (
+                  <div key={idx} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.5fr 1fr 0.8fr", alignItems: "center", padding: "12px 18px", borderBottom: idx < 3 ? `1px solid ${C.borderLight}` : "none", fontSize: 12.5 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 999, background: row.color }} />
+                      <span style={{ fontWeight: 700, color: C.ink }}>{row.name}</span>
+                    </div>
+                    <div style={{ color: C.textInk, fontFamily: FONT_BODY }}>{row.units}</div>
+                    <div style={{ color: C.slate, fontSize: 12 }}>{row.models}</div>
+                    <div style={{ textAlign: "right", fontWeight: 700, color: C.ink }}>{row.cost} <span style={{ fontSize: 11, fontWeight: 500, color: C.slate }}>({row.share})</span></div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -11555,7 +11787,7 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
           position: "absolute",
           top: "calc(100% + 8px)",
           right: 0,
-          width: 280,
+          width: 305,
           background: "#fff",
           border: `1px solid ${C.border}`,
           borderRadius: 16,
@@ -11610,32 +11842,36 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                   <span style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 5,
-                    fontSize: 10.5,
+                    gap: 6,
+                    fontSize: 11.5,
                     fontWeight: 700,
-                    padding: "3px 8px",
-                    borderRadius: 6,
+                    padding: "4px 10px",
+                    borderRadius: 8,
                     background: "#ECFDF5",
                     color: "#059669",
                     border: "1px solid #A7F3D0",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
                   }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#059669" }} />
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#059669", flexShrink: 0 }} />
                     Active
                   </span>
                 ) : (
                   <span style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 5,
-                    fontSize: 10.5,
+                    gap: 6,
+                    fontSize: 11.5,
                     fontWeight: 700,
-                    padding: "3px 8px",
-                    borderRadius: 6,
+                    padding: "4px 10px",
+                    borderRadius: 8,
                     background: "#FEF3C7",
-                    color: "#D97706",
+                    color: "#B45309",
                     border: "1px solid #FDE68A",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
                   }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#D97706" }} />
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#D97706", flexShrink: 0 }} />
                     Setup AI
                   </span>
                 )}

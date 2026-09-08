@@ -355,7 +355,7 @@ export default function LeadGenerationPlugin({
               transition: "all 0.15s ease",
             }}
           >
-            <ChevronLeft size={14} /> Back to Plugins
+            <LayoutGrid size={14} /> All plugins
           </button>
         )}
 

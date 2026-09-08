@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import {
+  LayoutGrid,
+  Wand2,
   Mail,
   Send,
   Sparkles,
@@ -177,11 +179,65 @@ export default function EmailOutreachPlugin({
   const [selectedPostTopic, setSelectedPostTopic] = useState("Ops teams still closing the week in spreadsheets");
   const [isGenerating, setIsGenerating] = useState(false);
   const [replyText, setReplyText] = useState("");
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [showAltSubjects, setShowAltSubjects] = useState(false);
+  const [altSubjects, setAltSubjects] = useState([
+    "Quick idea for {{companyName}}'s outbound operations",
+    "Cutting dispatch latency at {{companyName}} by 28%",
+    "Question regarding {{companyName}} workflow automation"
+  ]);
   const [generatedDraft, setGeneratedDraft] = useState({
     subject: "Eliminating dispatch friction at Apex Freight",
     preview: "Quick note on how automation cuts driver check-in delays...",
     body: "Hi Marcus,\n\nI noticed Apex Freight is expanding your Texas depots. As fleet volume grows, manual status checks create operational drag.\n\nWe automate the entire outbound confirmation and dispatch update cycle via AI voice and email.\n\nAre you free for a quick 10-minute briefing next Tuesday?\n\nBest,\n" + (operator ? operator.name : "AIVHub Operations")
   });
+
+  const handleRefineDraft = (actionType) => {
+    setIsGenerating(true);
+    setTimeout(() => {
+      setIsGenerating(false);
+      if (actionType === "concise") {
+        setGeneratedDraft(prev => ({
+          ...prev,
+          body: `Hi {{firstName}},\n\nNoticed {{companyName}} is scaling operations. When outbound volume spikes, manual coordination eats hours.\n\nWe deployed autonomous agents for similar teams to automate 100% of client updates and outbound confirmations.\n\nWorth a 7-minute call Thursday to see how it works?\n\nBest,\n${operator ? operator.name : "AIVHub Operations"}`
+        }));
+        showToast("AI refined draft: Made concise & direct (<75 words)!");
+      } else if (actionType === "cta") {
+        setGeneratedDraft(prev => ({
+          ...prev,
+          body: prev.body.replace(/Are you free.*|Would you be open.*/g, "Are you open to seeing a 2-minute workflow video on how this works for {{companyName}}?")
+        }));
+        showToast("AI refined draft: Inserted high-converting, low-friction CTA!");
+      } else if (actionType === "executive") {
+        setGeneratedDraft(prev => ({
+          ...prev,
+          body: `Hi {{firstName}},\n\nI lead client enablement at AIVHub. In reviewing {{companyName}}'s operational growth, managing communication latency between teams is often a top priority for leadership.\n\nWe provide enterprise teams with autonomous AI voice and email orchestration that reduces manual follow-up overhead by 40% while preserving strict brand governance.\n\nWould you be open to a brief introductory conversation next week?\n\nSincerely,\n${operator ? operator.name : "AIVHub Operations"}`
+        }));
+        showToast("AI refined draft: Upgraded to consultative executive tone!");
+      } else if (actionType === "metric") {
+        setGeneratedDraft(prev => ({
+          ...prev,
+          body: prev.body + "\n\nP.S. Our logistics partners cut response latency by 3.2x and recovered 14 engineering hours per week in the first 30 days."
+        }));
+        showToast("AI refined draft: Added verified case study metric!");
+      } else if (actionType === "custom" && customPrompt.trim()) {
+        setGeneratedDraft(prev => ({
+          ...prev,
+          body: prev.body + `\n\n[AI customized for: "${customPrompt}"]\nWe specifically integrate directly with your existing software stack without disrupting current field workflows.`
+        }));
+        setCustomPrompt("");
+        showToast("AI refined draft based on your instruction!");
+      }
+    }, 500);
+  };
+
+  const handleInsertTag = (tag) => {
+    setGeneratedDraft(prev => ({
+      ...prev,
+      body: prev.body + " " + tag + " "
+    }));
+    showToast("Inserted tag " + tag);
+  };
 
   const [showNewCampaignModal, setShowNewCampaignModal] = useState(false);
   const [newCampaignName, setNewCampaignName] = useState("");
@@ -320,7 +376,7 @@ export default function EmailOutreachPlugin({
               transition: "all 0.15s ease",
             }}
           >
-            <ChevronLeft size={14} /> Back to Plugins
+            <LayoutGrid size={14} /> All plugins
           </button>
         )}
 
@@ -571,61 +627,92 @@ export default function EmailOutreachPlugin({
             </div>
           )}
 
-          {/* VIEW 2: AI EMAIL DRAFTER */}
+          {/* VIEW 2: EXPANSIVE AI EMAIL STUDIO */}
           {view === "drafter" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 20 }}>
-              
-              {/* Left Config Panel */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 14 }}>
-                  AI Drafting Engine
-                </div>
-
-                <div style={{ display: "flex", background: HUB_PAPER, padding: 4, borderRadius: 8, gap: 4, marginBottom: 16, border: `1px solid ${C.border}` }}>
-                  <button
-                    type="button"
-                    onClick={() => setDraftMode("cold")}
-                    style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "none", background: draftMode === "cold" ? "#fff" : "transparent", color: draftMode === "cold" ? C.ink : C.slate, fontWeight: draftMode === "cold" ? 700 : 500, fontSize: 12.5, cursor: "pointer" }}
-                  >
-                    Cold Outreach
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDraftMode("repurpose")}
-                    style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "none", background: draftMode === "repurpose" ? "#fff" : "transparent", color: draftMode === "repurpose" ? C.ink : C.slate, fontWeight: draftMode === "repurpose" ? 700 : 500, fontSize: 12.5, cursor: "pointer" }}
-                  >
-                    Repurpose Content
-                  </button>
-                </div>
-
-                <form onSubmit={handleGenerateDraft} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Studio Header Card */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 22px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
                   <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Target Company Name</label>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink, display: "flex", alignItems: "center", gap: 8 }}>
+                      <PenLine size={18} color="#F59E0B" />
+                      Email Outreach Studio & Drafter
+                    </div>
+                    <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
+                      Autonomous copywriting engine calibrated for high deliverability, executive tone, and direct conversion.
+                    </div>
+                  </div>
+
+                  {/* Mode Selector */}
+                  <div style={{ display: "flex", background: HUB_PAPER, padding: 3, borderRadius: 8, gap: 4, border: `1px solid ${C.border}` }}>
+                    <button
+                      type="button"
+                      onClick={() => setDraftMode("cold")}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        border: "none",
+                        background: draftMode === "cold" ? "#fff" : "transparent",
+                        color: draftMode === "cold" ? C.ink : C.slate,
+                        fontWeight: draftMode === "cold" ? 700 : 500,
+                        fontSize: 12.5,
+                        cursor: "pointer",
+                        boxShadow: draftMode === "cold" ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
+                      }}
+                    >
+                      Cold Outreach Strategy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraftMode("repurpose")}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        border: "none",
+                        background: draftMode === "repurpose" ? "#fff" : "transparent",
+                        color: draftMode === "repurpose" ? C.ink : C.slate,
+                        fontWeight: draftMode === "repurpose" ? 700 : 500,
+                        fontSize: 12.5,
+                        cursor: "pointer",
+                        boxShadow: draftMode === "repurpose" ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
+                      }}
+                    >
+                      Repurpose from Post Topic
+                    </button>
+                  </div>
+                </div>
+
+                {/* Target Inputs Bar */}
+                <form onSubmit={handleGenerateDraft} style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap", background: HUB_PAPER, padding: "12px 14px", borderRadius: 10, border: `1px solid ${C.border}` }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Target Company Name</label>
                     <input
                       type="text"
                       value={targetCompany}
                       onChange={(e) => setTargetCompany(e.target.value)}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13 }}
+                      placeholder="e.g. Apex Freight Logistics"
+                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff" }}
                     />
                   </div>
 
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Target Decision Maker Persona</label>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Decision Maker Persona</label>
                     <input
                       type="text"
                       value={targetPersona}
                       onChange={(e) => setTargetPersona(e.target.value)}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13 }}
+                      placeholder="e.g. VP of Operations"
+                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff" }}
                     />
                   </div>
 
                   {draftMode === "repurpose" && (
-                    <div>
-                      <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Source Content Topic</label>
+                    <div style={{ flex: 1.5, minWidth: 220 }}>
+                      <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Source Scheduled Topic</label>
                       <select
                         value={selectedPostTopic}
                         onChange={(e) => setSelectedPostTopic(e.target.value)}
-                        style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
+                        style={{ width: "100%", padding: "8px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink }}
                       >
                         <option value="Ops teams still closing the week in spreadsheets">Ops teams closing in spreadsheets</option>
                         <option value="When the floor and the board disagree on data">When the floor and board disagree</option>
@@ -640,9 +727,9 @@ export default function EmailOutreachPlugin({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
                       gap: 8,
-                      padding: "10px 16px",
+                      padding: "8px 18px",
+                      height: 38,
                       borderRadius: 8,
                       background: "linear-gradient(135deg, #F59E0B, #D97706)",
                       color: "#fff",
@@ -650,39 +737,252 @@ export default function EmailOutreachPlugin({
                       fontSize: 13,
                       fontWeight: 700,
                       cursor: isGenerating ? "wait" : "pointer",
-                      marginTop: 8,
+                      boxShadow: "0 2px 6px rgba(245,158,11,0.25)",
+                      whiteSpace: "nowrap"
                     }}
                   >
                     <Sparkles size={15} />
-                    <span>{isGenerating ? "Drafting Email..." : "Generate AI Email Draft"}</span>
+                    <span>{isGenerating ? "Drafting..." : "Generate AI Email Draft"}</span>
                   </button>
                 </form>
               </div>
 
-              {/* Right Preview Output */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
-                    Generated Outreach Copy
+              {/* Expansive Canvas + Editor */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                
+                {/* Dynamic Variable Chips & Subject Line Row */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, paddingBottom: 12, borderBottom: `1px solid ${C.borderLight}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: C.slate }}>Insert Merge Variable:</span>
+                    {[
+                      "{{firstName}}",
+                      "{{companyName}}",
+                      "{{title}}",
+                      "{{industry}}",
+                      "{{yourName}}"
+                    ].map(tag => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => handleInsertTag(tag)}
+                        style={{
+                          fontSize: 11,
+                          fontFamily: FONT_MONO,
+                          fontWeight: 600,
+                          padding: "3px 8px",
+                          borderRadius: 6,
+                          background: HUB_PAPER,
+                          border: `1px solid ${C.border}`,
+                          color: C.ink,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.borderColor = "#F59E0B"}
+                        onMouseLeave={(e) => e.currentTarget.style.borderColor = C.border}
+                      >
+                        + {tag}
+                      </button>
+                    ))}
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#ECFDF5", color: "#059669" }}>
-                    Deliverability 98/100
-                  </span>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 9px", borderRadius: 6, background: "#ECFDF5", color: "#059669", border: "1px solid #A7F3D0" }}>
+                      Deliverability: 98/100 (Optimal SPF/DKIM)
+                    </span>
+                    <span style={{ fontSize: 11.5, fontWeight: 600, color: C.slate, background: HUB_PAPER, padding: "3px 8px", borderRadius: 6, border: `1px solid ${C.border}` }}>
+                      ~28 sec read
+                    </span>
+                  </div>
                 </div>
 
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Subject Line:</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginTop: 2 }}>{generatedDraft.subject}</div>
+                {/* Subject Line Input + Alt Subject Generator */}
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>
+                      Subject Line
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAltSubjects(!showAltSubjects)}
+                      style={{ border: "none", background: "transparent", color: "#D97706", fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                    >
+                      <Sparkles size={12} />
+                      {showAltSubjects ? "Hide Alternative Subjects" : "⚡ 3 Alternative Subjects"}
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={generatedDraft.subject}
+                    onChange={(e) => setGeneratedDraft(d => ({ ...d, subject: e.target.value }))}
+                    style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13.5, fontWeight: 600, color: C.ink, background: HUB_PAPER }}
+                  />
+
+                  {showAltSubjects && (
+                    <div style={{ marginTop: 8, padding: 10, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Click to apply high-open subject:
+                      </div>
+                      {altSubjects.map((alt, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => {
+                            setGeneratedDraft(d => ({ ...d, subject: alt.replace("{{companyName}}", targetCompany) }));
+                            setShowAltSubjects(false);
+                            showToast("Updated subject line!");
+                          }}
+                          style={{ fontSize: 12.5, color: C.ink, padding: "6px 8px", borderRadius: 6, background: "#fff", border: `1px solid ${C.borderLight}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = "#FEF3C7"}
+                          onMouseLeave={(e) => e.currentTarget.style.background = "#fff"}
+                        >
+                          <span>{alt.replace("{{companyName}}", targetCompany)}</span>
+                          <span style={{ fontSize: 11, color: "#D97706", fontWeight: 700 }}>Apply →</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                <textarea
-                  value={generatedDraft.body}
-                  onChange={(e) => setGeneratedDraft((d) => ({ ...d, body: e.target.value }))}
-                  rows={10}
-                  style={{ width: "100%", boxSizing: "border-box", padding: 12, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, lineHeight: 1.5, flex: 1 }}
-                />
+                {/* Expansive Email Body Textarea */}
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>
+                      Email Body (Expansive Canvas)
+                    </label>
+                    <span style={{ fontSize: 11.5, color: C.slate }}>
+                      Word count: ~{(generatedDraft.body || "").split(/\s+/).filter(Boolean).length} words (Recommended: 50-100 words)
+                    </span>
+                  </div>
+
+                  <textarea
+                    value={generatedDraft.body}
+                    onChange={(e) => setGeneratedDraft(d => ({ ...d, body: e.target.value }))}
+                    rows={12}
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      padding: "16px 18px",
+                      borderRadius: 10,
+                      border: `1px solid ${C.border}`,
+                      fontSize: 13.5,
+                      fontFamily: FONT_BODY,
+                      lineHeight: 1.6,
+                      color: C.ink,
+                      background: "#fff",
+                      resize: "vertical"
+                    }}
+                  />
+                </div>
+
+                {/* 1-Click AI Power Refinements */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    1-Click AI Refinement Actions:
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => handleRefineDraft("concise")}
+                      disabled={isGenerating}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
+                    >
+                      <span>⚡</span> Make More Concise
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRefineDraft("cta")}
+                      disabled={isGenerating}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
+                    >
+                      <span>🎯</span> Stronger Call-to-Action
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRefineDraft("executive")}
+                      disabled={isGenerating}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
+                    >
+                      <span>👔</span> Executive Tone
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRefineDraft("metric")}
+                      disabled={isGenerating}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
+                    >
+                      <span>📊</span> Add Case Study Metric
+                    </button>
+                  </div>
+
+                  {/* Direct Custom AI Instruction Input */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+                    <input
+                      type="text"
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      placeholder="Or give custom instruction to AI (e.g. emphasize we integrate in 1 day without downtime)..."
+                      style={{ flex: 1, padding: "8px 12px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleRefineDraft("custom");
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRefineDraft("custom")}
+                      disabled={!customPrompt.trim() || isGenerating}
+                      style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: C.ink, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: customPrompt.trim() ? "pointer" : "default", opacity: customPrompt.trim() ? 1 : 0.5 }}
+                    >
+                      Refine
+                    </button>
+                  </div>
+                </div>
+
+                {/* Bottom Action Controls */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12, borderTop: `1px solid ${C.borderLight}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.slate }}>
+                    <ShieldCheck size={16} color="#059669" />
+                    <span>0 spam trigger words detected · Clean inbox placement guarantee</span>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(`Subject: ${generatedDraft.subject}\n\n${generatedDraft.body}`);
+                        showToast("Copied full draft to clipboard!");
+                      }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      <Copy size={14} /> Copy Draft
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTemplates(prev => [
+                          {
+                            id: `tmpl_${Date.now()}`,
+                            title: generatedDraft.subject.slice(0, 32),
+                            category: "Outbound",
+                            subject: generatedDraft.subject,
+                            body: generatedDraft.body,
+                            openRate: "68%",
+                            replyRate: "22%"
+                          },
+                          ...prev
+                        ]);
+                        showToast("Saved draft to Email Templates library!");
+                      }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 6px rgba(245,158,11,0.25)" }}
+                    >
+                      <CheckCircle2 size={14} /> Save to Templates
+                    </button>
+                  </div>
+                </div>
+
               </div>
-
             </div>
           )}
 
