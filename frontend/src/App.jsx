@@ -5702,7 +5702,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
         if (data.voiceName) setVoiceName(data.voiceName);
         if (data.signingSecret) setSigningSecret(data.signingSecret);
-        else if (data.signingSecretMasked) setSigningSecret(data.signingSecretMasked);
         if (data.activeCarrier) {
           const cLower = data.activeCarrier.toLowerCase();
           setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : cLower.includes("sim") ? "simulation" : "telnyx");
