@@ -1,14 +1,16 @@
+import os
+import uuid
+from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from app.database import get_db
-from app.models.models import Connection, Mission, CallLog, Meeting, Prospect
+from app.config import settings
+from app.models.models import Connection, Mission, CallLog, Meeting, Prospect, CompanyProfile
 from app.schemas.schemas import ConnectionSchema
 from app.services.key_validator import validate_api_key
 from pydantic import BaseModel
-from typing import Dict, Any, List, Optional
-import uuid
 
 router = APIRouter(prefix="/connections", tags=["Connections & Providers"])
 

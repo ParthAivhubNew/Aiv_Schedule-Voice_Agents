@@ -2,9 +2,15 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import declarative_base
 from app.config import settings
 
+from pathlib import Path
+
 # Adjust sqlite database URL if needed
 db_url = settings.DATABASE_URL
-if db_url.startswith("postgres://"):
+if db_url.startswith("sqlite"):
+    backend_dir = Path(__file__).resolve().parent.parent
+    db_file = (backend_dir / "aivhub.db").as_posix()
+    db_url = f"sqlite+aiosqlite:///{db_file}"
+elif db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
 elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
