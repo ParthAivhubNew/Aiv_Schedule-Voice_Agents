@@ -108,6 +108,8 @@ import {
 
 
 import { api } from "./api/apiClient";
+import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
+import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -135,11 +137,23 @@ const VOICE_LAYERS = [
   { key: "calendar", label: "Calendar", paid: "Cal.com (Cloud)", oss: "Cal.com (Self-hosted)", options: ["Cal.com (Cloud)", "Cal.com (Self-hosted)", "Google Calendar", "Calendly"] },
 ];
 
+const LEADGEN_LAYERS = [
+  { key: "researchLlm", label: "Web Search & Account Discovery LLM", paid: "DeepSeek-V3", oss: "Groq Llama 3.3 70B", options: ["DeepSeek-V3", "GPT-4o", "Claude 3.5 Sonnet", "Gemini 2.0 Flash", "Groq Llama 3.3 70B"] },
+  { key: "extractorLlm", label: "Prospect Intelligence & Contact Extractor", paid: "Groq Llama 3.3 70B", oss: "Ollama Llama 3.2 (Local)", options: ["Groq Llama 3.3 70B", "GPT-4o-mini", "DeepSeek-V3", "Claude 3.5 Sonnet", "Ollama Llama 3.2 (Local)"] },
+  { key: "enrichmentEngine", label: "Live Web & Domain Crawler", paid: "DuckDuckGo Live + Crawler", oss: "Direct Domain Scraping", options: ["DuckDuckGo Live + Crawler", "Direct Domain Scraping", "Google Custom Search"] },
+];
+
 const SCHEDULER_LAYERS = [
   { key: "postWriter", label: "Post Drafting & Copywriting", paid: "xAI Grok-2", oss: "Ollama Llama 3.2 (Local)", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "GPT-4o", "Groq Llama 3.3 70B", "Ollama Llama 3.2 (Local)"] },
   { key: "topicResearch", label: "Topic Research & Trend Discovery", paid: "xAI Grok-2", oss: "Ollama Mistral (Local)", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o (Web Knowledge)", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Mistral (Local)"] },
   { key: "chatPlanner", label: "Plan Chat Assistant", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
   { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", paid: "OpenAI text-embedding-3", oss: "Ollama nomic-embed (Local)", options: ["OpenAI text-embedding-3", "Gemini Embedding", "Ollama nomic-embed (Local)"] },
+];
+
+const EMAIL_LAYERS = [
+  { key: "copywriterLlm", label: "Cold Approach & Outreach Copywriting", paid: "Claude 3.5 Sonnet", oss: "Groq Llama 3.3 70B", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B", "Gemini 2.0 Flash"] },
+  { key: "replyClassifier", label: "Inbound Reply Drafter & Classifier", paid: "DeepSeek-V3", oss: "Ollama Mistral (Local)", options: ["DeepSeek-V3", "GPT-4o-mini", "Claude 3.5 Sonnet", "Groq Llama 3.3 70B", "Ollama Mistral (Local)"] },
+  { key: "contentTransformer", label: "Social Post-to-Email Repurposer", paid: "Claude 3.5 Sonnet", oss: "DeepSeek-R1 (Local)", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
 ];
 
 const INITIAL_COMMON_AI_CONFIG = {
@@ -150,11 +164,17 @@ const INITIAL_COMMON_AI_CONFIG = {
   // Extensible Connected Providers (Built-in + Custom User Added)
   providers: INITIAL_BUILTIN_PROVIDERS,
 
-  // Voice layers (shared with Voice Agent)
-  voiceLayers: Object.fromEntries(VOICE_LAYERS.map((l) => [l.key, ""])),
+  // 1. Lead Generation layers
+  leadgenLayers: Object.fromEntries(LEADGEN_LAYERS.map((l) => [l.key, l.paid])),
 
-  // Scheduler layers (shared with Post Scheduler)
-  schedulerLayers: Object.fromEntries(SCHEDULER_LAYERS.map((l) => [l.key, ""])),
+  // 2. Scheduler layers (shared with Post Scheduler)
+  schedulerLayers: Object.fromEntries(SCHEDULER_LAYERS.map((l) => [l.key, l.paid])),
+
+  // 3. Email Outreach layers
+  emailLayers: Object.fromEntries(EMAIL_LAYERS.map((l) => [l.key, l.paid])),
+
+  // 4. Voice layers (shared with Voice Agent)
+  voiceLayers: Object.fromEntries(VOICE_LAYERS.map((l) => [l.key, l.paid])),
   schedulerMode: "custom",
   temperature: 0.8,
   personaPrompt: "Write authoritative, crisp B2B content that teaches actionable lessons without fluff or corporate buzzwords. Speak directly to C-suite and operations leaders.",
@@ -184,9 +204,10 @@ const INITIAL_COMMON_AI_CONFIG = {
     estimatedCostUsd: 14.80,
     monthlyBudgetCapUsd: 120.00,
     pluginBreakdown: [
-      { id: "voice", name: "AI Voice Appointment Agent", tokens: 940000, cost: 7.52, percentage: 51, color: "#3457D5" },
-      { id: "scheduler", name: "Post Scheduler & Content AI", tokens: 685000, cost: 5.48, percentage: 37, color: "#0C8C7D" },
-      { id: "knowledge", name: "Company Knowledge & RAG Index", tokens: 220200, cost: 1.80, percentage: 12, color: "#B8760A" },
+      { id: "leadgen", name: "1. Lead Generation Plugin", tokens: 420000, cost: 3.36, percentage: 23, color: "#8B5CF6" },
+      { id: "scheduler", name: "2. Post Scheduler & Generator", tokens: 580000, cost: 4.64, percentage: 31, color: "#0C8C7D" },
+      { id: "emailoutreach", name: "3. Email Generation & Sending", tokens: 360000, cost: 2.88, percentage: 20, color: "#F59E0B" },
+      { id: "voice", name: "4. AI Voice Assistant", tokens: 485200, cost: 3.92, percentage: 26, color: "#3457D5" },
     ],
   },
 };
@@ -8782,8 +8803,8 @@ function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick }) {
 
 /* ---------------------------------- Common AI Configuration Modal & Views ---------------------------------- */
 
-function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "matrix" }) {
-  const [tab, setTab] = useState(initialTab); // "matrix" | "providers" | "voice" | "scheduler" | "subscription"
+function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "matrix", onNavigateToPlugin }) {
+  const [tab, setTab] = useState(initialTab); // "matrix" | "providers" | "leadgen" | "scheduler" | "email" | "voice" | "subscription"
   const [dirty, setDirty] = useState(false);
   const [showKeys, setShowKeys] = useState({});
   const [testingId, setTestingId] = useState(null);
@@ -8804,13 +8825,27 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
   if (!isOpen) return null;
 
+  const safeCommonAi = {
+    ...INITIAL_COMMON_AI_CONFIG,
+    ...(commonAi || {}),
+    providers: (commonAi?.providers && Array.isArray(commonAi.providers) && commonAi.providers.length)
+      ? commonAi.providers
+      : INITIAL_COMMON_AI_CONFIG.providers,
+    leadgenLayers: { ...INITIAL_COMMON_AI_CONFIG.leadgenLayers, ...(commonAi?.leadgenLayers || {}) },
+    schedulerLayers: { ...INITIAL_COMMON_AI_CONFIG.schedulerLayers, ...(commonAi?.schedulerLayers || {}) },
+    emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(commonAi?.emailLayers || {}) },
+    voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(commonAi?.voiceLayers || {}) },
+    subscription: { ...INITIAL_COMMON_AI_CONFIG.subscription, ...(commonAi?.subscription || {}) },
+    channelDirectives: { ...INITIAL_COMMON_AI_CONFIG.channelDirectives, ...(commonAi?.channelDirectives || {}) },
+  };
+
   const flash = () => {
     setDirty(true);
     setTimeout(() => setDirty(false), 1400);
   };
 
   const testConnection = async (id) => {
-    const p = commonAi.providers.find((prov) => prov.id === id);
+    const p = safeCommonAi.providers.find((prov) => prov.id === id);
     if (!p) return;
 
     if (!p.apiKey && p.id !== "ollama") {
@@ -8956,7 +8991,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     setCommonAi((prev) => ({
       ...prev,
       mode: "custom",
-      voiceLayers: { ...prev.voiceLayers, [key]: val },
+      voiceLayers: { ...((prev && prev.voiceLayers) || {}), [key]: val },
     }));
     flash();
   };
@@ -8965,37 +9000,57 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     setCommonAi((prev) => ({
       ...prev,
       schedulerMode: "custom",
-      schedulerLayers: { ...prev.schedulerLayers, [key]: val },
+      schedulerLayers: { ...((prev && prev.schedulerLayers) || {}), [key]: val },
+    }));
+    flash();
+  };
+
+  const updateLeadgenLayer = (key, val) => {
+    setCommonAi((prev) => ({
+      ...prev,
+      leadgenLayers: { ...((prev && prev.leadgenLayers) || {}), [key]: val },
+    }));
+    flash();
+  };
+
+  const updateEmailLayer = (key, val) => {
+    setCommonAi((prev) => ({
+      ...prev,
+      emailLayers: { ...((prev && prev.emailLayers) || {}), [key]: val },
     }));
     flash();
   };
 
   const allAvailableLlmModels = Array.from(new Set([
-    ...VOICE_LAYERS.find((l) => l.key === "llm").options,
-    ...SCHEDULER_LAYERS.find((l) => l.key === "postWriter").options,
-    ...commonAi.providers.filter((p) => p.type === "llm").flatMap((p) => p.models),
+    ...(LEADGEN_LAYERS.find((l) => l.key === "researchLlm")?.options || []),
+    ...(SCHEDULER_LAYERS.find((l) => l.key === "postWriter")?.options || []),
+    ...(EMAIL_LAYERS.find((l) => l.key === "copywriterLlm")?.options || []),
+    ...(VOICE_LAYERS.find((l) => l.key === "llm")?.options || []),
+    ...((safeCommonAi.providers || []).filter((p) => p.type === "llm").flatMap((p) => p.models || [])),
   ]));
 
   const isOss = (val) => String(val).toLowerCase().includes("self-hosted") || String(val).toLowerCase().includes("telnyx") || String(val).toLowerCase().includes("deepseek") || String(val).toLowerCase().includes("kokoro") || String(val).toLowerCase().includes("livekit") || String(val).toLowerCase().includes("whisper") || String(val).toLowerCase().includes("local");
 
-  const tokenPercent = Math.round((commonAi.subscription.tokensUsed / commonAi.subscription.monthlyTokenQuota) * 100);
+  const subTokens = safeCommonAi.subscription?.tokensUsed || 0;
+  const subQuota = safeCommonAi.subscription?.monthlyTokenQuota || 1;
+  const tokenPercent = Math.round((subTokens / subQuota) * 100);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.7)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px" }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: 960, maxWidth: "96vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 56px rgba(0,0,0,0.28)", border: `1px solid ${C.border}` }}>
+      <div style={{ background: "#fff", borderRadius: 16, width: 1020, maxWidth: "96vw", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 56px rgba(0,0,0,0.28)", border: `1px solid ${C.border}` }}>
         
         {/* Header with spacious padding */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 28px", borderBottom: `1px solid ${C.border}`, background: HUB_PAPER }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 28px", borderBottom: `1px solid ${C.border}`, background: HUB_PAPER }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 10, background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 4px 12px rgba(52,87,213,0.25)" }}>
-              <Settings2 size={20} />
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 4px 12px rgba(52,87,213,0.25)" }}>
+              <Settings2 size={22} />
             </div>
             <div>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 19, color: C.ink, letterSpacing: "-0.01em" }}>
                 Platform AI & Provider Configuration
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                Connect any AI provider or key, inspect plugin requirements, and fit models to each plugin
+                Unified intelligence matrix powering all 4 chronological workspace plugins
               </div>
             </div>
           </div>
@@ -9004,13 +9059,15 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           </button>
         </div>
 
-        {/* Navigation Tabs - No clipped overflow scrollbars */}
-        <div style={{ display: "flex", gap: 6, padding: "0 28px", borderBottom: `1px solid ${C.border}`, background: "#fff", flexWrap: "wrap" }}>
+        {/* Navigation Tabs */}
+        <div style={{ display: "flex", gap: 4, padding: "0 28px", borderBottom: `1px solid ${C.border}`, background: "#fff", flexWrap: "wrap" }}>
           {[
-            { id: "matrix", label: "Plugin AI Matrix & Needs", icon: LayoutGrid, count: "Inspect" },
-            { id: "providers", label: "Connected Providers & Keys", icon: KeyRound, count: `${commonAi.providers.length}` },
-            { id: "voice", label: "Voice Agent Stack", icon: PhoneCall },
-            { id: "scheduler", label: "Post Scheduler Models", icon: CalendarDays },
+            { id: "matrix", label: "Unified AI Architecture Matrix", icon: LayoutGrid, count: "4 Plugins" },
+            { id: "providers", label: "Connected Providers & Keys", icon: KeyRound, count: `${(safeCommonAi.providers || []).length}` },
+            { id: "leadgen", label: "1. Lead Generation", icon: Search },
+            { id: "scheduler", label: "2. Post Scheduler", icon: CalendarDays },
+            { id: "email", label: "3. Email Outreach", icon: Mail },
+            { id: "voice", label: "4. AI Voice Assistant", icon: PhoneCall },
             { id: "subscription", label: "Subscription Quotas", icon: BarChart3 },
           ].map((t) => {
             const Icon = t.icon;
@@ -9022,21 +9079,21 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 8,
-                  padding: "13px 16px",
+                  gap: 7,
+                  padding: "12px 14px",
                   borderRadius: "8px 8px 0 0",
                   border: "none",
                   borderBottom: active ? `3px solid ${C.cobalt}` : "3px solid transparent",
                   background: "transparent",
                   color: active ? C.cobalt : C.slate,
                   fontFamily: FONT_BODY,
-                  fontSize: 13,
+                  fontSize: 12.5,
                   fontWeight: active ? 700 : 500,
                   cursor: "pointer",
                   transition: "all 0.15s",
                 }}
               >
-                <Icon size={15} />
+                <Icon size={14} />
                 <span>{t.label}</span>
                 {t.count && (
                   <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 999, background: active ? C.cobaltSoft : C.paperSoft, color: active ? C.cobaltDeep : C.slate, fontWeight: 700 }}>
@@ -9048,100 +9105,151 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           })}
         </div>
 
-        {/* Body Content with generous padding and vertical rhythm */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
+        {/* Body Content with generous scrolling padding */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px" }}>
           
-          {/* TAB 1: PLUGIN MATRIX & REQUIREMENTS INSPECTION */}
+          {/* TAB 1: PLUGIN MATRIX & REQUIREMENTS INSPECTION (CHRONOLOGICAL 1 TO 4) */}
           {tab === "matrix" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-              <div style={{ background: C.cobaltSoft, border: `1px solid ${C.cobalt}`, borderRadius: 10, padding: "12px 16px", fontFamily: FONT_BODY, fontSize: 13, color: C.cobaltDeep, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              
+              <div style={{ background: "linear-gradient(135deg, #F0F4FF, #F5EEFD)", border: `1px solid #D4D8F0`, borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Info size={16} />
-                  <span>Inspect what models and layers are required by each plugin, and fit or reassign them in 1-click.</span>
-                </div>
-                <span style={{ fontWeight: 700, fontSize: 11.5, background: "#fff", padding: "3px 8px", borderRadius: 6 }}>Unified Multi-Tenant License</span>
-              </div>
-
-              {/* Active Plugin 1: AI Voice Appointment Agent */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: 8, background: C.cobaltSoft, color: C.cobalt, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <PhoneCall size={16} />
+                  <Sparkles size={18} color={C.cobalt} />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      Chronological Business Funnel · Unified AI Architecture
                     </div>
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>AI Voice Appointment Agent</div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>Requires: 1 Fast Dialogue LLM + 1 STT Engine + 1 TTS Voice + Telephony Carrier</div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                      Inspect and configure the AI connections powering each plugin. Models can be matched from any connected provider or self-hosted endpoint.
                     </div>
                   </div>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
-                    ✓ 6/6 Requirements Configured
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6, background: "#fff", color: C.cobalt, border: `1px solid ${C.cobaltSoft}` }}>
+                    4 Active Plugins
                   </span>
+                </div>
+              </div>
+
+              {/* 1. LEAD GENERATION PLUGIN */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: "#EDE9FE", color: "#8B5CF6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Search size={18} />
+                    </div>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
+                          1. Lead Generation Plugin
+                        </span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: "#EDE9FE", color: "#7C3AED" }}>
+                          Step 1: Lead Scout
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                        Generates qualified leads for the user's business through AI web discovery, decision-maker extraction, and deep dossiers
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
+                      ✓ 3/3 Connections Active
+                    </span>
+                    {onNavigateToPlugin && (
+                      <button
+                        onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
+                        style={{ fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 6, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                      >
+                        Open <ChevronRight size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Dialogue & Reasoning LLM</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Web Search & Discovery LLM</div>
                     <select
-                      value={commonAi.voiceLayers.llm}
-                      onChange={(e) => updateVoiceLayer("llm", e.target.value)}
+                      value={safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3"}
+                      onChange={(e) => updateLeadgenLayer("researchLlm", e.target.value)}
                       style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
                     >
-                      {allAvailableLlmModels.map((m) => (
+                      {Array.from(new Set([...(LEADGEN_LAYERS[0]?.options || []), ...allAvailableLlmModels])).map((m) => (
                         <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
                   </div>
 
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Speech-To-Text (STT)</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Prospect Intelligence & Extractor</div>
                     <select
-                      value={commonAi.voiceLayers.stt}
-                      onChange={(e) => updateVoiceLayer("stt", e.target.value)}
+                      value={safeCommonAi.leadgenLayers?.extractorLlm || "Groq Llama 3.3 70B"}
+                      onChange={(e) => updateLeadgenLayer("extractorLlm", e.target.value)}
                       style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
                     >
-                      <option value="Deepgram Nova-3">Deepgram Nova-3 (Paid)</option>
-                      <option value="Faster-Whisper (self-hosted)">Faster-Whisper (OSS)</option>
+                      {Array.from(new Set([...(LEADGEN_LAYERS[1]?.options || []), ...allAvailableLlmModels])).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
                     </select>
                   </div>
 
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Text-To-Speech (TTS)</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Live Web & Domain Crawler</div>
                     <select
-                      value={commonAi.voiceLayers.tts}
-                      onChange={(e) => updateVoiceLayer("tts", e.target.value)}
+                      value={safeCommonAi.leadgenLayers?.enrichmentEngine || "DuckDuckGo Live + Crawler"}
+                      onChange={(e) => updateLeadgenLayer("enrichmentEngine", e.target.value)}
                       style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
                     >
-                      <option value="ElevenLabs Turbo">ElevenLabs Turbo (Paid)</option>
-                      <option value="Cartesia Sonic">Cartesia Sonic (Paid)</option>
-                      <option value="Kokoro (self-hosted)">Kokoro (OSS)</option>
+                      {(LEADGEN_LAYERS[2]?.options || []).map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
               </div>
 
-              {/* Active Plugin 2: Post Scheduler & Content AI */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+              {/* 2. POST SCHEDULER & GENERATOR */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, color: C.teal, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <CalendarDays size={16} />
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: C.tealSoft, color: C.teal, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <CalendarDays size={18} />
                     </div>
                     <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>Post Scheduler & Content AI</div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>Requires: 1 Copywriter LLM + 1 Research LLM + 1 Chat Assistant + Knowledge Embeddings</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
+                          2. Post Scheduler & Generator
+                        </span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: C.tealSoft, color: C.teal }}>
+                          Step 2: Content Marketing
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                        Social content planner, scheduler, multi-channel generator, and image studio
+                      </div>
                     </div>
                   </div>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
-                    ✓ 4/4 Requirements Configured
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
+                      ✓ 4/4 Connections Active
+                    </span>
+                    {onNavigateToPlugin && (
+                      <button
+                        onClick={() => { onNavigateToPlugin("scheduler"); onClose(); }}
+                        style={{ fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 6, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                      >
+                        Open <ChevronRight size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Post Drafting LLM</div>
                     <select
-                      value={commonAi.schedulerLayers.postWriter}
+                      value={safeCommonAi.schedulerLayers?.postWriter || "xAI Grok-2"}
                       onChange={(e) => updateSchedulerLayer("postWriter", e.target.value)}
                       style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
                     >
@@ -9154,7 +9262,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Topic Research LLM</div>
                     <select
-                      value={commonAi.schedulerLayers.topicResearch}
+                      value={safeCommonAi.schedulerLayers?.topicResearch || "xAI Grok-2"}
                       onChange={(e) => updateSchedulerLayer("topicResearch", e.target.value)}
                       style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
                     >
@@ -9167,7 +9275,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Plan Chat Assistant</div>
                     <select
-                      value={commonAi.schedulerLayers.chatPlanner}
+                      value={safeCommonAi.schedulerLayers?.chatPlanner || "xAI Grok-2"}
                       onChange={(e) => updateSchedulerLayer("chatPlanner", e.target.value)}
                       style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
                     >
@@ -9179,30 +9287,168 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 </div>
               </div>
 
-              {/* Future Extensible Plugins Slot */}
-              <div style={{ background: "#fff", border: `1px dashed ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.ink }}>
-                    Future Plugin Readiness Slots (Auto-inherited on plugin install)
-                  </div>
-                  <span style={{ fontSize: 11.5, color: C.slate }}>Pre-configured defaults</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                  {commonAi.futurePlugins.map((fp) => {
-                    const Icon = fp.icon;
-                    return (
-                      <div key={fp.id} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                          <Icon size={15} color={C.cobalt} />
-                          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{fp.name}</span>
-                        </div>
-                        <div style={{ fontSize: 11.5, color: C.slate }}>Needs: {fp.reqs}</div>
-                        <div style={{ fontSize: 11.5, color: C.cobaltDeep, fontWeight: 600, marginTop: 5 }}>
-                          Assigned: {Object.values(fp.assigned)[0]}
-                        </div>
+              {/* 3. EMAIL GENERATION AND SENDING PLUGIN */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: "#FEF3C7", color: "#D97706", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Mail size={18} />
+                    </div>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
+                          3. Email Generation & Sending Plugin
+                        </span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: "#FEF3C7", color: "#B45309" }}>
+                          Step 3: Direct Outreach
+                        </span>
                       </div>
-                    );
-                  })}
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                        Generates / drafts emails for approaching or replying to clients, and distributes advertising & generated content
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
+                      ✓ 3/3 Connections Active
+                    </span>
+                    {onNavigateToPlugin && (
+                      <button
+                        onClick={() => { onNavigateToPlugin("emailoutreach"); onClose(); }}
+                        style={{ fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 6, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                      >
+                        Open <ChevronRight size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Outreach Copywriting LLM</div>
+                    <select
+                      value={safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet"}
+                      onChange={(e) => updateEmailLayer("copywriterLlm", e.target.value)}
+                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
+                    >
+                      {Array.from(new Set([...(EMAIL_LAYERS[0]?.options || []), ...allAvailableLlmModels])).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Inbound Reply Drafter</div>
+                    <select
+                      value={safeCommonAi.emailLayers?.replyClassifier || "DeepSeek-V3"}
+                      onChange={(e) => updateEmailLayer("replyClassifier", e.target.value)}
+                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
+                    >
+                      {Array.from(new Set([...(EMAIL_LAYERS[1]?.options || []), ...allAvailableLlmModels])).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Post-to-Email Content Repurposer</div>
+                    <select
+                      value={safeCommonAi.emailLayers?.contentTransformer || "Claude 3.5 Sonnet"}
+                      onChange={(e) => updateEmailLayer("contentTransformer", e.target.value)}
+                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
+                    >
+                      {Array.from(new Set([...(EMAIL_LAYERS[2]?.options || []), ...allAvailableLlmModels])).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. AI VOICE ASSISTANT */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: C.cobaltSoft, color: C.cobalt, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <PhoneCall size={18} />
+                    </div>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
+                          4. AI Voice Assistant
+                        </span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: C.cobaltSoft, color: C.cobaltDeep }}>
+                          Step 4: Autonomous Closing
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                        Live multi-line outbound voice SDR: dial verified leads, hold natural voice conversations, book meetings
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#E8F5E9", color: "#1B5E20", border: "1px solid #C8E6C9" }}>
+                      ✓ 6/6 Connections Active
+                    </span>
+                    {onNavigateToPlugin && (
+                      <button
+                        onClick={() => { onNavigateToPlugin("voice"); onClose(); }}
+                        style={{ fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 6, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                      >
+                        Open <ChevronRight size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Dialogue & Reasoning LLM</div>
+                    <select
+                      value={safeCommonAi.voiceLayers?.llm || "xAI Grok-2"}
+                      onChange={(e) => updateVoiceLayer("llm", e.target.value)}
+                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
+                    >
+                      {allAvailableLlmModels.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Speech-To-Text (STT)</div>
+                    <select
+                      value={safeCommonAi.voiceLayers?.stt || "Deepgram Nova-3"}
+                      onChange={(e) => updateVoiceLayer("stt", e.target.value)}
+                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
+                    >
+                      <option value="Deepgram Nova-3">Deepgram Nova-3 (Paid)</option>
+                      <option value="Faster-Whisper (self-hosted)">Faster-Whisper (OSS)</option>
+                      <option value="AssemblyAI">AssemblyAI (Cloud)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Text-To-Speech (TTS)</div>
+                    <select
+                      value={safeCommonAi.voiceLayers?.tts || "ElevenLabs Turbo"}
+                      onChange={(e) => updateVoiceLayer("tts", e.target.value)}
+                      style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", color: C.ink, cursor: "pointer" }}
+                    >
+                      <option value="ElevenLabs Turbo">ElevenLabs Turbo (Paid)</option>
+                      <option value="Cartesia Sonic">Cartesia Sonic (Paid)</option>
+                      <option value="Kokoro (self-hosted)">Kokoro (OSS)</option>
+                      <option value="PlayHT 2.0">PlayHT 2.0 (Paid)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cross-Plugin Pipeline Flow Ribbon */}
+              <div style={{ background: HUB_PAPER, border: `1px dashed ${C.border}`, borderRadius: 10, padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: C.slate }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Zap size={15} color="#D97706" />
+                  <span><strong>Automated Cross-Plugin Flow:</strong> Leads found in Step 1 can be handed off with 1-click to Email Sequences (Step 3) or AI Voice Calls (Step 4). Posts crafted in Step 2 can be repurposed as Email Blasts (Step 3).</span>
                 </div>
               </div>
 
@@ -9216,7 +9462,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
-                    Connected AI Providers ({commonAi.providers.length})
+                    Connected AI Providers ({(safeCommonAi.providers || []).length})
                   </div>
                   <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
                     Manage API keys, endpoints, or add custom OpenAI-compatible models & providers
@@ -9246,7 +9492,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
               {/* Providers Grid */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {commonAi.providers.map((p) => {
+                {(safeCommonAi.providers || []).map((p) => {
                   const isVisible = showKeys[p.id];
                   const isTesting = testingId === p.id;
                   const isCustom = p.id.startsWith("custom_");
@@ -9319,7 +9565,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
                       <div style={{ fontSize: 11.5, color: C.slate, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <span>Endpoint: <code style={{ fontSize: 10.5 }}>{p.baseUrl}</code></span>
-                        <span>{p.models.length} model{p.models.length > 1 ? "s" : ""}</span>
+                        <span>{(p.models || []).length} model{(p.models || []).length > 1 ? "s" : ""}</span>
                       </div>
                     </div>
                   );
@@ -9329,11 +9575,196 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             </div>
           )}
 
-          {/* TAB 3: VOICE AGENT STACK */}
+          {/* TAB 3: LEAD GENERATION DEDICATED CONFIG */}
+          {tab === "leadgen" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ background: "#EDE9FE", border: `1px solid #DDD6FE`, borderRadius: 8, padding: "12px 16px", fontFamily: FONT_BODY, fontSize: 12.5, color: "#6D28D9" }}>
+                Powers the <strong>Lead Generation Plugin</strong>. Directs autonomous web search discovery, contact extraction, and intelligence dossier compilation.
+              </div>
+
+              {/* Lead Gen Layers Table */}
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
+                  <div>Scouting Capability</div>
+                  <div>Assigned Engine / Model</div>
+                  <div>Status</div>
+                </div>
+                {LEADGEN_LAYERS.map((l) => {
+                  const val = safeCommonAi.leadgenLayers?.[l.key] || l.paid;
+                  const oss = isOss(val);
+                  return (
+                    <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
+                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <select
+                          value={val}
+                          onChange={(e) => updateLeadgenLayer(l.key, e.target.value)}
+                          style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}
+                        >
+                          {l.options.map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: 999, background: C.green }} />
+                        <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Operational</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: POST SCHEDULER DEDICATED CONFIG */}
+          {tab === "scheduler" && (
+            <div>
+              <div style={{ background: C.tealSoft, border: `1px solid ${C.teal}`, borderRadius: 8, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.teal, marginBottom: 16 }}>
+                Shared with the <strong>Post Scheduler</strong> plugin. Powers post drafting, topic research queries, and plan calendar discussions.
+              </div>
+
+              {/* Mode Selector for Scheduler */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+                {[
+                  { id: "paid", title: "Managed Models", desc: "Claude 3.5 + Gemini Flash. Highest quality and speed." },
+                  { id: "opensource", title: "Local / Open Source", desc: "Ollama Llama 3.2 + DeepSeek. 100% private." },
+                  { id: "custom", title: "Custom Mix", desc: "Choose model per content task." },
+                ].map((m) => {
+                  const active = (safeCommonAi.schedulerMode || "paid") === m.id;
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => applySchedulerMode(m.id)}
+                      style={{
+                        border: `2px solid ${active ? C.teal : C.border}`,
+                        borderRadius: 10,
+                        padding: 14,
+                        cursor: "pointer",
+                        background: active ? C.teal : "#fff",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: active ? "#fff" : C.textInk }}>{m.title}</div>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: active ? "#E4F5F2" : C.slate, marginTop: 4 }}>{m.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Scheduler Layers Table */}
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 18 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
+                  <div>Task / Capability</div>
+                  <div>Assigned Model</div>
+                  <div>Tier</div>
+                </div>
+                {SCHEDULER_LAYERS.map((l) => {
+                  const val = safeCommonAi.schedulerLayers?.[l.key] || l.paid;
+                  const oss = isOss(val);
+                  return (
+                    <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
+                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <select
+                          value={val}
+                          onChange={(e) => updateSchedulerLayer(l.key, e.target.value)}
+                          style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}
+                        >
+                          {l.options.map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: oss ? C.tealSoft : C.cobaltSoft, color: oss ? C.teal : C.cobaltDeep }}>
+                          {oss ? "SELF-HOSTED / LOCAL" : "MANAGED API"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Temperature & Brand Tone */}
+              <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>Creativity Temperature: {safeCommonAi.temperature || 0.7}</label>
+                  <span style={{ fontSize: 12, color: C.slate }}>{(safeCommonAi.temperature || 0.7) > 0.7 ? "Creative & Engaging" : "Analytical & Focused"}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={safeCommonAi.temperature || 0.7}
+                  onChange={(e) => {
+                    setCommonAi((p) => ({ ...p, temperature: parseFloat(e.target.value) }));
+                    flash();
+                  }}
+                  style={{ width: "100%", marginBottom: 14 }}
+                />
+
+                <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 5 }}>Brand Voice Persona Instructions</label>
+                <textarea
+                  value={safeCommonAi.personaPrompt || ""}
+                  onChange={(e) => {
+                    setCommonAi((p) => ({ ...p, personaPrompt: e.target.value }));
+                    flash();
+                  }}
+                  rows={2}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: EMAIL OUTREACH DEDICATED CONFIG */}
+          {tab === "email" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ background: "#FEF3C7", border: `1px solid #FDE68A`, borderRadius: 8, padding: "12px 16px", fontFamily: FONT_BODY, fontSize: 12.5, color: "#92400E" }}>
+                Powers the <strong>Email Generation & Sending Plugin</strong>. Configures AI draft quality for cold approaches, instant reply generation, and post-to-email repurposing.
+              </div>
+
+              {/* Email Layers Table */}
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
+                  <div>Email Workflow Stage</div>
+                  <div>Assigned Model</div>
+                  <div>Status</div>
+                </div>
+                {EMAIL_LAYERS.map((l) => {
+                  const val = safeCommonAi.emailLayers?.[l.key] || l.paid;
+                  return (
+                    <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
+                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <select
+                          value={val}
+                          onChange={(e) => updateEmailLayer(l.key, e.target.value)}
+                          style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}
+                        >
+                          {l.options.map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: 999, background: C.green }} />
+                        <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Connected</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: VOICE AGENT STACK */}
           {tab === "voice" && (
             <div>
               <div style={{ background: C.amberSoft, border: `1px solid #F0D9A8`, borderRadius: 8, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: "#8A5A05", marginBottom: 16 }}>
-                Shared with the <strong>AI Voice Appointment</strong> plugin. Mode changes here instantly take effect on calls and outreach.
+                Shared with the <strong>AI Voice Assistant</strong> plugin. Mode changes here instantly take effect on calls and outreach.
               </div>
 
               {/* Mode Selector */}
@@ -9343,7 +9774,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   { id: "opensource", title: "Open Source", desc: "Self-hosted models. Lower cost, full control." },
                   { id: "custom", title: "Custom", desc: "Mix providers per layer." },
                 ].map((m) => {
-                  const active = commonAi.mode === m.id;
+                  const active = safeCommonAi.mode === m.id;
                   return (
                     <div
                       key={m.id}
@@ -9372,7 +9803,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   <div>Status</div>
                 </div>
                 {VOICE_LAYERS.map((l) => {
-                  const val = commonAi.voiceLayers[l.key] || l.paid;
+                  const val = safeCommonAi.voiceLayers?.[l.key] || l.paid;
                   const oss = isOss(val);
                   return (
                     <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
@@ -9402,116 +9833,14 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             </div>
           )}
 
-          {/* TAB 4: CONTENT & SCHEDULING MODELS */}
-          {tab === "scheduler" && (
-            <div>
-              <div style={{ background: C.tealSoft, border: `1px solid ${C.teal}`, borderRadius: 8, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.teal, marginBottom: 16 }}>
-                Shared with the <strong>Post Scheduler</strong> plugin. Powers post drafting, topic research queries, and plan calendar discussions.
-              </div>
-
-              {/* Mode Selector for Scheduler */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-                {[
-                  { id: "paid", title: "Managed Models", desc: "Claude 3.5 + Gemini Flash. Highest quality and speed." },
-                  { id: "opensource", title: "Local / Open Source", desc: "Ollama Llama 3.2 + DeepSeek. 100% private." },
-                  { id: "custom", title: "Custom Mix", desc: "Choose model per content task." },
-                ].map((m) => {
-                  const active = (commonAi.schedulerMode || "paid") === m.id;
-                  return (
-                    <div
-                      key={m.id}
-                      onClick={() => applySchedulerMode(m.id)}
-                      style={{
-                        border: `2px solid ${active ? C.teal : C.border}`,
-                        borderRadius: 10,
-                        padding: 14,
-                        cursor: "pointer",
-                        background: active ? C.teal : "#fff",
-                        transition: "all 0.15s",
-                      }}
-                    >
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: active ? "#fff" : C.textInk }}>{m.title}</div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: active ? "#E4F5F2" : C.slate, marginTop: 4 }}>{m.desc}</div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Scheduler Layers Table */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 18 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
-                  <div>Task / Capability</div>
-                  <div>Assigned Model</div>
-                  <div>Tier</div>
-                </div>
-                {SCHEDULER_LAYERS.map((l) => {
-                  const val = commonAi.schedulerLayers[l.key] || l.paid;
-                  const oss = isOss(val);
-                  return (
-                    <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <select
-                          value={val}
-                          onChange={(e) => updateSchedulerLayer(l.key, e.target.value)}
-                          style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}
-                        >
-                          {l.options.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: oss ? C.tealSoft : C.cobaltSoft, color: oss ? C.teal : C.cobaltDeep }}>
-                          {oss ? "SELF-HOSTED / LOCAL" : "MANAGED API"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Temperature & Brand Tone */}
-              <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <label style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>Creativity Temperature: {commonAi.temperature}</label>
-                  <span style={{ fontSize: 12, color: C.slate }}>{commonAi.temperature > 0.7 ? "Creative & Engaging" : "Analytical & Focused"}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={commonAi.temperature}
-                  onChange={(e) => {
-                    setCommonAi((p) => ({ ...p, temperature: parseFloat(e.target.value) }));
-                    flash();
-                  }}
-                  style={{ width: "100%", marginBottom: 14 }}
-                />
-
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 5 }}>Brand Voice Persona Instructions</label>
-                <textarea
-                  value={commonAi.personaPrompt}
-                  onChange={(e) => {
-                    setCommonAi((p) => ({ ...p, personaPrompt: e.target.value }));
-                    flash();
-                  }}
-                  rows={2}
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, boxSizing: "border-box" }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: SUBSCRIPTION & QUOTAS */}
+          {/* TAB 7: SUBSCRIPTION & QUOTAS */}
           {tab === "subscription" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 18 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>{commonAi.subscription.tenantName}</div>
-                    <div style={{ fontSize: 12.5, color: C.slate }}>{commonAi.subscription.planTier}</div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>{safeCommonAi.subscription?.tenantName || "AIV Enterprise Platform"}</div>
+                    <div style={{ fontSize: 12.5, color: C.slate }}>{safeCommonAi.subscription?.planTier || "Growth Pro Tenant"}</div>
                   </div>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: C.green, background: C.greenSoft, padding: "4px 10px", borderRadius: 6 }}>
                     Master License Active
@@ -9521,21 +9850,26 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600, color: C.ink, marginBottom: 5 }}>
                     <span>Monthly Token Consumption</span>
-                    <span>{(commonAi.subscription.tokensUsed / 1000000).toFixed(2)}M / {(commonAi.subscription.monthlyTokenQuota / 1000000).toFixed(1)}M Tokens ({tokenPercent}%)</span>
+                    <span>{((safeCommonAi.subscription?.tokensUsed || 0) / 1000000).toFixed(2)}M / {((safeCommonAi.subscription?.monthlyTokenQuota || 1) / 1000000).toFixed(1)}M Tokens ({tokenPercent}%)</span>
                   </div>
                   <div style={{ height: 11, background: C.paperSoft, borderRadius: 6, overflow: "hidden", display: "flex" }}>
-                    {commonAi.subscription.pluginBreakdown.map((b) => (
-                      <div key={b.id} style={{ width: `${(b.tokens / commonAi.subscription.monthlyTokenQuota) * 100}%`, background: b.color, height: "100%" }} />
-                    ))}
+                    <div style={{ width: `${tokenPercent}%`, background: `linear-gradient(90deg, ${C.cobalt}, ${C.teal})` }} />
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                  {commonAi.subscription.pluginBreakdown.map((b) => (
-                    <div key={b.id} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>{b.name}</div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, color: C.ink, marginTop: 4 }}>
-                        {b.tokens.toLocaleString()} <span style={{ fontSize: 11.5, color: C.slate, fontWeight: 400 }}>({b.percentage}%)</span>
+                {/* 4-Plugin Usage Breakdown */}
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 10 }}>
+                  Usage Distribution Across 4 Plugins
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                  {(safeCommonAi.subscription?.pluginBreakdown || []).map((pb) => (
+                    <div key={pb.id} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>{pb.name}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: pb.color || C.cobalt }}>{pb.percentage}%</span>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: C.slate }}>
+                        {((pb.tokens || 0) / 1000).toFixed(0)}k tokens · ${(pb.cost || 0).toFixed(2)} est.
                       </div>
                     </div>
                   ))}
@@ -9546,14 +9880,26 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
         </div>
 
-        {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 28px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER }}>
-          <div style={{ fontSize: 12.5, color: C.slate }}>
-            {dirty ? <span style={{ color: C.teal, fontWeight: 600 }}>✓ Changes synced to all plugins</span> : "Settings automatically apply to new sessions"}
+        {/* Footer with dirty indicator & Close */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: dirty ? C.teal : C.slate }}>
+            <span style={{ width: 8, height: 8, borderRadius: 999, background: dirty ? C.teal : C.green }} />
+            <span>{dirty ? "Saved & synchronized across all 4 plugins" : "All plugin models in sync"}</span>
           </div>
+
           <button
             onClick={onClose}
-            style={{ padding: "9px 22px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            style={{
+              padding: "9px 22px",
+              borderRadius: 8,
+              background: C.ink,
+              color: "#fff",
+              fontFamily: FONT_BODY,
+              fontSize: 13,
+              fontWeight: 600,
+              border: "none",
+              cursor: "pointer",
+            }}
           >
             Done
           </button>
@@ -9563,75 +9909,78 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
       {/* Add Custom Provider Modal */}
       {showAddProviderModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
-          <div style={{ background: "#fff", borderRadius: 14, width: 520, padding: 24, maxWidth: "90%", boxShadow: "0 20px 40px rgba(0,0,0,0.25)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,12,18,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000, padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 12, width: 480, maxWidth: "95vw", padding: 24, boxShadow: "0 20px 40px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>Connect Custom Provider or Host</div>
-              <button onClick={() => setShowAddProviderModal(false)} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>Connect Custom AI Provider</div>
+              <button onClick={() => { setShowAddProviderModal(false); setAddProviderError(""); }} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate }}>
+                <X size={18} />
+              </button>
             </div>
 
-            <form onSubmit={handleAddCustomProvider} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <form onSubmit={handleAddCustomProvider} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div>
-                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Provider Name</label>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Provider Name</label>
                 <input
-                  required
+                  type="text"
+                  placeholder="e.g. Together AI, Fireworks, vLLM"
                   value={newProvider.name}
-                  onChange={(e) => setNewProvider({ ...newProvider, name: e.target.value })}
-                  placeholder="e.g. Internal vLLM Host, Cohere, Perplexity"
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }}
+                  onChange={(e) => setNewProvider((p) => ({ ...p, name: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5 }}
                 />
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Capability Category</label>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Provider Category</label>
                 <select
                   value={newProvider.type}
-                  onChange={(e) => setNewProvider({ ...newProvider, type: e.target.value })}
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff" }}
+                  onChange={(e) => setNewProvider((p) => ({ ...p, type: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff" }}
                 >
-                  <option value="llm">LLM (Conversation, Copywriting, Reasoning)</option>
-                  <option value="stt">Speech-to-Text (STT)</option>
-                  <option value="tts">Text-to-Speech (TTS)</option>
-                  <option value="telephony">Telephony / Carrier</option>
-                  <option value="embeddings">Embeddings / RAG Vector</option>
+                  <option value="llm">LLM (Language & Reasoning)</option>
+                  <option value="stt">STT (Speech-to-Text)</option>
+                  <option value="tts">TTS (Text-to-Speech)</option>
+                  <option value="voice">Voice Orchestration</option>
+                  <option value="telephony">Telephony Trunk</option>
                 </select>
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Endpoint Base URL</label>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>API Base URL (OpenAI Compatible)</label>
                 <input
-                  required
+                  type="text"
+                  placeholder="https://api.yourprovider.com/v1"
                   value={newProvider.baseUrl}
-                  onChange={(e) => setNewProvider({ ...newProvider, baseUrl: e.target.value })}
-                  placeholder="https://api.your-inference-host.com/v1"
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, boxSizing: "border-box" }}
+                  onChange={(e) => setNewProvider((p) => ({ ...p, baseUrl: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_MONO }}
                 />
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>API Key / Auth Bearer Token</label>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>API Key / Auth Token (Optional if Local)</label>
                 <input
+                  type="password"
+                  placeholder="sk-••••••••••••••••"
                   value={newProvider.apiKey}
-                  onChange={(e) => setNewProvider({ ...newProvider, apiKey: e.target.value })}
-                  placeholder="sk-... or not required for internal VPN endpoints"
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, boxSizing: "border-box" }}
+                  onChange={(e) => setNewProvider((p) => ({ ...p, apiKey: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_MONO }}
                 />
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 5 }}>Model ID(s) (Comma-separated)</label>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Model IDs (comma separated)</label>
                 <input
+                  type="text"
+                  placeholder="model-1, model-2"
                   value={newProvider.modelsText}
-                  onChange={(e) => setNewProvider({ ...newProvider, modelsText: e.target.value })}
-                  placeholder="custom-llama3-70b, custom-fine-tuned-v1"
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, boxSizing: "border-box" }}
+                  onChange={(e) => setNewProvider((p) => ({ ...p, modelsText: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5 }}
                 />
               </div>
 
               {addProviderError && (
-                <div style={{ padding: "8px 12px", background: "#FFEBEE", color: "#C62828", border: "1px solid #FFCDD2", borderRadius: 8, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span>⚠️</span>
-                  <span>{addProviderError}</span>
+                <div style={{ padding: "8px 12px", borderRadius: 6, background: "#FFEBEE", color: "#C62828", fontSize: 12, border: "1px solid #FFCDD2" }}>
+                  {addProviderError}
                 </div>
               )}
 
@@ -9669,40 +10018,109 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null); // { valid: bool, message: string }
 
-  // Scheduler AI settings (stored within commonAi.schedulerAi or defaults)
+  // Scheduler AI settings (stored within commonAi.schedulerAi, aivhub_scheduler_ai, or defaults)
   const [aiSettings, setAiSettings] = useState(() => {
+    let saved = null;
     try {
-      const saved = localStorage.getItem("aivhub_scheduler_ai");
-      if (saved) return JSON.parse(saved);
+      const s = localStorage.getItem("aivhub_scheduler_ai");
+      if (s) saved = JSON.parse(s);
     } catch (_) {}
+
+    const provId = saved?.provider || commonAi?.schedulerAi?.provider || "deepseek";
+    const commonKey = (commonAi?.providers || []).find((p) => p.id === provId || (provId === "openai" && p.id === "openai") || (provId === "deepseek" && p.id === "deepseek"))?.apiKey || "";
+
     return {
-      provider: commonAi?.schedulerAi?.provider || "deepseek",
-      apiKey: commonAi?.schedulerAi?.apiKey || "",
-      model: commonAi?.schedulerAi?.model || "deepseek-chat",
-      baseUrl: commonAi?.schedulerAi?.baseUrl || "https://api.deepseek.com",
-      imageEngine: commonAi?.schedulerAi?.imageEngine || "auto_flux",
-      imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas",
-      imageAspectRatio: commonAi?.schedulerAi?.imageAspectRatio || "16:9",
-      temperature: commonAi?.temperature || 0.7,
+      provider: provId,
+      apiKey: saved?.apiKey || commonAi?.schedulerAi?.apiKey || commonKey || "",
+      model: saved?.model || commonAi?.schedulerAi?.model || "deepseek-chat",
+      baseUrl: saved?.baseUrl || commonAi?.schedulerAi?.baseUrl || (provId === "deepseek" ? "https://api.deepseek.com" : provId === "openai" ? "https://api.openai.com/v1" : "http://localhost:11434/v1"),
+      imageEngine: saved?.imageEngine || commonAi?.schedulerAi?.imageEngine || "auto_flux",
+      imageStyle: saved?.imageStyle || commonAi?.schedulerAi?.imageStyle || "modern_saas",
+      imageAspectRatio: saved?.imageAspectRatio || commonAi?.schedulerAi?.imageAspectRatio || "16:9",
+      negativePrompt: saved?.negativePrompt || commonAi?.schedulerAi?.negativePrompt || "blurry, low quality, distorted text, deformed hands, watermark",
+      temperature: saved?.temperature ?? commonAi?.temperature ?? 0.7,
+      brandPersona: saved?.brandPersona || commonAi?.personaPrompt || (company?.pitch ? `Brand: ${company.name}. Value proposition: ${company.pitch}. Target audience: ${company.industry || "B2B Tech"}. Tone: ${company.tone || "Authoritative & Actionable"}.` : "Authoritative, insightful B2B operational leader tone. High clarity, actionable takeaways, no corporate fluff."),
     };
   });
 
+  // On mount: if apiKey is empty, check backend connections to see if user has already saved credentials
+  useEffect(() => {
+    let mounted = true;
+    async function recoverSavedConnections() {
+      if (aiSettings.apiKey && aiSettings.apiKey.trim()) return;
+      try {
+        const conns = await api.getConnections();
+        if (!mounted || !Array.isArray(conns)) return;
+        let foundKey = "";
+        for (const grp of conns) {
+          for (const it of grp.items || []) {
+            if ((aiSettings.provider === "deepseek" && it.name?.toLowerCase().includes("deepseek")) ||
+                (aiSettings.provider === "openai" && it.name?.toLowerCase().includes("openai")) ||
+                (it.layer === "LLM" && it.status === "connected")) {
+              if (it.apiKey) { foundKey = it.apiKey; break; }
+            }
+          }
+          if (foundKey) break;
+        }
+        if (foundKey) {
+          setAiSettings((prev) => {
+            const next = { ...prev, apiKey: foundKey };
+            try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(next)); } catch (_) {}
+            return next;
+          });
+        }
+      } catch (_) {}
+    }
+    recoverSavedConnections();
+    return () => { mounted = false; };
+  }, [aiSettings.provider]);
+
+  // Immediately auto-save to localStorage on every change so hard refresh never loses key!
   const updateSetting = (key, val) => {
     setAiSettings((prev) => {
       const next = { ...prev, [key]: val };
-      // update default baseUrl when provider changes, keep model unless empty
       if (key === "provider") {
         if (val === "deepseek") {
-          if (!prev.model) next.model = "deepseek-chat";
+          if (!prev.model || prev.model.includes("gpt")) next.model = "deepseek-chat";
           next.baseUrl = "https://api.deepseek.com";
         } else if (val === "openai") {
-          if (!prev.model) next.model = "gpt-4o-mini";
+          if (!prev.model || prev.model.includes("deepseek")) next.model = "gpt-4o-mini";
           next.baseUrl = "https://api.openai.com/v1";
         } else if (val === "custom") {
-          if (!prev.model) next.model = "deepseek-chat";
-          next.baseUrl = "http://localhost:11434/v1";
+          next.baseUrl = prev.baseUrl || "http://localhost:11434/v1";
+        }
+        // Check if commonAi has a key for this provider
+        const matchedProvKey = (commonAi?.providers || []).find((p) => p.id === val)?.apiKey;
+        if (matchedProvKey && !next.apiKey) {
+          next.apiKey = matchedProvKey;
         }
       }
+
+      // 1. Persist to localStorage immediately
+      try {
+        localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(next));
+      } catch (_) {}
+
+      // 2. Keep parent commonAi in sync immediately
+      if (setCommonAi) {
+        setCommonAi((p) => {
+          if (!p) return p;
+          const updatedProviders = (p.providers || []).map((prov) => {
+            if ((prov.id === next.provider || (next.provider === "deepseek" && prov.id === "deepseek") || (next.provider === "openai" && prov.id === "openai")) && key === "apiKey") {
+              return { ...prov, apiKey: val };
+            }
+            return prov;
+          });
+          return {
+            ...p,
+            schedulerAi: next,
+            providers: updatedProviders,
+            temperature: next.temperature,
+            personaPrompt: next.brandPersona || p.personaPrompt,
+          };
+        });
+      }
+
       return next;
     });
     setTestResult(null);
@@ -9715,6 +10133,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     }
     setTesting(true);
     setTestResult(null);
+    const startTime = Date.now();
     try {
       const res = await api.testConnection({
         layer: "LLM",
@@ -9724,10 +10143,20 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         base_url: aiSettings.baseUrl ? aiSettings.baseUrl.trim() : undefined,
         baseUrl: aiSettings.baseUrl ? aiSettings.baseUrl.trim() : undefined,
       });
+      const latency = Math.max(Date.now() - startTime, 20);
       if (res.valid) {
-        setTestResult({ valid: true, message: res.details || "Connected successfully! Key is active and verified." });
+        setTestResult({ valid: true, message: `Connected successfully! Key verified active (${latency}ms latency).` });
+        // Auto-persist verified key to backend
+        try {
+          await api.testAndSaveConnection({
+            layer: "LLM",
+            provider: aiSettings.provider,
+            api_key: aiSettings.apiKey.trim(),
+            base_url: aiSettings.baseUrl ? aiSettings.baseUrl.trim() : undefined,
+          });
+        } catch (_) {}
       } else {
-        setTestResult({ valid: false, message: res.error || "Authentication failed. Please check your key." });
+        setTestResult({ valid: false, message: res.error || "Authentication failed. Please verify key credentials." });
       }
     } catch (err) {
       setTestResult({ valid: false, message: err.message || "Failed to reach provider endpoint." });
@@ -9736,73 +10165,96 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     try {
       localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(aiSettings));
     } catch (_) {}
-    setCommonAi((prev) => ({
-      ...prev,
-      schedulerAi: aiSettings,
-      temperature: aiSettings.temperature,
-    }));
+    if (setCommonAi) {
+      setCommonAi((prev) => ({
+        ...prev,
+        schedulerAi: aiSettings,
+        temperature: aiSettings.temperature,
+        personaPrompt: aiSettings.brandPersona,
+      }));
+    }
+    if (aiSettings.apiKey.trim()) {
+      try {
+        await api.testAndSaveConnection({
+          layer: "LLM",
+          provider: aiSettings.provider,
+          api_key: aiSettings.apiKey.trim(),
+          base_url: aiSettings.baseUrl || undefined,
+        });
+      } catch (_) {}
+    }
     setDirty(true);
     setTimeout(() => setDirty(false), 2400);
   };
 
-  const samplePreviewPrompt = encodeURIComponent(`high tech operations analytics dashboard, ${aiSettings.imageStyle.replace("_", " ")}`);
-  const samplePreviewUrl = `https://image.pollinations.ai/prompt/${samplePreviewPrompt}?width=800&height=450&nologo=true&seed=42`;
-
   return (
     <div style={{ flex: 1, padding: "28px 36px", overflowY: "auto", background: HUB_PAPER, display: "flex", flexDirection: "column" }}>
-      <div style={{ maxWidth: 840, width: "100%", margin: "0 auto" }}>
+      <div style={{ maxWidth: 880, width: "100%", margin: "0 auto" }}>
         
         {/* Header box */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 23, color: C.ink, letterSpacing: "-0.02em" }}>
-              Post Scheduler · AI & Image Configuration
+              Social Media Plugin · Complete AI Configuration
             </div>
             <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4 }}>
-              Paste any AI chat key for social planning and customize automatic topic image generation.
+              Configure all AI features used across the scheduler: LLM reasoning, topic research, copywriting, and visual generation.
             </div>
           </div>
 
-          <button
-            onClick={handleSave}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 22px",
-              borderRadius: 10,
-              border: "none",
-              background: C.gradientTeal,
-              color: "#fff",
-              fontFamily: FONT_BODY,
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: "pointer",
-              boxShadow: C.glowTeal,
-            }}
-          >
-            <Save size={15} /> Save Settings
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={handleSave}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 22px",
+                borderRadius: 10,
+                border: "none",
+                background: C.gradientTeal,
+                color: "#fff",
+                fontFamily: FONT_BODY,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: C.glowTeal,
+              }}
+            >
+              <Save size={15} /> Save Settings
+            </button>
+          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          
-          {/* CARD 1: AI Chat & Planning Key */}
+
+          {/* CARD 1: AI Chat, Planning & Copywriting Key */}
           <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <KeyRound size={16} color={C.teal} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <KeyRound size={17} color={C.teal} />
+                </div>
+                <div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
+                    LLM Chat & Social Planning Credentials
+                  </div>
+                  <div style={{ fontSize: 12, color: C.slateLight, marginTop: 1 }}>
+                    Auto-saved directly to local storage & persisted across hard browser refreshes
+                  </div>
+                </div>
               </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
-                Planning & Content AI Key
-              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: aiSettings.apiKey ? "#E8F5E9" : C.amberSoft, color: aiSettings.apiKey ? "#1B5E20" : C.amber, border: `1px solid ${aiSettings.apiKey ? "#C8E6C9" : "rgba(217,119,6,0.25)"}` }}>
+                {aiSettings.apiKey ? "✓ Key Saved & Ready" : "⚠️ Key Missing"}
+              </span>
             </div>
-            <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 18 }}>
-              Select your AI provider and paste your API key. Used directly when you chat in the Plan assistant or generate post batches.
+
+            <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 18, marginTop: 8 }}>
+              Enter any AI provider and key. This single key powers conversational calendar scheduling, topic synthesis, and multi-channel post generation.
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1.2fr 2fr", gap: 16, marginBottom: 16 }}>
@@ -9827,9 +10279,9 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                     cursor: "pointer",
                   }}
                 >
-                  <option value="deepseek">DeepSeek (Recommended)</option>
-                  <option value="openai">OpenAI (GPT-4o)</option>
-                  <option value="custom">Custom / Local (Ollama / vLLM)</option>
+                  <option value="deepseek">DeepSeek (deepseek-chat / deepseek-reasoner)</option>
+                  <option value="openai">OpenAI (GPT-4o / GPT-4o-mini / o3-mini)</option>
+                  <option value="custom">Custom Endpoint (Ollama / vLLM / Local AI)</option>
                 </select>
               </div>
 
@@ -9837,10 +10289,10 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
-                    Model Name (User Provided)
+                    Model Identifier (User Provided)
                   </label>
                   <span style={{ fontSize: 11, color: C.slateLight }}>
-                    Type any model identifier
+                    Freely type any model name
                   </span>
                 </div>
                 <input
@@ -9852,8 +10304,8 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                     aiSettings.provider === "deepseek"
                       ? "e.g. deepseek-chat, deepseek-reasoner"
                       : aiSettings.provider === "openai"
-                      ? "e.g. gpt-4o, gpt-4o-mini"
-                      : "e.g. mistral, llama-3.3-70b, claude-3-5-sonnet"
+                      ? "e.g. gpt-4o, gpt-4o-mini, o3-mini"
+                      : "e.g. llama-3.3-70b, mistral, custom-model"
                   }
                   style={{
                     width: "100%",
@@ -9885,7 +10337,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                     ? ["deepseek-chat", "deepseek-reasoner"]
                     : aiSettings.provider === "openai"
                     ? ["gpt-4o", "gpt-4o-mini", "o3-mini"]
-                    : ["deepseek-chat", "gpt-4o", "llama-3.3-70b"]
+                    : ["deepseek-chat", "gpt-4o", "llama-3.3-70b", "mistral"]
                   ).map((m) => (
                     <button
                       key={m}
@@ -9936,16 +10388,21 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
 
             {/* API Key Input with Show/Hide and Test Connection */}
             <div>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
-                API Secret Key
-              </label>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
+                  API Secret Key
+                </label>
+                <span style={{ fontSize: 11, color: C.teal, fontWeight: 600 }}>
+                  ⚡ Changes are saved automatically as you type
+                </span>
+              </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ position: "relative", flex: 1 }}>
                   <input
                     type={showKey ? "text" : "password"}
                     value={aiSettings.apiKey}
                     onChange={(e) => updateSetting("apiKey", e.target.value)}
-                    placeholder="Paste your API key here (sk-...)"
+                    placeholder="Paste your API key here (e.g. sk-...) — auto-persists immediately"
                     style={{
                       width: "100%",
                       height: 42,
@@ -10015,9 +10472,9 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
-                    background: testResult.valid ? C.tealSoft : C.amberSoft,
-                    color: testResult.valid ? C.teal : C.amber,
-                    border: `1px solid ${testResult.valid ? "rgba(12,140,125,0.2)" : "rgba(217,119,6,0.2)"}`,
+                    background: testResult.valid ? "#E8F5E9" : "#FFEBEE",
+                    color: testResult.valid ? "#1B5E20" : "#C62828",
+                    border: `1px solid ${testResult.valid ? "#C8E6C9" : "#FFCDD2"}`,
                   }}
                 >
                   {testResult.valid ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
@@ -10027,34 +10484,82 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
             </div>
           </div>
 
-          {/* CARD 2: Topic Image Generation Settings */}
-          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          {/* CARD 2: Total Places Where AI is Used in Social Media Plugin */}
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 22, boxShadow: C.shadowCard }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
               <div style={{ width: 30, height: 30, borderRadius: 8, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Sparkles size={16} color={C.cobaltDeep} />
+                <LayoutGrid size={16} color={C.cobaltDeep} />
               </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
-                Automatic Topic Image Generator
+              <div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
+                  Active AI Capabilities in this Plugin ({aiSettings.model})
+                </div>
+                <div style={{ fontSize: 12, color: C.slate }}>
+                  All 5 dedicated areas where your AI key powers social media growth
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+              {[
+                { title: "1. Conversational Calendar & Plan AI", where: "Plan View (Right Chat Rail)", desc: "Analyzes company knowledge, suggests weekly themes, sets up slot cadences, and plans dates.", icon: CalendarDays },
+                { title: "2. Live Topic & Trend Researcher", where: "Live Topics View", desc: "Searches industry developments, extracts actionable hooks, and formulates high-interest content angles.", icon: Search },
+                { title: "3. Multi-Channel Post Copywriter", where: "Approvals & Slot Cards", desc: "Writes customized drafts for LinkedIn, X, Instagram, and Facebook using your Brand Tone Persona.", icon: FileText },
+                { title: "4. AI Visual Director & Graphic Generator", where: "Image Studio & Slot Graphics", desc: "Synthesizes contextual image prompts and renders 4K vector and editorial graphics with zero text distortion.", icon: Sparkles },
+                { title: "5. Smart Revision & Post Re-generator", where: "Post Review Modal", desc: "Instantly re-writes existing posts from alternate angles or varying content lengths on command.", icon: RefreshCw },
+                { title: "6. Knowledge Base Vector Retrieval", where: "Company Profile Tab", desc: "Automatically grounds all copy in your company's core pitch, value proposition, and prohibited words.", icon: Sparkles },
+              ].map((feat, idx) => {
+                const Icon = feat.icon;
+                return (
+                  <div key={idx} style={{ background: HUB_PAPER, border: `1px solid ${C.borderLight}`, borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <Icon size={14} color={C.teal} />
+                        <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{feat.title}</span>
+                      </div>
+                      <span style={{ fontSize: 10.5, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: C.tealSoft, color: C.teal }}>
+                        {feat.where}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: C.slate, lineHeight: 1.4 }}>
+                      {feat.desc}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* CARD 3: Topic Image Generation Settings */}
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Sparkles size={16} color={C.teal} />
+                </div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
+                  AI Image Generation Engine & Directives
+                </div>
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: C.tealSoft, color: C.teal }}>
-                Instant · No Key Needed
+                Flux / SDXL Engine Active
               </span>
             </div>
             <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 18 }}>
-              Each scheduled topic automatically receives a high-converting visual graphic tailored to the subject matter.
+              Each scheduled topic automatically receives a high-converting graphic tailored to your chosen art style and aspect ratio.
             </div>
 
             {/* Visual Style Selection */}
             <div style={{ marginBottom: 18 }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 8 }}>
-                Visual Art Style
+                Default Visual Art Style
               </label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
                 {[
-                  { id: "modern_saas", label: "Modern Tech SaaS", desc: "Clean UI vector gradients & icons" },
-                  { id: "editorial", label: "Photorealistic Editorial", desc: "Corporate magazine photography" },
-                  { id: "minimalist_3d", label: "3D Clay Minimalist", desc: "Isometric clay shapes & objects" },
-                  { id: "neon_tech", label: "Dark Neon Cyberpunk", desc: "Glowing holographic data charts" },
+                  { id: "modern_saas", label: "Modern Tech SaaS", desc: "Clean UI vector gradients & glowing icons" },
+                  { id: "editorial", label: "Photorealistic Editorial", desc: "Corporate executive & studio photography" },
+                  { id: "minimalist_3d", label: "3D Clay Minimalist", desc: "Isometric smooth clay shapes & objects" },
+                  { id: "neon_tech", label: "Dark Neon Cyberpunk", desc: "Glowing holographic data streaming charts" },
                 ].map((s) => {
                   const active = aiSettings.imageStyle === s.id;
                   return (
@@ -10083,15 +10588,16 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
             </div>
 
             {/* Aspect Ratio & Format */}
-            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-              <div style={{ flex: 1 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.8fr", gap: 16, alignItems: "flex-start" }}>
+              <div>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
-                  Default Aspect Ratio
+                  Default Canvas Ratio
                 </label>
                 <div style={{ display: "flex", gap: 8 }}>
                   {[
                     { id: "16:9", label: "16:9 Landscape (LinkedIn & X)", icon: Maximize2 },
                     { id: "1:1", label: "1:1 Square (Instagram & FB)", icon: LayoutGrid },
+                    { id: "9:16", label: "9:16 Vertical (Stories)", icon: Smartphone },
                   ].map((ar) => {
                     const active = aiSettings.imageAspectRatio === ar.id;
                     const Icon = ar.icon;
@@ -10106,50 +10612,136 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          gap: 8,
+                          gap: 6,
                           borderRadius: 8,
                           border: `1px solid ${active ? C.teal : C.border}`,
                           background: active ? C.teal : "#fff",
                           color: active ? "#fff" : C.slate,
                           fontFamily: FONT_BODY,
-                          fontSize: 12.5,
+                          fontSize: 11.5,
                           fontWeight: 600,
                           cursor: "pointer",
                         }}
                       >
-                        <Icon size={14} /> {ar.label}
+                        <Icon size={13} /> {ar.id}
                       </button>
                     );
                   })}
                 </div>
               </div>
+
+              {/* Negative Prompt filter */}
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                  Negative Prompt Filter (Unwanted Elements)
+                </label>
+                <input
+                  type="text"
+                  value={aiSettings.negativePrompt}
+                  onChange={(e) => updateSetting("negativePrompt", e.target.value)}
+                  placeholder="e.g. blurry, low quality, distorted text, deformed hands, watermark"
+                  style={{
+                    width: "100%",
+                    height: 38,
+                    padding: "0 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${C.border}`,
+                    fontFamily: FONT_BODY,
+                    fontSize: 12,
+                    color: C.ink,
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
             </div>
           </div>
 
-          {/* CARD 3: Creativity & Temperature */}
-          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 22, boxShadow: C.shadowCard }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <label style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
-                Copywriting Creativity Temperature: {aiSettings.temperature}
+          {/* CARD 4: Brand Tone, Persona Directives & Multi-Channel Formatting */}
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Sliders size={16} color={C.teal} />
+              </div>
+              <div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
+                  Copywriting Temperature & Brand Persona Directives
+                </div>
+                <div style={{ fontSize: 12, color: C.slate }}>
+                  Governs writing variance and injects tone guidelines into every AI post draft
+                </div>
+              </div>
+            </div>
+
+            {/* Temperature Slider */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>
+                  Creativity Temperature: {aiSettings.temperature}
+                </label>
+                <span style={{ fontSize: 12, fontWeight: 600, color: aiSettings.temperature > 0.75 ? C.amber : C.teal }}>
+                  {aiSettings.temperature > 0.8 ? "🔥 High Variance & Creative Hooks" : aiSettings.temperature > 0.6 ? "✨ Balanced & Authoritative" : "🎯 Analytical & Deterministic"}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="1.0"
+                step="0.05"
+                value={aiSettings.temperature}
+                onChange={(e) => updateSetting("temperature", parseFloat(e.target.value))}
+                style={{ width: "100%", accentColor: C.teal }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.slate, marginTop: 4 }}>
+                <span>0.1 (Strict & Factual)</span>
+                <span>0.7 (Balanced B2B Standard)</span>
+                <span>1.0 (Bold & Highly Creative)</span>
+              </div>
+            </div>
+
+            {/* Brand Persona Directives */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                Brand Voice Persona Directive (Injected into Writer System Prompt)
               </label>
-              <span style={{ fontSize: 12, fontWeight: 600, color: aiSettings.temperature > 0.75 ? C.amber : C.teal }}>
-                {aiSettings.temperature > 0.8 ? "🔥 High Variance & Creative Hooks" : aiSettings.temperature > 0.6 ? "✨ Balanced & Authoritative" : "🎯 Analytical & Deterministic"}
-              </span>
+              <textarea
+                rows={3}
+                value={aiSettings.brandPersona}
+                onChange={(e) => updateSetting("brandPersona", e.target.value)}
+                placeholder="Describe your desired tone, target audience, vocabulary, and forbidden words..."
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  borderRadius: 9,
+                  border: `1px solid ${C.border}`,
+                  fontSize: 12.5,
+                  fontFamily: FONT_BODY,
+                  color: C.ink,
+                  boxSizing: "border-box",
+                  lineHeight: 1.45,
+                }}
+              />
             </div>
-            <input
-              type="range"
-              min="0.1"
-              max="1.0"
-              step="0.05"
-              value={aiSettings.temperature}
-              onChange={(e) => updateSetting("temperature", parseFloat(e.target.value))}
-              style={{ width: "100%", accentColor: C.teal }}
-            />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.slate, marginTop: 6 }}>
-              <span>0.1 (Strict & Formal)</span>
-              <span>0.7 (Standard B2B Balanced)</span>
-              <span>1.0 (Bold & Viral)</span>
+
+            {/* Multi-channel Directives Preview */}
+            <div style={{ background: HUB_PAPER, border: `1px solid ${C.borderLight}`, borderRadius: 10, padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
+                Multi-Channel Formatting Directives Enforced by LLM:
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                {[
+                  { channel: "LinkedIn", rule: "Strong hook line, skimmable bullet points, 2-3 hashtags, CTA" },
+                  { channel: "X / Twitter", rule: "Under 280 characters, punchy statement, single focused takeaway" },
+                  { channel: "Instagram", rule: "Visual storytelling caption, conversational tone, 5-8 hashtag bundle" },
+                  { channel: "Facebook", rule: "Community focus, relatable hook, discussion question" },
+                ].map((ch, idx) => (
+                  <div key={idx} style={{ background: "#fff", border: `1px solid ${C.borderLight}`, borderRadius: 8, padding: 10 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: C.teal, marginBottom: 3 }}>{ch.channel}</div>
+                    <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.35 }}>{ch.rule}</div>
+                  </div>
+                ))}
+              </div>
             </div>
+
           </div>
 
         </div>
@@ -10157,7 +10749,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         {/* Save confirmation toast */}
         {dirty && (
           <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 20px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 1000 }}>
-            <CheckCircle2 size={16} color={C.teal} /> Post Scheduler AI key & image settings saved!
+            <CheckCircle2 size={16} color={C.teal} /> Post Scheduler AI key & configurations saved!
           </div>
         )}
 
@@ -10462,6 +11054,26 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
               <CalendarDays size={14} /> View Calendar
             </button>
           </div>
+        </div>
+
+        {/* Visual Director AI Chat Rail Notification */}
+        <div style={{ background: C.tealSoft, border: `1px solid ${C.teal}33`, borderRadius: 12, padding: "12px 18px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: C.teal, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Sparkles size={15} />
+            </div>
+            <div>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
+                Visual Director AI is Active on Your Right Rail
+              </span>
+              <span style={{ fontSize: 12.5, color: C.slate, marginLeft: 8 }}>
+                Chat with AI to brainstorm visual concepts, refine prompt lighting, or request graphic styles for any topic!
+              </span>
+            </div>
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: "#fff", color: C.teal, border: `1px solid ${C.teal}44` }}>
+            👉 Open Chat on Right
+          </span>
         </div>
 
         {/* 2-Column Main Workspace */}
@@ -11576,19 +12188,59 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
         <div style={{ fontFamily: FONT_BODY, fontSize: 15, color: C.slate, marginBottom: 36, textAlign: "center", maxWidth: 520 }}>
           Same platform shell, shared AI configuration. Open a plugin to work.
         </div>
-        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", justifyContent: "center" }}>
+        {/* Chronological Funnel Pipeline Ribbon */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 22px", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 999, marginBottom: 32, boxShadow: "0 2px 10px rgba(0,0,0,0.03)", flexWrap: "wrap", justifyContent: "center" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#8B5CF6", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 20, height: 20, borderRadius: 999, background: "#8B5CF6", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>1</span>
+            Lead Generation
+          </span>
+          <ChevronRight size={15} color={C.slateLight} />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.teal, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 20, height: 20, borderRadius: 999, background: C.teal, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>2</span>
+            Post Scheduler
+          </span>
+          <ChevronRight size={15} color={C.slateLight} />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#F59E0B", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 20, height: 20, borderRadius: 999, background: "#F59E0B", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>3</span>
+            Email Outreach
+          </span>
+          <ChevronRight size={15} color={C.slateLight} />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.cobalt, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 20, height: 20, borderRadius: 999, background: C.cobalt, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>4</span>
+            AI Voice Assistant
+          </span>
+        </div>
+
+        {/* 4 Plugins in exact chronological business flow */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 310px))", gap: 20, justifyContent: "center", width: "100%", maxWidth: 1320 }}>
+          <PluginCard
+            icon={Search}
+            title="1. Lead Generation"
+            blurb="Autonomous business lead scout: discover target accounts, extract verified decision-makers & numbers, and prepare enriched intelligence dossiers."
+            accent="#8B5CF6"
+            ready={true}
+            onClick={() => onPick("leadgen")}
+          />
           <PluginCard
             icon={CalendarDays}
-            title="Post scheduler"
-            blurb="Chat a 2-day, week or month plan, save it, write posts here from company knowledge, approve in-app or email, then publish."
+            title="2. Post Scheduler"
+            blurb="Social content planner & generator: multi-channel drafting from knowledge, editorial calendar scheduling, and AI visual creative studio."
             accent={C.teal}
             ready={true}
             onClick={() => onPick("scheduler")}
           />
           <PluginCard
+            icon={Mail}
+            title="3. Email Outreach"
+            blurb="AI email drafter & campaign sender: cold approach sequences, inbound client reply drafter, and post-to-email content repurposing."
+            accent="#F59E0B"
+            ready={true}
+            onClick={() => onPick("emailoutreach")}
+          />
+          <PluginCard
             icon={PhoneCall}
-            title="AI Voice Appointment"
-            blurb="Outbound voice SDR: import companies, call or message, book meetings. Humans supervise."
+            title="4. AI Voice Assistant"
+            blurb="Live multi-line outbound voice agent: import verified prospect contacts, initiate realistic telephone calls, book meetings, and supervise."
             accent={C.cobalt}
             ready={true}
             onClick={() => onPick("voice")}
@@ -12825,6 +13477,18 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       pushAi("Regenerated in this software from the next topic + company knowledge.");
       return;
     }
+    if (view === "images") {
+      const clean = text.trim();
+      const promptIdea1 = `Modern sleek SaaS vector illustration of ${clean}, glowing cyan telemetry graphs, frosted glassmorphism UI components, clean gradients, 4k`;
+      const promptIdea2 = `Photorealistic editorial photography of ${clean}, natural corporate executive studio lighting, 35mm lens, high detail, 8k`;
+      pushAi(
+        `🎨 Visual Director AI Suggestions for “${clean}”:\n\n` +
+        `1. Tech SaaS Vector Style:\n“${promptIdea1}”\n\n` +
+        `2. Editorial Photography Style:\n“${promptIdea2}”\n\n` +
+        `💡 Tip: Copy either prompt into the Image Studio prompt box on the left and click “Generate Visual” to render!`
+      );
+      return;
+    }
     if (view === "plan" && text.trim().split(/\s+/).length >= 2) {
       pushAi("Searching “" + text.trim() + "” for this plan.");
       runResearch(text.trim(), false);
@@ -13255,201 +13919,6 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
 
         <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-
-        {view === "company" && (
-          <div style={{ flex: 1, overflowY: "auto", padding: "28px 36px", background: HUB_PAPER }}>
-            <div style={{ maxWidth: 980, width: "100%", margin: "0 auto" }}>
-              
-              {/* Header Box */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14, marginBottom: 20 }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, letterSpacing: "-0.02em" }}>
-                      Company Knowledge Base
-                    </div>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, background: C.tealSoft, color: C.teal, padding: "3px 9px", borderRadius: 999, border: `1px solid #BFE6DF`, display: "flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: 999, background: C.teal }} />
-                      Synced with Voice AI Agent
-                    </span>
-                  </div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4 }}>
-                    Master identity, indexed documents, and core service definitions shared across both voice calling and automated content generation.
-                  </div>
-                </div>
-              </div>
-
-              {/* Sub-Tab Navigation */}
-              <div style={{ display: "flex", gap: 8, borderBottom: `1px solid ${C.border}`, marginBottom: 22 }}>
-                {[
-                  { id: "identity", label: "Company Identity & Tone", icon: Building2 },
-                  { id: "knowledge", label: "Knowledge Sources & Documents (" + (knowledgeSources || []).length + ")", icon: Globe },
-                  { id: "services", label: "Core Services & Offerings (" + (services || []).length + ")", icon: Briefcase },
-                ].map((t) => {
-                  const active = kbTab === t.id;
-                  const Icon = t.icon || BookOpen;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => setKbTab(t.id)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        padding: "10px 18px",
-                        borderRadius: "8px 8px 0 0",
-                        border: "none",
-                        borderBottom: active ? `2px solid ${C.teal}` : "2px solid transparent",
-                        background: active ? "#fff" : "transparent",
-                        color: active ? C.teal : C.slate,
-                        fontFamily: FONT_BODY,
-                        fontSize: 13,
-                        fontWeight: active ? 700 : 500,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Icon size={15} />
-                      <span>{t.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* TAB 1: IDENTITY */}
-              {kbTab === "identity" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 20, alignItems: "start" }}>
-                  <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 16 }}>
-                      Brand Identity & Voice Profile
-                    </div>
-
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>COMPANY NAME</label>
-                    <input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} style={{ width: "100%", height: 42, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 14, marginBottom: 16, background: HUB_PAPER, boxSizing: "border-box" }} />
-
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>PRIMARY VALUE PROPOSITION & PITCH</label>
-                    <textarea value={profile.pitch} onChange={(e) => setProfile({ ...profile, pitch: e.target.value })} rows={3} style={{ width: "100%", borderRadius: 9, border: `1px solid ${C.border}`, padding: 12, fontFamily: FONT_BODY, fontSize: 13.5, lineHeight: 1.5, marginBottom: 16, resize: "vertical", background: HUB_PAPER, boxSizing: "border-box" }} />
-
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
-                      <div>
-                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>INDUSTRY</label>
-                        <input value={profile.industry} onChange={(e) => setProfile({ ...profile, industry: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
-                      </div>
-                      <div>
-                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>WEBSITE</label>
-                        <input value={profile.website} onChange={(e) => setProfile({ ...profile, website: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
-                      </div>
-                    </div>
-
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>TONE & EDITORIAL DIRECTIVES</label>
-                    <input value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
-                  </div>
-
-                  {/* Right Preview Card */}
-                  <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 22, boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 10 }}>Brand Persona Preview</div>
-                    <div style={{ width: 44, height: 44, borderRadius: 12, background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginBottom: 12 }}>
-                      {profile.name ? profile.name.slice(0, 2).toUpperCase() : "AI"}
-                    </div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>{profile.name}</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 4 }}>{profile.industry} · {profile.website}</div>
-                    <div style={{ padding: "12px 14px", background: HUB_PAPER, borderRadius: 10, border: `1px solid ${C.border}`, marginTop: 14, fontFamily: FONT_BODY, fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>
-                      "{profile.pitch}"
-                    </div>
-                    <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.teal, fontWeight: 600 }}>
-                      <CheckCircle2 size={15} /> Active in voice prompts & social generators
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: KNOWLEDGE SOURCES */}
-              {kbTab === "knowledge" && (
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
-                        Indexed Documentation & Reference Materials
-                      </div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 3 }}>
-                        Websites, brochures, case studies, and FAQs parsed into vector embeddings for accurate content drafting.
-                      </div>
-                    </div>
-                    {!addingSource && (
-                      <button
-                        onClick={() => setAddingSource(true)}
-                        style={{ height: 36, padding: "0 14px", borderRadius: 8, border: "none", background: C.teal, color: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                      >
-                        <PlusCircle size={14} /> Add Source
-                      </button>
-                    )}
-                  </div>
-
-                  {addingSource && (
-                    <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18, marginBottom: 18 }}>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.ink, marginBottom: 10 }}>Add New Knowledge Source</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-                        <input value={newSource.name} onChange={(e) => setNewSource({ ...newSource, name: e.target.value })} placeholder="Document / Source Title (e.g. 2026 Rate Card)" style={{ height: 38, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }} />
-                        <input value={newSource.value} onChange={(e) => setNewSource({ ...newSource, value: e.target.value })} placeholder="URL, PDF path, or document notes" style={{ height: 38, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }} />
-                      </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => { if (!newSource.name || !newSource.value) return; setKnowledgeSources((xs) => [...xs, { id: "k_" + Date.now(), ...newSource, status: "indexed", synced: "just now" }]); setNewSource({ name: "", type: "Website URL", value: "" }); setAddingSource(false); }} style={{ height: 34, padding: "0 14px", borderRadius: 8, border: "none", background: C.teal, color: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Save & Index</button>
-                        <button onClick={() => setAddingSource(false)} style={{ height: 34, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Cancel</button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {(knowledgeSources || []).map((s) => (
-                      <div key={s.id} className="hover-float" style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", border: `1px solid ${C.border}`, borderRadius: 12, background: "#fff" }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 9, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                          <Globe size={16} color={C.teal} />
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>{s.name}</div>
-                          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {s.type || "Document"} · {s.value}
-                          </div>
-                        </div>
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.teal, background: C.tealSoft, border: `1px solid #BFE6DF`, borderRadius: 999, padding: "3px 10px" }}>
-                          ✓ Indexed & Synced
-                        </span>
-                        <button onClick={() => setKnowledgeSources((xs) => xs.filter((x) => x.id !== s.id))} title="Remove source" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                          <Trash2 size={14} color={C.slateLight} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 3: SERVICES */}
-              {kbTab === "services" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-                  {(services || []).map((s) => (
-                    <div key={s.id} className="hover-float" style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 8, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <Briefcase size={15} color={C.cobalt} />
-                        </div>
-                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, flex: 1 }}>{s.name}</div>
-                      </div>
-
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: C.slateLight, marginBottom: 4 }}>TARGET BUYER</div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk, marginBottom: 12, padding: "6px 10px", background: HUB_PAPER, borderRadius: 8 }}>
-                        {s.ideal}
-                      </div>
-
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: C.slateLight, marginBottom: 4 }}>VALUE PROPOSITION</div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, lineHeight: 1.5 }}>
-                        {s.desc}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-            </div>
-          </div>
-        )}
 
         {view === "plan" && (
           <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px 40px", background: HUB_PAPER }}>
@@ -14145,37 +14614,45 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                       Brand Identity & Voice Profile
                     </div>
 
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>COMPANY NAME</label>
-                    <input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} style={{ width: "100%", height: 42, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 14, marginBottom: 16, background: HUB_PAPER, boxSizing: "border-box" }} />
+                    {/* Safe profile accessor */}
+                    {(() => {
+                      const safeProfile = profile || INITIAL_COMPANY_PROFILE;
+                      return (
+                        <>
+                          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>COMPANY NAME</label>
+                          <input value={safeProfile.name || ""} onChange={(e) => setProfile && setProfile({ ...safeProfile, name: e.target.value })} style={{ width: "100%", height: 42, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 14, marginBottom: 16, background: HUB_PAPER, boxSizing: "border-box" }} />
 
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>PRIMARY VALUE PROPOSITION & PITCH</label>
-                    <textarea value={profile.pitch} onChange={(e) => setProfile({ ...profile, pitch: e.target.value })} rows={3} style={{ width: "100%", borderRadius: 9, border: `1px solid ${C.border}`, padding: 12, fontFamily: FONT_BODY, fontSize: 13.5, lineHeight: 1.5, marginBottom: 16, resize: "vertical", background: HUB_PAPER, boxSizing: "border-box" }} />
+                          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>PRIMARY VALUE PROPOSITION & PITCH</label>
+                          <textarea value={safeProfile.pitch || ""} onChange={(e) => setProfile && setProfile({ ...safeProfile, pitch: e.target.value })} rows={3} style={{ width: "100%", borderRadius: 9, border: `1px solid ${C.border}`, padding: 12, fontFamily: FONT_BODY, fontSize: 13.5, lineHeight: 1.5, marginBottom: 16, resize: "vertical", background: HUB_PAPER, boxSizing: "border-box" }} />
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
-                      <div>
-                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>INDUSTRY</label>
-                        <input value={profile.industry} onChange={(e) => setProfile({ ...profile, industry: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
-                      </div>
-                      <div>
-                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>WEBSITE</label>
-                        <input value={profile.website} onChange={(e) => setProfile({ ...profile, website: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
-                      </div>
-                    </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+                            <div>
+                              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>INDUSTRY</label>
+                              <input value={safeProfile.industry || ""} onChange={(e) => setProfile && setProfile({ ...safeProfile, industry: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
+                            </div>
+                            <div>
+                              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>WEBSITE</label>
+                              <input value={safeProfile.website || ""} onChange={(e) => setProfile && setProfile({ ...safeProfile, website: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
+                            </div>
+                          </div>
 
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>TONE & EDITORIAL DIRECTIVES</label>
-                    <input value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
+                          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>TONE & EDITORIAL DIRECTIVES</label>
+                          <input value={safeProfile.tone || ""} onChange={(e) => setProfile && setProfile({ ...safeProfile, tone: e.target.value })} style={{ width: "100%", height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, boxSizing: "border-box" }} />
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* Right Preview Card */}
                   <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 22, boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
                     <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 10 }}>Brand Persona Preview</div>
                     <div style={{ width: 44, height: 44, borderRadius: 12, background: C.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginBottom: 12 }}>
-                      {profile.name ? profile.name.slice(0, 2).toUpperCase() : "AI"}
+                      {(profile?.name || "AI").slice(0, 2).toUpperCase()}
                     </div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>{profile.name}</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 4 }}>{profile.industry} · {profile.website}</div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>{profile?.name || "AIVHub"}</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 4 }}>{profile?.industry || "Operations"} · {profile?.website || "aivhub.io"}</div>
                     <div style={{ padding: "12px 14px", background: HUB_PAPER, borderRadius: 10, border: `1px solid ${C.border}`, marginTop: 14, fontFamily: FONT_BODY, fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>
-                      "{profile.pitch}"
+                      "{profile?.pitch || "AI-powered operations dashboards."}"
                     </div>
                     <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.teal, fontWeight: 600 }}>
                       <CheckCircle2 size={15} /> Active in voice prompts & social generators
@@ -14334,7 +14811,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         )}
         </div>
 
-        {view === "plan" && (
+        {(view === "plan" || view === "images") && (
         <div
           style={{
             width: chatWidth,
@@ -14353,7 +14830,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
           {/* Draggable Resizer Edge */}
           <div
             onMouseDown={startDragChat}
-            title="Drag left/right to stretch Plan AI chat"
+            title="Drag left/right to stretch AI chat panel"
             style={{
               position: "absolute",
               top: 0,
@@ -14380,7 +14857,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
           {/* Header with Title and Quick Stretch Controls */}
           <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.ink }}>
-              <Sparkles size={15} color={C.teal} /> Plan AI
+              <Sparkles size={15} color={C.teal} /> {view === "images" ? "Visual Director AI" : "Plan AI"}
               <span style={{ fontSize: 11, color: C.slateLight, fontWeight: 500 }}>({chatWidth}px)</span>
             </div>
 
@@ -14412,7 +14889,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
           </div>
 
           <div style={{ padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, borderBottom: `1px solid ${C.border}`, background: HUB_PAPER, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>Dates, themes, or topic research. Drag border ↔ to stretch.</span>
+            <span>{view === "images" ? "Brainstorm visual ideas, prompt refinements, or graphic styles." : "Dates, themes, or topic research. Drag border ↔ to stretch."}</span>
           </div>
 
           {/* Message List */}
@@ -14454,7 +14931,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                 ref={chatInput}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Plan dates, frequencies, themes, or search a topic…"
+                placeholder={view === "images" ? "Ask for visual concepts or prompt ideas (e.g. sleek SaaS graphic for ops)…" : "Plan dates, frequencies, themes, or search a topic…"}
                 style={{ flex: 1, height: 42, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 14px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, color: C.textInk, outline: "none" }}
               />
               <button type="submit" style={{ width: 42, height: 42, borderRadius: 10, border: "none", background: C.teal, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(12,140,125,0.22)" }}>
@@ -15426,7 +15903,20 @@ export default function App() {
   const [commonAi, setCommonAi] = useState(() => {
     try {
       const saved = localStorage.getItem("aivhub_common_ai");
-      return saved ? JSON.parse(saved) : INITIAL_COMMON_AI_CONFIG;
+      if (!saved) return INITIAL_COMMON_AI_CONFIG;
+      const parsed = JSON.parse(saved);
+      return {
+        ...INITIAL_COMMON_AI_CONFIG,
+        ...parsed,
+        providers: (Array.isArray(parsed.providers) && parsed.providers.length > 0)
+          ? parsed.providers
+          : INITIAL_COMMON_AI_CONFIG.providers,
+        voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(parsed.voiceLayers || {}) },
+        schedulerLayers: { ...INITIAL_COMMON_AI_CONFIG.schedulerLayers, ...(parsed.schedulerLayers || {}) },
+        subscription: { ...INITIAL_COMMON_AI_CONFIG.subscription, ...(parsed.subscription || {}) },
+        channelDirectives: { ...INITIAL_COMMON_AI_CONFIG.channelDirectives, ...(parsed.channelDirectives || {}) },
+        futurePlugins: Array.isArray(parsed.futurePlugins) ? parsed.futurePlugins : INITIAL_COMMON_AI_CONFIG.futurePlugins,
+      };
     } catch (_) {
       return INITIAL_COMMON_AI_CONFIG;
     }
@@ -15518,6 +16008,24 @@ export default function App() {
         />
       )}
 
+      {plugin === "leadgen" && (
+        <LeadGenerationPlugin
+          operator={operator}
+          onBackToHub={() => setPlugin(null)}
+          onLogout={handleLogout}
+          profile={profile}
+          commonAi={commonAi}
+          onOpenCommonAi={() => setShowCommonAiModal(true)}
+          onNavigateToPlugin={(pId) => setPlugin(pId)}
+          onPushToEmail={(lead) => {
+            setPlugin("emailoutreach");
+          }}
+          onPushToVoice={(lead) => {
+            setPlugin("voice");
+          }}
+        />
+      )}
+
       {plugin === "scheduler" && (
         <PostSchedulerPlugin
           operator={operator}
@@ -15532,6 +16040,21 @@ export default function App() {
           commonAi={commonAi}
           setCommonAi={setCommonAi}
           onOpenCommonAi={() => setShowCommonAiModal(true)}
+        />
+      )}
+
+      {plugin === "emailoutreach" && (
+        <EmailOutreachPlugin
+          operator={operator}
+          onBackToHub={() => setPlugin(null)}
+          onLogout={handleLogout}
+          profile={profile}
+          commonAi={commonAi}
+          onOpenCommonAi={() => setShowCommonAiModal(true)}
+          onNavigateToPlugin={(pId) => setPlugin(pId)}
+          onEscalateToVoice={(thread) => {
+            setPlugin("voice");
+          }}
         />
       )}
 
@@ -15559,6 +16082,10 @@ export default function App() {
         onClose={() => setShowCommonAiModal(false)}
         commonAi={commonAi}
         setCommonAi={setCommonAi}
+        onNavigateToPlugin={(pId) => {
+          setShowCommonAiModal(false);
+          setPlugin(pId);
+        }}
       />
 
       <TeamUsersModal
