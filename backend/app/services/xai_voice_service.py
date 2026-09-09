@@ -31,6 +31,61 @@ from app.websockets.call_hub import call_hub
 
 logger = logging.getLogger("xai_voice_service")
 
+# Global registry of live xAI WebSocket sessions for supervisor takeover and handoff
+active_xai_sessions: Dict[str, Any] = {}
+
+async def notify_xai_takeover_state(call_id: str, taken: bool, recent_transcript: List[str] = None):
+    """
+    Informs xAI Realtime session when a human supervisor takes over or hands back.
+    On hand back, injects the conversation context so the AI resumes seamlessly.
+    """
+    ws = active_xai_sessions.get(call_id)
+    if not ws:
+        return
+    try:
+        if taken:
+            try:
+                await ws.send(json.dumps({"type": "response.cancel"}))
+            except Exception:
+                pass
+            await ws.send(json.dumps({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": "[SYSTEM NOTICE: A human supervisor has taken over the call. Do not speak or generate responses until instructed.]"
+                    }]
+                }
+            }))
+            logger.info(f"[XAI-WS] Muted xAI voice agent for supervisor takeover on call {call_id}")
+        else:
+            # Build smart briefing of what happened during human takeover
+            summary_lines = [str(l) for l in (recent_transcript or [])[-4:] if not str(l).startswith("System:")]
+            summary_text = " // ".join(summary_lines) if summary_lines else "The supervisor spoke with the prospect and answered their initial questions."
+            handoff_msg = (
+                f"[SYSTEM NOTICE: The human supervisor has just handed the call back to you. "
+                f"Points discussed during the takeover: '{summary_text}'. "
+                f"Acknowledge the handoff smoothly and continue assisting the client naturally.]"
+            )
+            await ws.send(json.dumps({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": handoff_msg
+                    }]
+                }
+            }))
+            # Trigger immediate spoken continuation
+            await ws.send(json.dumps({"type": "response.create"}))
+            logger.info(f"[XAI-WS] Injected supervisor handoff context into xAI session for call {call_id}")
+    except Exception as err:
+        logger.warning(f"[XAI-WS] Error notifying takeover state for {call_id}: {err}")
+
 
 # ----------------------------------------------------------------------
 # 1. SVIX STANDARD SIGNATURE VERIFICATION
@@ -524,6 +579,8 @@ async def join_xai_call_session(
             ping_timeout=15,
             close_timeout=10
         ) as ws:
+            active_xai_sessions[local_call_id] = ws
+            active_xai_sessions[call_id] = ws
             logger.info(f"[XAI-WS] ✓ WebSocket CONNECTED for call_id={call_id}")
             await log_process_event(
                 subsystem="voice",
@@ -689,6 +746,8 @@ async def join_xai_call_session(
             details={"callId": local_call_id, "sipCallId": call_id, "error": str(exc)}
         )
     finally:
+        active_xai_sessions.pop(local_call_id, None)
+        active_xai_sessions.pop(call_id, None)
         duration_sec = int(time.time() - start_ts)
         duration_str = f"{duration_sec // 60:02d}:{duration_sec % 60:02d}"
         await _finalize_call(local_call_id, duration_str, transcript_history)

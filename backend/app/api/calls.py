@@ -102,16 +102,20 @@ async def toggle_takeover(call_id: str, db: AsyncSession = Depends(get_db)):
         
     call.taken = not call.taken
     from app.websockets.media_stream import media_stream_hub
+    from app.services.xai_voice_service import notify_xai_takeover_state
+
     if call.taken:
         media_stream_hub.active_takeovers.add(call_id)
         call.transcript = (call.transcript or []) + [
             "System: ⚠️ SUPERVISOR TAKEOVER ACTIVE. Microphone live — AI voice rep muted."
         ]
+        await notify_xai_takeover_state(call_id, taken=True)
     else:
         media_stream_hub.active_takeovers.discard(call_id)
         call.transcript = (call.transcript or []) + [
-            "System: Supervisor relinquished control. AI voice rep re-enabled."
+            "System: Supervisor relinquished control. AI voice rep re-enabled with full context."
         ]
+        await notify_xai_takeover_state(call_id, taken=False, recent_transcript=call.transcript)
 
     await db.commit()
     await call_hub.broadcast("call_updated", {"callId": call_id, "taken": call.taken})
