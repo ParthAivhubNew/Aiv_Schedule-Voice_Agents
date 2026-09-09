@@ -113,6 +113,7 @@ import {
 
 import { api } from "./api/apiClient";
 import { WebSocketClient } from "./api/wsClient";
+import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 
@@ -3405,7 +3406,28 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
                       {line}
                     </div>
                   ))}
-                  {c.taken && <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.red, fontStyle: "italic" }}>— You are now speaking live —</div>}
+                  {c.taken && <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.red, fontStyle: "italic", fontWeight: 700 }}>— 🎙️ OPERATOR MIC LIVE — You are speaking directly to the prospect —</div>}
+                </div>
+              )}
+
+              {/* Real-time Audio Stream Indicators */}
+              {c.listening && !c.ended && (
+                <div style={{ marginTop: 8, background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 7, padding: "6px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: "#059669" }}>
+                    <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#10B981", animation: "pulse 1.5s infinite" }} />
+                    🎧 Live Call Audio Streaming to Your Speakers
+                  </div>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: "#059669" }}>8kHz μ-Law</span>
+                </div>
+              )}
+
+              {c.taken && !c.ended && (
+                <div style={{ marginTop: 8, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 7, padding: "6px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: "#DC2626" }}>
+                    <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#EF4444", animation: "pulse 1s infinite" }} />
+                    🔴 ON AIR: Supervisor Speaking Live (AI Muted)
+                  </div>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: "#DC2626" }}>MIC LIVE</span>
                 </div>
               )}
 
@@ -3425,8 +3447,24 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
                     </button>
                   )}
                   <div style={{ display: "flex", gap: 8 }}>
-                    <ActionBtn icon={isMessage ? MessageCircle : Mic} label={c.taken ? "Hand back" : "Take over"} onClick={() => toggleTaken(c.id)} active={c.taken} />
-                    {!isMessage && <ActionBtn icon={Headphones} label={c.listening ? "Stop listening" : "Listen"} onClick={() => toggleListen(c.id)} active={c.listening} />}
+                    <ActionBtn
+                      icon={isMessage ? MessageCircle : Mic}
+                      label={c.taken ? "Hand back to AI" : "Take over"}
+                      onClick={() => toggleTaken(c.id)}
+                      active={c.taken}
+                      activeColor="#DC2626"
+                      activeBg="#FEF2F2"
+                    />
+                    {!isMessage && (
+                      <ActionBtn
+                        icon={Headphones}
+                        label={c.listening ? "Stop listening" : "Listen live"}
+                        onClick={() => toggleListen(c.id)}
+                        active={c.listening}
+                        activeColor="#059669"
+                        activeBg="#ECFDF5"
+                      />
+                    )}
                     <ActionBtn icon={isMessage ? X : PhoneOff} label={isMessage ? "End thread" : "End"} onClick={() => askEnd(c.id)} danger />
                   </div>
                 </div>
@@ -3445,7 +3483,10 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
   );
 }
 
-function ActionBtn({ icon: Icon, label, onClick, active, danger }) {
+function ActionBtn({ icon: Icon, label, onClick, active, danger, activeColor, activeBg }) {
+  const fg = active ? (activeColor || C.red) : danger ? C.red : C.textInk;
+  const bg = active ? (activeBg || C.redSoft) : "#fff";
+  const bdr = active ? (activeColor || C.red) : C.border;
   return (
     <button
       onClick={onClick}
@@ -3457,13 +3498,14 @@ function ActionBtn({ icon: Icon, label, onClick, active, danger }) {
         gap: 6,
         padding: "7px 8px",
         borderRadius: 7,
-        border: `1px solid ${active ? C.red : C.border}`,
-        background: active ? C.redSoft : "#fff",
-        color: active ? C.red : danger ? C.red : C.textInk,
+        border: `1px solid ${bdr}`,
+        background: bg,
+        color: fg,
         fontFamily: FONT_BODY,
         fontSize: 11.5,
         fontWeight: 600,
         cursor: "pointer",
+        transition: "all 0.15s ease",
       }}
     >
       <Icon size={12.5} /> {label}
@@ -15955,6 +15997,10 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
   const [prefillSchedule, setPrefillSchedule] = useState(null);
   const [prefillLogQuery, setPrefillLogQuery] = useState(null);
   const [liveCalls, setLiveCalls] = useState(INITIAL_LIVE_CALLS.map((c) => ({ ...c, taken: false, listening: false, confirmingEnd: false, ended: false, booked: false })));
+  const activeAudioPlayerRef = useRef(null);
+  const [listeningCallId, setListeningCallId] = useState(null);
+  const [takenCallId, setTakenCallId] = useState(null);
+  const [liveAudioLevel, setLiveAudioLevel] = useState(0);
   const [scheduleItems, setScheduleItems] = useState(() => {
     try {
       const saved = localStorage.getItem("aivhub_schedule");
@@ -16196,8 +16242,72 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
       return { who: isAi ? "ai" : "them", text: l.replace(/^AI:\s*|^Prospect:\s*/, "") };
     });
 
-  const toggleCallTaken = (id) => setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, taken: !c.taken } : c)));
-  const toggleCallListen = (id) => setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, listening: !c.listening } : c)));
+  const toggleCallListen = async (id) => {
+    // If already listening to this call, stop
+    if (activeAudioPlayerRef.current && listeningCallId === id) {
+      activeAudioPlayerRef.current.stopListening();
+      activeAudioPlayerRef.current = null;
+      setListeningCallId(null);
+      setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, listening: false } : c)));
+      try { await api.toggleListen(id); } catch (_) {}
+      return;
+    }
+
+    // Stop any other active listen
+    if (activeAudioPlayerRef.current) {
+      activeAudioPlayerRef.current.stopListening();
+      activeAudioPlayerRef.current = null;
+    }
+
+    // Start player for this call
+    const player = new AudioStreamPlayer(
+      id,
+      (status) => {
+        if (!status.listening) {
+          setListeningCallId(null);
+          setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, listening: false } : c)));
+        }
+      },
+      (level) => {
+        setLiveAudioLevel(level);
+      }
+    );
+
+    player.startListening();
+    activeAudioPlayerRef.current = player;
+    setListeningCallId(id);
+    setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, listening: true } : { ...c, listening: false })));
+    try { await api.toggleListen(id); } catch (_) {}
+  };
+
+  const toggleCallTaken = async (id) => {
+    const isCurrentlyTaken = takenCallId === id;
+    if (isCurrentlyTaken) {
+      // Release takeover: stop microphone
+      if (activeAudioPlayerRef.current) {
+        activeAudioPlayerRef.current.stopMicrophone();
+      }
+      setTakenCallId(null);
+      setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, taken: false } : c)));
+      try { await api.toggleTakeover(id); } catch (_) {}
+    } else {
+      // Activate takeover: ensure audio streaming is active for this call first
+      if (!activeAudioPlayerRef.current || listeningCallId !== id) {
+        await toggleCallListen(id);
+      }
+      if (activeAudioPlayerRef.current) {
+        const ok = await activeAudioPlayerRef.current.startMicrophone();
+        if (ok) {
+          setTakenCallId(id);
+          setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, taken: true } : c)));
+          try { await api.toggleTakeover(id); } catch (_) {}
+        } else {
+          alert("Microphone permission is required to speak directly on the call.");
+        }
+      }
+    }
+  };
+
   const askEndCall = (id) => setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, confirmingEnd: true } : c)));
   const cancelEndCall = (id) => setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, confirmingEnd: false } : c)));
 

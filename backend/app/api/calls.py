@@ -101,6 +101,18 @@ async def toggle_takeover(call_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Call not found")
         
     call.taken = not call.taken
+    from app.websockets.media_stream import media_stream_hub
+    if call.taken:
+        media_stream_hub.active_takeovers.add(call_id)
+        call.transcript = (call.transcript or []) + [
+            "System: ⚠️ SUPERVISOR TAKEOVER ACTIVE. Microphone live — AI voice rep muted."
+        ]
+    else:
+        media_stream_hub.active_takeovers.discard(call_id)
+        call.transcript = (call.transcript or []) + [
+            "System: Supervisor relinquished control. AI voice rep re-enabled."
+        ]
+
     await db.commit()
     await call_hub.broadcast("call_updated", {"callId": call_id, "taken": call.taken})
     return {"status": "ok", "taken": call.taken}

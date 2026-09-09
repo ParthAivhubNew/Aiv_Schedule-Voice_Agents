@@ -21,6 +21,7 @@ from app.api.scheduler import router as scheduler_router
 from app.api.logs import router as logs_router
 from app.api.sip_webhook import router as sip_webhook_router
 from app.api.enrichment import router as enrichment_router
+from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ app.include_router(logs_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router)  # Direct /sip-webhook compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
+app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
 
 
 # WebSocket Endpoint

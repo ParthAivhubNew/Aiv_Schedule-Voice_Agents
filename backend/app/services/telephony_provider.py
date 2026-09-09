@@ -133,10 +133,17 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
         webhook_base = meta.get("status_callback_url") or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/calls/twilio/status-callback"
 
         action_url = meta.get("dial_action_url") or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/calls/twilio/dial-action"
+        internal_call_id = meta.get("call_id") or "call_outbound"
+        media_stream_url = meta.get("media_stream_url") or "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
 
-        # TwiML: Real SIP bridge into xAI Voice Agent with transparent dial-action callback on any failure
+        # TwiML: Fork audio to real-time Media Stream for browser Listen/Takeover + SIP bridge to xAI
         twiml = (
             f"<Response>"
+            f"<Start>"
+            f"<Stream track=\"both_tracks\" url=\"{media_stream_url}\">"
+            f"<Parameter name=\"internalCallId\" value=\"{internal_call_id}\" />"
+            f"</Stream>"
+            f"</Start>"
             f"<Dial callerId=\"{from_clean}\" timeout=\"30\" action=\"{action_url}\" method=\"POST\">"
             f"<Sip>{bridge_sip_uri}</Sip>"
             f"</Dial>"
