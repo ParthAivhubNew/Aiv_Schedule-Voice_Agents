@@ -511,9 +511,15 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
             pass
 
         has_error = bool(reg_error)
-        msg = f"Successfully registered {phone_clean} with xAI BYO Trunk." if auto_registered else (
-            f"Config saved, but xAI registration failed: {reg_error}" if has_error else f"{carrier_name} & {engine_name} linked to {phone_clean}."
-        )
+        if auto_registered and signing_secret:
+            msg = f"Successfully registered {phone_clean} with xAI BYO Trunk."
+        elif auto_registered and not signing_secret:
+            num_desc = existing_number.get("phone_number_id") if existing_number else "active"
+            msg = f"Phone number {phone_clean} is confirmed connected on xAI Direct SIP (ID: {num_desc}). (xAI returns the secret only once at creation — you can paste it from console.x.ai or delete the number in console.x.ai to get a fresh one)."
+        elif has_error:
+            msg = f"Config saved, but xAI registration failed: {reg_error}"
+        else:
+            msg = f"{carrier_name} & {engine_name} linked to {phone_clean}."
 
         return {
             "success": not has_error,
