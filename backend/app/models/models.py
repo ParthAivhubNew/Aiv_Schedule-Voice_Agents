@@ -172,6 +172,7 @@ class LiveCall(Base):
     __tablename__ = "live_calls"
     
     id = Column(String, primary_key=True, index=True)
+    carrier_sid = Column(String, nullable=True, index=True)  # Twilio CallSid for status callback matching
     mission_id = Column(String, nullable=True)
     prospect_id = Column(String, nullable=True)
     prospect = Column(String, nullable=False)

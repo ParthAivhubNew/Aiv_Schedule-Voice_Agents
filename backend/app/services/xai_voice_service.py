@@ -409,7 +409,18 @@ async def join_xai_call_session(
         process_name="xai_ws_connecting",
         message=f"Connecting WebSocket to xAI Realtime API for call_id={call_id} from caller={caller_number}",
         level="INFO",
-        details={"callId": call_id, "caller": caller_number, "isLiveKey": bool(api_key and api_key.startswith("xai-"))}
+        details={
+            "callId": call_id,
+            "caller": caller_number,
+            "isLiveKey": bool(api_key and api_key.startswith("xai-")),
+            "wsUrl": ws_url.replace(api_key, "***") if api_key else ws_url,
+            "agentId": agent_id
+        }
+    )
+    logger.info(
+        f"[XAI-WS] Attempting WebSocket connection: "
+        f"call_id={call_id}, agent_id={agent_id}, "
+        f"key_prefix={api_key[:12] + '...' if api_key else 'NONE'}"
     )
 
     # 1. Update or create LiveCall record in DB
@@ -460,6 +471,7 @@ async def join_xai_call_session(
             ping_timeout=15,
             close_timeout=10
         ) as ws:
+            logger.info(f"[XAI-WS] ✓ WebSocket CONNECTED for call_id={call_id}")
             await log_process_event(
                 subsystem="voice",
                 process_name="xai_ws_session_connected",
@@ -494,9 +506,23 @@ async def join_xai_call_session(
             await ws.send(json.dumps({"type": "response.create"}))
 
             # 3. Event Processing Loop
+            event_count = 0
             async for raw_msg in ws:
                 event = json.loads(raw_msg)
                 event_type = event.get("type", "")
+                event_count += 1
+
+                # Log first few events for diagnostics
+                if event_count <= 3:
+                    logger.info(f"[XAI-WS] Event #{event_count} for {call_id}: type={event_type}")
+                    if event_count == 1:
+                        await log_process_event(
+                            subsystem="voice",
+                            process_name="xai_ws_first_event",
+                            message=f"First xAI event received for call {call_id}: {event_type}",
+                            level="INFO",
+                            details={"callId": call_id, "eventType": event_type}
+                        )
 
                 # Handle Voice Audio Transcripts (Assistant speaking)
                 if event_type == "response.audio_transcript.delta":
@@ -562,9 +588,23 @@ async def join_xai_call_session(
                     break
 
     except websockets.exceptions.ConnectionClosed as cc:
-        logger.warning(f"xAI WebSocket connection closed for call {call_id}: code={cc.code}, reason={cc.reason}")
+        logger.warning(f"[XAI-WS] Connection closed for call {call_id}: code={cc.code}, reason={cc.reason}")
+        await log_process_event(
+            subsystem="voice",
+            process_name="xai_ws_closed",
+            message=f"xAI WebSocket closed for call {call_id}: code={cc.code}, reason={cc.reason}",
+            level="WARNING",
+            details={"callId": call_id, "code": cc.code, "reason": cc.reason}
+        )
     except Exception as exc:
-        logger.error(f"Unexpected error in xAI WebSocket session for call {call_id}: {exc}", exc_info=True)
+        logger.error(f"[XAI-WS] CRASH in WebSocket session for call {call_id}: {exc}", exc_info=True)
+        await log_process_event(
+            subsystem="voice",
+            process_name="xai_ws_error",
+            message=f"xAI WebSocket session CRASHED for call {call_id}: {str(exc)}",
+            level="ERROR",
+            details={"callId": call_id, "error": str(exc)}
+        )
     finally:
         duration_sec = int(time.time() - start_ts)
         duration_str = f"{duration_sec // 60:02d}:{duration_sec % 60:02d}"

@@ -361,6 +361,7 @@ async def dial_outbound_call(
 
         carrier_sid = dial_res.get("call_id")
         if carrier_sid:
+            live_call.carrier_sid = carrier_sid
             live_call.transcript = (live_call.transcript or []) + [f"System: Provider Call SID: {carrier_sid}"]
             await db.commit()
 
@@ -409,18 +410,23 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
         details={"callSid": call_sid, "status": call_status, "duration": duration, "sipCode": sip_code, "dialStatus": dial_status}
     )
 
-    res = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
-    calls = res.scalars().all()
-    matched = None
-    for c in calls:
-        if c.id == call_sid or (c.transcript and any(call_sid in str(t) for t in c.transcript)):
-            matched = c
-            break
-    if not matched and calls:
+    # Try to match by carrier_sid first (most reliable), then fallback to transcript search
+    res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == call_sid))
+    matched = res.scalars().first()
+
+    if not matched:
+        # Fallback: search all recent calls
+        res2 = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
+        calls = res2.scalars().all()
         for c in calls:
-            if not c.ended:
+            if c.id == call_sid or (c.transcript and any(call_sid in str(t) for t in c.transcript)):
                 matched = c
                 break
+        if not matched and calls:
+            for c in calls:
+                if not c.ended:
+                    matched = c
+                    break
 
     if matched:
         if call_status in ["in-progress", "answered"]:
@@ -485,18 +491,22 @@ async def twilio_dial_action(request: Request, db: AsyncSession = Depends(get_db
         }
     )
 
-    res = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
-    calls = res.scalars().all()
-    matched = None
-    for c in calls:
-        if c.id == call_sid or (c.transcript and any(call_sid in str(t) for t in c.transcript)):
-            matched = c
-            break
-    if not matched and calls:
+    # Try to match by carrier_sid first (most reliable), then fallback
+    res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == call_sid))
+    matched = res.scalars().first()
+
+    if not matched:
+        res2 = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
+        calls = res2.scalars().all()
         for c in calls:
-            if not c.ended:
+            if c.id == call_sid or (c.transcript and any(call_sid in str(t) for t in c.transcript)):
                 matched = c
                 break
+        if not matched and calls:
+            for c in calls:
+                if not c.ended:
+                    matched = c
+                    break
 
     if matched:
         if error_msg:

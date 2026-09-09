@@ -371,6 +371,19 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
 
                         # 2. Create registration on xAI if new or successfully deleted for recreation
                         if not existing_number:
+                            # Twilio's known SIP signaling & media CIDR ranges for IP allowlist auth
+                            twilio_sip_cidrs = [
+                                "168.86.128.0/18",     # Global media (RTP/SRTP)
+                                "54.172.60.0/23",      # US East signaling
+                                "34.203.250.0/23",     # US East signaling
+                                "54.244.51.0/24",      # US West signaling
+                                "54.171.127.192/26",   # EU (Ireland) signaling
+                                "35.156.191.128/25",   # EU (Frankfurt) signaling
+                                "54.65.63.192/26",     # Asia Pacific (Tokyo) signaling
+                                "54.169.127.128/26",   # Asia Pacific (Singapore) signaling
+                                "54.252.254.64/26",    # Asia Pacific (Sydney) signaling
+                                "177.71.206.192/26",   # South America (São Paulo) signaling
+                            ]
                             payload = {
                                 "origin": "byo_trunk",
                                 "name": "AIVHub Voice Agent",
@@ -378,6 +391,9 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                                 "webhook": {
                                     "name": "AIVHub SIP Webhook",
                                     "url": target_webhook
+                                },
+                                "sip_auth": {
+                                    "allowed_addresses": twilio_sip_cidrs
                                 }
                             }
                             if req.agent_id and not req.agent_id.startswith("agent_QDoRHfWc"):
