@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db
@@ -410,4 +410,83 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
         })
 
     return {"status": "ok"}
+
+
+@router.post("/twilio/dial-action")
+async def twilio_dial_action(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Called by Twilio when the <Dial><Sip> bridge attempt finishes (completed, failed, busy, no-answer).
+    If SIP failed, logs exact error and SIP response code without playing false fallbacks.
+    """
+    form = await request.form()
+    call_sid = form.get("CallSid", "")
+    dial_call_status = form.get("DialCallStatus", "").lower()
+    dial_duration = form.get("DialCallDuration", "0")
+    sip_code = form.get("DialCallSipResponseCode") or form.get("SipResponseCode")
+    dial_call_sid = form.get("DialCallSid")
+
+    error_msg = None
+    if dial_call_status != "completed":
+        if sip_code == "403":
+            error_msg = "xAI SIP bridge rejected call (SIP 403 Forbidden). The phone number is not registered or authenticated on xAI."
+        elif sip_code == "404":
+            error_msg = "xAI SIP bridge destination not found (SIP 404 Not Found). Destination trunk or number not found on xAI."
+        elif sip_code:
+            error_msg = f"xAI SIP bridge failed with SIP Code {sip_code} ({dial_call_status})."
+        else:
+            error_msg = f"Twilio SIP dial attempt failed with status: {dial_call_status}."
+
+    await log_process_event(
+        subsystem="telephony",
+        process_name="twilio_dial_action",
+        message=error_msg or f"Twilio dial action finished successfully ({dial_call_status}, duration: {dial_duration}s)",
+        level="ERROR" if error_msg else "SUCCESS",
+        details={
+            "callSid": call_sid,
+            "dialCallSid": dial_call_sid,
+            "dialStatus": dial_call_status,
+            "sipCode": sip_code,
+            "duration": dial_duration,
+            "error": error_msg
+        }
+    )
+
+    res = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
+    calls = res.scalars().all()
+    matched = None
+    for c in calls:
+        if c.id == call_sid or (c.transcript and any(call_sid in str(t) for t in c.transcript)):
+            matched = c
+            break
+    if not matched and calls:
+        for c in calls:
+            if not c.ended:
+                matched = c
+                break
+
+    if matched:
+        if error_msg:
+            matched.state = "failed"
+            matched.ended = True
+            matched.transcript = (matched.transcript or []) + [f"System Crash: {error_msg}"]
+        else:
+            matched.state = "ended"
+            matched.ended = True
+            dur_int = int(dial_duration) if dial_duration.isdigit() else 0
+            matched.duration = f"{dur_int//60:02d}:{dur_int%60:02d}"
+            matched.transcript = (matched.transcript or []) + [f"System: Call concluded ({matched.duration})."]
+
+        await db.commit()
+        await call_hub.broadcast("call_updated", {
+            "callId": matched.id,
+            "state": matched.state,
+            "duration": matched.duration,
+            "ended": matched.ended,
+            "error": error_msg
+        })
+
+    # Return clean hangup - no false fallback
+    twiml_response = "<Response><Hangup/></Response>"
+    return Response(content=twiml_response, media_type="application/xml")
+
 

@@ -200,7 +200,7 @@ class TelephonyHubProvisionRequest(BaseModel):
     phone_number: str
     api_key: Optional[str] = None
     account_sid: Optional[str] = None
-    agent_id: Optional[str] = "agent_QDoRHfWcKMybf197"
+    agent_id: Optional[str] = None
     voice_name: Optional[str] = "rex"
     webhook_url: Optional[str] = None
     signing_secret: Optional[str] = None
@@ -306,29 +306,68 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 if not v_res["valid"]:
                     raise HTTPException(status_code=400, detail=v_res.get("error", "xAI authentication failed."))
 
-                # Auto-register number with xAI BYO trunk API
+                # Register number with xAI BYO trunk API
                 target_webhook = req.webhook_url or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
-                target_agent_id = req.agent_id or getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197")
+                reg_error = None
                 try:
-                    async with httpx.AsyncClient(timeout=12.0) as client:
-                        reg_res = await client.post(
-                            "https://api.x.ai/v2/phone-numbers",
-                            headers={"Authorization": f"Bearer {key_clean}", "Content-Type": "application/json"},
-                            json={
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        # 1. Query existing registered numbers on xAI
+                        existing_number = None
+                        try:
+                            list_res = await client.get(
+                                "https://api.x.ai/v2/phone-numbers",
+                                headers={"Authorization": f"Bearer {key_clean}"}
+                            )
+                            if list_res.status_code == 200:
+                                num_list = list_res.json()
+                                if isinstance(num_list, list):
+                                    for item in num_list:
+                                        if item.get("phone_number") == phone_clean:
+                                            existing_number = item
+                                            signing_secret = item.get("signing_secret") or item.get("webhook_secret")
+                                            auto_registered = True
+                                            logger.info(f"Number {phone_clean} already registered with xAI (ID: {item.get('id')}).")
+                                            break
+                        except Exception as list_err:
+                            logger.warning(f"Could not list xAI phone numbers: {list_err}")
+
+                        # 2. If not registered, create it
+                        if not existing_number:
+                            payload = {
                                 "origin": "byo_trunk",
                                 "name": "AIVHub Voice Agent",
                                 "phone_number": phone_clean,
-                                "agent_id": target_agent_id,
-                                "webhook": {"name": "AIVHub SIP Webhook", "url": target_webhook}
+                                "webhook": {
+                                    "name": "AIVHub SIP Webhook",
+                                    "url": target_webhook
+                                }
                             }
-                        )
-                        if reg_res.status_code in [200, 201]:
-                            reg_data = reg_res.json()
-                            signing_secret = reg_data.get("signing_secret") or reg_data.get("webhook_secret")
-                            auto_registered = True
-                except Exception as reg_err:
-                    logger.warning(f"Could not auto-register with xAI endpoint: {reg_err}")
+                            if req.agent_id and not req.agent_id.startswith("agent_QDoRHfWc"):
+                                payload["agent_id"] = req.agent_id
 
+                            reg_res = await client.post(
+                                "https://api.x.ai/v2/phone-numbers",
+                                headers={"Authorization": f"Bearer {key_clean}", "Content-Type": "application/json"},
+                                json=payload
+                            )
+                            logger.info(f"xAI phone registration response ({phone_clean}): HTTP {reg_res.status_code} - {reg_res.text}")
+                            if reg_res.status_code in [200, 201]:
+                                reg_data = reg_res.json()
+                                signing_secret = reg_data.get("signing_secret") or reg_data.get("webhook_secret")
+                                auto_registered = True
+                            else:
+                                reg_error = f"xAI returned HTTP {reg_res.status_code}: {reg_res.text}"
+                                logger.error(f"xAI registration failed: {reg_error}")
+                                await log_process_event(
+                                    subsystem="telephony",
+                                    process_name="xai_registration_failed",
+                                    message=f"xAI rejected registration for {phone_clean}: {reg_error}",
+                                    level="ERROR",
+                                    details={"statusCode": reg_res.status_code, "response": reg_res.text, "phone": phone_clean}
+                                )
+                except Exception as reg_err:
+                    reg_error = str(reg_err)
+                    logger.warning(f"Could not contact xAI endpoint: {reg_err}")
 
             elif "openai" in engine:
                 v_res = await validate_api_key(provider="OpenAI", api_key=key_clean)
@@ -424,16 +463,22 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
         except Exception:
             pass
 
+        has_error = bool(reg_error)
+        msg = f"Successfully registered {phone_clean} with xAI BYO Trunk." if auto_registered else (
+            f"Config saved, but xAI registration failed: {reg_error}" if has_error else f"{carrier_name} & {engine_name} linked to {phone_clean}."
+        )
+
         return {
-            "success": True,
+            "success": not has_error,
             "carrier": carrier_name,
             "engine": engine_name,
             "phoneNumber": phone_clean,
             "autoRegistered": auto_registered,
             "signingSecret": signing_secret,
-            "status": "connected",
+            "registrationError": reg_error,
+            "status": "connected" if (auto_registered or signing_secret) else ("error" if has_error else "configured"),
             "fqdn": settings.XAI_SIP_FQDN,
-            "message": f"{carrier_name} & {engine_name} successfully linked to {phone_clean}."
+            "message": msg
         }
     except HTTPException:
         raise
@@ -482,19 +527,17 @@ async def get_telephony_hub_debug(db: AsyncSession = Depends(get_db)):
 @router.post("/telephony-hub/test-ping")
 async def test_telephony_hub_ping():
     """
-    Sends an instant diagnostic health ping through the internal webhook router
-    to measure roundtrip response time and log telemetry.
+    Sends an instant diagnostic health ping to measure roundtrip response time and log telemetry.
     """
-    from app.api.sip_webhook import webhook_health_check
     start_time = time.time()
     status_code = 200
-    details = {}
-
-    try:
-        details = await webhook_health_check()
-    except Exception as e:
-        status_code = 500
-        details = {"error": str(e)}
+    details = {
+        "webhook_url": settings.XAI_WEBHOOK_URL or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook",
+        "voice_engine": settings.VOICE_ENGINE_MODE,
+        "xai_fqdn": settings.XAI_SIP_FQDN,
+        "xai_api_key_set": bool(settings.XAI_API_KEY),
+        "xai_webhook_secret_set": bool(settings.XAI_WEBHOOK_SECRET)
+    }
 
     elapsed_ms = (time.time() - start_time) * 1000
 
@@ -513,4 +556,5 @@ async def test_telephony_hub_ping():
         "latencyMs": round(elapsed_ms, 1),
         "details": details
     }
+
 
