@@ -3209,7 +3209,9 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
   const confirmEnd = onConfirmEnd;
   const focusRef = useRef(null);
 
-  const filtered = focus ? calls.filter((c) => callBelongsToFocus(c, focus)) : calls;
+  const baseFiltered = focus ? calls.filter((c) => callBelongsToFocus(c, focus)) : calls;
+  // Live Activity should only show ACTIVE conversations or newly booked meetings, not dead/failed calls
+  const filtered = baseFiltered.filter((c) => !c.ended || c.booked);
   const active = filtered.filter((c) => !c.ended);
   const companyFocus = !!(focus && (focus.name || focus.prospectId));
 
@@ -3225,7 +3227,7 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
     <>
       <TopBar
         title="Live Activity"
-        subtitle={focus ? `${active.length} live for this task` : `${calls.filter((c) => !c.ended).length} active conversations — calls and messages`}
+        subtitle={focus ? `${active.length} live for this task` : `${active.length} active conversations — calls and messages`}
         notifications={notifications}
         setNotifications={setNotifications}
         canGoBack={true}
@@ -3249,16 +3251,29 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
           </button>
         </div>
       )}
-      <div style={{ margin: focus ? "10px 32px 0" : "16px 32px 0", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, display: "flex", gap: 14, flexWrap: "wrap" }}>
-        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: C.amber, marginRight: 6, verticalAlign: "middle" }} />Amber border — AI needs a human (pricing / stuck)</span>
-        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: C.red, marginRight: 6, verticalAlign: "middle" }} />Red border — you took over the call</span>
-        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: C.ink, marginRight: 6, verticalAlign: "middle" }} />Dark ring — opened from the mission list</span>
+      <div style={{ margin: focus ? "10px 32px 0" : "16px 32px 0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: C.amber, marginRight: 6, verticalAlign: "middle" }} />Amber border — AI needs a human (pricing / stuck)</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: C.red, marginRight: 6, verticalAlign: "middle" }} />Red border — you took over the call</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: C.ink, marginRight: 6, verticalAlign: "middle" }} />Dark ring — opened from the mission list</span>
+        </div>
+        <button
+          onClick={async () => {
+            try {
+              await api.clearLiveCalls();
+              if (onRefreshLiveCalls) onRefreshLiveCalls();
+            } catch (_) {}
+          }}
+          style={{ background: "#F1F5F9", border: `1px solid ${C.border}`, borderRadius: 7, padding: "5px 12px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
+        >
+          🧹 Clear Inactive / Stale Calls
+        </button>
       </div>
       {filtered.length === 0 && (
         <div style={{ margin: "20px 32px", fontFamily: FONT_BODY, fontSize: 13.5, color: C.slate, lineHeight: 1.5 }}>
           {companyFocus
             ? `${focus.name} is not on a live call right now — queued, skipped, or already finished. Show all conversations to see everything else.`
-            : "No live cards right now."}
+            : "No active conversations right now."}
         </div>
       )}
       <div style={{ padding: "16px 32px 0" }}>
@@ -3279,7 +3294,22 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
           if (c.ended) {
             return (
               <div key={c.id} className="hover-float" style={{ background: c.booked ? C.greenSoft : C.paperSoft, border: `1px dashed ${c.booked ? C.green : C.border}`, borderRadius: 12, padding: 16, opacity: c.booked ? 1 : 0.7, order: 8 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, color: c.booked ? C.textInk : C.slate }}>{c.prospect}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, color: c.booked ? C.textInk : C.slate }}>{c.prospect}</div>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await api.deleteLiveCall(c.id);
+                        if (onRefreshLiveCalls) onRefreshLiveCalls();
+                      } catch (_) {}
+                    }}
+                    title="Dismiss card"
+                    style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, padding: 2, display: "flex", alignItems: "center" }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
                 {c.booked ? (
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.green, marginTop: 6, display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
                     <CheckCircle2 size={13} /> Meeting booked — time taken from their words, saved to Call Log, Schedule, and Meetings

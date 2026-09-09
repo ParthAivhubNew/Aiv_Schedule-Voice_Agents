@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import delete
 from app.database import get_db
 from app.models.models import LiveCall, CallLog, Meeting, ScheduleItem, Notification, Prospect, ContactRegistry, Connection, CompanyProfile
 from app.services.call_simulator import extract_requested_time
@@ -10,7 +11,7 @@ from app.services.telephony_provider import carrier_registry, normalize_phone_nu
 from app.services.xai_voice_service import _run_simulated_xai_session
 from app.services.process_logger import log_process_event
 from app.config import settings
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 import asyncio
 from pydantic import BaseModel
@@ -19,8 +20,23 @@ from typing import Optional, Dict, Any, List
 router = APIRouter(prefix="/calls", tags=["Calls"])
 
 @router.get("/live", response_model=list[dict])
-async def get_live_calls(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(LiveCall))
+async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends(get_db)):
+    """
+    Returns only active live conversations. Auto-purges dead/stale calls
+    (calls that ended or stuck in dialing > 10 mins).
+    """
+    cutoff = datetime.utcnow() - timedelta(minutes=10)
+    # Purge stale dead calls
+    await db.execute(
+        delete(LiveCall).where(
+            (LiveCall.ended == True) |
+            (LiveCall.state.in_(["ended", "failed", "canceled"])) |
+            ((LiveCall.state == "calling") & (LiveCall.created_at < cutoff))
+        )
+    )
+    await db.commit()
+
+    result = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
     calls = result.scalars().all()
     
     return [{
@@ -40,6 +56,24 @@ async def get_live_calls(db: AsyncSession = Depends(get_db)):
         "booked": c.booked,
         "transcript": c.transcript or [],
     } for c in calls]
+
+@router.delete("/live/{call_id}")
+async def delete_live_call(call_id: str, db: AsyncSession = Depends(get_db)):
+    """Deletes a dead or stale live call from the database."""
+    await db.execute(delete(LiveCall).where(LiveCall.id == call_id))
+    await db.commit()
+    await call_hub.broadcast("call_removed", {"callId": call_id})
+    return {"status": "ok", "deleted": call_id}
+
+@router.post("/live/clear")
+@router.delete("/live")
+async def clear_dead_calls(db: AsyncSession = Depends(get_db)):
+    """Purges all ended, failed, or stale calls from the Live Activity board."""
+    await db.execute(delete(LiveCall))
+    await db.commit()
+    await call_hub.broadcast("calls_cleared", {})
+    return {"status": "ok", "message": "All calls purged from Live Activity."}
+
 
 @router.post("/live/{call_id}/listen")
 async def toggle_listen(call_id: str, db: AsyncSession = Depends(get_db)):
