@@ -7756,7 +7756,7 @@ function ImportReviewScreen({
   );
 }
 
-function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours }) {
+function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, commonAi }) {
   const [tab, setTab] = useState("discover");
   const [prompt, setPrompt] = useState("");
   const [rows, setRows] = useState([{ id: 1, name: "", phone: "", sourceType: "Website URL", source: "", channel: "auto", fallback: "none", contact: "" }]);
@@ -7806,18 +7806,56 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours })
     setChatSearching(true);
 
     try {
-      const res = await api.copilotChat({ message: userMsg });
-      if (res && res.leads) {
-        setChatDiscoveredLeads(res.leads);
+      // Resolve active Lead Gen credentials from commonAi
+      const leadgenModel = commonAi?.leadgenLayers?.researchLlm || "DeepSeek-V3";
+      const customConn = (commonAi?.customConnections || []).find(
+        (c) => c.modelId && c.modelId.toLowerCase() === leadgenModel.toLowerCase()
+      );
+      let key = customConn?.apiKey || "";
+      let burl = customConn?.baseUrl || "";
+      let prov = customConn?.providerName || "";
+      let mod = customConn?.modelId || leadgenModel;
+
+      if (!key) {
+        const m = String(leadgenModel || "").toLowerCase();
+        let provId = "deepseek";
+        if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet")) provId = "anthropic";
+        else if (m.includes("gpt") || m.includes("openai")) provId = "openai";
+        else if (m.includes("groq") || m.includes("llama")) provId = "groq";
+        else if (m.includes("grok") || m.includes("xai")) provId = "xai";
+        else if (m.includes("gemini")) provId = "gemini";
+        else if (m.includes("ollama")) provId = "ollama";
+        const pObj = (commonAi?.providers || []).find((p) => p.id === provId);
+        if (pObj) {
+          key = pObj.apiKey || "";
+          burl = pObj.baseUrl || "";
+          prov = pObj.name || provId;
+        }
+      }
+
+      const res = await api.copilotChat({
+        message: userMsg,
+        history: copilotMessages,
+        plugin: "leadgen",
+        apiKey: key,
+        provider: prov,
+        model: mod,
+        baseUrl: burl
+      });
+
+      if (res && res.reply) {
+        if (res.leads && res.leads.length > 0) {
+          setChatDiscoveredLeads(res.leads);
+        }
         setCopilotMessages((prev) => [
           ...prev,
-          { sender: "ai", text: res.reply, leads: res.leads }
+          { sender: "ai", text: res.reply, leads: res.leads || [] }
         ]);
       }
     } catch (err) {
       setCopilotMessages((prev) => [
         ...prev,
-        { sender: "ai", text: `⚠️ Web search error: ${err.message || "Failed to search the web."}` }
+        { sender: "ai", text: `⚠️ AI Chat error: ${err.message || "Failed to reach AI copilot."}` }
       ]);
     } finally {
       setChatSearching(false);
@@ -9953,16 +9991,29 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 </div>
 
                 {/* 6. Active API Endpoints */}
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Connected Model Endpoints</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#059669" }}>100% OK</span>
-                  </div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
-                    6 Active <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>providers</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: C.slate }}>All health checks passing (&lt; 45ms avg latency)</div>
-                </div>
+                {(() => {
+                  const activeProvs = (safeCommonAi.providers || []).filter(
+                    (p) => (p.status === "connected" && p.latencyMs) || (p.apiKey && p.apiKey.trim().length > 0)
+                  );
+                  const totalProvs = (safeCommonAi.providers || []).length || 11;
+                  const pct = totalProvs > 0 ? Math.round((activeProvs.length / totalProvs) * 100) : 0;
+                  return (
+                    <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Connected Model Endpoints</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: activeProvs.length > 0 ? "#059669" : C.slate }}>
+                          {activeProvs.length > 0 ? `${pct}% Connected` : "Not Configured"}
+                        </span>
+                      </div>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                        {activeProvs.length} Active <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ {totalProvs} providers</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: C.slate }}>
+                        {activeProvs.length > 0 ? `${activeProvs.length} live endpoints verified` : "No external API keys active"}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Plugin Breakdown Table */}
@@ -11967,8 +12018,16 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
   }, [open]);
 
   const isAdmin = operator?.role === "Admin";
-  const hasConfiguredLlm = commonAi?.providers?.some((p) => p.type === "llm" && (p.status === "connected" || p.apiKey)) || !!commonAi?.baseChatModel;
-  const activeModelDisplay = commonAi?.baseChatModel ? commonAi.baseChatModel.split(" ")[0] : (hasConfiguredLlm ? "Connected" : "Not configured");
+  const configuredProvidersList = (commonAi?.providers || []).filter(
+    (p) => (p.status === "connected" && p.latencyMs) || (p.apiKey && p.apiKey.trim().length > 0)
+  );
+  const totalProvidersCount = (commonAi?.providers || []).length || 11;
+  const configuredCount = configuredProvidersList.length;
+  const isFullyConnected = configuredCount >= totalProvidersCount && totalProvidersCount > 0;
+  const isPartiallyConnected = configuredCount > 0 && !isFullyConnected;
+  const activeModelDisplay = commonAi?.baseChatModel
+    ? commonAi.baseChatModel.split(" ")[0]
+    : (configuredCount > 0 ? `${configuredCount} Active` : "Not configured");
 
   return (
     <div ref={menuRef} style={{ position: "relative" }}>
@@ -12081,7 +12140,7 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                     <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Plugin models & API keys</div>
                   </div>
                 </div>
-                {hasConfiguredLlm ? (
+                {isFullyConnected ? (
                   <span style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -12097,7 +12156,25 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                     flexShrink: 0,
                   }}>
                     <span style={{ width: 6, height: 6, borderRadius: 999, background: "#059669", flexShrink: 0 }} />
-                    Active
+                    All Active
+                  </span>
+                ) : isPartiallyConnected ? (
+                  <span style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    padding: "4px 10px",
+                    borderRadius: 8,
+                    background: "#F1F5F9",
+                    color: "#475569",
+                    border: "1px solid #CBD5E1",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#94A3B8", flexShrink: 0 }} />
+                    {configuredCount} / {totalProvidersCount} Connected
                   </span>
                 ) : (
                   <span style={{
@@ -12108,14 +12185,14 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                     fontWeight: 700,
                     padding: "4px 10px",
                     borderRadius: 8,
-                    background: "#FEF3C7",
-                    color: "#B45309",
-                    border: "1px solid #FDE68A",
+                    background: "#F8FAFC",
+                    color: "#64748B",
+                    border: "1px solid #E2E8F0",
                     whiteSpace: "nowrap",
                     flexShrink: 0,
                   }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#D97706", flexShrink: 0 }} />
-                    Setup AI
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#94A3B8", flexShrink: 0 }} />
+                    Not configured
                   </span>
                 )}
               </button>
@@ -15880,7 +15957,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         {view === "analytics" && <AnalyticsView notifications={notifications} setNotifications={setNotifications} />}
       </div>
 
-      {showNew && <NewMissionModal onClose={() => setShowNew(false)} onCreate={createMission} registry={registry} callLog={callLog} workingHours={{ timezone: profile.timezone, lunchStart: profile.lunchStart, lunchEnd: profile.lunchEnd, weekdayStart: profile.weekdayStart, weekdayEnd: profile.weekdayEnd, callHoursPolicy: profile.callHoursPolicy }} />}
+      {showNew && <NewMissionModal onClose={() => setShowNew(false)} onCreate={createMission} registry={registry} callLog={callLog} workingHours={{ timezone: profile.timezone, lunchStart: profile.lunchStart, lunchEnd: profile.lunchEnd, weekdayStart: profile.weekdayStart, weekdayEnd: profile.weekdayEnd, callHoursPolicy: profile.callHoursPolicy }} commonAi={commonAi} />}
     </div>
   );
 }

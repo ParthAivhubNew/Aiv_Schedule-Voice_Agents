@@ -31,7 +31,8 @@ import {
   Globe,
   Tag
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName } from "../tokens";
+import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../tokens";
+import { api } from "../api/apiClient";
 
 const INITIAL_DUMMY_LEADS = [
   {
@@ -157,13 +158,107 @@ export default function LeadGenerationPlugin({
   profile,
   commonAi,
 }) {
-  const [view, setView] = useState("scout"); // "scout" | "accounts" | "contacts" | "dossiers" | "import_export"
+  const [view, setView] = useState("copilot"); // "copilot" | "scout" | "accounts" | "contacts" | "dossiers" | "import_export"
   const [leads, setLeads] = useState(INITIAL_DUMMY_LEADS);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndustry, setSelectedIndustry] = useState("all");
   const [isSearching, setIsSearching] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+
+  // Open AI Lead Copilot Chat State
+  const [copilotChatMessages, setCopilotChatMessages] = useState([
+    {
+      id: "m_init",
+      role: "assistant",
+      text: "👋 Hi! I'm your AI Lead Engineering Copilot. You can ask me anything — from scouting target accounts, refining ICP criteria, analyzing markets, to prompt engineering or general questions.\n\nHow can I assist your pipeline today?",
+      time: "Just now",
+      leads: []
+    }
+  ]);
+  const [copilotInput, setCopilotInput] = useState("");
+  const [isCopilotTyping, setIsCopilotTyping] = useState(false);
+  const copilotScrollRef = React.useRef(null);
+
+  const handleSendCopilotChat = async (e, customText) => {
+    if (e) e.preventDefault();
+    const query = (customText || copilotInput).trim();
+    if (!query || isCopilotTyping) return;
+
+    setCopilotInput("");
+    const userMsg = {
+      id: "m_" + Date.now(),
+      role: "user",
+      text: query,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    };
+    setCopilotChatMessages((prev) => [...prev, userMsg]);
+    setIsCopilotTyping(true);
+
+    try {
+      const creds = getActiveAiCredentials(commonAi, "leadgen", "researchLlm");
+      const res = await api.copilotChat({
+        message: query,
+        history: copilotChatMessages.map((m) => ({ role: m.role, content: m.text })),
+        plugin: "leadgen",
+        apiKey: creds.apiKey,
+        provider: creds.provider,
+        model: creds.model,
+        baseUrl: creds.baseUrl
+      });
+
+      const aiMsg = {
+        id: "m_" + (Date.now() + 1),
+        role: "assistant",
+        text: res?.reply || "I processed your request. How else can I help?",
+        leads: res?.leads || [],
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        model: res?.model || creds.model
+      };
+      setCopilotChatMessages((prev) => [...prev, aiMsg]);
+    } catch (err) {
+      setCopilotChatMessages((prev) => [
+        ...prev,
+        {
+          id: "m_" + (Date.now() + 1),
+          role: "assistant",
+          text: `⚠️ AI connection error: ${err.message || "Failed to reach AI service. Please verify your API key."}`,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        }
+      ]);
+    } finally {
+      setIsCopilotTyping(false);
+      setTimeout(() => {
+        if (copilotScrollRef.current) {
+          copilotScrollRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 100);
+    }
+  };
+
+  const handleAddCopilotLead = (leadObj) => {
+    const newLead = {
+      id: "lead_" + Date.now(),
+      companyName: leadObj.name || leadObj.companyName || "Target Account",
+      domain: leadObj.domain || (leadObj.website ? leadObj.website.replace("https://", "").replace("http://", "").split("/")[0] : "company.com"),
+      website: leadObj.website || `https://${leadObj.domain || "company.com"}`,
+      industry: leadObj.industry || selectedIndustry !== "all" ? selectedIndustry : "B2B Technology",
+      region: leadObj.region || "United States / UK",
+      employees: leadObj.employees || "20-100 employees",
+      decisionMaker: leadObj.contactPerson || leadObj.decisionMaker || "Director of Operations",
+      title: leadObj.title || "VP of Operations",
+      phone: leadObj.phone || "+1 (800) 555-0149",
+      email: leadObj.email || "contact@target.com",
+      matchScore: leadObj.fitScore || 94,
+      status: "new",
+      openingHook: leadObj.hook || "High match score based on current market expansion.",
+      techStack: ["HubSpot", "PostgreSQL"],
+      revenueEst: "$10M - $25M",
+      tags: ["AI Copilot Discovery", "Verified"]
+    };
+    setLeads((prev) => [newLead, ...prev]);
+    showToast(`Added "${newLead.companyName}" to your saved accounts!`);
+  };
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
   const [newLeadForm, setNewLeadForm] = useState({
@@ -281,7 +376,8 @@ export default function LeadGenerationPlugin({
 
   // Navigation Items on Left
   const navItems = [
-    { id: "scout", label: "AI Lead Scout", icon: Sparkles, count: "Live" },
+    { id: "copilot", label: "AI Lead Copilot", icon: Sparkles, count: "Open AI" },
+    { id: "scout", label: "AI Lead Scout", icon: Search, count: "Live" },
     { id: "accounts", label: "Saved Accounts", icon: Building2, count: leads.length },
     { id: "contacts", label: "Decision Makers", icon: Users, count: leads.length },
     { id: "dossiers", label: "Account Dossiers", icon: FileText },
@@ -289,6 +385,7 @@ export default function LeadGenerationPlugin({
   ];
 
   const viewTitles = {
+    copilot: { title: "AI Lead Copilot (Open Assistant)", desc: "Interactive AI partner for lead engineering, strategy, market research, and prompt optimization." },
     scout: { title: "AI Lead Scout", desc: "Discover qualified target accounts through autonomous live web search & market crawling." },
     accounts: { title: "Saved Target Accounts", desc: "Manage qualified company pipeline, operational metrics, and review statuses." },
     contacts: { title: "Verified Decision Makers", desc: "Direct phone numbers, email addresses, and executive titles for key buyers." },

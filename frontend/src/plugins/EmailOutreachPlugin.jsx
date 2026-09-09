@@ -34,7 +34,8 @@ import {
   Layers,
   MessageSquare
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName } from "../tokens";
+import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../tokens";
+import { api } from "../api/apiClient";
 
 const INITIAL_CAMPAIGN_SEQUENCES = [
   {
@@ -172,6 +173,76 @@ export default function EmailOutreachPlugin({
   const [templates, setTemplates] = useState(INITIAL_EMAIL_TEMPLATES);
   const [toastMessage, setToastMessage] = useState(null);
 
+  // Open AI Email Outreach Copilot State
+  const [emailChatMessages, setEmailChatMessages] = useState([
+    {
+      id: "em_init",
+      role: "assistant",
+      text: "👋 Hi! I'm your AI Outreach & Email Copilot. You can ask me to draft custom emails, analyze objection patterns, suggest subject lines, or discuss general outbound strategy.\n\nWhat would you like to work on?",
+      time: "Just now"
+    }
+  ]);
+  const [emailChatInput, setEmailChatInput] = useState("");
+  const [isEmailTyping, setIsEmailTyping] = useState(false);
+  const emailScrollRef = React.useRef(null);
+
+  const handleSendEmailChat = async (e, customText) => {
+    if (e) e.preventDefault();
+    const query = (customText || emailChatInput).trim();
+    if (!query || isEmailTyping) return;
+
+    setEmailChatInput("");
+    const userMsg = {
+      id: "em_" + Date.now(),
+      role: "user",
+      text: query,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    };
+    setEmailChatMessages((prev) => [...prev, userMsg]);
+    setIsEmailTyping(true);
+
+    try {
+      const creds = getActiveAiCredentials(commonAi, "email", "copywriterLlm");
+      const res = await api.copilotChat({
+        message: query,
+        history: emailChatMessages.map((m) => ({ role: m.role, content: m.text })),
+        plugin: "email",
+        apiKey: creds.apiKey,
+        provider: creds.provider,
+        model: creds.model,
+        baseUrl: creds.baseUrl
+      });
+
+      setEmailChatMessages((prev) => [
+        ...prev,
+        {
+          id: "em_" + (Date.now() + 1),
+          role: "assistant",
+          text: res?.reply || "Draft ready. How else can I assist?",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          model: res?.model || creds.model
+        }
+      ]);
+    } catch (err) {
+      setEmailChatMessages((prev) => [
+        ...prev,
+        {
+          id: "em_" + (Date.now() + 1),
+          role: "assistant",
+          text: `⚠️ AI connection error: ${err.message || "Failed to reach AI service."}`,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        }
+      ]);
+    } finally {
+      setIsEmailTyping(false);
+      setTimeout(() => {
+        if (emailScrollRef.current) {
+          emailScrollRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 100);
+    }
+  };
+
   // Drafter State
   const [draftMode, setDraftMode] = useState("cold"); // "cold" | "repurpose"
   const [targetCompany, setTargetCompany] = useState("Apex Freight Logistics");
@@ -302,6 +373,7 @@ export default function EmailOutreachPlugin({
   };
 
   const navItems = [
+    { id: "copilot", label: "AI Outreach Copilot", icon: Sparkles, count: "Open Chat" },
     { id: "campaigns", label: "Outreach Sequences", icon: Send, count: campaigns.length },
     { id: "drafter", label: "AI Email Drafter", icon: PenLine, count: "AI" },
     { id: "inbox", label: "Replies & Inbox", icon: Mail, count: inboxThreads.filter((t) => t.unread).length },
@@ -310,6 +382,7 @@ export default function EmailOutreachPlugin({
   ];
 
   const viewTitles = {
+    copilot: { title: "AI Outreach Copilot (Open Assistant)", desc: "Conversational AI assistant for email strategy, copywriting, objection handling, and messaging." },
     campaigns: { title: "Outreach Sequences", desc: "Automated multi-step cold email cadences and deliverability metrics." },
     drafter: { title: "AI Email Drafter", desc: "Generate personalized cold pitches or repurpose social content into newsletters." },
     inbox: { title: "Unified Replies Inbox", desc: "Incoming client responses, sentiment tagging, and 1-click AI reply drafting." },

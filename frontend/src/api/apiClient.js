@@ -102,6 +102,7 @@ export const api = {
   enrichProspect: (payload) => apiRequest('/enrichment/enrich-prospect', { method: 'POST', body: payload }),
   discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload }),
   copilotChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
+  openChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
 
   // Analytics
   getAnalytics: () => apiRequest('/analytics'),

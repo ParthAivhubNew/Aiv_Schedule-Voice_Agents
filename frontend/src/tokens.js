@@ -96,3 +96,45 @@ export function timezoneLabel(tzId) {
   const found = TIMEZONES.find((t) => t.id === tzId);
   return found ? found.label : tzId || "UK — London (GMT/BST)";
 }
+
+export function getActiveAiCredentials(commonAi, pluginType = "leadgen", featureKey = "") {
+  if (!commonAi) return { apiKey: "", provider: "deepseek", model: "DeepSeek-V3", baseUrl: "" };
+
+  let modelName = "";
+  if (pluginType === "leadgen") modelName = commonAi.leadgenLayers?.[featureKey || "researchLlm"] || "DeepSeek-V3";
+  else if (pluginType === "scheduler") modelName = commonAi.schedulerLayers?.[featureKey || "postWriter"] || "Claude 3.5 Sonnet";
+  else if (pluginType === "email") modelName = commonAi.emailLayers?.[featureKey || "copywriterLlm"] || "Claude 3.5 Sonnet";
+  else if (pluginType === "voice") modelName = commonAi.voiceLayers?.[featureKey || "llm"] || "xAI Grok-2";
+
+  // Check custom connections
+  const customConn = (commonAi.customConnections || []).find(
+    (c) => c.modelId && c.modelId.toLowerCase() === modelName.toLowerCase()
+  );
+  if (customConn && customConn.apiKey) {
+    return {
+      apiKey: customConn.apiKey,
+      provider: customConn.providerName || "custom",
+      model: customConn.modelId,
+      baseUrl: customConn.baseUrl || ""
+    };
+  }
+
+  // Check provider in commonAi.providers
+  const m = String(modelName || "").toLowerCase();
+  let provId = "deepseek";
+  if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet") || m.includes("haiku")) provId = "anthropic";
+  else if (m.includes("gpt") || m.includes("openai") || m.includes("o3")) provId = "openai";
+  else if (m.includes("deepseek")) provId = "deepseek";
+  else if (m.includes("groq") || m.includes("llama")) provId = "groq";
+  else if (m.includes("grok") || m.includes("xai")) provId = "xai";
+  else if (m.includes("gemini")) provId = "gemini";
+  else if (m.includes("ollama")) provId = "ollama";
+
+  const provObj = (commonAi.providers || []).find((p) => p.id === provId);
+  return {
+    apiKey: provObj?.apiKey || "",
+    provider: provObj?.name || provId,
+    model: modelName,
+    baseUrl: provObj?.baseUrl || ""
+  };
+}

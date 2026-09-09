@@ -51,11 +51,20 @@ export function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile }
     setTyping(true);
 
     try {
-      const res = await api.chatPlan(userText);
+      const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
+      const res = await api.chatPlan({
+        text: userText,
+        apiKey: creds.apiKey,
+        provider: creds.provider,
+        model: creds.model,
+        baseUrl: creds.baseUrl
+      });
       setChatMessages((prev) => [...prev, { who: "ai", text: res.reply }]);
-      loadPosts();
+      if (res.posts && res.posts.length > 0) {
+        loadPosts();
+      }
     } catch (err) {
-      setChatMessages((prev) => [...prev, { who: "ai", text: "Generated 3 draft posts for LinkedIn and X matching your company knowledge profile." }]);
+      setChatMessages((prev) => [...prev, { who: "ai", text: `⚠️ AI Chat notice: ${err.message || "Could not reach content assistant."}` }]);
     } finally {
       setTyping(false);
     }
