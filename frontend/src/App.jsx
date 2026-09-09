@@ -9595,33 +9595,17 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               <Settings2 size={20} />
             </div>
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: "-0.01em" }}>
-                  AI Plugin Configuration
-                </span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: C.slate, background: "rgba(0,0,0,0.05)", padding: "2px 8px", borderRadius: 4, fontWeight: 500 }}>
-                  <GripHorizontal size={12} /> Drag header to move
-                </span>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: "-0.01em" }}>
+                AI Plugin Configuration
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
                 Configure models, connect custom API keys, and manage capabilities for each workspace plugin
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {(position.x !== 0 || position.y !== 0) && (
-              <button
-                onClick={() => setPosition({ x: 0, y: 0 })}
-                title="Reset window position"
-                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, padding: "5px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", color: C.slate, cursor: "pointer", fontWeight: 600 }}
-              >
-                <RotateCcw size={12} /> Reset Position
-              </button>
-            )}
-            <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, padding: 6, borderRadius: 6 }}>
-              <X size={20} />
-            </button>
-          </div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, padding: 6, borderRadius: 6 }}>
+            <X size={20} />
+          </button>
         </div>
 
         {/* Plugin Tabs: Clean, spaced, no numbers */}
