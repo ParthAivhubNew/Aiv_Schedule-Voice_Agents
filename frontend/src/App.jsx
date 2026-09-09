@@ -124,9 +124,12 @@ const INITIAL_BUILTIN_PROVIDERS = [
   { id: "xai", name: "xAI (Grok)", type: "llm", badge: "xAI Voice & LPU", status: "not_configured", latencyMs: null, baseUrl: "https://api.x.ai/v1", apiKey: "", phoneNumber: "", agentId: "", models: ["xAI Grok-2", "xAI Grok-beta", "xAI Grok-4.6", "xAI Grok-4.5"] },
   { id: "deepseek", name: "DeepSeek AI", type: "llm", badge: "Open-Weight Cloud", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepseek.com/v1", apiKey: "", models: ["DeepSeek V4 Flash", "DeepSeek-V3", "DeepSeek-R1"] },
   { id: "anthropic", name: "Anthropic Claude", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.anthropic.com/v1", apiKey: "", models: ["Claude Sonnet 4.5", "Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "Claude 3.5 Haiku"] },
-  { id: "openai", name: "OpenAI", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.openai.com/v1", apiKey: "", models: ["GPT-4o", "GPT-4o-mini", "o3-mini", "text-embedding-3"] },
+  { id: "openai", name: "OpenAI", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.openai.com/v1", apiKey: "", models: ["GPT-4o", "GPT-4o-mini", "o3-mini", "text-embedding-3", "dall-e-3", "dall-e-2"] },
   { id: "groq", name: "Groq LPU (Ultra-Fast)", type: "llm", badge: "LPU Accelerator", status: "not_configured", latencyMs: null, baseUrl: "https://api.groq.com/openai/v1", apiKey: "", models: ["Groq Llama 3.3 70B", "Groq Llama 3.1 8B", "DeepSeek-R1 Distill Llama 70B"] },
   { id: "gemini", name: "Google Gemini", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: "", models: ["Gemini 2.0 Flash", "Gemini 1.5 Pro", "Gemini Embedding"] },
+  { id: "stability", name: "Stability AI", type: "image", badge: "Image Synthesis", status: "not_configured", latencyMs: null, baseUrl: "https://api.stability.ai", apiKey: "", models: ["sdxl-1.0", "sd-1.5"] },
+  { id: "fal", name: "Fal.ai", type: "image", badge: "Fast FLUX / Diffusion", status: "not_configured", latencyMs: null, baseUrl: "https://fal.run", apiKey: "", models: ["fal-ai/flux/schnell", "fal-ai/flux-pro", "fal-ai/flux-realism"] },
+  { id: "pollinations", name: "Pollinations AI", type: "image", badge: "Free Built-in FLUX", status: "connected", latencyMs: 18, baseUrl: "https://image.pollinations.ai", apiKey: "", models: ["FLUX.1 Schnell", "Flux.1 Dev"] },
   { id: "ollama", name: "Ollama / Self-Hosted", type: "llm", badge: "100% Private On-Prem", status: "not_configured", latencyMs: null, baseUrl: "http://localhost:11434/v1", apiKey: "", models: ["Ollama Llama 3.2 (Local)", "Ollama Mistral (Local)", "DeepSeek-R1 (Local)", "Ollama nomic-embed (Local)"] },
   { id: "deepgram", name: "Deepgram", type: "stt", badge: "Managed STT", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepgram.com/v1", apiKey: "", models: ["Deepgram Nova-3", "Deepgram Nova-2"] },
   { id: "elevenlabs", name: "ElevenLabs", type: "tts", badge: "Managed Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.elevenlabs.io/v1", apiKey: "", models: ["ElevenLabs Turbo", "ElevenLabs Multilingual v2"] },
@@ -153,7 +156,7 @@ const LEADGEN_LAYERS = [
 const SCHEDULER_LAYERS = [
   { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "Claude 3.5 Sonnet", oss: "Ollama Llama 3.2 (Local)", options: ["Claude 3.5 Sonnet", "xAI Grok-2", "GPT-4o", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Llama 3.2 (Local)"] },
   { key: "topicResearch", label: "Topic Research & Trend Discovery", desc: "Monitors industry trends to formulate timely editorial hooks", paid: "xAI Grok-2", oss: "Gemini 2.0 Flash", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o", "Claude 3.5 Sonnet", "DeepSeek-V3"] },
-  { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "Flux Schnell (Zero Key Required)", oss: "Flux Schnell", options: ["Flux Schnell (Zero Key Required)", "Stability SDXL", "Custom Image API", "OpenAI DALL-E 3"] },
+  { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "Pollinations FLUX (Free)", oss: "Pollinations FLUX", options: ["Pollinations FLUX (Free)", "OpenAI DALL-E 3", "Stability SDXL", "Fal.ai FLUX.1 Pro", "Custom Image API"] },
   { key: "chatPlanner", label: "Plan Chat Editorial Assistant", desc: "Refines campaign concepts and schedules interactively", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
   { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Indexes brand voice guidelines, product guides, and playbooks", paid: "OpenAI text-embedding-3", oss: "Ollama nomic-embed (Local)", options: ["OpenAI text-embedding-3", "Gemini Embedding", "Ollama nomic-embed (Local)"] },
 ];
@@ -9734,6 +9737,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [customProviderName, setCustomProviderName] = useState("OpenAI Compatible");
   const [customApiKey, setCustomApiKey] = useState("");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customDisplayName, setCustomDisplayName] = useState("");
   const [customModelId, setCustomModelId] = useState("");
   const [isSavingCustom, setIsSavingCustom] = useState(false);
   const [customNotice, setCustomNotice] = useState(null);
@@ -9862,6 +9866,14 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     }
   };
 
+  const updateVisibleName = (key, name) => {
+    setCommonAi((prev) => ({
+      ...prev,
+      visibleNames: { ...((prev && prev.visibleNames) || {}), [key]: name },
+    }));
+    flash();
+  };
+
   const updateLeadgenLayer = (key, val) => {
     setCommonAi((prev) => ({
       ...prev,
@@ -9915,12 +9927,14 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     const featureObj = layers.find((l) => l.key === assignedFeature);
     const featureLabel = featureObj?.label || assignedFeature;
     const modelName = customModelId.trim() || `${customProviderName} Model`;
+    const displayName = customDisplayName.trim() || featureLabel;
     const apiKey = customApiKey.trim();
     const baseUrl = customBaseUrl.trim();
 
     setIsSavingCustom(true);
     try {
-      // 1. Update the layer's model to the user's custom model name directly
+      // 1. Update the layer's model to the user's custom model name directly & display name
+      updateVisibleName(assignedFeature, displayName);
       if (targetPluginId === "leadgen") updateLeadgenLayer(assignedFeature, modelName);
       if (targetPluginId === "scheduler") updateSchedulerLayer(assignedFeature, modelName);
       if (targetPluginId === "email") updateEmailLayer(assignedFeature, modelName);
@@ -9933,6 +9947,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         pluginId: targetPluginId,
         featureKey: assignedFeature,
         featureLabel: featureLabel,
+        displayName: displayName,
         providerName: customProviderName,
         modelId: modelName,
         apiKey: apiKey,
@@ -9956,8 +9971,8 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             ...provs,
             {
               id: newConn.id,
-              name: `${customProviderName} (${modelName})`,
-              type: "llm",
+              name: `${customProviderName} (${displayName || modelName})`,
+              type: targetPluginId === "scheduler" && (assignedFeature === "imageStudio" || customProviderName.toLowerCase().includes("fal") || customProviderName.toLowerCase().includes("stability")) ? "image" : "llm",
               apiKey: apiKey,
               baseUrl: baseUrl || undefined,
               status: "connected",
@@ -9970,12 +9985,13 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
       // 4. Show persistent success confirmation (NEVER abruptly vanish!)
       setCustomNotice({
         type: "success",
-        text: `✓ Saved & Connected! Model "${modelName}" is now active for "${featureLabel}".`,
+        text: `✓ Saved & Connected! "${displayName}" (${modelName}) is now active for "${featureLabel}".`,
       });
       flash();
 
       // Clear input fields for next use, keeping drawer accessible and notice visible
       setCustomApiKey("");
+      setCustomDisplayName("");
       setCustomModelId("");
       setCustomBaseUrl("");
     } catch (e) {
@@ -10009,6 +10025,9 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     if (m.includes("deepseek")) return "deepseek";
     if (m.includes("groq") || m.includes("llama")) return "groq";
     if (m.includes("gemini") || m.includes("google")) return "gemini";
+    if (m.includes("stability") || m.includes("sdxl") || m.includes("stable-diffusion")) return "stability";
+    if (m.includes("fal") || m.includes("flux")) return "fal";
+    if (m.includes("pollinations")) return "pollinations";
     if (m.includes("elevenlabs")) return "elevenlabs";
     if (m.includes("deepgram")) return "deepgram";
     if (m.includes("twilio") || m.includes("telnyx")) return "twilio";
@@ -10278,22 +10297,57 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
                 <div>
                   <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                    Provider Framework
+                    AI Provider Name / Gateway (Open / Any)
                   </label>
-                  <select
+                  <input
+                    type="text"
+                    list="custom-provider-suggestions"
                     value={customProviderName}
                     onChange={(e) => setCustomProviderName(e.target.value)}
-                    style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
-                  >
-                    <option value="OpenAI Compatible">OpenAI Compatible (Any /v1 API)</option>
-                    <option value="Anthropic">Anthropic Claude</option>
-                    <option value="DeepSeek">DeepSeek AI</option>
-                    <option value="xAI">xAI (Grok)</option>
-                    <option value="Groq">Groq LPU</option>
-                    <option value="Ollama">Ollama / vLLM (Localhost)</option>
-                    <option value="ElevenLabs">ElevenLabs Voice</option>
-                    <option value="Custom Proxy">Custom Enterprise Gateway</option>
-                  </select>
+                    placeholder="Type or pick any provider..."
+                    style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+                  />
+                  <datalist id="custom-provider-suggestions">
+                    <option value="OpenAI Compatible" />
+                    <option value="Anthropic" />
+                    <option value="DeepSeek" />
+                    <option value="xAI" />
+                    <option value="Groq" />
+                    <option value="Stability AI" />
+                    <option value="Fal.ai" />
+                    <option value="Pollinations AI" />
+                    <option value="Ollama" />
+                    <option value="ElevenLabs" />
+                    <option value="Custom Proxy" />
+                  </datalist>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                    Visible Name in Software (UI Label)
+                  </label>
+                  <input
+                    type="text"
+                    value={customDisplayName}
+                    onChange={(e) => setCustomDisplayName(e.target.value)}
+                    placeholder="e.g. My Fast Claude Agent, Studio FLUX"
+                    style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                    Model Identifier (Exact Model Name for Provider)
+                  </label>
+                  <input
+                    type="text"
+                    value={customModelId}
+                    onChange={(e) => setCustomModelId(e.target.value)}
+                    placeholder="e.g. dall-e-3, meta-llama/llama-3.3-70b, sdxl-1.0"
+                    style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+                  />
                 </div>
               </div>
 
@@ -10306,36 +10360,23 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                     type="password"
                     value={customApiKey}
                     onChange={(e) => setCustomApiKey(e.target.value)}
-                    placeholder="sk-... or private token"
+                    placeholder="sk-... or private token (leave blank for local Ollama)"
                     style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
                   />
                 </div>
 
                 <div>
                   <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                    Model Identifier (User Provided)
+                    Base URL / Endpoint (Optional)
                   </label>
                   <input
                     type="text"
-                    value={customModelId}
-                    onChange={(e) => setCustomModelId(e.target.value)}
-                    placeholder="e.g. meta-llama/llama-3.3-70b or my-model"
+                    value={customBaseUrl}
+                    onChange={(e) => setCustomBaseUrl(e.target.value)}
+                    placeholder="https://api.your-provider.com/v1"
                     style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
                   />
                 </div>
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                  Base URL / Endpoint (Optional — leave blank for default cloud URLs)
-                </label>
-                <input
-                  type="text"
-                  value={customBaseUrl}
-                  onChange={(e) => setCustomBaseUrl(e.target.value)}
-                  placeholder="https://api.your-company.com/v1 or http://localhost:11434/v1"
-                  style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
-                />
               </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
@@ -10379,16 +10420,19 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     );
   };
 
-  // User-defined Model Name Input + Suggestions Datalist (NO LOCKING/RESTRICTION!)
+  // User-defined Model Name Input + Visible Name in Software (NO LOCKING/RESTRICTION!)
   const renderPluginAiFeaturesList = (pluginId, layers, currentValues, onUpdateValue) => {
     const customModelsForPlugin = (safeCommonAi.customConnections || [])
       .filter((c) => c.pluginId === pluginId)
       .map((c) => c.modelId);
 
+    const visibleNames = safeCommonAi.visibleNames || {};
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {layers.map((layer) => {
           const currentModel = currentValues[layer.key] || layer.paid;
+          const currentDisplayName = visibleNames[layer.key] || layer.label;
           const isCustomModel = !layer.options.includes(currentModel);
 
           return (
@@ -10405,7 +10449,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 gap: 16,
               }}
             >
-              <div style={{ flex: 1, minWidth: 240 }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.ink }}>
                     {layer.label}
@@ -10415,7 +10459,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   </span>
                   {isCustomModel && (
                     <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#EEF2FF", color: "#4F46E5", border: "1px solid #C7D2FE" }}>
-                      User Defined Model
+                      User Defined
                     </span>
                   )}
                 </div>
@@ -10424,43 +10468,80 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 </div>
               </div>
 
-              {/* Editable Model Name Input with Suggestions Datalist */}
-              <div style={{ width: 290, flexShrink: 0, position: "relative" }}>
-                <input
-                  type="text"
-                  list={`model-suggestions-${layer.key}`}
-                  value={currentModel}
-                  onChange={(e) => onUpdateValue(layer.key, e.target.value)}
-                  placeholder="Type or pick any model name..."
-                  style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    height: 38,
-                    padding: "0 12px",
-                    borderRadius: 7,
-                    border: `1px solid ${isCustomModel ? "#818CF8" : C.border}`,
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    fontFamily: isCustomModel ? FONT_MONO : FONT_BODY,
-                    background: isCustomModel ? "#FBFBFF" : "#fff",
-                    color: C.ink,
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-                  }}
-                />
-                <datalist id={`model-suggestions-${layer.key}`}>
-                  {customModelsForPlugin.map((cm) => (
-                    <option key={cm} value={cm}>{cm} (Your Custom Model)</option>
-                  ))}
-                  {layer.options.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                  <option value="gpt-4.5-preview" />
-                  <option value="claude-3-7-sonnet-20250219" />
-                  <option value="deepseek-chat" />
-                  <option value="deepseek-reasoner" />
-                  <option value="meta-llama/llama-3.3-70b-instruct" />
-                  <option value="qwen/qwen-2.5-72b-instruct" />
-                </datalist>
+              {/* Dual Decoupled Inputs: 1) Visible Display Name, 2) Exact Provider Model Identifier */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                {/* 1. Visible Display Name in Software */}
+                <div style={{ width: 190 }}>
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: C.slate, marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                    Visible UI Name
+                  </label>
+                  <input
+                    type="text"
+                    value={currentDisplayName}
+                    onChange={(e) => updateVisibleName(layer.key, e.target.value)}
+                    placeholder="Display name in UI..."
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      height: 36,
+                      padding: "0 10px",
+                      borderRadius: 7,
+                      border: `1px solid ${C.border}`,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      fontFamily: FONT_BODY,
+                      background: "#fff",
+                      color: C.ink,
+                    }}
+                    title="What will be displayed in the software interface"
+                  />
+                </div>
+
+                {/* 2. Provider Model Identifier */}
+                <div style={{ width: 230, position: "relative" }}>
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: C.slate, marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                    Provider Model Name
+                  </label>
+                  <input
+                    type="text"
+                    list={`model-suggestions-${layer.key}`}
+                    value={currentModel}
+                    onChange={(e) => onUpdateValue(layer.key, e.target.value)}
+                    placeholder="e.g. gpt-4o, dall-e-3, sdxl..."
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      height: 36,
+                      padding: "0 10px",
+                      borderRadius: 7,
+                      border: `1px solid ${isCustomModel ? "#818CF8" : C.border}`,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      fontFamily: FONT_MONO,
+                      background: isCustomModel ? "#FBFBFF" : "#fff",
+                      color: C.ink,
+                    }}
+                    title="Exact model name available by the provider"
+                  />
+                  <datalist id={`model-suggestions-${layer.key}`}>
+                    {customModelsForPlugin.map((cm) => (
+                      <option key={cm} value={cm}>{cm} (Your Custom Model)</option>
+                    ))}
+                    {layer.options.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                    <option value="gpt-4.5-preview" />
+                    <option value="claude-3-7-sonnet-20250219" />
+                    <option value="deepseek-chat" />
+                    <option value="deepseek-reasoner" />
+                    <option value="meta-llama/llama-3.3-70b-instruct" />
+                    <option value="qwen/qwen-2.5-72b-instruct" />
+                    <option value="dall-e-3" />
+                    <option value="sdxl-1.0" />
+                    <option value="fal-ai/flux/schnell" />
+                    <option value="FLUX.1 Schnell" />
+                  </datalist>
+                </div>
               </div>
             </div>
           );
@@ -10479,7 +10560,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
       <div style={{
         background: "#fff",
         borderRadius: 18,
-        width: 920,
+        width: 980,
         maxWidth: "96vw",
         maxHeight: "90vh",
         display: "flex",
@@ -10679,6 +10760,230 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5 }}
                 />
               </div>
+
+              {/* Dedicated Image Generation Engine & Credentials Card */}
+              {(() => {
+                const schedAi = safeCommonAi.schedulerAi || {};
+                const imgProv = schedAi.imageProvider || "pollinations";
+                const imgKey = schedAi.imageApiKey || (safeCommonAi.providers || []).find((p) => p.id === imgProv)?.apiKey || "";
+                const imgModel = schedAi.imageModel || "FLUX.1 Schnell";
+                const imgDisplayName = (safeCommonAi.visibleNames || {})["imageStudio"] || "AI Visual Studio";
+                const imgBaseUrl = schedAi.imageBaseUrl || "";
+
+                return (
+                  <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                        <div style={{ width: 28, height: 28, borderRadius: 7, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Sparkles size={16} color={C.teal} />
+                        </div>
+                        <div>
+                          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.ink }}>
+                            AI Image Generation Engine & API Credentials
+                          </div>
+                          <div style={{ fontSize: 11.5, color: C.slate }}>
+                            Configure visual synthesis model name, open provider gateway, and dedicated API key
+                          </div>
+                        </div>
+                      </div>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: "3px 9px",
+                        borderRadius: 999,
+                        background: imgProv === "pollinations" || imgKey ? "#E8F5E9" : C.amberSoft,
+                        color: imgProv === "pollinations" || imgKey ? "#1B5E20" : C.amber,
+                        border: `1px solid ${imgProv === "pollinations" || imgKey ? "#C8E6C9" : "rgba(217,119,6,0.25)"}`
+                      }}>
+                        {imgProv === "pollinations" ? "✓ Free FLUX Ready" : (imgKey ? `✓ ${imgProv.toUpperCase()} Key Active` : `⚠️ ${imgProv.toUpperCase()} Key Missing`)}
+                      </span>
+                    </div>
+
+                    {/* Dual Open Inputs: 1) Visible Display Name, 2) Exact Provider Model Identifier */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1.5fr", gap: 12, marginTop: 12 }}>
+                      {/* Image Provider Selection / Typing */}
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                          Image AI Provider (Open / Any)
+                        </label>
+                        <input
+                          type="text"
+                          list="global-image-provider-suggestions"
+                          value={imgProv}
+                          onChange={(e) => {
+                            const newProv = e.target.value;
+                            const nextSchedAi = { ...schedAi, imageProvider: newProv };
+                            try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(nextSchedAi)); } catch (_) {}
+                            setCommonAi((p) => ({ ...p, schedulerAi: nextSchedAi }));
+                            flash();
+                          }}
+                          placeholder="pollinations, openai, stability, fal, or custom..."
+                          style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+                        />
+                        <datalist id="global-image-provider-suggestions">
+                          <option value="pollinations">Pollinations FLUX (Free · Built-in)</option>
+                          <option value="openai">OpenAI (DALL-E 3 / DALL-E 2)</option>
+                          <option value="stability">Stability AI (SDXL 1.0)</option>
+                          <option value="fal">Fal.ai (FLUX.1 Pro / Schnell)</option>
+                          <option value="custom">Custom Image API / WebUI</option>
+                        </datalist>
+                      </div>
+
+                      {/* Visible Display Name in Software */}
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                          Visible Name in UI
+                        </label>
+                        <input
+                          type="text"
+                          value={imgDisplayName}
+                          onChange={(e) => updateVisibleName("imageStudio", e.target.value)}
+                          placeholder="e.g. Studio FLUX 4K"
+                          style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12 }}
+                        />
+                      </div>
+
+                      {/* Provider Model Identifier */}
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                          Model Identifier (For Provider API)
+                        </label>
+                        <input
+                          type="text"
+                          list="global-image-model-suggestions"
+                          value={imgModel}
+                          onChange={(e) => {
+                            const newModel = e.target.value;
+                            const nextSchedAi = { ...schedAi, imageModel: newModel };
+                            try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(nextSchedAi)); } catch (_) {}
+                            setCommonAi((p) => ({
+                              ...p,
+                              schedulerAi: nextSchedAi,
+                              schedulerLayers: { ...((p && p.schedulerLayers) || {}), imageStudio: newModel }
+                            }));
+                            flash();
+                          }}
+                          placeholder="dall-e-3, sdxl-1.0, fal-ai/flux/schnell..."
+                          style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+                        />
+                        <datalist id="global-image-model-suggestions">
+                          <option value="FLUX.1 Schnell" />
+                          <option value="Flux.1 Dev" />
+                          <option value="dall-e-3" />
+                          <option value="dall-e-2" />
+                          <option value="sdxl-1.0" />
+                          <option value="sd-1.5" />
+                          <option value="fal-ai/flux/schnell" />
+                          <option value="fal-ai/flux-pro" />
+                        </datalist>
+                      </div>
+                    </div>
+
+                    {/* API Key Input + Test Connection */}
+                    {imgProv !== "pollinations" && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}` }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>
+                            Image Generation API Key ({imgProv.toUpperCase()})
+                          </label>
+                          <span style={{ fontSize: 10.5, color: C.teal, fontWeight: 600 }}>
+                            ⚡ Automatically synchronized with Post Scheduler plugin
+                          </span>
+                        </div>
+
+                        <div style={{ display: "flex", gap: 10 }}>
+                          <input
+                            type="password"
+                            value={imgKey}
+                            onChange={(e) => {
+                              const newKey = e.target.value;
+                              const nextSchedAi = { ...schedAi, imageApiKey: newKey };
+                              try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(nextSchedAi)); } catch (_) {}
+                              setCommonAi((p) => {
+                                const updatedProvs = (p?.providers || safeCommonAi.providers).map((item) =>
+                                  item.id === imgProv ? { ...item, apiKey: newKey } : item
+                                );
+                                return { ...p, schedulerAi: nextSchedAi, providers: updatedProvs };
+                              });
+                              flash();
+                            }}
+                            placeholder={`Paste your ${imgProv} image generation API key (sk-...)...`}
+                            style={{ flex: 1, height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+                          />
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!imgKey.trim() && imgProv !== "custom") {
+                                setTestStatus((prev) => ({ ...prev, [imgProv]: { status: "error", msg: `Please enter an API key for ${imgProv}.` } }));
+                                return;
+                              }
+                              setTestingId(imgProv);
+                              setTestStatus((prev) => ({ ...prev, [imgProv]: null }));
+                              try {
+                                const res = await api.testAndSaveConnection({
+                                  layer: "IMAGE",
+                                  provider: imgProv,
+                                  api_key: imgKey.trim() || "dummy",
+                                  base_url: imgBaseUrl ? imgBaseUrl.trim() : undefined,
+                                });
+                                setTestStatus((prev) => ({
+                                  ...prev,
+                                  [imgProv]: { status: "success", msg: res?.details || `Connected to ${imgProv.toUpperCase()} successfully!` }
+                                }));
+                                flash();
+                              } catch (err) {
+                                setTestStatus((prev) => ({
+                                  ...prev,
+                                  [imgProv]: { status: "error", msg: err.message || `Failed to authenticate ${imgProv}.` }
+                                }));
+                              } finally {
+                                setTestingId(null);
+                              }
+                            }}
+                            disabled={testingId === imgProv}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "0 14px",
+                              borderRadius: 7,
+                              border: `1px solid ${C.border}`,
+                              background: "#fff",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: C.ink,
+                              cursor: testingId === imgProv ? "wait" : "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            <RefreshCw size={13} className={testingId === imgProv ? "animate-spin" : ""} />
+                            <span>{testingId === imgProv ? "Testing..." : "Test Image Key"}</span>
+                          </button>
+                        </div>
+
+                        {testStatus[imgProv] && (
+                          <div style={{
+                            marginTop: 8,
+                            padding: "6px 12px",
+                            borderRadius: 6,
+                            fontSize: 11.5,
+                            background: testStatus[imgProv].status === "success" ? "#ECFDF5" : "#FEF2F2",
+                            color: testStatus[imgProv].status === "success" ? "#065F46" : "#991B1B",
+                            border: `1px solid ${testStatus[imgProv].status === "success" ? "#A7F3D0" : "#FECACA"}`,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}>
+                            <span>{testStatus[imgProv].status === "success" ? "✓" : "⚠️"}</span>
+                            <span>{testStatus[imgProv].msg}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {renderCustomConnectionsSection("scheduler", SCHEDULER_LAYERS)}
               {Array.from(new Set([
@@ -10974,6 +11279,11 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
 
+  // Dedicated Image Key state
+  const [showImageKey, setShowImageKey] = useState(false);
+  const [testingImageKey, setTestingImageKey] = useState(false);
+  const [imageTestResult, setImageTestResult] = useState(null);
+
   // Helper to map model name to provider ID
   const detectProvider = (modelName) => {
     const m = String(modelName || "").toLowerCase();
@@ -11009,15 +11319,26 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     } catch (_) {}
 
     const initialModel = commonAi?.schedulerLayers?.postWriter || saved?.model || commonAi?.schedulerAi?.model || "Claude 3.5 Sonnet";
+    const initialVisibleName = (commonAi?.visibleNames || {})["postWriter"] || saved?.visibleName || "Post Copywriter & Hook Engine";
     const detectedProv = saved?.provider || commonAi?.schedulerAi?.provider || detectProvider(initialModel);
     const matchedKey = (commonAi?.providers || []).find((p) => p.id === detectedProv)?.apiKey || saved?.apiKey || commonAi?.schedulerAi?.apiKey || "";
+
+    const detectedImgProv = saved?.imageProvider || (saved?.imageEngine === "sdxl" ? "stability" : saved?.imageEngine === "custom_engine" ? "custom" : "pollinations");
+    const matchedImgKey = saved?.imageApiKey || (commonAi?.providers || []).find((p) => p.id === detectedImgProv)?.apiKey || (detectedImgProv === "openai" ? matchedKey : "");
+    const initialImgVisibleName = (commonAi?.visibleNames || {})["imageStudio"] || saved?.imageVisibleName || "AI Visual Studio";
 
     return {
       provider: detectedProv,
       apiKey: matchedKey,
       model: initialModel,
+      visibleName: initialVisibleName,
       baseUrl: saved?.baseUrl || commonAi?.schedulerAi?.baseUrl || getProviderDefaultBaseUrl(detectedProv),
-      imageEngine: commonAi?.schedulerLayers?.imageStudio || saved?.imageEngine || commonAi?.schedulerAi?.imageEngine || "auto_flux",
+      imageProvider: detectedImgProv,
+      imageApiKey: matchedImgKey,
+      imageModel: saved?.imageModel || (detectedImgProv === "openai" ? "dall-e-3" : detectedImgProv === "stability" ? "sdxl-1.0" : "FLUX.1 Schnell"),
+      imageVisibleName: initialImgVisibleName,
+      imageBaseUrl: saved?.imageBaseUrl || "",
+      imageEngine: commonAi?.schedulerLayers?.imageStudio || saved?.imageEngine || (detectedImgProv === "stability" ? "sdxl" : "auto_flux"),
       imageStyle: saved?.imageStyle || commonAi?.schedulerAi?.imageStyle || "modern_saas",
       imageAspectRatio: saved?.imageAspectRatio || commonAi?.schedulerAi?.imageAspectRatio || "16:9",
       negativePrompt: saved?.negativePrompt || commonAi?.schedulerAi?.negativePrompt || "blurry, low quality, distorted text, deformed hands, watermark",
@@ -11042,35 +11363,47 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     }
   }, [commonAi?.schedulerLayers?.postWriter]);
 
-  // On mount: recover key from backend connections if empty
+  // On mount: recover LLM & Image keys from backend connections if empty
   useEffect(() => {
     let mounted = true;
     async function recoverSavedConnections() {
-      if (aiSettings.apiKey && aiSettings.apiKey.trim()) return;
       try {
         const conns = await api.getConnections();
         if (!mounted || !Array.isArray(conns)) return;
-        let foundKey = "";
+        let foundLlmKey = "";
+        let foundImgKey = "";
         for (const grp of conns) {
           for (const it of grp.items || []) {
             if ((it.layer === "LLM" && it.status === "connected") || it.provider?.toLowerCase().includes(aiSettings.provider)) {
-              if (it.apiKey) { foundKey = it.apiKey; break; }
+              if (it.apiKey && !foundLlmKey) { foundLlmKey = it.apiKey; }
+            }
+            if ((it.layer === "IMAGE" && it.status === "connected") || (it.layer === "IMAGE" && it.apiKey) || (it.provider && ["stability", "fal", "dall-e"].some(x => it.provider?.toLowerCase().includes(x)))) {
+              if (it.apiKey && !foundImgKey) { foundImgKey = it.apiKey; }
             }
           }
-          if (foundKey) break;
         }
-        if (foundKey) {
-          setAiSettings((prev) => {
-            const next = { ...prev, apiKey: foundKey };
+        setAiSettings((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          if (!prev.apiKey && foundLlmKey) {
+            next.apiKey = foundLlmKey;
+            changed = true;
+          }
+          if (!prev.imageApiKey && foundImgKey) {
+            next.imageApiKey = foundImgKey;
+            changed = true;
+          }
+          if (changed) {
             try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(next)); } catch (_) {}
             return next;
-          });
-        }
+          }
+          return prev;
+        });
       } catch (_) {}
     }
     recoverSavedConnections();
     return () => { mounted = false; };
-  }, [aiSettings.provider]);
+  }, [aiSettings.provider, aiSettings.imageProvider]);
 
   const updateSetting = (key, val) => {
     setAiSettings((prev) => {
@@ -11096,6 +11429,32 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         next.baseUrl = getProviderDefaultBaseUrl(val);
         const matchedKey = (commonAi?.providers || []).find((p) => p.id === val)?.apiKey;
         next.apiKey = matchedKey || "";
+      }
+
+      // If image provider explicitly changed
+      if (key === "imageProvider") {
+        if (val === "pollinations") {
+          next.imageEngine = "auto_flux";
+          if (!next.imageModel) next.imageModel = "FLUX.1 Schnell";
+        } else if (val === "openai") {
+          next.imageEngine = "openai_dalle";
+          if (!next.imageModel || next.imageModel.includes("Schnell")) next.imageModel = "dall-e-3";
+          if (!next.imageApiKey && next.apiKey && next.provider === "openai") {
+            next.imageApiKey = next.apiKey;
+          }
+        } else if (val === "stability") {
+          next.imageEngine = "sdxl";
+          if (!next.imageModel || next.imageModel.includes("Schnell")) next.imageModel = "sdxl-1.0";
+        } else if (val === "fal") {
+          next.imageEngine = "fal_flux";
+          if (!next.imageModel || next.imageModel.includes("dall")) next.imageModel = "fal-ai/flux/schnell";
+        } else if (val === "custom") {
+          next.imageEngine = "custom_engine";
+        }
+      }
+
+      if (key === "imageModel") {
+        next.imageEngine = val;
       }
 
       // 1. Immediately persist to localStorage
@@ -11126,6 +11485,11 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
               ...(p.schedulerLayers || {}),
               postWriter: next.model,
               ...(next.imageEngine ? { imageStudio: next.imageEngine } : {})
+            },
+            visibleNames: {
+              ...((p && p.visibleNames) || {}),
+              ...(next.visibleName ? { postWriter: next.visibleName } : {}),
+              ...(next.imageVisibleName ? { imageStudio: next.imageVisibleName } : {})
             },
             providers: updatedProvs,
             temperature: next.temperature,
@@ -11178,6 +11542,51 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     }
   };
 
+  const handleTestImageKey = async () => {
+    if (aiSettings.imageProvider === "pollinations") {
+      setImageTestResult({ valid: true, message: "Pollinations FLUX is active & 100% free (no API key required)." });
+      return;
+    }
+    if (!aiSettings.imageApiKey?.trim() && aiSettings.imageProvider !== "custom") {
+      setImageTestResult({ valid: false, message: `Please enter your ${aiSettings.imageProvider.toUpperCase()} API key first.` });
+      return;
+    }
+    setTestingImageKey(true);
+    setImageTestResult(null);
+    const startTime = Date.now();
+    try {
+      const res = await api.testConnection({
+        layer: "IMAGE",
+        provider: aiSettings.imageProvider,
+        api_key: (aiSettings.imageApiKey || "").trim(),
+        apiKey: (aiSettings.imageApiKey || "").trim(),
+        base_url: aiSettings.imageBaseUrl ? aiSettings.imageBaseUrl.trim() : undefined,
+        baseUrl: aiSettings.imageBaseUrl ? aiSettings.imageBaseUrl.trim() : undefined,
+      });
+      const latency = Math.max(Date.now() - startTime, 32);
+      if (res && (res.valid || res.success)) {
+        setImageTestResult({
+          valid: true,
+          message: `Authenticated successfully with ${aiSettings.imageProvider.toUpperCase()} (${latency}ms latency). Image rendering active.`
+        });
+        try {
+          await api.testAndSaveConnection({
+            layer: "IMAGE",
+            provider: aiSettings.imageProvider,
+            api_key: (aiSettings.imageApiKey || "").trim(),
+            base_url: aiSettings.imageBaseUrl ? aiSettings.imageBaseUrl.trim() : undefined,
+          });
+        } catch (_) {}
+      } else {
+        setImageTestResult({ valid: false, message: res?.error || res?.details || `Validation failed for ${aiSettings.imageProvider}.` });
+      }
+    } catch (err) {
+      setImageTestResult({ valid: false, message: err.message || `Failed to authenticate ${aiSettings.imageProvider} key.` });
+    } finally {
+      setTestingImageKey(false);
+    }
+  };
+
   const handleSave = async () => {
     try {
       localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(aiSettings));
@@ -11197,7 +11606,12 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
           schedulerLayers: {
             ...(prev?.schedulerLayers || {}),
             postWriter: aiSettings.model,
-            imageStudio: aiSettings.imageEngine
+            imageStudio: aiSettings.imageModel || aiSettings.imageEngine
+          },
+          visibleNames: {
+            ...((prev && prev.visibleNames) || {}),
+            ...(aiSettings.visibleName ? { postWriter: aiSettings.visibleName } : {}),
+            ...(aiSettings.imageVisibleName ? { imageStudio: aiSettings.imageVisibleName } : {})
           },
           providers: updatedProvs,
           temperature: aiSettings.temperature,
@@ -11206,6 +11620,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
       });
     }
 
+    // Save LLM credentials to database
     if (aiSettings.apiKey.trim()) {
       try {
         await api.testAndSaveConnection({
@@ -11213,6 +11628,18 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
           provider: aiSettings.provider,
           api_key: aiSettings.apiKey.trim(),
           base_url: aiSettings.baseUrl || undefined,
+        });
+      } catch (_) {}
+    }
+
+    // Save Image credentials to database
+    if (aiSettings.imageApiKey && aiSettings.imageApiKey.trim()) {
+      try {
+        await api.testAndSaveConnection({
+          layer: "IMAGE",
+          provider: aiSettings.imageProvider,
+          api_key: aiSettings.imageApiKey.trim(),
+          base_url: aiSettings.imageBaseUrl || undefined,
         });
       } catch (_) {}
     }
@@ -11323,15 +11750,18 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
               Type any model identifier or select an AI provider below. Connects seamlessly to conversational planning, hook synthesis, and multi-channel copywriting.
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 2fr", gap: 16, marginBottom: 16 }}>
-              {/* Provider Selection */}
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1.6fr", gap: 14, marginBottom: 16 }}>
+              {/* Provider Selection / Freeform input */}
               <div>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
-                  AI Provider (Auto-selected based on model)
+                  AI Provider (Open / Any)
                 </label>
-                <select
+                <input
+                  type="text"
+                  list="scheduler-provider-options"
                   value={aiSettings.provider}
                   onChange={(e) => updateSetting("provider", e.target.value)}
+                  placeholder="e.g. anthropic, openai, deepseek, ollama..."
                   style={{
                     width: "100%",
                     height: 42,
@@ -11342,9 +11772,10 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                     fontFamily: FONT_BODY,
                     fontSize: 13,
                     color: C.ink,
-                    cursor: "pointer",
+                    boxSizing: "border-box",
                   }}
-                >
+                />
+                <datalist id="scheduler-provider-options">
                   <option value="anthropic">Anthropic Claude (Sonnet 3.5 / 3.7)</option>
                   <option value="openai">OpenAI (GPT-4o / GPT-4o-mini / o3-mini)</option>
                   <option value="deepseek">DeepSeek (deepseek-chat / deepseek-reasoner)</option>
@@ -11353,17 +11784,43 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                   <option value="gemini">Google Gemini (Gemini 2.0 Flash / Pro)</option>
                   <option value="ollama">Ollama (Local AI Host)</option>
                   <option value="custom">Custom Endpoint (OpenAI Compatible / vLLM)</option>
-                </select>
+                </datalist>
+              </div>
+
+              {/* Visible Name in Software (UI Label) */}
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                  Visible Name in Software
+                </label>
+                <input
+                  type="text"
+                  value={aiSettings.visibleName || "Post Copywriter & Hook Engine"}
+                  onChange={(e) => updateSetting("visibleName", e.target.value)}
+                  placeholder="Display name in UI..."
+                  style={{
+                    width: "100%",
+                    height: 42,
+                    padding: "0 12px",
+                    borderRadius: 9,
+                    border: `1px solid ${C.border}`,
+                    background: "#fff",
+                    fontFamily: FONT_BODY,
+                    fontSize: 13,
+                    color: C.ink,
+                    boxSizing: "border-box",
+                  }}
+                  title="What will be displayed in the software interface"
+                />
               </div>
 
               {/* User-Provided Model Name Input */}
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
-                    Model Identifier (User Provided / Open)
+                    Provider Model Name
                   </label>
                   <span style={{ fontSize: 11, color: C.slateLight }}>
-                    Freely type any model name
+                    Exact API string
                   </span>
                 </div>
                 <input
@@ -11597,60 +12054,377 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
             </div>
           </div>
 
-          {/* CARD 3: Topic Image Generation Settings */}
+          {/* CARD 3: Topic Image Generation Settings & Image API Key */}
           <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Sparkles size={16} color={C.teal} />
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Sparkles size={17} color={C.teal} />
                 </div>
                 <div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
-                    AI Image Generation Engine & Directives
+                    AI Image Generation Engine & API Credentials
                   </div>
                   <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                    Zero forced models — pick your engine, aspect ratio, and art direction
+                    Dedicated visual synthesis provider, API key authentication, and canvas parameters
                   </div>
                 </div>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: C.tealSoft, color: C.teal }}>
-                Flux / SDXL Engine Active
+              <span style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: "3px 9px",
+                borderRadius: 999,
+                background: aiSettings.imageProvider === "pollinations" || aiSettings.imageApiKey ? "#E8F5E9" : C.amberSoft,
+                color: aiSettings.imageProvider === "pollinations" || aiSettings.imageApiKey ? "#1B5E20" : C.amber,
+                border: `1px solid ${aiSettings.imageProvider === "pollinations" || aiSettings.imageApiKey ? "#C8E6C9" : "rgba(217,119,6,0.25)"}`
+              }}>
+                {aiSettings.imageProvider === "pollinations" ? "✓ Free Built-in FLUX Active" : (aiSettings.imageApiKey ? `✓ ${aiSettings.imageProvider.toUpperCase()} Key Active` : `⚠️ ${aiSettings.imageProvider.toUpperCase()} Key Missing`)}
               </span>
             </div>
 
+            <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 18, marginTop: 8 }}>
+              Select your rendering provider below. When using OpenAI DALL-E 3, Stability SDXL, or Fal.ai FLUX, enter your dedicated API key to authenticate requests.
+            </div>
+
             {/* Image Engine Selection */}
-            <div style={{ marginBottom: 18, marginTop: 12 }}>
+            <div style={{ marginBottom: 18 }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 8 }}>
-                Image Rendering Engine
+                Visual Rendering Engine
               </label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
                 {[
-                  { id: "auto_flux", label: "Flux Schnell (Built-in)", desc: "Zero API key required · 4K vector & photorealism" },
-                  { id: "sdxl", label: "Stability SDXL", desc: "Deep atmospheric lighting and complex scenes" },
-                  { id: "custom_engine", label: "Custom Image API", desc: "Connect your own local or remote image endpoint" },
+                  { id: "pollinations", label: "Pollinations FLUX", badge: "Free · No Key", desc: "Built-in 4K vector & photorealism with zero API key needed." },
+                  { id: "openai", label: "OpenAI DALL-E 3", badge: "OpenAI Key", desc: "Top-tier prompt fidelity and sharp graphic composition." },
+                  { id: "stability", label: "Stability AI SDXL", badge: "Stability Key", desc: "Deep cinematic lighting and atmospheric artistic detail." },
                 ].map((eng) => {
-                  const active = aiSettings.imageEngine === eng.id;
+                  const active = aiSettings.imageProvider === eng.id;
                   return (
                     <div
                       key={eng.id}
-                      onClick={() => updateSetting("imageEngine", eng.id)}
+                      onClick={() => updateSetting("imageProvider", eng.id)}
                       style={{
                         padding: "12px 14px",
                         borderRadius: 10,
                         border: `2px solid ${active ? C.teal : C.border}`,
                         background: active ? C.tealSoft : HUB_PAPER,
                         cursor: "pointer",
+                        transition: "all 0.15s ease",
                       }}
                     >
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: active ? C.teal : C.ink }}>
-                        {eng.label}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: active ? C.teal : C.ink }}>
+                          {eng.label}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: active ? C.teal : C.border, color: active ? "#fff" : C.slate }}>
+                          {eng.badge}
+                        </span>
                       </div>
-                      <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>
+                      <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.3 }}>
                         {eng.desc}
                       </div>
                     </div>
                   );
                 })}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                {[
+                  { id: "fal", label: "Fal.ai FLUX.1 Pro", badge: "Fal Key", desc: "Ultra-fast photorealistic FLUX rendering pipeline." },
+                  { id: "custom", label: "Custom Image API / WebUI", badge: "Self-Hosted", desc: "Connect local Automatic1111, ComfyUI, or remote endpoints." },
+                ].map((eng) => {
+                  const active = aiSettings.imageProvider === eng.id;
+                  return (
+                    <div
+                      key={eng.id}
+                      onClick={() => updateSetting("imageProvider", eng.id)}
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: 10,
+                        border: `2px solid ${active ? C.teal : C.border}`,
+                        background: active ? C.tealSoft : HUB_PAPER,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: active ? C.teal : C.ink }}>
+                          {eng.label}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: active ? C.teal : C.border, color: active ? "#fff" : C.slate }}>
+                          {eng.badge}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.3 }}>
+                        {eng.desc}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* DEDICATED IMAGE API KEY SECTION (Visible for all providers, with free notice for pollinations) */}
+            {aiSettings.imageProvider !== "pollinations" ? (
+              <div style={{ background: HUB_PAPER, border: `1px solid ${C.borderLight}`, borderRadius: 12, padding: 16, marginBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
+                    Image Generation API Key ({aiSettings.imageProvider.toUpperCase()})
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {aiSettings.imageProvider === "openai" && aiSettings.apiKey && aiSettings.apiKey !== aiSettings.imageApiKey && (
+                      <button
+                        type="button"
+                        onClick={() => updateSetting("imageApiKey", aiSettings.apiKey)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: C.teal,
+                          background: "#fff",
+                          border: `1px solid ${C.teal}`,
+                          borderRadius: 6,
+                          padding: "3px 8px",
+                          cursor: "pointer",
+                        }}
+                        title="Copy the API key from your Chat / LLM configuration"
+                      >
+                        📋 Use LLM OpenAI Key
+                      </button>
+                    )}
+                    <span style={{ fontSize: 11, color: C.teal, fontWeight: 600 }}>
+                      ⚡ Auto-persisted to browser & backend
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ position: "relative", flex: 1 }}>
+                    <input
+                      type={showImageKey ? "text" : "password"}
+                      value={aiSettings.imageApiKey}
+                      onChange={(e) => updateSetting("imageApiKey", e.target.value)}
+                      placeholder={`Paste your ${aiSettings.imageProvider.toUpperCase()} API key here...`}
+                      style={{
+                        width: "100%",
+                        height: 42,
+                        padding: "0 42px 0 14px",
+                        borderRadius: 9,
+                        border: `1px solid ${C.border}`,
+                        background: "#fff",
+                        fontFamily: FONT_MONO,
+                        fontSize: 13,
+                        color: C.ink,
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowImageKey(!showImageKey)}
+                      style={{
+                        position: "absolute",
+                        right: 12,
+                        top: 11,
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        color: C.slate,
+                        padding: 0,
+                      }}
+                      title={showImageKey ? "Hide API key" : "Show API key"}
+                    >
+                      {showImageKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleTestImageKey}
+                    disabled={testingImageKey}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      height: 42,
+                      padding: "0 18px",
+                      borderRadius: 9,
+                      border: `1px solid ${C.border}`,
+                      background: "#fff",
+                      fontFamily: FONT_BODY,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: C.ink,
+                      cursor: testingImageKey ? "wait" : "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <RefreshCw size={14} className={testingImageKey ? "animate-spin" : ""} />
+                    <span>{testingImageKey ? "Testing..." : "Test Image Key"}</span>
+                  </button>
+                </div>
+
+                {/* Validation message feedback */}
+                {imageTestResult && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontFamily: FONT_BODY,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      background: imageTestResult.valid ? "#E8F5E9" : "#FFEBEE",
+                      color: imageTestResult.valid ? "#1B5E20" : "#C62828",
+                      border: `1px solid ${imageTestResult.valid ? "#C8E6C9" : "#FFCDD2"}`,
+                    }}
+                  >
+                    {imageTestResult.valid ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                    <span>{imageTestResult.message}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: "11px 15px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                  <Check size={16} color="#15803D" />
+                  <span style={{ fontSize: 12.5, color: "#166534", fontWeight: 600 }}>
+                    Pollinations FLUX active: 100% free image generation with zero API key configuration needed.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateSetting("imageProvider", "openai")}
+                  style={{ fontSize: 11, color: C.teal, fontWeight: 700, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                >
+                  Switch to OpenAI / Stability
+                </button>
+              </div>
+            )}
+
+            {/* Visual Studio Model Configuration: Visible UI Name & Provider Model Identifier */}
+            <div style={{ background: HUB_PAPER, border: `1px solid ${C.borderLight}`, borderRadius: 12, padding: 16, marginBottom: 18 }}>
+              <div style={{ display: "grid", gridTemplateColumns: aiSettings.imageProvider === "custom" ? "1fr 1fr 1fr" : "1fr 1fr", gap: 14 }}>
+                {/* Visible Name in Software */}
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                    Visible Name in Software
+                  </label>
+                  <input
+                    type="text"
+                    value={aiSettings.imageVisibleName || "Visual Creative Engine"}
+                    onChange={(e) => updateSetting("imageVisibleName", e.target.value)}
+                    placeholder="Display name in UI..."
+                    style={{
+                      width: "100%",
+                      height: 40,
+                      padding: "0 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      background: "#fff",
+                      fontFamily: FONT_BODY,
+                      fontSize: 12.5,
+                      color: C.ink,
+                      boxSizing: "border-box",
+                    }}
+                    title="What will be displayed in the software interface"
+                  />
+                  <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                    Label shown in studio canvas & toolbars
+                  </div>
+                </div>
+
+                {/* Provider Model Name / Identifier */}
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
+                      Provider Model Name
+                    </label>
+                    <span style={{ fontSize: 11, color: C.slateLight }}>
+                      Exact API string
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={aiSettings.imageModel}
+                    onChange={(e) => updateSetting("imageModel", e.target.value)}
+                    placeholder={aiSettings.imageProvider === "openai" ? "dall-e-3" : aiSettings.imageProvider === "stability" ? "sdxl-1.0" : aiSettings.imageProvider === "fal" ? "fal-ai/flux/schnell" : "FLUX.1 Schnell"}
+                    style={{
+                      width: "100%",
+                      height: 40,
+                      padding: "0 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      background: "#fff",
+                      fontFamily: FONT_MONO,
+                      fontSize: 12.5,
+                      color: C.ink,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10.5, color: C.slateLight }}>Presets:</span>
+                    {(aiSettings.imageProvider === "openai"
+                      ? ["dall-e-3", "dall-e-2"]
+                      : aiSettings.imageProvider === "stability"
+                      ? ["sdxl-1.0", "sd-1.5"]
+                      : aiSettings.imageProvider === "fal"
+                      ? ["fal-ai/flux/schnell", "fal-ai/flux-pro", "flux-realism"]
+                      : ["FLUX.1 Schnell", "flux-realism", "turbo"]
+                    ).map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => updateSetting("imageModel", chip)}
+                        style={{
+                          fontSize: 10.5,
+                          fontFamily: FONT_MONO,
+                          padding: "2px 7px",
+                          borderRadius: 4,
+                          border: `1px solid ${aiSettings.imageModel === chip ? C.teal : C.borderLight}`,
+                          background: aiSettings.imageModel === chip ? C.tealSoft : "#fff",
+                          color: aiSettings.imageModel === chip ? C.teal : C.slate,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom Endpoint URL if applicable */}
+                {aiSettings.imageProvider === "custom" && (
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
+                      Custom Endpoint URL
+                    </label>
+                    <input
+                      type="text"
+                      value={aiSettings.imageBaseUrl}
+                      onChange={(e) => updateSetting("imageBaseUrl", e.target.value)}
+                      placeholder="http://localhost:7860/sdapi/v1/txt2img"
+                      style={{
+                        width: "100%",
+                        height: 40,
+                        padding: "0 12px",
+                        borderRadius: 8,
+                        border: `1px solid ${C.border}`,
+                        background: "#fff",
+                        fontFamily: FONT_MONO,
+                        fontSize: 12.5,
+                        color: C.ink,
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                      Local Automatic1111, ComfyUI, or custom API
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -11872,9 +12646,18 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
   const [targetPostId, setTargetPostId] = useState(posts[0]?.id || "");
   const [targetTopicId, setTargetTopicId] = useState(topics[0]?.id || "");
 
-  const defaultStyle = commonAi?.schedulerAi?.imageStyle || "modern_saas";
+  // Read active Scheduler AI configuration (credentials, provider, model)
+  const schedulerAi = useMemo(() => {
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_ai");
+      if (s) return JSON.parse(s);
+    } catch (_) {}
+    return commonAi?.schedulerAi || {};
+  }, [commonAi]);
+
+  const defaultStyle = schedulerAi?.imageStyle || commonAi?.schedulerAi?.imageStyle || "modern_saas";
   const [style, setStyle] = useState(defaultStyle);
-  const [aspectRatio, setAspectRatio] = useState("16:9"); // "16:9" | "1:1" | "9:16"
+  const [aspectRatio, setAspectRatio] = useState(schedulerAi?.imageAspectRatio || "16:9"); // "16:9" | "1:1" | "9:16"
   const [prompt, setPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
   const [toast, setToast] = useState("");
@@ -11965,11 +12748,20 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
         style,
         width,
         height,
+        aspect_ratio: aspectRatio,
+        provider: schedulerAi.imageProvider || "pollinations",
+        image_provider: schedulerAi.imageProvider || "pollinations",
+        api_key: schedulerAi.imageApiKey || "",
+        image_api_key: schedulerAi.imageApiKey || "",
+        model: schedulerAi.imageModel || "",
+        image_model: schedulerAi.imageModel || "",
+        base_url: schedulerAi.imageBaseUrl || "",
+        image_base_url: schedulerAi.imageBaseUrl || "",
       });
 
       if (res && res.imageUrl) {
         let finalUrl = res.imageUrl;
-        if (forcedSeed) {
+        if (forcedSeed && !finalUrl.startsWith("data:")) {
           finalUrl = `${finalUrl}&seed=${Math.floor(Math.random() * 999999)}`;
         }
         const newVisual = {
@@ -11977,12 +12769,18 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
           prompt: cleanPrompt,
           style,
           ratio: aspectRatio,
-          width,
-          height,
+          width: res.width || width,
+          height: res.height || height,
+          provider: res.provider || schedulerAi.imageProvider || "pollinations",
         };
         setCurrentVisual(newVisual);
         setHistory((prev) => [newVisual, ...prev.filter((h) => h.imageUrl !== finalUrl)].slice(0, 10));
-        showToast("✨ AI visual graphic generated successfully!");
+        if (res.warning) {
+          showToast(`⚠️ ${res.warning}`);
+        } else {
+          const provName = res.provider === "openai" ? "OpenAI DALL-E 3" : res.provider === "stability" ? "Stability SDXL" : res.provider === "fal" ? "Fal.ai FLUX" : "Pollinations FLUX";
+          showToast(`✨ AI visual graphic generated via ${provName}!`);
+        }
       }
     } catch (err) {
       console.error("Error generating image:", err);
@@ -11998,7 +12796,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
       };
       setCurrentVisual(fallbackVisual);
       setHistory((prev) => [fallbackVisual, ...prev].slice(0, 10));
-      showToast("✨ Generated AI visual!");
+      showToast("✨ Generated AI visual via Pollinations!");
     } finally {
       setGenerating(false);
     }
@@ -12045,7 +12843,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
     }
     const targetTopic = topics.find((t) => t.id === targetTopicId) || topics[0];
     if (!targetTopic) {
-      showToast("No topic found to attach to.");
+      showToast("No topic selected.");
       return;
     }
 
@@ -12057,13 +12855,26 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
       )
     );
 
-    showToast(`✅ Visual attached to topic: "${targetTopic.headline.slice(0, 32)}…"`);
+    showToast(`✅ Visual pinned to topic: "${targetTopic.headline.slice(0, 32)}…"`);
+  };
+
+  const handleDownload = () => {
+    if (!currentVisual?.imageUrl) return;
+    const link = document.createElement("a");
+    link.href = currentVisual.imageUrl;
+    link.download = `aivhub-visual-${Date.now()}.png`;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("Opening image download in browser tab…");
   };
 
   const handleEnhancePrompt = () => {
     const enhancements = {
-      modern_saas: "isometric 3D visualization, clean gradient backdrop, frosted glassmorphism accents, crisp lighting, high quality 4k render",
-      editorial: "photorealistic 35mm film photography, natural studio side-lighting, sharp professional depth of field, 8k resolution",
+      modern_saas: "isometric analytics UI components, glowing neon data pipelines, dark mode dashboard, Figma vector aesthetic, 4k",
+      editorial: "candid corporate portrait, high-end 35mm lens, natural office sunlight, depth of field, shallow focus, 8k",
       minimalist_3d: "vibrant pastel clay render, soft ambient occlusion shadows, smooth textures, playful geometric objects, blender cycles 4k",
       neon_tech: "dark cinematic atmosphere, glowing cyan and violet laser accents, holographic telemetry HUD, high contrast cyber aesthetic",
     };
@@ -12101,7 +12912,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
       <div style={{ maxWidth: 1200, width: "100%", margin: "0 auto" }}>
         
         {/* Header Ribbon */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14, marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14, marginBottom: 20 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${C.teal}, ${C.cobalt})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -12110,8 +12921,25 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
               <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, margin: 0, letterSpacing: "-0.02em" }}>
                 AI Image Studio
               </h1>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: C.tealSoft, color: C.teal, border: `1px solid ${C.teal}33` }}>
-                Zero-Config · Instant FLUX Generator
+              <span style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: "3px 10px",
+                borderRadius: 999,
+                background: (schedulerAi.imageProvider === "pollinations" || schedulerAi.imageApiKey) ? C.tealSoft : C.amberSoft,
+                color: (schedulerAi.imageProvider === "pollinations" || schedulerAi.imageApiKey) ? C.teal : C.amber,
+                border: `1px solid ${(schedulerAi.imageProvider === "pollinations" || schedulerAi.imageApiKey) ? C.teal + "33" : "rgba(217,119,6,0.3)"}`,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5
+              }}>
+                <Sparkles size={12} />
+                {schedulerAi.imageProvider === "openai" ? `Engine: OpenAI ${schedulerAi.imageModel || "DALL-E 3"}` :
+                 schedulerAi.imageProvider === "stability" ? `Engine: Stability SDXL` :
+                 schedulerAi.imageProvider === "fal" ? `Engine: Fal.ai FLUX` :
+                 schedulerAi.imageProvider === "custom" ? `Engine: Custom API` :
+                 "Engine: Pollinations FLUX (Free)"}
+                {schedulerAi.imageProvider !== "pollinations" && !schedulerAi.imageApiKey && " (Key Missing)"}
               </span>
             </div>
             <p style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, margin: "6px 0 0 0" }}>
@@ -12120,6 +12948,27 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => onNavigate && onNavigate("ai_config")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                borderRadius: 8,
+                border: `1px solid ${C.border}`,
+                background: "#fff",
+                color: C.teal,
+                fontFamily: FONT_BODY,
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
+              }}
+              title="Configure Image Engine & API Key"
+            >
+              <KeyRound size={14} /> Image API Key
+            </button>
             <button
               onClick={() => onNavigate && onNavigate("topics")}
               style={{
@@ -12160,6 +13009,23 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
             </button>
           </div>
         </div>
+
+        {/* Warning notice if paid engine selected without key */}
+        {schedulerAi.imageProvider !== "pollinations" && !schedulerAi.imageApiKey && (
+          <div style={{ background: C.amberSoft, border: "1px solid rgba(217,119,6,0.3)", borderRadius: 12, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.amber, fontWeight: 600 }}>
+              <AlertTriangle size={16} />
+              <span>{schedulerAi.imageProvider.toUpperCase()} is selected, but an Image API Key hasn't been configured. Generating now will use the built-in free Pollinations FLUX fallback.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate && onNavigate("ai_config")}
+              style={{ fontSize: 12, fontWeight: 700, color: C.ink, background: "#fff", border: `1px solid ${C.border}`, padding: "4px 10px", borderRadius: 6, cursor: "pointer" }}
+            >
+              Add API Key →
+            </button>
+          </div>
+        )}
 
         {/* Visual Director AI Chat Rail Notification */}
         <div style={{ background: C.tealSoft, border: `1px solid ${C.teal}33`, borderRadius: 12, padding: "12px 18px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -14881,8 +15747,26 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const handleRegeneratePostImage = async (post, customPrompt) => {
     try {
       const topicText = customPrompt || post.imagePrompt || post.topicHeadline || post.title || post.theme || "Operations dashboard analytics";
-      const style = commonAi?.schedulerAi?.imageStyle || "modern_saas";
-      const res = await api.generateImage({ prompt: topicText, title: post.title || post.topicHeadline, theme: post.theme, style });
+      let imgConf = {};
+      try {
+        const s = localStorage.getItem("aivhub_scheduler_ai");
+        if (s) imgConf = JSON.parse(s);
+      } catch (_) {}
+      const style = imgConf.imageStyle || commonAi?.schedulerAi?.imageStyle || "modern_saas";
+      const res = await api.generateImage({
+        prompt: topicText,
+        title: post.title || post.topicHeadline,
+        theme: post.theme,
+        style,
+        provider: imgConf.imageProvider || "pollinations",
+        image_provider: imgConf.imageProvider || "pollinations",
+        api_key: imgConf.imageApiKey || "",
+        image_api_key: imgConf.imageApiKey || "",
+        model: imgConf.imageModel || "",
+        image_model: imgConf.imageModel || "",
+        base_url: imgConf.imageBaseUrl || "",
+        image_base_url: imgConf.imageBaseUrl || "",
+      });
       if (res && res.imageUrl) {
         setPosts((ps) => ps.map((p) => (p.id === post.id ? { ...p, imageUrl: res.imageUrl, imagePrompt: res.imagePrompt } : p)));
         api.updatePostStatus(post.id, post.status, post.copy, res.imageUrl, res.imagePrompt).catch(() => {});

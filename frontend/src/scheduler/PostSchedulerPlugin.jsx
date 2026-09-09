@@ -143,10 +143,23 @@ How is your team currently tracking daily throughput? Let's discuss in the comme
     if (!topicPrompt.trim()) return;
     setIsGeneratingImage(true);
     try {
+      let imgConf = {};
+      try {
+        const s = localStorage.getItem("aivhub_scheduler_ai");
+        if (s) imgConf = JSON.parse(s);
+      } catch (_) {}
       const res = await api.generateImage({
         prompt: topicPrompt,
         style: selectedStyle,
-        aspect_ratio: selectedAspect
+        aspect_ratio: selectedAspect,
+        provider: imgConf.imageProvider || "pollinations",
+        image_provider: imgConf.imageProvider || "pollinations",
+        api_key: imgConf.imageApiKey || "",
+        image_api_key: imgConf.imageApiKey || "",
+        model: imgConf.imageModel || "",
+        image_model: imgConf.imageModel || "",
+        base_url: imgConf.imageBaseUrl || "",
+        image_base_url: imgConf.imageBaseUrl || "",
       });
       if (res && res.imageUrl) {
         setGeneratedImageUrl(res.imageUrl);

@@ -60,6 +60,201 @@ def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 120
         
     return f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}"
 
+async def generate_image_with_provider(
+    prompt: str,
+    provider: Optional[str] = "pollinations",
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    style: str = "modern_saas",
+    aspect_ratio: str = "16:9",
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Renders an AI image using the user's selected provider (OpenAI DALL-E 3, Stability SDXL, Fal.ai FLUX, or Pollinations Free).
+    Falls back safely to Pollinations FLUX if an external API key is missing or encounters a rate/quota error.
+    """
+    prov = (provider or "pollinations").lower().strip()
+    clean_prompt = (prompt or "").strip() or "Business intelligence operations dashboard analytics"
+    style_suffix = IMAGE_STYLES.get(style, IMAGE_STYLES.get("modern_saas", ""))
+    full_prompt = f"{clean_prompt}, {style_suffix}".strip(", ")
+
+    def_w, def_h = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
+    w = int(width or def_w)
+    h = int(height or def_h)
+
+    # 1. OpenAI (DALL-E 3 / DALL-E 2)
+    if ("openai" in prov or "dall" in prov) and api_key and api_key.strip():
+        try:
+            target_model = model or "dall-e-3"
+            dalle_size = "1792x1024" if aspect_ratio == "16:9" else ("1024x1792" if aspect_ratio == "9:16" else "1024x1024")
+            target_url = (base_url or "https://api.openai.com/v1").rstrip("/") + "/images/generations"
+            headers = {
+                "Authorization": f"Bearer {api_key.strip()}",
+                "Content-Type": "application/json"
+            }
+            body = {
+                "model": target_model,
+                "prompt": full_prompt[:1000],
+                "n": 1,
+                "size": dalle_size
+            }
+            async with httpx.AsyncClient(timeout=40.0) as client:
+                res = await client.post(target_url, headers=headers, json=body)
+                if res.status_code == 200:
+                    d = res.json()
+                    img_url = d.get("data", [{}])[0].get("url")
+                    if img_url:
+                        logger.info(f"OpenAI DALL-E image generated successfully.")
+                        return {
+                            "status": "ok",
+                            "imageUrl": img_url,
+                            "imagePrompt": clean_prompt,
+                            "provider": "openai",
+                            "model": target_model,
+                            "style": style,
+                            "aspect_ratio": aspect_ratio,
+                            "width": w,
+                            "height": h
+                        }
+                logger.warning(f"OpenAI image generation returned {res.status_code}: {res.text[:200]}")
+                fallback_warning = f"OpenAI DALL-E returned {res.status_code}. Switched to Pollinations FLUX."
+        except Exception as e:
+            logger.warning(f"OpenAI image generation exception: {e}")
+            fallback_warning = f"OpenAI connection error ({e}). Switched to Pollinations FLUX."
+    elif ("openai" in prov or "dall" in prov) and (not api_key or not api_key.strip()):
+        fallback_warning = "OpenAI image key not provided. Generated with Pollinations FLUX."
+
+    # 2. Stability AI (SDXL)
+    elif ("stability" in prov or "sdxl" in prov) and api_key and api_key.strip():
+        try:
+            sd_w, sd_h = (1216, 832) if aspect_ratio == "16:9" else ((832, 1216) if aspect_ratio == "9:16" else (1024, 1024))
+            target_url = (base_url or "https://api.stability.ai").rstrip("/") + "/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image"
+            headers = {
+                "Authorization": f"Bearer {api_key.strip()}",
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
+            body = {
+                "text_prompts": [{"text": full_prompt[:1000], "weight": 1.0}],
+                "cfg_scale": 7,
+                "height": sd_h,
+                "width": sd_w,
+                "samples": 1,
+                "steps": 30
+            }
+            async with httpx.AsyncClient(timeout=40.0) as client:
+                res = await client.post(target_url, headers=headers, json=body)
+                if res.status_code == 200:
+                    artifacts = res.json().get("artifacts", [])
+                    if artifacts and "base64" in artifacts[0]:
+                        b64_img = artifacts[0]["base64"]
+                        data_uri = f"data:image/png;base64,{b64_img}"
+                        return {
+                            "status": "ok",
+                            "imageUrl": data_uri,
+                            "imagePrompt": clean_prompt,
+                            "provider": "stability",
+                            "model": model or "sdxl-1.0",
+                            "style": style,
+                            "aspect_ratio": aspect_ratio,
+                            "width": sd_w,
+                            "height": sd_h
+                        }
+                logger.warning(f"Stability AI generation returned {res.status_code}: {res.text[:200]}")
+                fallback_warning = f"Stability AI returned {res.status_code}. Switched to Pollinations FLUX."
+        except Exception as e:
+            logger.warning(f"Stability AI image generation exception: {e}")
+            fallback_warning = f"Stability AI connection error ({e}). Switched to Pollinations FLUX."
+    elif ("stability" in prov or "sdxl" in prov) and (not api_key or not api_key.strip()):
+        fallback_warning = "Stability AI key not provided. Generated with Pollinations FLUX."
+
+    # 3. Fal.ai (FLUX.1 Pro / Schnell)
+    elif "fal" in prov and api_key and api_key.strip():
+        try:
+            target_url = (base_url or "https://fal.run/fal-ai/flux/schnell").rstrip("/")
+            headers = {
+                "Authorization": f"Key {api_key.strip()}",
+                "Content-Type": "application/json"
+            }
+            fal_size = "landscape_16_9" if aspect_ratio == "16:9" else ("portrait_16_9" if aspect_ratio == "9:16" else "square_hd")
+            body = {
+                "prompt": full_prompt[:1000],
+                "image_size": fal_size
+            }
+            async with httpx.AsyncClient(timeout=40.0) as client:
+                res = await client.post(target_url, headers=headers, json=body)
+                if res.status_code == 200:
+                    imgs = res.json().get("images", [])
+                    if imgs and "url" in imgs[0]:
+                        return {
+                            "status": "ok",
+                            "imageUrl": imgs[0]["url"],
+                            "imagePrompt": clean_prompt,
+                            "provider": "fal",
+                            "model": model or "flux-schnell",
+                            "style": style,
+                            "aspect_ratio": aspect_ratio,
+                            "width": w,
+                            "height": h
+                        }
+                fallback_warning = f"Fal.ai returned {res.status_code}. Switched to Pollinations FLUX."
+        except Exception as e:
+            logger.warning(f"Fal.ai image generation exception: {e}")
+            fallback_warning = f"Fal.ai connection error ({e}). Switched to Pollinations FLUX."
+    elif "fal" in prov and (not api_key or not api_key.strip()):
+        fallback_warning = "Fal.ai key not provided. Generated with Pollinations FLUX."
+
+    # 4. Custom endpoint
+    elif "custom" in prov and base_url and base_url.strip():
+        try:
+            headers = {"Content-Type": "application/json"}
+            if api_key and api_key.strip():
+                headers["Authorization"] = f"Bearer {api_key.strip()}"
+            body = {"prompt": full_prompt, "width": w, "height": h, "aspect_ratio": aspect_ratio}
+            async with httpx.AsyncClient(timeout=40.0) as client:
+                res = await client.post(base_url.strip(), headers=headers, json=body)
+                if res.status_code == 200:
+                    d = res.json()
+                    custom_url = d.get("imageUrl") or d.get("url") or (d.get("images", [{}])[0].get("url") if isinstance(d.get("images"), list) else None)
+                    if custom_url:
+                        return {
+                            "status": "ok",
+                            "imageUrl": custom_url,
+                            "imagePrompt": clean_prompt,
+                            "provider": "custom",
+                            "model": model or "custom",
+                            "style": style,
+                            "aspect_ratio": aspect_ratio,
+                            "width": w,
+                            "height": h
+                        }
+        except Exception as e:
+            logger.warning(f"Custom image endpoint exception: {e}")
+            fallback_warning = f"Custom endpoint error ({e}). Switched to Pollinations FLUX."
+    else:
+        fallback_warning = None
+
+    # Built-in Default / Resilient Fallback: Pollinations FLUX
+    fallback_url = generate_image_url(clean_prompt, style=style, width=w, height=h, aspect_ratio=aspect_ratio)
+    resp = {
+        "status": "ok",
+        "imageUrl": fallback_url,
+        "imagePrompt": clean_prompt,
+        "provider": "pollinations",
+        "model": "flux",
+        "style": style,
+        "aspect_ratio": aspect_ratio,
+        "width": w,
+        "height": h
+    }
+    if fallback_warning:
+        resp["warning"] = fallback_warning
+        resp["fallback"] = True
+    return resp
+
+
 def parse_chat_intent(text: str) -> Dict[str, Any]:
     t = (text or "").lower()
     days = []
@@ -98,6 +293,10 @@ async def generate_complete_social_package(
     provider: Optional[str] = None,
     model: Optional[str] = None,
     base_url: Optional[str] = None,
+    image_api_key: Optional[str] = None,
+    image_provider: Optional[str] = None,
+    image_model: Optional[str] = None,
+    image_base_url: Optional[str] = None,
     style: str = "modern_saas",
     aspect_ratio: str = "16:9",
     db: Any = None
@@ -185,17 +384,31 @@ How is your team currently tracking daily throughput? Let's discuss in the comme
             "recommended_time": "Tuesday 09:30 AM (Peak B2B Traffic)"
         }
 
-    # Generate Image URL
+    # Generate Image with Provider & Key
     img_prompt = llm_payload.get("image_prompt") or create_topic_image_prompt(clean_topic, style=style)
     width, height = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
-    img_url = generate_image_url(img_prompt, style=style, width=width, height=height, aspect_ratio=aspect_ratio)
+    img_res = await generate_image_with_provider(
+        prompt=img_prompt,
+        provider=image_provider or "pollinations",
+        api_key=image_api_key,
+        model=image_model,
+        base_url=image_base_url,
+        style=style,
+        aspect_ratio=aspect_ratio,
+        width=width,
+        height=height
+    )
 
-    llm_payload["imageUrl"] = img_url
+    llm_payload["imageUrl"] = img_res.get("imageUrl")
     llm_payload["imagePrompt"] = img_prompt
+    llm_payload["imageProvider"] = img_res.get("provider")
+    llm_payload["imageModel"] = img_res.get("model")
     llm_payload["style"] = style
     llm_payload["aspect_ratio"] = aspect_ratio
-    llm_payload["width"] = width
-    llm_payload["height"] = height
+    llm_payload["width"] = img_res.get("width", width)
+    llm_payload["height"] = img_res.get("height", height)
     llm_payload["topic"] = clean_topic
+    if img_res.get("warning"):
+        llm_payload["imageWarning"] = img_res["warning"]
 
     return llm_payload

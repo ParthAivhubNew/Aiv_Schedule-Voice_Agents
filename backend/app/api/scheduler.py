@@ -8,6 +8,7 @@ from app.services.post_writer import (
     parse_chat_intent,
     create_topic_image_prompt,
     generate_image_url,
+    generate_image_with_provider,
     generate_complete_social_package,
     IMAGE_STYLES,
     ASPECT_RATIOS,
@@ -54,6 +55,12 @@ async def generate_image_endpoint(payload: Dict[str, Any]):
     style = payload.get("style", "modern_saas")
     aspect_ratio = payload.get("aspect_ratio", "16:9")
     
+    # Image provider credentials & model overrides
+    provider = payload.get("provider") or payload.get("image_provider") or payload.get("imageEngine") or "pollinations"
+    api_key = payload.get("api_key") or payload.get("apiKey") or payload.get("image_api_key") or payload.get("imageApiKey")
+    model = payload.get("model") or payload.get("image_model") or payload.get("imageModel")
+    base_url = payload.get("base_url") or payload.get("baseUrl") or payload.get("image_base_url") or payload.get("imageBaseUrl")
+    
     w, h = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
     width = int(payload.get("width", w))
     height = int(payload.get("height", h))
@@ -63,16 +70,18 @@ async def generate_image_endpoint(payload: Dict[str, Any]):
     elif not prompt:
         prompt = "Business intelligence operations dashboard with real-time analytics"
         
-    img_url = generate_image_url(prompt, style=style, width=width, height=height, aspect_ratio=aspect_ratio)
-    return {
-        "status": "ok",
-        "imageUrl": img_url,
-        "imagePrompt": prompt,
-        "style": style,
-        "aspect_ratio": aspect_ratio,
-        "width": width,
-        "height": height
-    }
+    res = await generate_image_with_provider(
+        prompt=prompt,
+        provider=provider,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        style=style,
+        aspect_ratio=aspect_ratio,
+        width=width,
+        height=height
+    )
+    return res
 
 @router.post("/generate-package")
 async def generate_package_endpoint(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
@@ -88,6 +97,12 @@ async def generate_package_endpoint(payload: Dict[str, Any], db: AsyncSession = 
     model = payload.get("model")
     base_url = payload.get("baseUrl") or payload.get("base_url")
 
+    # Image generation credentials
+    image_api_key = payload.get("imageApiKey") or payload.get("image_api_key") or payload.get("apiKey")
+    image_provider = payload.get("imageProvider") or payload.get("image_provider") or payload.get("imageEngine")
+    image_model = payload.get("imageModel") or payload.get("image_model")
+    image_base_url = payload.get("imageBaseUrl") or payload.get("image_base_url")
+
     # Get company profile for context
     prof_res = await db.execute(select(CompanyProfile).limit(1))
     profile = prof_res.scalars().first()
@@ -102,6 +117,10 @@ async def generate_package_endpoint(payload: Dict[str, Any], db: AsyncSession = 
         provider=provider,
         model=model,
         base_url=base_url,
+        image_api_key=image_api_key,
+        image_provider=image_provider,
+        image_model=image_model,
+        image_base_url=image_base_url,
         style=style,
         aspect_ratio=aspect_ratio,
         db=db
