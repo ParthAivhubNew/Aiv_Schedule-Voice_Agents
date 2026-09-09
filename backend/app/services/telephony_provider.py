@@ -137,6 +137,7 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
         media_stream_url = meta.get("media_stream_url") or "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
 
         # TwiML: Fork audio to real-time Media Stream for browser Listen/Takeover + SIP bridge to xAI
+        sip_target = f"{bridge_sip_uri}?x-custom-callid={internal_call_id}&amp;x-twilio-callsid={{CallSid}}" if "?" not in bridge_sip_uri else f"{bridge_sip_uri}&amp;x-custom-callid={internal_call_id}&amp;x-twilio-callsid={{CallSid}}"
         twiml = (
             f"<Response>"
             f"<Start>"
@@ -145,7 +146,7 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
             f"</Stream>"
             f"</Start>"
             f"<Dial callerId=\"{from_clean}\" timeout=\"30\" action=\"{action_url}\" method=\"POST\">"
-            f"<Sip>{bridge_sip_uri}</Sip>"
+            f"<Sip>{sip_target}</Sip>"
             f"</Dial>"
             f"</Response>"
         )

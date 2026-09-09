@@ -97,16 +97,81 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
                         <b>Requested Follow-Up:</b> {log.requestedFollowUp.day} at {log.requestedFollowUp.time} — “{log.requestedFollowUp.exactWords}”
                       </div>
                     )}
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
-                      Verbatim Call Transcript
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>Verbatim Call Transcript</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 600, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 12 }}>Locked</span>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const fullText = (log.transcript || [])
+                            .map((t) => `${t.who === "ai" ? "AI (Sam)" : t.who === "system" ? "System" : "Prospect"}: ${t.text}`)
+                            .join("\n");
+                          navigator.clipboard.writeText(fullText);
+                          if (setNotifications) {
+                            setNotifications((ns) => [
+                              { id: "n_" + Date.now(), text: `📋 Transcript copied to clipboard for ${log.canonicalName}`, time: "just now", unread: true, type: "info" },
+                              ...ns
+                            ]);
+                          }
+                        }}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          background: "#FFFFFF",
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 7,
+                          padding: "5px 10px",
+                          fontFamily: FONT_BODY,
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                          color: C.slate,
+                          cursor: "pointer"
+                        }}
+                      >
+                        📋 Copy Transcript
+                      </button>
                     </div>
-                    <div style={{ background: C.paperSoft, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-                      {(log.transcript || []).map((t, idx) => (
-                        <div key={idx} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
-                          <b style={{ color: t.who === "ai" ? C.cobalt : C.ink }}>{t.who === "ai" ? "AI (Sam): " : "Prospect: "}</b>
-                          <span style={{ color: C.textInk }}>{t.text}</span>
-                        </div>
-                      ))}
+
+                    <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 10 }}>
+                      {(log.transcript || []).map((t, idx) => {
+                        const isAi = t.who === "ai";
+                        const isSystem = t.who === "system";
+                        if (isSystem) {
+                          return (
+                            <div key={idx} style={{ textAlign: "center", margin: "4px 0" }}>
+                              <span style={{ fontFamily: FONT_BODY, fontSize: 11, background: "#F1F5F9", color: "#475569", padding: "4px 12px", borderRadius: 12, border: "1px solid #E2E8F0" }}>
+                                ℹ️ {t.text}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: isAi ? "flex-start" : "flex-end" }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, color: isAi ? C.cobalt : C.slate, marginBottom: 3, padding: "0 4px" }}>
+                              {isAi ? "🤖 Sam (AI Voice SDR)" : `👤 ${log.canonicalName || "Prospect"}`}
+                            </div>
+                            <div
+                              style={{
+                                maxWidth: "85%",
+                                background: isAi ? "#F0F7FF" : "#FFFFFF",
+                                border: `1px solid ${isAi ? "#BFDBFE" : "#E2E8F0"}`,
+                                borderRadius: isAi ? "4px 14px 14px 14px" : "14px 4px 14px 14px",
+                                padding: "10px 14px",
+                                fontFamily: FONT_BODY,
+                                fontSize: 13,
+                                lineHeight: 1.45,
+                                color: isAi ? "#1E293B" : C.textInk,
+                                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+                              }}
+                            >
+                              {t.text}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

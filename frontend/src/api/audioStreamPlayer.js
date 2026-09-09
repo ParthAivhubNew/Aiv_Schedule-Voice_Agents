@@ -38,6 +38,33 @@ function linearToMuLaw(sample) {
   return byte & 0xff;
 }
 
+function resampleToAudioContext(pcm8k, targetSampleRate) {
+  if (!targetSampleRate || targetSampleRate === 8000) return pcm8k;
+  const ratio = 8000 / targetSampleRate;
+  const outLength = Math.round(pcm8k.length / ratio);
+  const out = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const srcIndex = i * ratio;
+    const i0 = Math.floor(srcIndex);
+    const i1 = Math.min(i0 + 1, pcm8k.length - 1);
+    const frac = srcIndex - i0;
+    out[i] = pcm8k[i0] * (1 - frac) + pcm8k[i1] * frac;
+  }
+  return out;
+}
+
+function downsampleTo8k(inputData, inputSampleRate) {
+  if (!inputSampleRate || inputSampleRate === 8000) return inputData;
+  const ratio = inputSampleRate / 8000;
+  const outLength = Math.round(inputData.length / ratio);
+  const out = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const srcIndex = Math.floor(i * ratio);
+    out[i] = inputData[Math.min(srcIndex, inputData.length - 1)];
+  }
+  return out;
+}
+
 export class AudioStreamPlayer {
   constructor(callId, onStatusChange, onAudioLevel) {
     this.callId = callId;
@@ -50,6 +77,8 @@ export class AudioStreamPlayer {
     this.isMicActive = false;
     this.mediaStream = null;
     this.scriptProcessor = null;
+    this.silentGainNode = null;
+    this.micSampleBuffer = [];
   }
 
   startListening() {
@@ -70,13 +99,16 @@ export class AudioStreamPlayer {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${host}/ws/listen/${this.callId}`;
 
+    console.log(`[AudioPlayer] Connecting to live audio at ${wsUrl}`);
     this.socket = new WebSocket(wsUrl);
-    this.socket.binaryType = 'arraybuffer';
 
     this.socket.onopen = () => {
       console.log(`[AudioPlayer] Connected to live audio stream for ${this.callId}`);
       this.isPlaying = true;
-      this.nextStartTime = this.audioCtx.currentTime + 0.05;
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+      this.nextStartTime = this.audioCtx ? this.audioCtx.currentTime + 0.05 : 0;
       if (this.onStatusChange) this.onStatusChange({ listening: true, connected: true });
     };
 
@@ -106,31 +138,38 @@ export class AudioStreamPlayer {
     if (!this.audioCtx || this.audioCtx.state === 'closed') return;
 
     try {
-      const pcmData = decodeMuLawBase64(base64Payload);
-      if (pcmData.length === 0) return;
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+
+      const pcm8k = decodeMuLawBase64(base64Payload);
+      if (pcm8k.length === 0) return;
 
       // Calculate simple RMS volume level for visualizer
       let sum = 0;
-      for (let i = 0; i < pcmData.length; i++) {
-        sum += pcmData[i] * pcmData[i];
+      for (let i = 0; i < pcm8k.length; i++) {
+        sum += pcm8k[i] * pcm8k[i];
       }
-      const rms = Math.sqrt(sum / pcmData.length);
+      const rms = Math.sqrt(sum / pcm8k.length);
       if (this.onAudioLevel) {
-        this.onAudioLevel(Math.min(1.0, rms * 5), track);
+        this.onAudioLevel(Math.min(1.0, rms * 6), track);
       }
 
-      // Create an 8000Hz single-channel audio buffer
-      const buffer = this.audioCtx.createBuffer(1, pcmData.length, 8000);
-      buffer.copyToChannel(pcmData, 0);
+      // Resample 8kHz telephony audio to the native AudioContext sample rate (e.g. 44.1kHz or 48kHz)
+      const resampled = resampleToAudioContext(pcm8k, this.audioCtx.sampleRate);
+
+      // Create an AudioBuffer matching native hardware sample rate for flawless playback
+      const buffer = this.audioCtx.createBuffer(1, resampled.length, this.audioCtx.sampleRate);
+      buffer.copyToChannel(resampled, 0);
 
       const source = this.audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(this.audioCtx.destination);
 
-      // Schedule next buffer seamlessly
+      // Schedule seamless continuous playback
       const now = this.audioCtx.currentTime;
       if (this.nextStartTime < now) {
-        this.nextStartTime = now + 0.02;
+        this.nextStartTime = now + 0.015;
       }
       source.start(this.nextStartTime);
       this.nextStartTime += buffer.duration;
@@ -170,42 +209,62 @@ export class AudioStreamPlayer {
 
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          sampleRate: 8000,
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
+          autoGainControl: true,
         }
       });
 
       const micSource = this.audioCtx.createMediaStreamSource(this.mediaStream);
-      // Downsample / process audio to mu-law 8kHz
+      // Process chunks: 2048 buffer size
       this.scriptProcessor = this.audioCtx.createScriptProcessor(2048, 1, 1);
 
+      // Connect through a zero-gain node to destination so onaudioprocess fires continuously
+      // without echoing the operator's voice back into their own headphones
+      this.silentGainNode = this.audioCtx.createGain();
+      this.silentGainNode.gain.value = 0.0;
+
       micSource.connect(this.scriptProcessor);
-      this.scriptProcessor.connect(this.audioCtx.destination);
+      this.scriptProcessor.connect(this.silentGainNode);
+      this.silentGainNode.connect(this.audioCtx.destination);
+
+      this.micSampleBuffer = [];
 
       this.scriptProcessor.onaudioprocess = (e) => {
         if (!this.isMicActive || !this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-        const inputData = e.inputBuffer.getChannelData(0);
-        const muLawBytes = new Uint8Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          muLawBytes[i] = linearToMuLaw(inputData[i]);
+        const rawMic = e.inputBuffer.getChannelData(0);
+        const inputRate = this.audioCtx.sampleRate;
+
+        // Downsample microphone capture from native rate (e.g. 48kHz) to standard 8000Hz telephony
+        const downsampled8k = downsampleTo8k(rawMic, inputRate);
+        for (let i = 0; i < downsampled8k.length; i++) {
+          this.micSampleBuffer.push(downsampled8k[i]);
         }
-        // Base64 encode
-        let binaryStr = '';
-        for (let i = 0; i < muLawBytes.length; i++) {
-          binaryStr += String.fromCharCode(muLawBytes[i]);
+
+        // Frame into 160-sample (20ms at 8kHz) chunks required by Twilio PSTN media streams
+        const FRAME_SIZE = 160;
+        while (this.micSampleBuffer.length >= FRAME_SIZE) {
+          const frame = this.micSampleBuffer.splice(0, FRAME_SIZE);
+          const muLawBytes = new Uint8Array(FRAME_SIZE);
+          for (let j = 0; j < FRAME_SIZE; j++) {
+            muLawBytes[j] = linearToMuLaw(frame[j]);
+          }
+          let binaryStr = '';
+          for (let k = 0; k < FRAME_SIZE; k++) {
+            binaryStr += String.fromCharCode(muLawBytes[k]);
+          }
+          const base64Mic = btoa(binaryStr);
+          this.socket.send(JSON.stringify({
+            type: 'takeover_audio',
+            callId: this.callId,
+            payload: base64Mic
+          }));
         }
-        const base64Mic = btoa(binaryStr);
-        this.socket.send(JSON.stringify({
-          type: 'takeover_audio',
-          callId: this.callId,
-          payload: base64Mic
-        }));
       };
 
       this.isMicActive = true;
-      console.log('[AudioPlayer] Operator microphone live');
+      console.log('[AudioPlayer] Operator microphone live (8kHz 20ms framed)');
       return true;
     } catch (micErr) {
       console.error('[AudioPlayer] Mic access error:', micErr);
@@ -215,9 +274,14 @@ export class AudioStreamPlayer {
 
   stopMicrophone() {
     this.isMicActive = false;
+    this.micSampleBuffer = [];
     if (this.scriptProcessor) {
       try { this.scriptProcessor.disconnect(); } catch (_) {}
       this.scriptProcessor = null;
+    }
+    if (this.silentGainNode) {
+      try { this.silentGainNode.disconnect(); } catch (_) {}
+      this.silentGainNode = null;
     }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());

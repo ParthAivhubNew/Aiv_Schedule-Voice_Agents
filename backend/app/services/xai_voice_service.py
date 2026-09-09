@@ -469,7 +469,8 @@ async def join_xai_call_session(
     prospect_id: Optional[str] = None,
     prospect_name: Optional[str] = None,
     mission_name: Optional[str] = None,
-    carrier_sid: Optional[str] = None
+    carrier_sid: Optional[str] = None,
+    custom_call_id: Optional[str] = None
 ):
     """
     Connects an outbound WebSocket session to xAI Realtime Voice API
@@ -504,6 +505,7 @@ async def join_xai_call_session(
             "callId": call_id,
             "carrierSid": carrier_sid,
             "caller": caller_number,
+            "customCallId": custom_call_id,
             "isLiveKey": bool(api_key and api_key.startswith("xai-")),
             "wsUrl": ws_url.replace(api_key, "***") if api_key else ws_url,
             "agentId": agent_id
@@ -511,20 +513,35 @@ async def join_xai_call_session(
     )
     logger.info(
         f"[XAI-WS] Attempting WebSocket connection: "
-        f"sip_call_id={call_id}, carrier_sid={carrier_sid}, agent_id={agent_id}, "
+        f"sip_call_id={call_id}, carrier_sid={carrier_sid}, custom_call_id={custom_call_id}, "
         f"key_prefix={api_key[:12] + '...' if api_key else 'NONE'}"
     )
 
     # 1. Link to existing LiveCall record (outbound) or create new (inbound)
-    local_call_id = call_id
+    local_call_id = custom_call_id or call_id
     async with AsyncSessionLocal() as db:
         call_obj = None
-        if carrier_sid:
+        # 1. By custom_call_id
+        if custom_call_id:
+            c_res = await db.execute(select(LiveCall).where(LiveCall.id == custom_call_id))
+            call_obj = c_res.scalars().first()
+        # 2. By carrier_sid
+        if not call_obj and carrier_sid:
             c_res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == carrier_sid))
             call_obj = c_res.scalars().first()
+        # 3. By call_id
         if not call_obj:
             call_res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
             call_obj = call_res.scalars().first()
+        # 4. By recent pending outbound call (created in last 120s)
+        if not call_obj:
+            pending_res = await db.execute(
+                select(LiveCall)
+                .where(LiveCall.ended == False)
+                .where(LiveCall.state.in_(["calling", "ringing", "queued"]))
+                .order_by(LiveCall.created_at.desc())
+            )
+            call_obj = pending_res.scalars().first()
 
         if call_obj:
             local_call_id = call_obj.id
@@ -533,7 +550,7 @@ async def join_xai_call_session(
                 f"System: xAI Realtime Voice Agent connected (SIP Call: {call_id[:8]}...)"
             ]
             await db.commit()
-            logger.info(f"[XAI-WS] Linked xAI session to existing LiveCall {local_call_id} (carrier: {carrier_sid})")
+            logger.info(f"[XAI-WS] Successfully linked xAI session {call_id} to existing LiveCall {local_call_id} (carrier: {carrier_sid})")
         else:
             call_obj = LiveCall(
                 id=call_id,
@@ -549,6 +566,17 @@ async def join_xai_call_session(
             )
             db.add(call_obj)
             await db.commit()
+
+    # Link aliases in media_stream_hub so audio stream & takeover always route to this call
+    try:
+        from app.websockets.media_stream import media_stream_hub
+        media_stream_hub.register_alias(call_id, local_call_id)
+        if carrier_sid:
+            media_stream_hub.register_alias(carrier_sid, local_call_id)
+        if custom_call_id:
+            media_stream_hub.register_alias(custom_call_id, local_call_id)
+    except Exception as alias_err:
+        logger.warning(f"Could not register media_stream_hub alias: {alias_err}")
 
     await call_hub.broadcast("call_started", {
         "callId": local_call_id,
@@ -569,7 +597,19 @@ async def join_xai_call_session(
     tools_list = get_xai_tool_definitions()
 
     transcript_history = []
+    current_ai_text = ""
     call_active = True
+
+    async def commit_ai_turn():
+        nonlocal current_ai_text
+        text = current_ai_text.strip()
+        if text:
+            line = f"AI: {text}"
+            if line not in transcript_history:
+                transcript_history.append(line)
+                await _update_call_transcript(local_call_id, line)
+                logger.info(f"[XAI-WS] Saved AI Turn for {local_call_id}: {text[:70]}...")
+            current_ai_text = ""
 
     try:
         async with websockets.connect(
@@ -635,35 +675,48 @@ async def join_xai_call_session(
                         )
 
                 # Handle Voice Audio Transcripts (Assistant speaking)
-                if event_type == "response.audio_transcript.delta":
+                if event_type in ["response.audio_transcript.delta", "response.text.delta"]:
                     delta_text = event.get("delta", "")
-                    await call_hub.broadcast("call_transcript_delta", {
-                        "callId": local_call_id,
-                        "who": "ai",
-                        "delta": delta_text
-                    })
+                    if delta_text:
+                        current_ai_text += delta_text
+                        await call_hub.broadcast("call_transcript_delta", {
+                            "callId": local_call_id,
+                            "who": "ai",
+                            "delta": delta_text
+                        })
 
                 elif event_type in ["response.audio_transcript.done", "response.text.done"]:
                     final_text = event.get("transcript") or event.get("text", "")
                     if final_text:
-                        line = f"AI: {final_text}"
-                        if line not in transcript_history:
-                            transcript_history.append(line)
-                            await _update_call_transcript(local_call_id, line)
+                        current_ai_text = final_text
+                    await commit_ai_turn()
 
                 elif event_type == "response.output_item.done":
                     item = event.get("item", {})
                     if item.get("role") == "assistant":
                         for content_part in item.get("content", []):
                             text_part = content_part.get("transcript") or content_part.get("text")
-                            if text_part:
-                                line = f"AI: {text_part}"
-                                if line not in transcript_history:
-                                    transcript_history.append(line)
-                                    await _update_call_transcript(local_call_id, line)
+                            if text_part and not current_ai_text:
+                                current_ai_text = text_part
+                        await commit_ai_turn()
+
+                elif event_type == "response.done":
+                    resp_obj = event.get("response", {})
+                    for item in resp_obj.get("output", []):
+                        if item.get("role") == "assistant":
+                            for content_part in item.get("content", []):
+                                text_part = content_part.get("transcript") or content_part.get("text")
+                                if text_part and not current_ai_text:
+                                    current_ai_text = text_part
+                    await commit_ai_turn()
+
+                # User started speaking - commit any in-flight AI speech
+                elif event_type == "input_audio_buffer.speech_started":
+                    await commit_ai_turn()
 
                 # Handle Caller Transcription (User speaking)
                 elif event_type in ["conversation.item.input_audio_transcription.completed", "conversation.item.input_audio_transcription"]:
+                    await commit_ai_turn()
                     caller_text = event.get("transcript", "")
                     if caller_text:
                         line = f"Prospect: {caller_text}"
@@ -682,16 +735,20 @@ async def join_xai_call_session(
                     for content_part in item.get("content", []):
                         text_part = content_part.get("transcript") or content_part.get("text")
                         if text_part:
-                            prefix = "Prospect:" if role == "user" else "AI:"
-                            line = f"{prefix} {text_part}"
-                            if line not in transcript_history:
-                                transcript_history.append(line)
-                                await _update_call_transcript(local_call_id, line)
-                                await call_hub.broadcast("call_transcript_delta", {
-                                    "callId": local_call_id,
-                                    "who": "them" if role == "user" else "ai",
-                                    "delta": text_part
-                                })
+                            if role == "assistant":
+                                current_ai_text = text_part
+                                await commit_ai_turn()
+                            else:
+                                await commit_ai_turn()
+                                line = f"Prospect: {text_part}"
+                                if line not in transcript_history:
+                                    transcript_history.append(line)
+                                    await _update_call_transcript(local_call_id, line)
+                                    await call_hub.broadcast("call_transcript_delta", {
+                                        "callId": local_call_id,
+                                        "who": "them",
+                                        "delta": text_part
+                                    })
 
                 # Handle Tool/Function Calls
                 elif event_type == "response.function_call_arguments.done":
@@ -809,7 +866,7 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
                         text_val = s.replace("Prospect:", "").replace("Them:", "").strip()
                         formatted_transcript.append({"who": "them", "text": text_val})
                     elif s.startswith("System:"):
-                        formatted_transcript.append({"who": "ai", "text": f"[{s[7:].strip()}]"})
+                        formatted_transcript.append({"who": "system", "text": s[7:].strip()})
                     else:
                         formatted_transcript.append({"who": "ai", "text": s})
 

@@ -3203,7 +3203,7 @@ function StatRow({ label, value, accent }) {
 
 /* ---------------------------------- live calls ---------------------------------- */
 
-function LiveCallsView({ notifications, setNotifications, companyName, calls, onConfirmBooking, onTakenToggle, onListenToggle, onAskEnd, onCancelEnd, onConfirmEnd, focus, onClearFocus, onBackToTasks, onRefreshLiveCalls }) {
+function LiveCallsView({ notifications, setNotifications, companyName, calls, onConfirmBooking, onTakenToggle, onListenToggle, onAskEnd, onCancelEnd, onConfirmEnd, focus, onClearFocus, onBackToTasks, onRefreshLiveCalls, directDialPrefill }) {
   const toggleTaken = onTakenToggle;
   const toggleListen = onListenToggle;
   const askEnd = onAskEnd;
@@ -3212,8 +3212,17 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
   const focusRef = useRef(null);
 
   const baseFiltered = focus ? calls.filter((c) => callBelongsToFocus(c, focus)) : calls;
-  // Live Activity should only show ACTIVE conversations or newly booked meetings, not dead/failed calls
-  const filtered = baseFiltered.filter((c) => !c.ended || c.booked);
+  // Deduplicate calls by prospect name, carrier_sid, or ID to prevent ghost/duplicate cards
+  const rawFiltered = baseFiltered.filter((c) => !c.ended || c.booked);
+  const seenKeys = new Set();
+  const filtered = [];
+  for (const c of rawFiltered) {
+    const key = (c.carrier_sid || c.prospect || c.id || "").trim();
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      filtered.push(c);
+    }
+  }
   const active = filtered.filter((c) => !c.ended);
   const companyFocus = !!(focus && (focus.name || focus.prospectId));
 
@@ -3283,6 +3292,7 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
           notifications={notifications}
           setNotifications={setNotifications}
           defaultFromNumber="+447307216767"
+          prefillData={directDialPrefill}
           onCallCreated={() => {
             if (onClearFocus) onClearFocus();
             if (onRefreshLiveCalls) onRefreshLiveCalls();
@@ -3523,7 +3533,7 @@ const LOG_FILTERS = [
   ["no_answer", "No answer"],
 ];
 
-function CallLogView({ notifications, setNotifications, entries, prefillQuery, clearPrefill, onJumpSchedule }) {
+function CallLogView({ notifications, setNotifications, entries, prefillQuery, clearPrefill, onJumpSchedule, onDirectDial }) {
   const [query, setQuery] = useState(prefillQuery || "");
   const [filter, setFilter] = useState("all");
   const [openId, setOpenId] = useState(null);
@@ -3633,44 +3643,127 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
                   <ChevronDown size={16} color={C.slateLight} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s", marginTop: 4 }} />
                 </div>
                 {isOpen && (
-                  <div style={{ padding: "0 16px 16px 168px" }}>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
-                      Transcript — locked, never edited
-                    </div>
-                    <div style={{ background: C.paper, borderRadius: 8, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 7 }}>
-                      {(e.transcript || []).map((line, i) => {
-                        const isThem = line.who === "them";
-                        const isQuote = isThem && e.requestedFollowUp && line.text === e.requestedFollowUp.exactWords;
-                        return (
-                          <div key={i} style={{ display: "flex", justifyContent: isThem ? "flex-start" : "flex-end" }}>
-                            <div
+                  <div style={{ padding: "0 20px 20px", borderTop: `1px solid ${C.borderLight}`, marginTop: 12, paddingTop: 16 }}>
+                    <div style={{ maxWidth: 720, margin: "0 auto" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>Verbatim Call Transcript</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 12 }}>Locked</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {onDirectDial && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDirectDial({
+                                  name: e.personListedAs || e.canonicalName,
+                                  phone: "",
+                                  company: e.canonicalName
+                                });
+                              }}
                               style={{
-                                maxWidth: "88%",
-                                background: isQuote ? C.tealSoft : isThem ? "#fff" : C.cobalt,
-                                color: isThem ? C.textInk : "#fff",
-                                border: isQuote ? `1px solid ${C.teal}` : isThem ? `1px solid ${C.border}` : "none",
-                                borderRadius: 10,
-                                padding: "6px 10px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 5,
+                                background: C.cobaltSoft,
+                                border: `1px solid #BFDBFE`,
+                                borderRadius: 7,
+                                padding: "5px 10px",
                                 fontFamily: FONT_BODY,
-                                fontSize: 12.5,
-                                lineHeight: 1.4,
+                                fontSize: 11.5,
+                                fontWeight: 600,
+                                color: C.cobalt,
+                                cursor: "pointer"
                               }}
                             >
-                              <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.7, display: "block", marginBottom: 2 }}>{isThem ? "THEM" : "AI"}</span>
-                              {line.text}
+                              <PhoneCall size={12} /> Call Again
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const fullText = (e.transcript || [])
+                                .map((t) => `${t.who === "ai" ? "AI (Sam)" : t.who === "system" ? "System" : "Prospect"}: ${t.text}`)
+                                .join("\n");
+                              navigator.clipboard.writeText(fullText);
+                              if (setNotifications) {
+                                setNotifications((ns) => [
+                                  { id: "n_" + Date.now(), text: `📋 Transcript copied to clipboard for ${e.canonicalName}`, time: "just now", unread: true, type: "info" },
+                                  ...ns
+                                ]);
+                              }
+                            }}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 5,
+                              background: "#FFFFFF",
+                              border: `1px solid ${C.border}`,
+                              borderRadius: 7,
+                              padding: "5px 10px",
+                              fontFamily: FONT_BODY,
+                              fontSize: 11.5,
+                              fontWeight: 600,
+                              color: C.slate,
+                              cursor: "pointer"
+                            }}
+                          >
+                            📋 Copy Transcript
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, background: C.paper, borderRadius: 12, padding: 16 }}>
+                        {(e.transcript || []).map((line, i) => {
+                          const isThem = line.who === "them";
+                          const isSystem = line.who === "system";
+                          const isQuote = isThem && e.requestedFollowUp && line.text === e.requestedFollowUp.exactWords;
+
+                          if (isSystem) {
+                            return (
+                              <div key={i} style={{ textAlign: "center", margin: "4px 0" }}>
+                                <span style={{ fontFamily: FONT_BODY, fontSize: 11, background: "#F1F5F9", color: "#475569", padding: "4px 12px", borderRadius: 12, border: "1px solid #E2E8F0" }}>
+                                  ℹ️ {line.text}
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isThem ? "flex-end" : "flex-start" }}>
+                              <div style={{ fontSize: 10.5, fontWeight: 700, color: isThem ? C.slate : C.cobalt, marginBottom: 3, padding: "0 4px" }}>
+                                {isThem ? `👤 ${e.personListedAs || e.canonicalName || "Prospect"}` : "🤖 Sam (AI Voice SDR)"}
+                              </div>
+                              <div
+                                style={{
+                                  maxWidth: "85%",
+                                  background: isQuote ? C.tealSoft : isThem ? "#FFFFFF" : "#F0F7FF",
+                                  color: isThem ? C.textInk : "#1E293B",
+                                  border: isQuote ? `1px solid ${C.teal}` : isThem ? `1px solid ${C.border}` : "1px solid #BFDBFE",
+                                  borderRadius: isThem ? "14px 4px 14px 14px" : "4px 14px 14px 14px",
+                                  padding: "9px 14px",
+                                  fontFamily: FONT_BODY,
+                                  fontSize: 12.5,
+                                  lineHeight: 1.45,
+                                  boxShadow: isThem ? "0 1px 3px rgba(0,0,0,0.04)" : "none",
+                                }}
+                              >
+                                {line.text}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
+
+                      {e.requestedFollowUp && onJumpSchedule && (
+                        <button
+                          onClick={() => onJumpSchedule(e.canonicalName)}
+                          style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}
+                        >
+                          <Calendar size={12} /> See scheduled callback
+                        </button>
+                      )}
                     </div>
-                    {e.requestedFollowUp && onJumpSchedule && (
-                      <button
-                        onClick={() => onJumpSchedule(e.canonicalName)}
-                        style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}
-                      >
-                        <Calendar size={12} /> See scheduled callback
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -4572,9 +4665,68 @@ function MeetingsView({ notifications, setNotifications, companyName, meetings, 
 
 /* ---------------------------------- prospects ---------------------------------- */
 
-function ProspectsView({ notifications, setNotifications, onScheduleFor, registry, callLog, onOpenLog }) {
+function ProspectsView({ notifications, setNotifications, onScheduleFor, registry, callLog, onOpenLog, onDirectDial }) {
   const [query, setQuery] = useState("");
-  const filtered = PROSPECTS.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()));
+  const [savedContacts, setSavedContacts] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_saved_contacts");
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return [
+      { id: "sc_jm", name: "Jitendra Mehta", company: "AIVHub Ltd", phone: "+447577570050", contact: "Jitendra Mehta", role: "CEO / Director", sector: "AI & Voice Tech", region: "UK", status: "ready_to_call", fit: 98, isSaved: true },
+      { id: "sc_ops", name: "Operations Desk", company: "AIVHub", phone: "+447307216767", contact: "Support Ops", role: "Telephony Lead", sector: "Telephony", region: "UK", status: "ready_to_call", fit: 95, isSaved: true }
+    ];
+  });
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addCompany, setAddCompany] = useState("");
+  const [addPhone, setAddPhone] = useState("");
+  const [addRole, setAddRole] = useState("");
+
+  const handleSaveContact = (e) => {
+    if (e) e.preventDefault();
+    if (!addPhone.trim()) {
+      alert("Please enter a phone number.");
+      return;
+    }
+    const newContact = {
+      id: "sc_" + Date.now(),
+      name: addName.trim() || "Contact",
+      company: addCompany.trim() || "Independent",
+      phone: addPhone.trim(),
+      contact: addName.trim() || "Contact",
+      role: addRole.trim() || "Client",
+      sector: "Outreach",
+      region: "UK",
+      status: "ready_to_call",
+      fit: 95,
+      isSaved: true
+    };
+    const updated = [newContact, ...savedContacts];
+    setSavedContacts(updated);
+    try {
+      localStorage.setItem("aivhub_saved_contacts", JSON.stringify(updated));
+    } catch (_) {}
+    if (setNotifications) {
+      setNotifications((ns) => [
+        { id: "n_" + Date.now(), text: `💾 Contact saved: ${newContact.name} (${newContact.phone})`, time: "just now", unread: true, type: "success" },
+        ...ns
+      ]);
+    }
+    setAddName("");
+    setAddCompany("");
+    setAddPhone("");
+    setAddRole("");
+    setShowAddModal(false);
+  };
+
+  const allItems = [...savedContacts, ...PROSPECTS.filter(p => !savedContacts.some(sc => sc.name.toLowerCase() === p.name.toLowerCase()))];
+  const filtered = allItems.filter((p) =>
+    p.name.toLowerCase().includes(query.toLowerCase()) ||
+    (p.company && p.company.toLowerCase().includes(query.toLowerCase())) ||
+    (p.phone && p.phone.includes(query))
+  );
 
   const registryFor = (p) => (registry || []).find((r) =>
     allRegistryNames(r).some((n) => normalizeCompanyName(n) === normalizeCompanyName(p.name))
@@ -4584,90 +4736,229 @@ function ProspectsView({ notifications, setNotifications, onScheduleFor, registr
     return (callLog || []).find((l) => (entry && l.registryId === entry.id) || normalizeCompanyName(l.canonicalName) === normalizeCompanyName(p.name));
   };
 
+  const copyContactShare = (p) => {
+    const shareText = `👤 Contact: ${p.name}\n🏢 Company: ${p.company || p.name}\n📞 Phone: ${p.phone || "N/A"}\n💼 Role: ${p.role || p.contact || "Decision Maker"}`;
+    navigator.clipboard.writeText(shareText);
+    if (setNotifications) {
+      setNotifications((ns) => [
+        { id: "n_" + Date.now(), text: `📋 Contact details copied for ${p.name}!`, time: "just now", unread: true, type: "info" },
+        ...ns
+      ]);
+    }
+  };
+
   return (
     <>
-      <TopBar title="Prospects" subtitle="Every business researched or contacted so far — aliases collapsed to one company" notifications={notifications} setNotifications={setNotifications} />
+      <TopBar title="Contacts & Batches" subtitle="Manage persistent client contacts, dial 1-click calls, and share prospect profiles" notifications={notifications} setNotifications={setNotifications} />
       <div style={{ padding: "20px 32px" }}>
-        <div style={{ position: "relative", marginBottom: 16, maxWidth: 320 }}>
-          <Search size={14} color={C.slateLight} style={{ position: "absolute", left: 11, top: 10 }} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search prospects..."
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <div style={{ position: "relative", minWidth: 260, maxWidth: 360, flex: 1 }}>
+            <Search size={14} color={C.slateLight} style={{ position: "absolute", left: 11, top: 10 }} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search contacts, companies, or phone..."
+              style={{
+                width: "100%",
+                padding: "8px 12px 8px 32px",
+                borderRadius: 8,
+                border: `1px solid ${C.border}`,
+                fontFamily: FONT_BODY,
+                fontSize: 13,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <button
+            onClick={() => setShowAddModal(true)}
             style={{
-              width: "100%",
-              padding: "8px 12px 8px 32px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: C.cobalt,
+              color: "#fff",
+              border: "none",
               borderRadius: 8,
-              border: `1px solid ${C.border}`,
+              padding: "9px 16px",
               fontFamily: FONT_BODY,
               fontSize: 13,
-              outline: "none",
-              boxSizing: "border-box",
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "0 2px 6px rgba(37, 99, 235, 0.25)"
             }}
-          />
+          >
+            + Save New Contact
+          </button>
         </div>
 
+        {/* Add Contact Modal */}
+        {showAddModal && (
+          <div style={{ background: "#FFFFFF", border: `2px solid ${C.cobalt}`, borderRadius: 12, padding: 20, marginBottom: 20, boxShadow: C.shadowCard }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 14 }}>
+              💾 Save Client / Test Contact (1-Click Persistent Dial)
+            </div>
+            <form onSubmit={handleSaveContact} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Full Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Jitendra Mehta"
+                  value={addName}
+                  onChange={(e) => setAddName(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Phone Number (E.164) *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. +447577570050"
+                  value={addPhone}
+                  onChange={(e) => setAddPhone(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box", fontFamily: FONT_MONO }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Company / Organization</label>
+                <input
+                  type="text"
+                  placeholder="e.g. AIVHub Ltd"
+                  value={addCompany}
+                  onChange={(e) => setAddCompany(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Role / Title</label>
+                <input
+                  type="text"
+                  placeholder="e.g. CEO / Managing Director"
+                  value={addRole}
+                  onChange={(e) => setAddRole(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }}
+                />
+              </div>
+              <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 14px", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{ background: C.cobalt, color: "#fff", border: "none", borderRadius: 6, padding: "7px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Save to Quick Dial
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1.4fr 1fr 1fr 1.3fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-            <div>Company</div>
-            <div>Region</div>
-            <div>Contact</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.8fr 1.2fr 1.2fr 1fr 1.8fr", padding: "10px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+            <div>Contact / Company</div>
+            <div>Phone Number</div>
+            <div>Role & Sector</div>
             <div>Status</div>
-            <div>Fit score</div>
-            <div></div>
+            <div style={{ textAlign: "right" }}>Actions</div>
           </div>
           {filtered.map((p) => {
             const entry = registryFor(p);
             const last = lastLogFor(p);
-            const blocked = entry?.doNotCall || p.status === "do_not_call" || p.status === "meeting_booked";
-            const aliases = (entry?.aliases || []).filter((a) => a !== p.name);
+            const blocked = entry?.doNotCall || p.status === "do_not_call";
             return (
               <div
                 key={p.id}
-                style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1.4fr 1fr 1fr 1.3fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}
+                style={{ display: "grid", gridTemplateColumns: "1.8fr 1.2fr 1.2fr 1fr 1.8fr", padding: "14px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}
               >
                 <div>
-                  <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{p.name}</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight }}>{p.sector}</div>
-                  {aliases.length > 0 && (
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.amber, marginTop: 2 }}>
-                      Also listed as {aliases.slice(0, 2).join(", ")}
-                    </div>
-                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13.5, color: C.textInk }}>{p.name}</span>
+                    {p.isSaved && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: C.cobalt, background: C.cobaltSoft, padding: "1px 6px", borderRadius: 4 }}>SAVED</span>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight }}>{p.company || p.name}</div>
                   {last && (
                     <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.slateLight, marginTop: 2 }}>
-                      Last log {last.endedAt} · {STATUS_MAP[last.outcome]?.label || last.outcome}
+                      Last call: {last.endedAt} · {STATUS_MAP[last.outcome]?.label || last.outcome}
                     </div>
                   )}
                 </div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>{p.region}</div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>{p.contact}</div>
-                <div>
-                  <Badge status={p.status} small />
+
+                {/* Phone Number */}
+                <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: p.phone ? C.textInk : C.slateLight, display: "flex", alignItems: "center", gap: 6 }}>
+                  <PhoneCall size={12} color={p.phone ? C.cobalt : C.slateLight} />
+                  <span>{p.phone || "No phone listed"}</span>
                 </div>
-                <FitScore value={p.fit} />
+
+                {/* Role / Sector */}
+                <div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>{p.role || p.contact}</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>{p.sector || p.region}</div>
+                </div>
+
+                <div>
+                  <Badge status={p.status || "ready_to_call"} small />
+                </div>
+
+                {/* Action Buttons: Call Now, Share, Log */}
                 <div style={{ textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
-                  {last && (
+                  {onDirectDial && p.phone && (
                     <button
-                      onClick={() => onOpenLog && onOpenLog(p.name)}
-                      style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 9px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
+                      onClick={() => onDirectDial({ name: p.name, phone: p.phone, company: p.company || p.name })}
+                      title="Call this number immediately via Twilio/xAI"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        background: C.cobalt,
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 6,
+                        padding: "6px 12px",
+                        fontFamily: FONT_BODY,
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        boxShadow: "0 1px 4px rgba(37, 99, 235, 0.2)"
+                      }}
                     >
-                      <History size={12} /> Log
+                      <PhoneCall size={12} /> Call Now
                     </button>
                   )}
                   <button
-                    onClick={() => !blocked && onScheduleFor && onScheduleFor(p.name)}
-                    title={blocked ? "Already contacted or on do-not-call — open the call log instead of dialing again" : "Schedule a call"}
+                    onClick={() => copyContactShare(p)}
+                    title="Share contact details"
                     style={{
-                      display: "flex", alignItems: "center", gap: 5, background: "none",
-                      border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 9px",
-                      fontFamily: FONT_BODY, fontSize: 11.5, color: blocked ? C.slateLight : C.slate,
-                      cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.5 : 1,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      background: "#FFFFFF",
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 6,
+                      padding: "6px 10px",
+                      fontFamily: FONT_BODY,
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      color: C.slate,
+                      cursor: "pointer"
                     }}
                   >
-                    <Calendar size={12} /> {blocked ? "Don't re-dial" : "Schedule call"}
+                    🔗 Share
                   </button>
-                  <ExternalLink size={14} color={C.slateLight} style={{ cursor: "pointer" }} />
+                  {last && (
+                    <button
+                      onClick={() => onOpenLog && onOpenLog(p.name)}
+                      style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, cursor: "pointer" }}
+                    >
+                      <History size={12} />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -5808,16 +6099,35 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
 
 /* ---------------------------------- Direct Outbound Calling Component ---------------------------------- */
 
-function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNumber, onViewLiveCalls, onCallCreated }) {
-  const [toNumber, setToNumber] = useState("");
-  const [prospectName, setProspectName] = useState("");
-  const [missionTitle, setMissionTitle] = useState("Direct Client Outreach");
+function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNumber, onViewLiveCalls, onCallCreated, prefillData }) {
+  const [toNumber, setToNumber] = useState(prefillData?.toNumber || "");
+  const [prospectName, setProspectName] = useState(prefillData?.prospectName || "");
+  const [missionTitle, setMissionTitle] = useState(prefillData?.missionTitle || "Direct Client Outreach");
   const [fromNumber, setFromNumber] = useState(defaultFromNumber || "+447307216767");
   const [carrierChoice, setCarrierChoice] = useState("twilio");
   const [accountSid, setAccountSid] = useState("");
   const [authToken, setAuthToken] = useState("");
   const [showCreds, setShowCreds] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
+
+  const [savedContacts, setSavedContacts] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_saved_contacts");
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return [
+      { id: "sc_jm", name: "Jitendra Mehta", company: "AIVHub Ltd", phone: "+447577570050", role: "CEO / Director" },
+      { id: "sc_ops", name: "Operations Desk", company: "AIVHub", phone: "+447307216767", role: "Support" }
+    ];
+  });
+
+  useEffect(() => {
+    if (prefillData) {
+      if (prefillData.toNumber) setToNumber(prefillData.toNumber);
+      if (prefillData.prospectName) setProspectName(prefillData.prospectName);
+      if (prefillData.missionTitle) setMissionTitle(prefillData.missionTitle);
+    }
+  }, [prefillData]);
 
   const [dialing, setDialing] = useState(false);
   const [dialResult, setDialResult] = useState(null);
@@ -5939,6 +6249,40 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
 
       {isExpanded && (
         <form onSubmit={handleDial} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Quick Dial Saved Contacts Bar */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "rgba(255,255,255,0.05)", padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.08)" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              ⚡ Quick Dial:
+            </span>
+            {savedContacts.map((sc) => (
+              <button
+                key={sc.id}
+                type="button"
+                onClick={() => {
+                  setToNumber(sc.phone);
+                  setProspectName(sc.name);
+                }}
+                style={{
+                  background: toNumber === sc.phone ? "#2563EB" : "rgba(37, 99, 235, 0.2)",
+                  border: `1px solid ${toNumber === sc.phone ? "#60A5FA" : "rgba(96, 165, 250, 0.4)"}`,
+                  borderRadius: 16,
+                  padding: "4px 10px",
+                  color: "#EFF6FF",
+                  fontFamily: FONT_BODY,
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5
+                }}
+              >
+                <span>📞 {sc.name}</span>
+                <span style={{ opacity: 0.8, fontSize: 10.5 }}>({sc.phone})</span>
+              </button>
+            ))}
+          </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
             {/* Destination Number */}
             <div>
@@ -15996,6 +16340,16 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
   const selectedMission = missions.find((m) => m.id === selectedMissionId) || null;
   const [prefillSchedule, setPrefillSchedule] = useState(null);
   const [prefillLogQuery, setPrefillLogQuery] = useState(null);
+  const [directDialPrefill, setDirectDialPrefill] = useState(null);
+
+  const handleDirectDial = (contact) => {
+    setDirectDialPrefill({
+      toNumber: contact.phone || "",
+      prospectName: contact.name || "",
+      missionTitle: contact.company ? `Call with ${contact.company}` : "Direct Client Outreach"
+    });
+    setView("live");
+  };
   const [liveCalls, setLiveCalls] = useState(INITIAL_LIVE_CALLS.map((c) => ({ ...c, taken: false, listening: false, confirmingEnd: false, ended: false, booked: false })));
   const activeAudioPlayerRef = useRef(null);
   const [listeningCallId, setListeningCallId] = useState(null);
@@ -16754,6 +17108,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             onClearFocus={() => setLiveFocus(null)}
             onBackToTasks={goBack}
             onRefreshLiveCalls={refreshLiveCalls}
+            directDialPrefill={directDialPrefill}
           />
         )}
         {view === "calllog" && (
@@ -16764,6 +17119,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             prefillQuery={prefillLogQuery}
             clearPrefill={() => setPrefillLogQuery(null)}
             onJumpSchedule={goScheduleFor}
+            onDirectDial={handleDirectDial}
           />
         )}
         {view === "processlogs" && (
@@ -16780,6 +17136,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             registry={registry}
             callLog={callLog}
             onOpenLog={goLogFor}
+            onDirectDial={handleDirectDial}
           />
         )}
         {view === "company" && <CompanyProfileView profile={profile} setProfile={setProfile} notifications={notifications} setNotifications={setNotifications} sources={knowledgeSources} setSources={setKnowledgeSources} services={services} setServices={setServices} faq={faq} setFaq={setFaq} />}

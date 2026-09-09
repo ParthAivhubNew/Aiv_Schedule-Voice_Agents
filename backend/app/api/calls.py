@@ -334,6 +334,13 @@ async def dial_outbound_call(
     # 4. Resolve bridge SIP URI
     bridge_sip = req.bridge_sip_uri or f"sip:{from_clean}@{settings.XAI_SIP_FQDN};transport=tls"
 
+    # Retire any previous hanging/unended calls so Live Activity displays the fresh call cleanly
+    prev_active_res = await db.execute(select(LiveCall).where(LiveCall.ended == False))
+    for prev_call in prev_active_res.scalars().all():
+        prev_call.ended = True
+        prev_call.state = "ended"
+    await db.commit()
+
     # 5. Create LiveCall entry
     prospect_label = req.prospect_name.strip() if req.prospect_name else f"Prospect ({to_clean[-4:]})"
     mission_label = req.mission_title or "Direct Outbound Outreach"
@@ -361,6 +368,13 @@ async def dial_outbound_call(
     db.add(live_call)
     await db.commit()
 
+    # Register initial alias in media_stream_hub
+    try:
+        from app.websockets.media_stream import media_stream_hub
+        media_stream_hub.register_alias(call_id, call_id)
+    except Exception:
+        pass
+
     # Broadcast call started immediately to frontend
     await call_hub.broadcast("call_started", {
         "callId": call_id,
@@ -386,6 +400,11 @@ async def dial_outbound_call(
             live_call.carrier_sid = carrier_sid
             live_call.transcript = (live_call.transcript or []) + [f"System: Provider Call SID: {carrier_sid}"]
             await db.commit()
+            try:
+                from app.websockets.media_stream import media_stream_hub
+                media_stream_hub.register_alias(carrier_sid, call_id)
+            except Exception:
+                pass
 
         # If simulation mode, launch the simulated conversation session in background
         if dial_res.get("simulated") or "sim" in carrier_choice:

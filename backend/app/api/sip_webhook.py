@@ -125,10 +125,11 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
 
     event_type = data.get("type") or data.get("event") or inner_data.get("event") or "realtime.call.incoming"
 
-    # Extract caller, callee, and Twilio CallSid from sip_headers
+    # Extract caller, callee, Twilio CallSid, and custom call ID from sip_headers
     caller = data.get("from") or data.get("caller")
     callee = data.get("to") or data.get("callee")
     twilio_call_sid = None
+    custom_call_id = None
 
     sip_headers = inner_data.get("sip_headers") or []
     for h in sip_headers:
@@ -139,8 +140,10 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
                 caller = val
             elif name == "to" and not callee:
                 callee = val
-            elif name == "x-twilio-callsid":
+            elif name in ["x-twilio-callsid", "x-callsid"]:
                 twilio_call_sid = val
+            elif name in ["x-custom-callid", "x-call-id"]:
+                custom_call_id = val
 
     if not caller:
         caller = "+12025550199"
@@ -149,27 +152,28 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
 
     logger.info(
         f"[SIP-WEBHOOK] Parsed event: type={event_type}, sip_call_id={call_id}, "
-        f"caller={caller}, callee={callee}, twilio_sid={twilio_call_sid}"
+        f"caller={caller}, callee={callee}, twilio_sid={twilio_call_sid}, custom_call_id={custom_call_id}"
     )
 
     await log_process_event(
         subsystem="telephony",
         process_name="sip_webhook_received",
-        message=f"Verified xAI SIP webhook: sip_call_id={call_id}, event={event_type}, caller={caller}, twilio_sid={twilio_call_sid}.",
+        message=f"Verified xAI SIP webhook: sip_call_id={call_id}, event={event_type}, caller={caller}, twilio_sid={twilio_call_sid}, custom_call_id={custom_call_id}.",
         level="SUCCESS",
-        details={"callId": call_id, "event": event_type, "caller": caller, "callee": callee, "twilioSid": twilio_call_sid, "fullPayload": data}
+        details={"callId": call_id, "event": event_type, "caller": caller, "callee": callee, "twilioSid": twilio_call_sid, "customCallId": custom_call_id, "fullPayload": data}
     )
 
     # 3. Handle Call Events
     if event_type in ["call.incoming", "call.initiated", "session.start", "call.answered",
                        "realtime.call.incoming", "realtime.session.start"]:
-        logger.info(f"[SIP-WEBHOOK] Launching join_xai_call_session for sip_call_id={call_id}, twilio_sid={twilio_call_sid}...")
+        logger.info(f"[SIP-WEBHOOK] Launching join_xai_call_session for sip_call_id={call_id}, twilio_sid={twilio_call_sid}, custom_call_id={custom_call_id}...")
         # Launch WebSocket session in background (fire-and-forget for instant <15ms 200 response)
         asyncio.create_task(
             join_xai_call_session(
                 call_id=call_id,
                 caller_number=caller,
                 carrier_sid=twilio_call_sid,
+                custom_call_id=custom_call_id,
                 mission_name="Inbound Voice Call"
             )
         )
