@@ -205,6 +205,21 @@ async def list_services(db: AsyncSession = Depends(get_db)):
         "desc": s.desc
     } for s in services]
 
+@router.put("/services")
+@router.post("/services")
+async def save_services(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    services_list = payload.get("services", [])
+    await db.execute(delete(Service))
+    for s in services_list:
+        name = (s.get("name") or "").strip()
+        desc = (s.get("desc") or "").strip()
+        ideal = (s.get("ideal") or "").strip()
+        if name:
+            sid = s.get("id") or f"sv_{uuid.uuid4().hex[:6]}"
+            db.add(Service(id=sid, name=name, desc=desc, ideal=ideal))
+    await db.commit()
+    return {"status": "ok", "message": f"{len(services_list)} services saved successfully"}
+
 # FAQs
 @router.get("/faqs", response_model=list[dict])
 async def list_faqs(db: AsyncSession = Depends(get_db)):
@@ -215,6 +230,22 @@ async def list_faqs(db: AsyncSession = Depends(get_db)):
         "q": f.question,
         "a": f.answer
     } for f in faqs]
+
+@router.put("/faqs")
+@router.post("/faqs")
+async def save_faqs(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    faqs_list = payload.get("faqs", [])
+    await db.execute(delete(FAQ))
+    saved_count = 0
+    for item in faqs_list:
+        q = (item.get("q") or item.get("question") or "").strip()
+        a = (item.get("a") or item.get("answer") or "").strip()
+        if q and a:
+            faq_id = item.get("id") or f"f_{uuid.uuid4().hex[:6]}"
+            db.add(FAQ(id=faq_id, question=q, answer=a))
+            saved_count += 1
+    await db.commit()
+    return {"status": "ok", "message": f"{saved_count} FAQs saved successfully"}
 
 # Notifications
 @router.get("/notifications", response_model=list[dict])

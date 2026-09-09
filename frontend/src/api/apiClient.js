@@ -87,7 +87,9 @@ export const api = {
   getSourceChunks: (sourceId) => apiRequest(`/profile/sources/${sourceId}/chunks`),
   testKnowledgeQuery: (query, topK = 3) => apiRequest('/profile/sources/test-query', { method: 'POST', body: { query, top_k: topK } }),
   getServices: () => apiRequest('/profile/services'),
+  saveServices: (services) => apiRequest('/profile/services', { method: 'PUT', body: { services } }),
   getFaqs: () => apiRequest('/profile/faqs'),
+  saveFaqs: (faqs) => apiRequest('/profile/faqs', { method: 'PUT', body: { faqs } }),
   getNotifications: () => apiRequest('/profile/notifications'),
 
   // Connections & Key Testing

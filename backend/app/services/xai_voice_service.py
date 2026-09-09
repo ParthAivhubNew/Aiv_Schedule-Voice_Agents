@@ -22,6 +22,7 @@ from app.models.models import (
     Prospect,
     ScheduleItem,
     Service,
+    FAQ,
 )
 from app.services.process_logger import log_process_event, scrub_text
 from app.services.rag_service import search_knowledge
@@ -113,6 +114,9 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
         services_res = await db.execute(select(Service))
         services = services_res.scalars().all()
 
+        faqs_res = await db.execute(select(FAQ))
+        faqs = faqs_res.scalars().all()
+
     company_name = profile.name if profile else "AIVHub"
     caller_name = profile.caller_name if profile else "Sam"
     pitch = profile.pitch if profile else "AI-driven operational intelligence and workflow automation."
@@ -123,6 +127,11 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     for s in services[:5]:
         catalog_lines.append(f"- {s.name}: {s.desc} (Best for: {s.ideal})")
     catalog_text = "\n".join(catalog_lines) if catalog_lines else "- Enterprise Voice & Knowledge Intelligence"
+
+    faq_lines = []
+    for f in faqs[:10]:
+        faq_lines.append(f"- Q: {f.question}\n  A: {f.answer}")
+    faq_text = "\n".join(faq_lines) if faq_lines else "None provided yet."
 
     target_name = prospect_name or "the customer"
 
@@ -137,6 +146,9 @@ Company Background:
 
 Key Services & Capabilities:
 {catalog_text}
+
+Verified Knowledge & FAQs (Use these facts to answer questions accurately):
+{faq_text}
 
 Call Disclosure:
 "{disclosure}"
@@ -232,24 +244,32 @@ async def execute_xai_tool(
             query = args.get("query", "")
             async with AsyncSessionLocal() as db:
                 results = await search_knowledge(db, query=query, top_k=3, min_score=0.40)
+                faqs_res = await db.execute(select(FAQ))
+                all_faqs = faqs_res.scalars().all()
+                matching_faqs = []
+                q_words = [w.lower() for w in query.split() if len(w) > 2]
+                for f in all_faqs:
+                    if any(w in f.question.lower() or w in f.answer.lower() for w in q_words):
+                        matching_faqs.append(f"FAQ: {f.question}\nAnswer: {f.answer}")
             
             elapsed = (time.time() - start_time) * 1000
+            extracted_chunks = matching_faqs + [f"Title: {r.get('title', 'Doc')}\nContent: {r.get('content')}" for r in results]
+
             await log_process_event(
                 subsystem="crawler_rag",
                 process_name="xai_rag_tool_lookup",
-                message=f"RAG Knowledge search for '{query}' returned {len(results)} chunks.",
+                message=f"RAG Knowledge search for '{query}' returned {len(extracted_chunks)} items (FAQs + Chunks).",
                 level="INFO",
                 duration_ms=elapsed,
-                details={"callId": call_id, "query": query, "chunkCount": len(results)}
+                details={"callId": call_id, "query": query, "chunkCount": len(extracted_chunks)}
             )
 
-            if not results:
+            if not extracted_chunks:
                 return {
                     "found": False,
                     "summary": "No specific document matched this exact query. Inform the caller we will have a specialist confirm details during our demo."
                 }
 
-            extracted_chunks = [f"Title: {r.get('title', 'Doc')}\nContent: {r.get('content')}" for r in results]
             return {
                 "found": True,
                 "context": "\n---\n".join(extracted_chunks)

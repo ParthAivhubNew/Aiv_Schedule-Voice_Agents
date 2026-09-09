@@ -4679,7 +4679,9 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
     } catch (_) {}
     try {
       await api.updateProfile(profile);
-      setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile saved and persisted to database", time: "just now", unread: true, type: "success" }, ...ns]);
+      await api.saveServices(services);
+      await api.saveFaqs(faq);
+      setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, services & FAQs saved to database", time: "just now", unread: true, type: "success" }, ...ns]);
     } catch (err) {
       console.warn("Backend updateProfile warning:", err);
       setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Company profile changes saved locally", time: "just now", unread: true, type: "info" }, ...ns]);
