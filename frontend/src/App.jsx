@@ -2887,6 +2887,7 @@ function MissionsView({ onOpenMission, onNewMission, notifications, setNotificat
 
 function callBelongsToFocus(c, focus) {
   if (!focus) return true;
+  if (c.missionId === "m_outbound" || (c.id && c.id.startsWith("call_"))) return true;
   if (focus.missionId && c.missionId && c.missionId === focus.missionId) return true;
   if (focus.missionTitle && c.mission === focus.missionTitle) return true;
   if (focus.prospectId && c.prospectId && c.prospectId === focus.prospectId) return true;
@@ -3200,7 +3201,7 @@ function StatRow({ label, value, accent }) {
 
 /* ---------------------------------- live calls ---------------------------------- */
 
-function LiveCallsView({ notifications, setNotifications, companyName, calls, onConfirmBooking, onTakenToggle, onListenToggle, onAskEnd, onCancelEnd, onConfirmEnd, focus, onClearFocus, onBackToTasks }) {
+function LiveCallsView({ notifications, setNotifications, companyName, calls, onConfirmBooking, onTakenToggle, onListenToggle, onAskEnd, onCancelEnd, onConfirmEnd, focus, onClearFocus, onBackToTasks, onRefreshLiveCalls }) {
   const toggleTaken = onTakenToggle;
   const toggleListen = onListenToggle;
   const askEnd = onAskEnd;
@@ -3257,11 +3258,19 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
         <div style={{ margin: "20px 32px", fontFamily: FONT_BODY, fontSize: 13.5, color: C.slate, lineHeight: 1.5 }}>
           {companyFocus
             ? `${focus.name} is not on a live call right now — queued, skipped, or already finished. Show all conversations to see everything else.`
-            : "No live cards for this mission yet."}
+            : "No live cards right now."}
         </div>
       )}
       <div style={{ padding: "16px 32px 0" }}>
-        <DirectOutboundCallCard notifications={notifications} setNotifications={setNotifications} defaultFromNumber="+447307216767" />
+        <DirectOutboundCallCard
+          notifications={notifications}
+          setNotifications={setNotifications}
+          defaultFromNumber="+447307216767"
+          onCallCreated={() => {
+            if (onClearFocus) onClearFocus();
+            if (onRefreshLiveCalls) onRefreshLiveCalls();
+          }}
+        />
       </div>
       <div style={{ padding: "20px 32px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
         {filtered.map((c) => {
@@ -5726,7 +5735,7 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
 
 /* ---------------------------------- Direct Outbound Calling Component ---------------------------------- */
 
-function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNumber, onViewLiveCalls }) {
+function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNumber, onViewLiveCalls, onCallCreated }) {
   const [toNumber, setToNumber] = useState("");
   const [prospectName, setProspectName] = useState("");
   const [missionTitle, setMissionTitle] = useState("Direct Client Outreach");
@@ -5763,6 +5772,9 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
       };
       const res = await api.dialOutbound(payload);
       setDialResult(res);
+      if (onCallCreated) {
+        try { onCallCreated(res); } catch (_) {}
+      }
       setNotifications((ns) => [
         {
           id: "n_" + Date.now(),
@@ -15944,6 +15956,13 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     try { localStorage.setItem("aivhub_call_log", JSON.stringify(callLog)); } catch (_) {}
   }, [callLog]);
 
+  const refreshLiveCalls = async () => {
+    try {
+      const lc = await api.getLiveCalls();
+      if (lc && Array.isArray(lc) && lc.length) setLiveCalls(lc);
+    } catch (_) {}
+  };
+
   // Load backend data on mount
   useEffect(() => {
     async function loadWorkspaceData() {
@@ -15952,8 +15971,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         if (ms && Array.isArray(ms) && ms.length) setMissions(ms);
       } catch (_) {}
       try {
-        const lc = await api.getLiveCalls();
-        if (lc && Array.isArray(lc) && lc.length) setLiveCalls(lc);
+        await refreshLiveCalls();
       } catch (_) {}
       try {
         const mt = await api.getMeetings();
@@ -16532,6 +16550,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             focus={liveFocus}
             onClearFocus={() => setLiveFocus(null)}
             onBackToTasks={goBack}
+            onRefreshLiveCalls={refreshLiveCalls}
           />
         )}
         {view === "calllog" && (

@@ -128,11 +128,21 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
         if not sid or not token:
             raise ValueError("Twilio Account SID and Auth Token must be configured in Connections or Settings.")
 
+        meta = metadata or {}
+        prospect_name = meta.get("prospect") or "there"
+        webhook_base = meta.get("status_callback_url") or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/calls/twilio/status-callback"
+
+        # TwiML: attempts SIP bridge into xAI, with seamless neural speech fallback so the call NEVER drops if SIP is rejected
         twiml = (
             f"<Response>"
-            f"<Dial callerId=\"{from_clean}\">"
+            f"<Dial callerId=\"{from_clean}\" timeout=\"12\">"
             f"<Sip>{bridge_sip_uri}</Sip>"
             f"</Dial>"
+            f"<Say voice=\"Polly.Amy-Neural\">Hello {prospect_name}, this is Sam calling from AIVHub. I am reaching out regarding our AI-driven business intelligence dashboards. How are you doing today?</Say>"
+            f"<Pause length=\"2\"/>"
+            f"<Say voice=\"Polly.Amy-Neural\">We turn scattered business data into real-time operational insights and analytics. Would you be open to a brief 15-minute demo this week?</Say>"
+            f"<Pause length=\"4\"/>"
+            f"<Say voice=\"Polly.Amy-Neural\">Thank you so much for your time. Have a wonderful day!</Say>"
             f"</Response>"
         )
 
@@ -140,7 +150,10 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
         payload = {
             "To": to_clean,
             "From": from_clean,
-            "Twiml": twiml
+            "Twiml": twiml,
+            "StatusCallback": webhook_base,
+            "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
+            "StatusCallbackMethod": "POST"
         }
 
         logger.info(f"Dispatching Twilio outbound call: To={to_clean}, From={from_clean}, Bridge={bridge_sip_uri}")
