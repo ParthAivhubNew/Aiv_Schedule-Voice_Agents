@@ -92,6 +92,8 @@ import {
   Play,
   Wand2,
   Image as ImageIcon,
+  Smartphone,
+  Briefcase,
 } from "lucide-react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -7172,6 +7174,18 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   );
 }
 
+
+function MetricCard({ label, value, delta, mono }) {
+  return (
+    <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: mono ? FONT_MONO : FONT_DISPLAY, fontSize: 22, fontWeight: 700, color: C.textInk, display: "flex", alignItems: "baseline", gap: 8 }}>
+        {value}
+        {delta && <span style={{ fontSize: 12, fontWeight: 600, color: C.teal }}>{delta}</span>}
+      </div>
+    </div>
+  );
+}
 
 function AnalyticsView({ notifications, setNotifications }) {
   return (
