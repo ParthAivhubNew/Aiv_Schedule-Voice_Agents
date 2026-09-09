@@ -149,7 +149,7 @@ const LEADGEN_LAYERS = [
 const SCHEDULER_LAYERS = [
   { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "Claude 3.5 Sonnet", oss: "Ollama Llama 3.2 (Local)", options: ["Claude 3.5 Sonnet", "xAI Grok-2", "GPT-4o", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Llama 3.2 (Local)"] },
   { key: "topicResearch", label: "Topic Research & Trend Discovery", desc: "Monitors industry trends to formulate timely editorial hooks", paid: "xAI Grok-2", oss: "Gemini 2.0 Flash", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o", "Claude 3.5 Sonnet", "DeepSeek-V3"] },
-  { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "DALL-E 3", oss: "Flux Schnell", options: ["DALL-E 3", "Flux Schnell", "Midjourney API", "Stability SDXL"] },
+  { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "Flux Schnell (Zero Key Required)", oss: "Flux Schnell", options: ["Flux Schnell (Zero Key Required)", "Stability SDXL", "Custom Image API", "OpenAI DALL-E 3"] },
   { key: "chatPlanner", label: "Plan Chat Editorial Assistant", desc: "Refines campaign concepts and schedules interactively", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
   { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Indexes brand voice guidelines, product guides, and playbooks", paid: "OpenAI text-embedding-3", oss: "Ollama nomic-embed (Local)", options: ["OpenAI text-embedding-3", "Gemini Embedding", "Ollama nomic-embed (Local)"] },
 ];
@@ -9004,10 +9004,20 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   };
 
   const updateSchedulerLayer = (key, val) => {
-    setCommonAi((prev) => ({
-      ...prev,
-      schedulerLayers: { ...((prev && prev.schedulerLayers) || {}), [key]: val },
-    }));
+    setCommonAi((prev) => {
+      const nextSchedLayers = { ...((prev && prev.schedulerLayers) || {}), [key]: val };
+      const nextSchedAi = {
+        ...((prev && prev.schedulerAi) || {}),
+        ...(key === "postWriter" ? { model: val, provider: getProviderIdForModel(val) } : {}),
+        ...(key === "imageStudio" ? { imageEngine: val } : {}),
+      };
+      try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(nextSchedAi)); } catch (_) {}
+      return {
+        ...prev,
+        schedulerLayers: nextSchedLayers,
+        schedulerAi: nextSchedAi,
+      };
+    });
     flash();
   };
 
@@ -9804,7 +9814,15 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               </div>
 
               {renderCustomConnectionsSection("scheduler", SCHEDULER_LAYERS)}
-              {renderProviderKeyCard(schedulerProviderId, "Post Drafting & Copywriting")}
+              {Array.from(new Set([
+                schedulerProviderId,
+                getProviderIdForModel(safeCommonAi.schedulerLayers?.topicResearch),
+                getProviderIdForModel(safeCommonAi.schedulerLayers?.chatPlanner),
+              ].filter(Boolean))).map((pid) => (
+                <div key={pid}>
+                  {renderProviderKeyCard(pid, pid === schedulerProviderId ? "Post Drafting & Copywriting" : `${pid.toUpperCase()} Capabilities`)}
+                </div>
+              ))}
             </div>
           )}
 
@@ -10086,9 +10104,35 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
   const [dirty, setDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState(null); // { valid: bool, message: string }
+  const [testResult, setTestResult] = useState(null);
 
-  // Scheduler AI settings (stored within commonAi.schedulerAi, aivhub_scheduler_ai, or defaults)
+  // Helper to map model name to provider ID
+  const detectProvider = (modelName) => {
+    const m = String(modelName || "").toLowerCase();
+    if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet") || m.includes("haiku")) return "anthropic";
+    if (m.includes("gpt") || m.includes("o3") || m.includes("openai") || m.includes("dall-e") || m.includes("text-embedding")) return "openai";
+    if (m.includes("deepseek")) return "deepseek";
+    if (m.includes("grok") || m.includes("xai")) return "xai";
+    if (m.includes("groq") || m.includes("llama")) return "groq";
+    if (m.includes("gemini") || m.includes("google")) return "gemini";
+    if (m.includes("ollama") || m.includes("local")) return "ollama";
+    return "deepseek";
+  };
+
+  const getProviderDefaultBaseUrl = (provId) => {
+    switch (provId) {
+      case "deepseek": return "https://api.deepseek.com";
+      case "openai": return "https://api.openai.com/v1";
+      case "anthropic": return "https://api.anthropic.com/v1";
+      case "xai": return "https://api.x.ai/v1";
+      case "groq": return "https://api.groq.com/openai/v1";
+      case "gemini": return "https://generativelanguage.googleapis.com/v1beta";
+      case "ollama": return "http://localhost:11434/v1";
+      default: return "";
+    }
+  };
+
+  // Scheduler AI settings (synchronized with commonAi.schedulerLayers and commonAi.schedulerAi)
   const [aiSettings, setAiSettings] = useState(() => {
     let saved = null;
     try {
@@ -10096,15 +10140,16 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
       if (s) saved = JSON.parse(s);
     } catch (_) {}
 
-    const provId = saved?.provider || commonAi?.schedulerAi?.provider || "deepseek";
-    const commonKey = (commonAi?.providers || []).find((p) => p.id === provId || (provId === "openai" && p.id === "openai") || (provId === "deepseek" && p.id === "deepseek"))?.apiKey || "";
+    const initialModel = commonAi?.schedulerLayers?.postWriter || saved?.model || commonAi?.schedulerAi?.model || "Claude 3.5 Sonnet";
+    const detectedProv = saved?.provider || commonAi?.schedulerAi?.provider || detectProvider(initialModel);
+    const matchedKey = (commonAi?.providers || []).find((p) => p.id === detectedProv)?.apiKey || saved?.apiKey || commonAi?.schedulerAi?.apiKey || "";
 
     return {
-      provider: provId,
-      apiKey: saved?.apiKey || commonAi?.schedulerAi?.apiKey || commonKey || "",
-      model: saved?.model || commonAi?.schedulerAi?.model || "deepseek-chat",
-      baseUrl: saved?.baseUrl || commonAi?.schedulerAi?.baseUrl || (provId === "deepseek" ? "https://api.deepseek.com" : provId === "openai" ? "https://api.openai.com/v1" : "http://localhost:11434/v1"),
-      imageEngine: saved?.imageEngine || commonAi?.schedulerAi?.imageEngine || "auto_flux",
+      provider: detectedProv,
+      apiKey: matchedKey,
+      model: initialModel,
+      baseUrl: saved?.baseUrl || commonAi?.schedulerAi?.baseUrl || getProviderDefaultBaseUrl(detectedProv),
+      imageEngine: commonAi?.schedulerLayers?.imageStudio || saved?.imageEngine || commonAi?.schedulerAi?.imageEngine || "auto_flux",
       imageStyle: saved?.imageStyle || commonAi?.schedulerAi?.imageStyle || "modern_saas",
       imageAspectRatio: saved?.imageAspectRatio || commonAi?.schedulerAi?.imageAspectRatio || "16:9",
       negativePrompt: saved?.negativePrompt || commonAi?.schedulerAi?.negativePrompt || "blurry, low quality, distorted text, deformed hands, watermark",
@@ -10113,7 +10158,23 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     };
   });
 
-  // On mount: if apiKey is empty, check backend connections to see if user has already saved credentials
+  // Keep in sync with commonAi if user opened modal and changed layers
+  useEffect(() => {
+    if (commonAi?.schedulerLayers?.postWriter && commonAi.schedulerLayers.postWriter !== aiSettings.model) {
+      const nextModel = commonAi.schedulerLayers.postWriter;
+      const detected = detectProvider(nextModel);
+      const matchedKey = (commonAi?.providers || []).find((p) => p.id === detected)?.apiKey || aiSettings.apiKey;
+      setAiSettings((prev) => ({
+        ...prev,
+        model: nextModel,
+        provider: detected,
+        apiKey: matchedKey,
+        baseUrl: prev.baseUrl || getProviderDefaultBaseUrl(detected),
+      }));
+    }
+  }, [commonAi?.schedulerLayers?.postWriter]);
+
+  // On mount: recover key from backend connections if empty
   useEffect(() => {
     let mounted = true;
     async function recoverSavedConnections() {
@@ -10124,9 +10185,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         let foundKey = "";
         for (const grp of conns) {
           for (const it of grp.items || []) {
-            if ((aiSettings.provider === "deepseek" && it.name?.toLowerCase().includes("deepseek")) ||
-                (aiSettings.provider === "openai" && it.name?.toLowerCase().includes("openai")) ||
-                (it.layer === "LLM" && it.status === "connected")) {
+            if ((it.layer === "LLM" && it.status === "connected") || it.provider?.toLowerCase().includes(aiSettings.provider)) {
               if (it.apiKey) { foundKey = it.apiKey; break; }
             }
           }
@@ -10145,46 +10204,62 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     return () => { mounted = false; };
   }, [aiSettings.provider]);
 
-  // Immediately auto-save to localStorage on every change so hard refresh never loses key!
   const updateSetting = (key, val) => {
     setAiSettings((prev) => {
       const next = { ...prev, [key]: val };
-      if (key === "provider") {
-        if (val === "deepseek") {
-          if (!prev.model || prev.model.includes("gpt")) next.model = "deepseek-chat";
-          next.baseUrl = "https://api.deepseek.com";
-        } else if (val === "openai") {
-          if (!prev.model || prev.model.includes("deepseek")) next.model = "gpt-4o-mini";
-          next.baseUrl = "https://api.openai.com/v1";
-        } else if (val === "custom") {
-          next.baseUrl = prev.baseUrl || "http://localhost:11434/v1";
-        }
-        // Check if commonAi has a key for this provider
-        const matchedProvKey = (commonAi?.providers || []).find((p) => p.id === val)?.apiKey;
-        if (matchedProvKey && !next.apiKey) {
-          next.apiKey = matchedProvKey;
+
+      // Auto-detect provider if model changed
+      if (key === "model") {
+        const detected = detectProvider(val);
+        if (detected) {
+          next.provider = detected;
+          if (!prev.baseUrl || prev.baseUrl === getProviderDefaultBaseUrl(prev.provider)) {
+            next.baseUrl = getProviderDefaultBaseUrl(detected);
+          }
+          const matchedKey = (commonAi?.providers || []).find((p) => p.id === detected)?.apiKey;
+          if (matchedKey && !next.apiKey) {
+            next.apiKey = matchedKey;
+          }
         }
       }
 
-      // 1. Persist to localStorage immediately
+      // If provider dropdown explicitly changed
+      if (key === "provider") {
+        next.baseUrl = getProviderDefaultBaseUrl(val);
+        const matchedKey = (commonAi?.providers || []).find((p) => p.id === val)?.apiKey;
+        if (matchedKey) next.apiKey = matchedKey;
+      }
+
+      // 1. Immediately persist to localStorage
       try {
         localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(next));
       } catch (_) {}
 
-      // 2. Keep parent commonAi in sync immediately
+      // 2. Synchronize bi-directionally into commonAi state
       if (setCommonAi) {
         setCommonAi((p) => {
           if (!p) return p;
-          const updatedProviders = (p.providers || []).map((prov) => {
-            if ((prov.id === next.provider || (next.provider === "deepseek" && prov.id === "deepseek") || (next.provider === "openai" && prov.id === "openai")) && key === "apiKey") {
-              return { ...prov, apiKey: val };
+          const updatedProvs = (p.providers || []).map((prov) => {
+            if (prov.id === next.provider) {
+              return {
+                ...prov,
+                apiKey: next.apiKey || prov.apiKey,
+                baseUrl: next.baseUrl || prov.baseUrl,
+                status: next.apiKey ? "connected" : prov.status
+              };
             }
             return prov;
           });
+
           return {
             ...p,
             schedulerAi: next,
-            providers: updatedProviders,
+            schedulerLayers: {
+              ...(p.schedulerLayers || {}),
+              postWriter: next.model,
+              ...(next.imageEngine ? { imageStudio: next.imageEngine } : {})
+            },
+            providers: updatedProvs,
             temperature: next.temperature,
             personaPrompt: next.brandPersona || p.personaPrompt,
           };
@@ -10197,13 +10272,14 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
   };
 
   const handleTestKey = async () => {
-    if (!aiSettings.apiKey.trim()) {
+    if (!aiSettings.apiKey.trim() && aiSettings.provider !== "ollama") {
       setTestResult({ valid: false, message: "Please paste your API key first." });
       return;
     }
     setTesting(true);
     setTestResult(null);
     const startTime = Date.now();
+
     try {
       const res = await api.testConnection({
         layer: "LLM",
@@ -10213,10 +10289,9 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         base_url: aiSettings.baseUrl ? aiSettings.baseUrl.trim() : undefined,
         baseUrl: aiSettings.baseUrl ? aiSettings.baseUrl.trim() : undefined,
       });
-      const latency = Math.max(Date.now() - startTime, 20);
-      if (res.valid) {
-        setTestResult({ valid: true, message: `Connected successfully! Key verified active (${latency}ms latency).` });
-        // Auto-persist verified key to backend
+      const latency = Math.max(Date.now() - startTime, 24);
+      if (res && (res.valid || res.success)) {
+        setTestResult({ valid: true, message: `Connected successfully to ${aiSettings.provider.toUpperCase()} (${latency}ms latency). Key active & ready.` });
         try {
           await api.testAndSaveConnection({
             layer: "LLM",
@@ -10226,10 +10301,10 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
           });
         } catch (_) {}
       } else {
-        setTestResult({ valid: false, message: res.error || "Authentication failed. Please verify key credentials." });
+        setTestResult({ valid: false, message: res?.error || res?.details || `Authentication failed for ${aiSettings.provider}.` });
       }
     } catch (err) {
-      setTestResult({ valid: false, message: err.message || "Failed to reach provider endpoint." });
+      setTestResult({ valid: false, message: err.message || `Failed to authenticate with ${aiSettings.provider}.` });
     } finally {
       setTesting(false);
     }
@@ -10239,14 +10314,30 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     try {
       localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(aiSettings));
     } catch (_) {}
+
     if (setCommonAi) {
-      setCommonAi((prev) => ({
-        ...prev,
-        schedulerAi: aiSettings,
-        temperature: aiSettings.temperature,
-        personaPrompt: aiSettings.brandPersona,
-      }));
+      setCommonAi((prev) => {
+        const updatedProvs = (prev?.providers || []).map((prov) => {
+          if (prov.id === aiSettings.provider) {
+            return { ...prov, apiKey: aiSettings.apiKey, baseUrl: aiSettings.baseUrl, status: aiSettings.apiKey ? "connected" : prov.status };
+          }
+          return prov;
+        });
+        return {
+          ...prev,
+          schedulerAi: aiSettings,
+          schedulerLayers: {
+            ...(prev?.schedulerLayers || {}),
+            postWriter: aiSettings.model,
+            imageStudio: aiSettings.imageEngine
+          },
+          providers: updatedProvs,
+          temperature: aiSettings.temperature,
+          personaPrompt: aiSettings.brandPersona,
+        };
+      });
     }
+
     if (aiSettings.apiKey.trim()) {
       try {
         await api.testAndSaveConnection({
@@ -10257,6 +10348,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         });
       } catch (_) {}
     }
+
     setDirty(true);
     setTimeout(() => setDirty(false), 2400);
   };
@@ -10269,14 +10361,39 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 23, color: C.ink, letterSpacing: "-0.02em" }}>
-              Social Media Plugin · Complete AI Configuration
+              Post Scheduler · Complete AI Configuration
             </div>
             <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4 }}>
-              Configure all AI features used across the scheduler: LLM reasoning, topic research, copywriting, and visual generation.
+              Configure open models, connect custom API keys, and manage capabilities across social planning and visual creation.
             </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {onOpenCommonModal && (
+              <button
+                type="button"
+                onClick={() => onOpenCommonModal("scheduler")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "10px 16px",
+                  borderRadius: 10,
+                  border: `1px solid ${C.border}`,
+                  background: "#fff",
+                  color: C.ink,
+                  fontFamily: FONT_BODY,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                }}
+              >
+                <Settings2 size={15} color={C.teal} />
+                <span>Global AI Plugin Window</span>
+              </button>
+            )}
+
             <button
               onClick={handleSave}
               style={{
@@ -10324,14 +10441,14 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
             </div>
 
             <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 18, marginTop: 8 }}>
-              Enter any AI provider and key. This single key powers conversational calendar scheduling, topic synthesis, and multi-channel post generation.
+              Type any model identifier or select an AI provider below. Connects seamlessly to conversational planning, hook synthesis, and multi-channel copywriting.
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1.2fr 2fr", gap: 16, marginBottom: 16 }}>
               {/* Provider Selection */}
               <div>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
-                  AI Provider
+                  AI Provider (Auto-selected based on model)
                 </label>
                 <select
                   value={aiSettings.provider}
@@ -10349,9 +10466,14 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                     cursor: "pointer",
                   }}
                 >
-                  <option value="deepseek">DeepSeek (deepseek-chat / deepseek-reasoner)</option>
+                  <option value="anthropic">Anthropic Claude (Sonnet 3.5 / 3.7)</option>
                   <option value="openai">OpenAI (GPT-4o / GPT-4o-mini / o3-mini)</option>
-                  <option value="custom">Custom Endpoint (Ollama / vLLM / Local AI)</option>
+                  <option value="deepseek">DeepSeek (deepseek-chat / deepseek-reasoner)</option>
+                  <option value="xai">xAI (Grok-2 / Grok-beta)</option>
+                  <option value="groq">Groq LPU (Llama 3.3 70B / 800 tps)</option>
+                  <option value="gemini">Google Gemini (Gemini 2.0 Flash / Pro)</option>
+                  <option value="ollama">Ollama (Local AI Host)</option>
+                  <option value="custom">Custom Endpoint (OpenAI Compatible / vLLM)</option>
                 </select>
               </div>
 
@@ -10359,7 +10481,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
-                    Model Identifier (User Provided)
+                    Model Identifier (User Provided / Open)
                   </label>
                   <span style={{ fontSize: 11, color: C.slateLight }}>
                     Freely type any model name
@@ -10370,13 +10492,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                   list="scheduler-model-suggestions"
                   value={aiSettings.model}
                   onChange={(e) => updateSetting("model", e.target.value)}
-                  placeholder={
-                    aiSettings.provider === "deepseek"
-                      ? "e.g. deepseek-chat, deepseek-reasoner"
-                      : aiSettings.provider === "openai"
-                      ? "e.g. gpt-4o, gpt-4o-mini, o3-mini"
-                      : "e.g. llama-3.3-70b, mistral, custom-model"
-                  }
+                  placeholder="Type any model name (e.g. claude-3-5-sonnet, gpt-4o, deepseek-chat)..."
                   style={{
                     width: "100%",
                     height: 42,
@@ -10391,24 +10507,26 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                   }}
                 />
                 <datalist id="scheduler-model-suggestions">
+                  <option value="Claude 3.5 Sonnet" />
+                  <option value="claude-3-7-sonnet-20250219" />
                   <option value="deepseek-chat" />
                   <option value="deepseek-reasoner" />
                   <option value="gpt-4o" />
                   <option value="gpt-4o-mini" />
-                  <option value="o1" />
-                  <option value="o3-mini" />
-                  <option value="claude-3-5-sonnet-20241022" />
+                  <option value="xAI Grok-2" />
                   <option value="llama-3.3-70b-versatile" />
-                  <option value="qwen-2.5-72b-instruct" />
-                  <option value="mistral-large-latest" />
+                  <option value="gemini-2.0-flash" />
+                  <option value="qwen/qwen-2.5-72b-instruct" />
                 </datalist>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-                  {(aiSettings.provider === "deepseek"
-                    ? ["deepseek-chat", "deepseek-reasoner"]
-                    : aiSettings.provider === "openai"
-                    ? ["gpt-4o", "gpt-4o-mini", "o3-mini"]
-                    : ["deepseek-chat", "gpt-4o", "llama-3.3-70b", "mistral"]
-                  ).map((m) => (
+                  {[
+                    "Claude 3.5 Sonnet",
+                    "deepseek-chat",
+                    "gpt-4o",
+                    "xAI Grok-2",
+                    "llama-3.3-70b-versatile",
+                    "gemini-2.0-flash"
+                  ].map((m) => (
                     <button
                       key={m}
                       type="button"
@@ -10432,15 +10550,15 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
             </div>
 
             {/* Custom Base URL if applicable */}
-            {aiSettings.provider === "custom" && (
+            {(aiSettings.provider === "custom" || aiSettings.provider === "ollama") && (
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>
-                  API Base URL
+                  API Base URL / Endpoint
                 </label>
                 <input
                   value={aiSettings.baseUrl}
                   onChange={(e) => updateSetting("baseUrl", e.target.value)}
-                  placeholder="e.g. http://localhost:11434/v1"
+                  placeholder="e.g. http://localhost:11434/v1 or https://api.your-provider.com/v1"
                   style={{
                     width: "100%",
                     height: 40,
@@ -10460,10 +10578,10 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
-                  API Secret Key
+                  API Secret Key ({aiSettings.provider.toUpperCase()})
                 </label>
                 <span style={{ fontSize: 11, color: C.teal, fontWeight: 600 }}>
-                  ⚡ Changes are saved automatically as you type
+                  ⚡ Saved automatically across the entire software
                 </span>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
@@ -10472,7 +10590,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                     type={showKey ? "text" : "password"}
                     value={aiSettings.apiKey}
                     onChange={(e) => updateSetting("apiKey", e.target.value)}
-                    placeholder="Paste your API key here (e.g. sk-...) — auto-persists immediately"
+                    placeholder={`Paste your ${aiSettings.provider} API key here (sk-...)`}
                     style={{
                       width: "100%",
                       height: 42,
@@ -10565,7 +10683,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                   Active AI Capabilities in this Plugin ({aiSettings.model})
                 </div>
                 <div style={{ fontSize: 12, color: C.slate }}>
-                  All 5 dedicated areas where your AI key powers social media growth
+                  Powers conversation, copywriting, visual rendering, and campaign planning
                 </div>
               </div>
             </div>
@@ -10607,16 +10725,54 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                 <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <Sparkles size={16} color={C.teal} />
                 </div>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
-                  AI Image Generation Engine & Directives
+                <div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
+                    AI Image Generation Engine & Directives
+                  </div>
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                    Zero forced models — pick your engine, aspect ratio, and art direction
+                  </div>
                 </div>
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: C.tealSoft, color: C.teal }}>
                 Flux / SDXL Engine Active
               </span>
             </div>
-            <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 18 }}>
-              Each scheduled topic automatically receives a high-converting graphic tailored to your chosen art style and aspect ratio.
+
+            {/* Image Engine Selection */}
+            <div style={{ marginBottom: 18, marginTop: 12 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.textInk, marginBottom: 8 }}>
+                Image Rendering Engine
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                {[
+                  { id: "auto_flux", label: "Flux Schnell (Built-in)", desc: "Zero API key required · 4K vector & photorealism" },
+                  { id: "sdxl", label: "Stability SDXL", desc: "Deep atmospheric lighting and complex scenes" },
+                  { id: "custom_engine", label: "Custom Image API", desc: "Connect your own local or remote image endpoint" },
+                ].map((eng) => {
+                  const active = aiSettings.imageEngine === eng.id;
+                  return (
+                    <div
+                      key={eng.id}
+                      onClick={() => updateSetting("imageEngine", eng.id)}
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: 10,
+                        border: `2px solid ${active ? C.teal : C.border}`,
+                        background: active ? C.tealSoft : HUB_PAPER,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: active ? C.teal : C.ink }}>
+                        {eng.label}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>
+                        {eng.desc}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Visual Style Selection */}
@@ -10665,9 +10821,9 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                 </label>
                 <div style={{ display: "flex", gap: 8 }}>
                   {[
-                    { id: "16:9", label: "16:9 Landscape (LinkedIn & X)", icon: Maximize2 },
-                    { id: "1:1", label: "1:1 Square (Instagram & FB)", icon: LayoutGrid },
-                    { id: "9:16", label: "9:16 Vertical (Stories)", icon: Smartphone },
+                    { id: "16:9", label: "16:9 Landscape", icon: Maximize2 },
+                    { id: "1:1", label: "1:1 Square", icon: LayoutGrid },
+                    { id: "9:16", label: "9:16 Vertical", icon: Smartphone },
                   ].map((ar) => {
                     const active = aiSettings.imageAspectRatio === ar.id;
                     const Icon = ar.icon;
@@ -16021,8 +16177,7 @@ export default function App() {
         voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(parsed.voiceLayers || {}) },
         customConnections: Array.isArray(parsed.customConnections) ? parsed.customConnections : [],
         subscription: { ...INITIAL_COMMON_AI_CONFIG.subscription, ...(parsed.subscription || {}) },
-        customConnections: [],
-  channelDirectives: { ...INITIAL_COMMON_AI_CONFIG.channelDirectives, ...(parsed.channelDirectives || {}) },
+        channelDirectives: { ...INITIAL_COMMON_AI_CONFIG.channelDirectives, ...(parsed.channelDirectives || {}) },
         futurePlugins: Array.isArray(parsed.futurePlugins) ? parsed.futurePlugins : INITIAL_COMMON_AI_CONFIG.futurePlugins,
       };
     } catch (_) {

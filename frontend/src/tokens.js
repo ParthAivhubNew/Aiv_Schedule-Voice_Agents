@@ -98,11 +98,28 @@ export function timezoneLabel(tzId) {
 }
 
 export function getActiveAiCredentials(commonAi, pluginType = "leadgen", featureKey = "") {
-  if (!commonAi) return { apiKey: "", provider: "deepseek", model: "DeepSeek-V3", baseUrl: "" };
+  if (!commonAi) {
+    // Try recovering from local storage for scheduler
+    if (pluginType === "scheduler") {
+      try {
+        const s = localStorage.getItem("aivhub_scheduler_ai");
+        if (s) {
+          const parsed = JSON.parse(s);
+          return {
+            apiKey: parsed.apiKey || "",
+            provider: parsed.provider || "deepseek",
+            model: parsed.model || "deepseek-chat",
+            baseUrl: parsed.baseUrl || ""
+          };
+        }
+      } catch (_) {}
+    }
+    return { apiKey: "", provider: "deepseek", model: "DeepSeek-V3", baseUrl: "" };
+  }
 
   let modelName = "";
   if (pluginType === "leadgen") modelName = commonAi.leadgenLayers?.[featureKey || "researchLlm"] || "DeepSeek-V3";
-  else if (pluginType === "scheduler") modelName = commonAi.schedulerLayers?.[featureKey || "postWriter"] || "Claude 3.5 Sonnet";
+  else if (pluginType === "scheduler") modelName = commonAi.schedulerLayers?.[featureKey || "postWriter"] || commonAi.schedulerAi?.model || "Claude 3.5 Sonnet";
   else if (pluginType === "email") modelName = commonAi.emailLayers?.[featureKey || "copywriterLlm"] || "Claude 3.5 Sonnet";
   else if (pluginType === "voice") modelName = commonAi.voiceLayers?.[featureKey || "llm"] || "xAI Grok-2";
 
@@ -131,10 +148,32 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
   else if (m.includes("ollama")) provId = "ollama";
 
   const provObj = (commonAi.providers || []).find((p) => p.id === provId);
+  let resolvedKey = provObj?.apiKey || "";
+
+  // Scheduler fallback
+  if (!resolvedKey && pluginType === "scheduler") {
+    if (commonAi.schedulerAi?.apiKey) {
+      resolvedKey = commonAi.schedulerAi.apiKey;
+      if (commonAi.schedulerAi.provider) provId = commonAi.schedulerAi.provider;
+    } else {
+      try {
+        const s = localStorage.getItem("aivhub_scheduler_ai");
+        if (s) {
+          const parsed = JSON.parse(s);
+          if (parsed.apiKey) {
+            resolvedKey = parsed.apiKey;
+            if (parsed.provider) provId = parsed.provider;
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
   return {
-    apiKey: provObj?.apiKey || "",
+    apiKey: resolvedKey,
     provider: provObj?.name || provId,
     model: modelName,
-    baseUrl: provObj?.baseUrl || ""
+    baseUrl: provObj?.baseUrl || (commonAi.schedulerAi?.baseUrl) || ""
   };
 }
+
