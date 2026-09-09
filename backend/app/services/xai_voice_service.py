@@ -379,7 +379,8 @@ async def join_xai_call_session(
     caller_number: str = "+12025550199",
     prospect_id: Optional[str] = None,
     prospect_name: Optional[str] = None,
-    mission_name: Optional[str] = None
+    mission_name: Optional[str] = None,
+    carrier_sid: Optional[str] = None
 ):
     """
     Connects an outbound WebSocket session to xAI Realtime Voice API
@@ -387,6 +388,7 @@ async def join_xai_call_session(
     """
     start_ts = time.time()
     agent_id = getattr(settings, "XAI_AGENT_ID", None) or "agent_QDoRHfWcKMybf197"
+    # CRITICAL: ws_url uses the xAI SIP call_id to bridge audio directly into the phone call
     ws_url = f"{settings.XAI_REALTIME_WS_URL}?agent_id={agent_id}&call_id={call_id}"
     api_key = settings.XAI_API_KEY
     if not api_key:
@@ -407,10 +409,11 @@ async def join_xai_call_session(
     await log_process_event(
         subsystem="telephony",
         process_name="xai_ws_connecting",
-        message=f"Connecting WebSocket to xAI Realtime API for call_id={call_id} from caller={caller_number}",
+        message=f"Connecting WebSocket to xAI Realtime API for sip_call_id={call_id} from caller={caller_number}",
         level="INFO",
         details={
             "callId": call_id,
+            "carrierSid": carrier_sid,
             "caller": caller_number,
             "isLiveKey": bool(api_key and api_key.startswith("xai-")),
             "wsUrl": ws_url.replace(api_key, "***") if api_key else ws_url,
@@ -419,17 +422,33 @@ async def join_xai_call_session(
     )
     logger.info(
         f"[XAI-WS] Attempting WebSocket connection: "
-        f"call_id={call_id}, agent_id={agent_id}, "
+        f"sip_call_id={call_id}, carrier_sid={carrier_sid}, agent_id={agent_id}, "
         f"key_prefix={api_key[:12] + '...' if api_key else 'NONE'}"
     )
 
-    # 1. Update or create LiveCall record in DB
+    # 1. Link to existing LiveCall record (outbound) or create new (inbound)
+    local_call_id = call_id
     async with AsyncSessionLocal() as db:
-        call_res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
-        call_obj = call_res.scalars().first()
+        call_obj = None
+        if carrier_sid:
+            c_res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == carrier_sid))
+            call_obj = c_res.scalars().first()
         if not call_obj:
+            call_res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
+            call_obj = call_res.scalars().first()
+
+        if call_obj:
+            local_call_id = call_obj.id
+            call_obj.state = "pitching"
+            call_obj.transcript = (call_obj.transcript or []) + [
+                f"System: xAI Realtime Voice Agent connected (SIP Call: {call_id[:8]}...)"
+            ]
+            await db.commit()
+            logger.info(f"[XAI-WS] Linked xAI session to existing LiveCall {local_call_id} (carrier: {carrier_sid})")
+        else:
             call_obj = LiveCall(
                 id=call_id,
+                carrier_sid=carrier_sid,
                 mission_id=mission_name or "Inbound Mission",
                 prospect_id=prospect_id,
                 prospect=prospect_name or f"Caller ({caller_number[-4:] if len(caller_number) >= 4 else caller_number})",
@@ -437,13 +456,13 @@ async def join_xai_call_session(
                 state="pitching",
                 channel="voice",
                 duration="00:01",
-                transcript=[]
+                transcript=[f"System: Inbound xAI call connected ({call_id[:8]}...)"]
             )
             db.add(call_obj)
             await db.commit()
 
     await call_hub.broadcast("call_started", {
-        "callId": call_id,
+        "callId": local_call_id,
         "caller": caller_number,
         "prospect": prospect_name or caller_number,
         "state": "pitching"
@@ -528,7 +547,7 @@ async def join_xai_call_session(
                 if event_type == "response.audio_transcript.delta":
                     delta_text = event.get("delta", "")
                     await call_hub.broadcast("call_transcript_delta", {
-                        "callId": call_id,
+                        "callId": local_call_id,
                         "who": "ai",
                         "delta": delta_text
                     })
@@ -538,7 +557,7 @@ async def join_xai_call_session(
                     if final_text:
                         line = f"AI: {final_text}"
                         transcript_history.append(line)
-                        await _update_call_transcript(call_id, line)
+                        await _update_call_transcript(local_call_id, line)
 
                 # Handle Caller Transcription (User speaking)
                 elif event_type == "conversation.item.input_audio_transcription.completed":
@@ -546,9 +565,9 @@ async def join_xai_call_session(
                     if caller_text:
                         line = f"Prospect: {caller_text}"
                         transcript_history.append(line)
-                        await _update_call_transcript(call_id, line)
+                        await _update_call_transcript(local_call_id, line)
                         await call_hub.broadcast("call_transcript_delta", {
-                            "callId": call_id,
+                            "callId": local_call_id,
                             "who": "them",
                             "delta": caller_text
                         })
@@ -567,7 +586,7 @@ async def join_xai_call_session(
                     tool_result = await execute_xai_tool(
                         name=tool_name,
                         args=parsed_args,
-                        call_id=call_id,
+                        call_id=local_call_id,
                         prospect_id=prospect_id
                     )
 
@@ -594,7 +613,7 @@ async def join_xai_call_session(
             process_name="xai_ws_closed",
             message=f"xAI WebSocket closed for call {call_id}: code={cc.code}, reason={cc.reason}",
             level="WARNING",
-            details={"callId": call_id, "code": cc.code, "reason": cc.reason}
+            details={"callId": local_call_id, "sipCallId": call_id, "code": cc.code, "reason": cc.reason}
         )
     except Exception as exc:
         logger.error(f"[XAI-WS] CRASH in WebSocket session for call {call_id}: {exc}", exc_info=True)
@@ -603,12 +622,12 @@ async def join_xai_call_session(
             process_name="xai_ws_error",
             message=f"xAI WebSocket session CRASHED for call {call_id}: {str(exc)}",
             level="ERROR",
-            details={"callId": call_id, "error": str(exc)}
+            details={"callId": local_call_id, "sipCallId": call_id, "error": str(exc)}
         )
     finally:
         duration_sec = int(time.time() - start_ts)
         duration_str = f"{duration_sec // 60:02d}:{duration_sec % 60:02d}"
-        await _finalize_call(call_id, duration_str, transcript_history)
+        await _finalize_call(local_call_id, duration_str, transcript_history)
 
 
 # ----------------------------------------------------------------------

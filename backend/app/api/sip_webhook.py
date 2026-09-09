@@ -112,34 +112,64 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
         logger.error(f"Malformed JSON in webhook body: {err}")
         return JSONResponse(status_code=400, content={"error": "Malformed JSON payload"})
 
-    # xAI provides call_id or session_id along with caller ('from') and callee ('to')
-    call_id = data.get("call_id") or data.get("id") or f"call_{int(asyncio.get_event_loop().time())}"
-    event_type = data.get("event") or data.get("type", "call.incoming")
-    caller = data.get("from") or data.get("caller") or "+12025550199"
-    callee = data.get("to") or data.get("callee") or settings.TELNYX_PHONE_NUMBER or "+18005550100"
+    # xAI provides event payload where inner data dictionary holds the actual SIP call_id:
+    # {"object":"event","id":"evt_...","type":"realtime.call.incoming","data":{"call_id":"<uuid>","sip_headers":[...]}}
+    inner_data = data.get("data") if isinstance(data.get("data"), dict) else {}
+
+    # CRITICAL: The xAI Realtime WebSocket requires the SIP call_id (inside data.data.call_id)!
+    # data.id is the event ID (evt_...) - passing evt_... will fail to attach to the SIP audio stream!
+    call_id = inner_data.get("call_id") or data.get("call_id")
+    if not call_id:
+        # Fallback only if no call_id found in data or root
+        call_id = data.get("id") or f"call_{int(asyncio.get_event_loop().time())}"
+
+    event_type = data.get("type") or data.get("event") or inner_data.get("event") or "realtime.call.incoming"
+
+    # Extract caller, callee, and Twilio CallSid from sip_headers
+    caller = data.get("from") or data.get("caller")
+    callee = data.get("to") or data.get("callee")
+    twilio_call_sid = None
+
+    sip_headers = inner_data.get("sip_headers") or []
+    for h in sip_headers:
+        if isinstance(h, dict):
+            name = (h.get("name") or "").strip().lower()
+            val = (h.get("value") or "").strip()
+            if name == "from" and not caller:
+                caller = val
+            elif name == "to" and not callee:
+                callee = val
+            elif name == "x-twilio-callsid":
+                twilio_call_sid = val
+
+    if not caller:
+        caller = "+12025550199"
+    if not callee:
+        callee = settings.TELNYX_PHONE_NUMBER or "+18005550100"
 
     logger.info(
-        f"[SIP-WEBHOOK] Parsed event: type={event_type}, call_id={call_id}, "
-        f"caller={caller}, callee={callee}"
+        f"[SIP-WEBHOOK] Parsed event: type={event_type}, sip_call_id={call_id}, "
+        f"caller={caller}, callee={callee}, twilio_sid={twilio_call_sid}"
     )
 
     await log_process_event(
         subsystem="telephony",
         process_name="sip_webhook_received",
-        message=f"Verified xAI SIP webhook: call_id={call_id}, event={event_type}, caller={caller}.",
+        message=f"Verified xAI SIP webhook: sip_call_id={call_id}, event={event_type}, caller={caller}, twilio_sid={twilio_call_sid}.",
         level="SUCCESS",
-        details={"callId": call_id, "event": event_type, "caller": caller, "callee": callee, "fullPayload": data}
+        details={"callId": call_id, "event": event_type, "caller": caller, "callee": callee, "twilioSid": twilio_call_sid, "fullPayload": data}
     )
 
     # 3. Handle Call Events
     if event_type in ["call.incoming", "call.initiated", "session.start", "call.answered",
                        "realtime.call.incoming", "realtime.session.start"]:
-        logger.info(f"[SIP-WEBHOOK] Launching join_xai_call_session for call_id={call_id}...")
+        logger.info(f"[SIP-WEBHOOK] Launching join_xai_call_session for sip_call_id={call_id}, twilio_sid={twilio_call_sid}...")
         # Launch WebSocket session in background (fire-and-forget for instant <15ms 200 response)
         asyncio.create_task(
             join_xai_call_session(
                 call_id=call_id,
                 caller_number=caller,
+                carrier_sid=twilio_call_sid,
                 mission_name="Inbound Voice Call"
             )
         )

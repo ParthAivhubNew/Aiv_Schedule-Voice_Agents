@@ -38,12 +38,24 @@ async def lifespan(app: FastAPI):
             except Exception as ext_err:
                 logger.warning(f"Could not enable pgvector extension directly: {ext_err}")
         await conn.run_sync(Base.metadata.create_all)
-        # Safe migration for new columns on existing tables
+        # Safe migration for new columns on existing tables (PostgreSQL & SQLite)
         try:
             from sqlalchemy import text
-            await conn.execute(text("ALTER TABLE live_calls ADD COLUMN carrier_sid VARCHAR;"))
+            await conn.execute(text("ALTER TABLE live_calls ADD COLUMN IF NOT EXISTS carrier_sid VARCHAR;"))
         except Exception:
-            pass
+            try:
+                await conn.execute(text("ALTER TABLE live_calls ADD COLUMN carrier_sid VARCHAR;"))
+            except Exception:
+                pass
+
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS chunk_count INTEGER DEFAULT 0;"))
+        except Exception:
+            try:
+                await conn.execute(text("ALTER TABLE knowledge_sources ADD COLUMN chunk_count INTEGER DEFAULT 0;"))
+            except Exception:
+                pass
     await seed_database()
     try:
         from app.services.process_logger import log_process_event

@@ -112,6 +112,7 @@ import {
 
 
 import { api } from "./api/apiClient";
+import { WebSocketClient } from "./api/wsClient";
 import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 
@@ -16000,9 +16001,37 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
   const refreshLiveCalls = async () => {
     try {
       const lc = await api.getLiveCalls();
-      if (lc && Array.isArray(lc) && lc.length) setLiveCalls(lc);
+      if (Array.isArray(lc)) setLiveCalls(lc);
     } catch (_) {}
   };
+
+  // Real-time WebSocket connection to Call Hub + auto polling fallback
+  useEffect(() => {
+    let ws = null;
+    try {
+      ws = new WebSocketClient(
+        null,
+        (msg) => {
+          if (msg && msg.type) {
+            refreshLiveCalls();
+          }
+        },
+        () => console.log("[LiveCalls] WebSocket linked to CallHub"),
+        () => console.log("[LiveCalls] WebSocket disconnected")
+      );
+    } catch (e) {
+      console.warn("WebSocketClient init:", e);
+    }
+
+    const interval = setInterval(() => {
+      refreshLiveCalls();
+    }, 2500);
+
+    return () => {
+      if (ws) ws.close();
+      clearInterval(interval);
+    };
+  }, []);
 
   // Load backend data on mount
   useEffect(() => {
