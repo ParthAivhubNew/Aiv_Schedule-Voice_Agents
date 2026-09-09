@@ -6759,9 +6759,20 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         )}
 
         {provisionMsg && (
-          <div style={{ padding: "14px 18px", borderRadius: 8, background: C.greenSoft, border: `1px solid #A7F3D0`, color: C.green, display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
+          <div style={{
+            padding: "14px 18px",
+            borderRadius: 8,
+            background: (provisionMsg.success && !provisionMsg.registrationError) ? C.greenSoft : C.redSoft,
+            border: `1px solid ${(provisionMsg.success && !provisionMsg.registrationError) ? "#A7F3D0" : "#FCA5A5"}`,
+            color: (provisionMsg.success && !provisionMsg.registrationError) ? C.green : C.red,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            fontSize: 13
+          }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
-              <CheckCircle2 size={16} /> {provisionMsg.message}
+              {(provisionMsg.success && !provisionMsg.registrationError) ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+              {provisionMsg.message}
             </div>
             {provisionMsg.signingSecret && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", padding: "10px 14px", borderRadius: 8, border: "1px solid #A7F3D0", flexWrap: "wrap", gap: 10 }}>

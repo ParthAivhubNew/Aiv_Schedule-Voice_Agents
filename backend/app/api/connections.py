@@ -10,6 +10,7 @@ from app.config import settings
 from app.models.models import Connection, Mission, CallLog, Meeting, Prospect, CompanyProfile
 from app.schemas.schemas import ConnectionSchema
 from app.services.key_validator import validate_api_key
+from app.services.process_logger import log_process_event
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/connections", tags=["Connections & Providers"])
