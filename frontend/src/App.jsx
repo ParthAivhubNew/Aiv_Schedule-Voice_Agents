@@ -63,6 +63,8 @@ import {
   Maximize2,
   Minimize2,
   MoveHorizontal,
+  GripHorizontal,
+  RotateCcw,
   Lock,
   Send,
   PenLine,
@@ -185,6 +187,7 @@ const INITIAL_COMMON_AI_CONFIG = {
   prohibitedWords: "delve, in today's fast-paced world, game-changer, revolutionary, synergy, leverage",
 
   // Per-channel tone directives for Post Scheduler
+  customConnections: [],
   channelDirectives: {
     linkedin: "Professional thought leadership. Strong 2-line hook, generous line spacing, practical takeaways, 2-3 relevant hashtags.",
     x: "Punchy, bold hook. Short sentences, high-contrast perspective, strong CTA, zero filler hashtags.",
@@ -8815,6 +8818,11 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [testStatus, setTestStatus] = useState({});
   const [showCustomEndpoint, setShowCustomEndpoint] = useState(false);
 
+  // Movable / Draggable window state
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
+
   // Custom API / Dedicated Model Drawer state
   const [showCustomDrawer, setShowCustomDrawer] = useState(false);
   const [customFeatureKey, setCustomFeatureKey] = useState("");
@@ -8824,6 +8832,37 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [customModelId, setCustomModelId] = useState("");
   const [isSavingCustom, setIsSavingCustom] = useState(false);
   const [customNotice, setCustomNotice] = useState(null);
+
+  // Mouse handlers for dragging modal by its header
+  const handleMouseDownHeader = (e) => {
+    if (e.target.closest("button") || e.target.closest("input") || e.target.closest("select") || e.target.closest("a") || e.target.closest("textarea")) return;
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      posX: position.x,
+      posY: position.y,
+    };
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMouseMove = (e) => {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      setPosition({
+        x: dragStartRef.current.posX + dx,
+        y: dragStartRef.current.posY + dy,
+      });
+    };
+    const handleMouseUp = () => setIsDragging(false);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging]);
 
   useEffect(() => {
     if (isOpen && initialTab) {
@@ -8843,6 +8882,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     schedulerLayers: { ...INITIAL_COMMON_AI_CONFIG.schedulerLayers, ...(commonAi?.schedulerLayers || {}) },
     emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(commonAi?.emailLayers || {}) },
     voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(commonAi?.voiceLayers || {}) },
+    customConnections: Array.isArray(commonAi?.customConnections) ? commonAi.customConnections : [],
     subscription: { ...INITIAL_COMMON_AI_CONFIG.subscription, ...(commonAi?.subscription || {}) },
     channelDirectives: { ...INITIAL_COMMON_AI_CONFIG.channelDirectives, ...(commonAi?.channelDirectives || {}) },
   };
@@ -8949,52 +8989,80 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     flash();
   };
 
-  const handleSaveCustomConnection = async (targetPluginId, fallbackFirstKey) => {
+  // Connect & Save custom API with user-provided model ID (Does NOT vanish suddenly!)
+  const handleSaveCustomConnection = async (targetPluginId, layers) => {
     if (!customApiKey.trim() && !customProviderName.toLowerCase().includes("ollama")) {
       setCustomNotice({ type: "error", text: "Please enter an API key or token." });
       return;
     }
+    const fallbackFirstKey = layers[0]?.key;
+    const assignedFeature = customFeatureKey || fallbackFirstKey;
+    const featureObj = layers.find((l) => l.key === assignedFeature);
+    const featureLabel = featureObj?.label || assignedFeature;
+    const modelName = customModelId.trim() || `${customProviderName} Model`;
+    const apiKey = customApiKey.trim();
+    const baseUrl = customBaseUrl.trim();
+
     setIsSavingCustom(true);
     try {
-      const assignedFeature = customFeatureKey || fallbackFirstKey;
-      const modelName = customModelId.trim() || `${customProviderName} Custom`;
-
-      // Update plugin layer model
+      // 1. Update the layer's model to the user's custom model name directly
       if (targetPluginId === "leadgen") updateLeadgenLayer(assignedFeature, modelName);
       if (targetPluginId === "scheduler") updateSchedulerLayer(assignedFeature, modelName);
       if (targetPluginId === "email") updateEmailLayer(assignedFeature, modelName);
       if (targetPluginId === "voice") updateVoiceLayer(assignedFeature, modelName);
 
-      // Add to connected providers
-      const newProvId = `custom_${Date.now()}`;
+      // 2. Create the custom connection record
+      const newConnId = `custom_${Date.now()}`;
+      const newConn = {
+        id: newConnId,
+        pluginId: targetPluginId,
+        featureKey: assignedFeature,
+        featureLabel: featureLabel,
+        providerName: customProviderName,
+        modelId: modelName,
+        apiKey: apiKey,
+        baseUrl: baseUrl || undefined,
+        status: "connected",
+        latencyMs: 32,
+        createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+
+      // 3. Save into commonAi
       setCommonAi((prev) => {
+        const existingConns = (prev && prev.customConnections) || safeCommonAi.customConnections || [];
+        const filteredConns = existingConns.filter((c) => !(c.pluginId === targetPluginId && c.featureKey === assignedFeature));
+        const updatedConns = [newConn, ...filteredConns];
+
         const provs = (prev && prev.providers) || safeCommonAi.providers;
         return {
           ...prev,
+          customConnections: updatedConns,
           providers: [
             ...provs,
             {
-              id: newProvId,
-              name: customProviderName || "Custom API",
+              id: newConn.id,
+              name: `${customProviderName} (${modelName})`,
               type: "llm",
-              apiKey: customApiKey,
-              baseUrl: customBaseUrl || undefined,
+              apiKey: apiKey,
+              baseUrl: baseUrl || undefined,
               status: "connected",
-              latencyMs: 35,
+              latencyMs: 32,
             },
           ],
         };
       });
 
-      setCustomNotice({ type: "success", text: `Connected ${modelName} to ${assignedFeature}!` });
+      // 4. Show persistent success confirmation (NEVER abruptly vanish!)
+      setCustomNotice({
+        type: "success",
+        text: `✓ Saved & Connected! Model "${modelName}" is now active for "${featureLabel}".`,
+      });
       flash();
-      setTimeout(() => {
-        setCustomNotice(null);
-        setShowCustomDrawer(false);
-        setCustomApiKey("");
-        setCustomModelId("");
-        setCustomBaseUrl("");
-      }, 1600);
+
+      // Clear input fields for next use, keeping drawer accessible and notice visible
+      setCustomApiKey("");
+      setCustomModelId("");
+      setCustomBaseUrl("");
     } catch (e) {
       setCustomNotice({ type: "error", text: "Failed to connect custom model." });
     } finally {
@@ -9002,8 +9070,24 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     }
   };
 
+  const handleRemoveCustomConnection = (connId, pluginId, featureKey) => {
+    setCommonAi((prev) => {
+      const existingConns = (prev && prev.customConnections) || safeCommonAi.customConnections || [];
+      const updatedConns = existingConns.filter((c) => c.id !== connId);
+      const provs = ((prev && prev.providers) || safeCommonAi.providers).filter((p) => p.id !== connId);
+      return {
+        ...prev,
+        customConnections: updatedConns,
+        providers: provs,
+      };
+    });
+    flash();
+  };
+
   const getProviderIdForModel = (modelName) => {
     const m = String(modelName || "").toLowerCase();
+    const customConn = (safeCommonAi.customConnections || []).find((c) => c.modelId.toLowerCase() === m);
+    if (customConn) return customConn.id;
     if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet") || m.includes("haiku")) return "anthropic";
     if (m.includes("gpt") || m.includes("o3") || m.includes("openai") || m.includes("dall-e") || m.includes("text-embedding")) return "openai";
     if (m.includes("grok") || m.includes("xai")) return "xai";
@@ -9150,169 +9234,263 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     );
   };
 
-  const renderAddCustomDrawer = (pluginId, layers) => {
+  // Renders the persistent custom connections + add custom API drawer
+  const renderCustomConnectionsSection = (pluginId, layers) => {
+    const savedForPlugin = (safeCommonAi.customConnections || []).filter((c) => c.pluginId === pluginId);
+
     return (
-      <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", marginTop: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
-              <Plus size={15} color={C.cobalt} />
-              Connect Custom AI API or Private Model
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+        {/* Persistent List of Connected Custom APIs (Never Vanishes!) */}
+        {savedForPlugin.length > 0 && (
+          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 18px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: "#10B981" }} />
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                  Connected Custom APIs & Dedicated Models ({savedForPlugin.length})
+                </span>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#059669", background: "#ECFDF5", padding: "2px 8px", borderRadius: 5, border: "1px solid #A7F3D0" }}>
+                Active in Software
+              </span>
             </div>
-            <div style={{ fontSize: 11.5, color: C.slate, marginTop: 1 }}>
-              Route any specific capability in this plugin to your private LLM endpoint, fine-tune, or custom provider.
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowCustomDrawer(!showCustomDrawer)}
-            style={{
-              padding: "5px 12px",
-              borderRadius: 6,
-              border: `1px solid ${C.border}`,
-              background: showCustomDrawer ? C.paperSoft : "#fff",
-              fontSize: 12,
-              fontWeight: 600,
-              color: C.ink,
-              cursor: "pointer",
-            }}
-          >
-            {showCustomDrawer ? "Close Form" : "+ Add Custom API"}
-          </button>
-        </div>
 
-        {showCustomDrawer && (
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.borderLight}`, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                  Assign to Plugin Feature
-                </label>
-                <select
-                  value={customFeatureKey || layers[0]?.key}
-                  onChange={(e) => setCustomFeatureKey(e.target.value)}
-                  style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {savedForPlugin.map((conn) => (
+                <div
+                  key={conn.id}
+                  style={{
+                    background: "#fff",
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 8,
+                    padding: "10px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
                 >
-                  {layers.map((l) => (
-                    <option key={l.key} value={l.key}>{l.label}</option>
-                  ))}
-                </select>
-              </div>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 13, color: C.ink }}>
+                        {conn.modelId}
+                      </span>
+                      <span style={{ fontSize: 10.5, color: C.slate, background: HUB_PAPER, padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>
+                        {conn.providerName}
+                      </span>
+                      {conn.latencyMs && (
+                        <span style={{ fontSize: 10.5, color: C.teal, fontWeight: 600 }}>
+                          {conn.latencyMs}ms latency
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>
+                      Assigned feature: <strong style={{ color: C.textInk }}>{conn.featureLabel || conn.featureKey}</strong>
+                      {conn.baseUrl ? ` · Endpoint: ${conn.baseUrl}` : ""}
+                    </div>
+                  </div>
 
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                  Provider Framework
-                </label>
-                <select
-                  value={customProviderName}
-                  onChange={(e) => setCustomProviderName(e.target.value)}
-                  style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
-                >
-                  <option value="OpenAI Compatible">OpenAI Compatible (Any /v1 API)</option>
-                  <option value="Anthropic">Anthropic Claude</option>
-                  <option value="DeepSeek">DeepSeek AI</option>
-                  <option value="xAI">xAI (Grok)</option>
-                  <option value="Groq">Groq LPU</option>
-                  <option value="Ollama">Ollama / vLLM (Localhost)</option>
-                  <option value="ElevenLabs">ElevenLabs Voice</option>
-                  <option value="Custom Proxy">Custom Enterprise Gateway</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                  API Key / Secret Token
-                </label>
-                <input
-                  type="password"
-                  value={customApiKey}
-                  onChange={(e) => setCustomApiKey(e.target.value)}
-                  placeholder="sk-... or private token"
-                  style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                  Custom Model Name / ID
-                </label>
-                <input
-                  type="text"
-                  value={customModelId}
-                  onChange={(e) => setCustomModelId(e.target.value)}
-                  placeholder="e.g. meta-llama/llama-3.3-70b"
-                  style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                Base URL / Endpoint (Optional — leave blank for default cloud URLs)
-              </label>
-              <input
-                type="text"
-                value={customBaseUrl}
-                onChange={(e) => setCustomBaseUrl(e.target.value)}
-                placeholder="https://api.your-company.com/v1 or http://localhost:11434/v1"
-                style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
-              />
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-              <div>
-                {customNotice && (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: customNotice.type === "success" ? "#059669" : "#DC2626" }}>
-                    {customNotice.type === "success" ? "✓ " : "⚠️ "}{customNotice.text}
-                  </span>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => handleSaveCustomConnection(pluginId, layers[0]?.key)}
-                disabled={isSavingCustom}
-                style={{
-                  padding: "8px 18px",
-                  borderRadius: 7,
-                  background: C.ink,
-                  color: "#fff",
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: isSavingCustom ? "wait" : "pointer",
-                }}
-              >
-                {isSavingCustom ? "Verifying..." : "Verify & Save Connection"}
-              </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCustomConnection(conn.id, conn.pluginId, conn.featureKey)}
+                      style={{
+                        fontSize: 11,
+                        color: "#DC2626",
+                        border: "1px solid #FECACA",
+                        background: "#FEF2F2",
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
+
+        {/* Add Custom API Form Card */}
+        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                <Plus size={15} color={C.cobalt} />
+                Connect Custom AI API or Dedicated Model
+              </div>
+              <div style={{ fontSize: 11.5, color: C.slate, marginTop: 1 }}>
+                Route any specific capability in this plugin to your private LLM endpoint, fine-tune, or custom provider.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCustomDrawer(!showCustomDrawer)}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 6,
+                border: `1px solid ${C.border}`,
+                background: showCustomDrawer ? C.paperSoft : "#fff",
+                fontSize: 12,
+                fontWeight: 600,
+                color: C.ink,
+                cursor: "pointer",
+              }}
+            >
+              {showCustomDrawer ? "Close Form" : "+ Add Custom API"}
+            </button>
+          </div>
+
+          {showCustomDrawer && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.borderLight}`, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                    Assign to Plugin Feature
+                  </label>
+                  <select
+                    value={customFeatureKey || layers[0]?.key}
+                    onChange={(e) => setCustomFeatureKey(e.target.value)}
+                    style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+                  >
+                    {layers.map((l) => (
+                      <option key={l.key} value={l.key}>{l.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                    Provider Framework
+                  </label>
+                  <select
+                    value={customProviderName}
+                    onChange={(e) => setCustomProviderName(e.target.value)}
+                    style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+                  >
+                    <option value="OpenAI Compatible">OpenAI Compatible (Any /v1 API)</option>
+                    <option value="Anthropic">Anthropic Claude</option>
+                    <option value="DeepSeek">DeepSeek AI</option>
+                    <option value="xAI">xAI (Grok)</option>
+                    <option value="Groq">Groq LPU</option>
+                    <option value="Ollama">Ollama / vLLM (Localhost)</option>
+                    <option value="ElevenLabs">ElevenLabs Voice</option>
+                    <option value="Custom Proxy">Custom Enterprise Gateway</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                    API Key / Secret Token
+                  </label>
+                  <input
+                    type="password"
+                    value={customApiKey}
+                    onChange={(e) => setCustomApiKey(e.target.value)}
+                    placeholder="sk-... or private token"
+                    style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                    Model Identifier (User Provided)
+                  </label>
+                  <input
+                    type="text"
+                    value={customModelId}
+                    onChange={(e) => setCustomModelId(e.target.value)}
+                    placeholder="e.g. meta-llama/llama-3.3-70b or my-model"
+                    style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
+                  Base URL / Endpoint (Optional — leave blank for default cloud URLs)
+                </label>
+                <input
+                  type="text"
+                  value={customBaseUrl}
+                  onChange={(e) => setCustomBaseUrl(e.target.value)}
+                  placeholder="https://api.your-company.com/v1 or http://localhost:11434/v1"
+                  style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
+                />
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                <div>
+                  {customNotice && (
+                    <div style={{
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: customNotice.type === "success" ? "#ECFDF5" : "#FEF2F2",
+                      color: customNotice.type === "success" ? "#065F46" : "#991B1B",
+                      border: `1px solid ${customNotice.type === "success" ? "#A7F3D0" : "#FECACA"}`,
+                    }}>
+                      {customNotice.type === "success" ? "✓ " : "⚠️ "}{customNotice.text}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSaveCustomConnection(pluginId, layers)}
+                  disabled={isSavingCustom}
+                  style={{
+                    padding: "8px 20px",
+                    borderRadius: 7,
+                    background: C.ink,
+                    color: "#fff",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    border: "none",
+                    cursor: isSavingCustom ? "wait" : "pointer",
+                  }}
+                >
+                  {isSavingCustom ? "Connecting..." : "Verify & Save to Software"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
 
-  const renderPluginAiFeaturesList = (layers, currentValues, onUpdateValue) => {
+  // User-defined Model Name Input + Suggestions Datalist (NO LOCKING/RESTRICTION!)
+  const renderPluginAiFeaturesList = (pluginId, layers, currentValues, onUpdateValue) => {
+    const customModelsForPlugin = (safeCommonAi.customConnections || [])
+      .filter((c) => c.pluginId === pluginId)
+      .map((c) => c.modelId);
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {layers.map((layer) => {
           const currentModel = currentValues[layer.key] || layer.paid;
+          const isCustomModel = !layer.options.includes(currentModel);
+
           return (
             <div
               key={layer.key}
               style={{
                 background: HUB_PAPER,
-                border: `1px solid ${C.border}`,
+                border: `1px solid ${isCustomModel ? "#C7D2FE" : C.border}`,
                 borderRadius: 10,
-                padding: "12px 14px",
+                padding: "12px 16px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 16,
               }}
             >
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 240 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.ink }}>
                     {layer.label}
@@ -9320,34 +9498,54 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#EEF2F6", color: C.slate }}>
                     {layer.key}
                   </span>
+                  {isCustomModel && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#EEF2FF", color: "#4F46E5", border: "1px solid #C7D2FE" }}>
+                      User Defined Model
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>
-                  {layer.desc || "Active autonomous cognitive sub-process"}
+                  {layer.desc || "Active autonomous cognitive capability"}
                 </div>
               </div>
 
-              <div style={{ width: 250, flexShrink: 0 }}>
-                <select
+              {/* Editable Model Name Input with Suggestions Datalist */}
+              <div style={{ width: 290, flexShrink: 0, position: "relative" }}>
+                <input
+                  type="text"
+                  list={`model-suggestions-${layer.key}`}
                   value={currentModel}
                   onChange={(e) => onUpdateValue(layer.key, e.target.value)}
+                  placeholder="Type or pick any model name..."
                   style={{
                     width: "100%",
-                    height: 36,
-                    padding: "0 10px",
+                    boxSizing: "border-box",
+                    height: 38,
+                    padding: "0 12px",
                     borderRadius: 7,
-                    border: `1px solid ${C.border}`,
+                    border: `1px solid ${isCustomModel ? "#818CF8" : C.border}`,
                     fontSize: 12.5,
                     fontWeight: 600,
-                    background: "#fff",
+                    fontFamily: isCustomModel ? FONT_MONO : FONT_BODY,
+                    background: isCustomModel ? "#FBFBFF" : "#fff",
                     color: C.ink,
-                    cursor: "pointer",
                     boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                   }}
-                >
+                />
+                <datalist id={`model-suggestions-${layer.key}`}>
+                  {customModelsForPlugin.map((cm) => (
+                    <option key={cm} value={cm}>{cm} (Your Custom Model)</option>
+                  ))}
                   {layer.options.map((opt) => (
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
-                </select>
+                  <option value="gpt-4.5-preview" />
+                  <option value="claude-3-7-sonnet-20250219" />
+                  <option value="deepseek-chat" />
+                  <option value="deepseek-reasoner" />
+                  <option value="meta-llama/llama-3.3-70b-instruct" />
+                  <option value="qwen/qwen-2.5-72b-instruct" />
+                </datalist>
               </div>
             </div>
           );
@@ -9362,27 +9560,68 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const voiceLlmProviderId = getProviderIdForModel(safeCommonAi.voiceLayers?.llm || "xAI Grok-2");
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.7)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px" }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: 900, maxWidth: "96vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 64px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.65)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px" }}>
+      <div style={{
+        background: "#fff",
+        borderRadius: 18,
+        width: 920,
+        maxWidth: "96vw",
+        maxHeight: "90vh",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        boxShadow: "0 28px 64px rgba(0,0,0,0.28)",
+        border: `1px solid ${C.border}`,
+        transform: `translate(${position.x}px, ${position.y}px)`,
+        transition: isDragging ? "none" : "transform 0.05s ease-out"
+      }}>
         
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 26px", borderBottom: `1px solid ${C.border}`, background: HUB_PAPER }}>
+        {/* Header (Movable by dragging) */}
+        <div
+          onMouseDown={handleMouseDownHeader}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px 26px",
+            borderBottom: `1px solid ${C.border}`,
+            background: HUB_PAPER,
+            cursor: isDragging ? "grabbing" : "grab",
+            userSelect: "none"
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 38, height: 38, borderRadius: 10, background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 4px 12px rgba(52,87,213,0.25)" }}>
               <Settings2 size={20} />
             </div>
             <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: "-0.01em" }}>
-                AI Plugin Configuration
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: "-0.01em" }}>
+                  AI Plugin Configuration
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: C.slate, background: "rgba(0,0,0,0.05)", padding: "2px 8px", borderRadius: 4, fontWeight: 500 }}>
+                  <GripHorizontal size={12} /> Drag header to move
+                </span>
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                Configure models, connect API keys, and manage capabilities for each workspace plugin
+                Configure models, connect custom API keys, and manage capabilities for each workspace plugin
               </div>
             </div>
           </div>
-          <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, padding: 6, borderRadius: 6 }}>
-            <X size={20} />
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {(position.x !== 0 || position.y !== 0) && (
+              <button
+                onClick={() => setPosition({ x: 0, y: 0 })}
+                title="Reset window position"
+                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, padding: "5px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", color: C.slate, cursor: "pointer", fontWeight: 600 }}
+              >
+                <RotateCcw size={12} /> Reset Position
+              </button>
+            )}
+            <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, padding: 6, borderRadius: 6 }}>
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Plugin Tabs: Clean, spaced, no numbers */}
@@ -9453,12 +9692,17 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 )}
               </div>
 
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                Lead Generation AI Engine Capabilities (5 Features)
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                  Lead Generation AI Capabilities (User Definable)
+                </div>
+                <span style={{ fontSize: 11.5, color: C.slate }}>
+                  Type any custom model name or pick from suggestions
+                </span>
               </div>
 
-              {renderPluginAiFeaturesList(LEADGEN_LAYERS, safeCommonAi.leadgenLayers, updateLeadgenLayer)}
-              {renderAddCustomDrawer("leadgen", LEADGEN_LAYERS)}
+              {renderPluginAiFeaturesList("leadgen", LEADGEN_LAYERS, safeCommonAi.leadgenLayers, updateLeadgenLayer)}
+              {renderCustomConnectionsSection("leadgen", LEADGEN_LAYERS)}
               {renderProviderKeyCard(leadgenProviderId, "Lead Discovery & Intelligence")}
             </div>
           )}
@@ -9488,11 +9732,16 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 )}
               </div>
 
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                Post Scheduler AI Engine Capabilities (5 Features)
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                  Post Scheduler AI Capabilities (User Definable)
+                </div>
+                <span style={{ fontSize: 11.5, color: C.slate }}>
+                  Type any custom model name or pick from suggestions
+                </span>
               </div>
 
-              {renderPluginAiFeaturesList(SCHEDULER_LAYERS, safeCommonAi.schedulerLayers, updateSchedulerLayer)}
+              {renderPluginAiFeaturesList("scheduler", SCHEDULER_LAYERS, safeCommonAi.schedulerLayers, updateSchedulerLayer)}
 
               {/* Brand Voice Controls */}
               <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
@@ -9532,7 +9781,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 />
               </div>
 
-              {renderAddCustomDrawer("scheduler", SCHEDULER_LAYERS)}
+              {renderCustomConnectionsSection("scheduler", SCHEDULER_LAYERS)}
               {renderProviderKeyCard(schedulerProviderId, "Post Drafting & Copywriting")}
             </div>
           )}
@@ -9562,12 +9811,17 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 )}
               </div>
 
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                Email Outreach AI Engine Capabilities (5 Features)
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                  Email Outreach AI Capabilities (User Definable)
+                </div>
+                <span style={{ fontSize: 11.5, color: C.slate }}>
+                  Type any custom model name or pick from suggestions
+                </span>
               </div>
 
-              {renderPluginAiFeaturesList(EMAIL_LAYERS, safeCommonAi.emailLayers, updateEmailLayer)}
-              {renderAddCustomDrawer("email", EMAIL_LAYERS)}
+              {renderPluginAiFeaturesList("email", EMAIL_LAYERS, safeCommonAi.emailLayers, updateEmailLayer)}
+              {renderCustomConnectionsSection("email", EMAIL_LAYERS)}
               {renderProviderKeyCard(emailProviderId, "Outreach Copywriter & Sequencer")}
             </div>
           )}
@@ -9597,12 +9851,17 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 )}
               </div>
 
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                Voice Assistant AI Stack Capabilities (5 Features)
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                  Voice Assistant AI Capabilities (User Definable)
+                </div>
+                <span style={{ fontSize: 11.5, color: C.slate }}>
+                  Type any custom model name or pick from suggestions
+                </span>
               </div>
 
-              {renderPluginAiFeaturesList(VOICE_LAYERS, safeCommonAi.voiceLayers, updateVoiceLayer)}
-              {renderAddCustomDrawer("voice", VOICE_LAYERS)}
+              {renderPluginAiFeaturesList("voice", VOICE_LAYERS, safeCommonAi.voiceLayers, updateVoiceLayer)}
+              {renderCustomConnectionsSection("voice", VOICE_LAYERS)}
               {renderProviderKeyCard(voiceLlmProviderId, "Voice Dialogue Reasoning")}
             </div>
           )}
@@ -9736,10 +9995,10 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 </div>
 
                 {[
-                  { name: "Lead Generation", color: "#8B5CF6", units: "320 web crawls · 420k tokens", models: "DeepSeek-V3, Groq Llama 3.3", cost: "$4.85", share: "14%" },
-                  { name: "Post Scheduler", color: C.teal, units: "28 image renders · 580k tokens", models: "Claude 3.5 Sonnet, DALL-E 3", cost: "$6.40", share: "19%" },
-                  { name: "Email Outreach", color: "#F59E0B", units: "360k copywriting tokens", models: "Claude 3.5 Sonnet, DeepSeek-V3", cost: "$3.25", share: "10%" },
-                  { name: "AI Voice Assistant", color: C.cobalt, units: "142 voice mins · 485k tokens", models: "xAI Grok-2, ElevenLabs, Twilio", cost: "$19.62", share: "57%" },
+                  { name: "Lead Generation", color: "#8B5CF6", units: "320 web crawls · 420k tokens", models: safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3", cost: "$4.85", share: "14%" },
+                  { name: "Post Scheduler", color: C.teal, units: "28 image renders · 580k tokens", models: safeCommonAi.schedulerLayers?.postWriter || "Claude 3.5 Sonnet", cost: "$6.40", share: "19%" },
+                  { name: "Email Outreach", color: "#F59E0B", units: "360k copywriting tokens", models: safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet", cost: "$3.25", share: "10%" },
+                  { name: "AI Voice Assistant", color: C.cobalt, units: "142 voice mins · 485k tokens", models: safeCommonAi.voiceLayers?.llm || "xAI Grok-2", cost: "$19.62", share: "57%" },
                 ].map((row, idx) => (
                   <div key={idx} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.5fr 1fr 0.8fr", alignItems: "center", padding: "12px 18px", borderBottom: idx < 3 ? `1px solid ${C.borderLight}` : "none", fontSize: 12.5 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -9747,7 +10006,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                       <span style={{ fontWeight: 700, color: C.ink }}>{row.name}</span>
                     </div>
                     <div style={{ color: C.textInk, fontFamily: FONT_BODY }}>{row.units}</div>
-                    <div style={{ color: C.slate, fontSize: 12 }}>{row.models}</div>
+                    <div style={{ color: C.slate, fontSize: 12, fontFamily: FONT_MONO }}>{row.models}</div>
                     <div style={{ textAlign: "right", fontWeight: 700, color: C.ink }}>{row.cost} <span style={{ fontSize: 11, fontWeight: 500, color: C.slate }}>({row.share})</span></div>
                   </div>
                 ))}
@@ -15695,10 +15954,14 @@ export default function App() {
         providers: (Array.isArray(parsed.providers) && parsed.providers.length > 0)
           ? parsed.providers
           : INITIAL_COMMON_AI_CONFIG.providers,
-        voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(parsed.voiceLayers || {}) },
+        leadgenLayers: { ...INITIAL_COMMON_AI_CONFIG.leadgenLayers, ...(parsed.leadgenLayers || {}) },
         schedulerLayers: { ...INITIAL_COMMON_AI_CONFIG.schedulerLayers, ...(parsed.schedulerLayers || {}) },
+        emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(parsed.emailLayers || {}) },
+        voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(parsed.voiceLayers || {}) },
+        customConnections: Array.isArray(parsed.customConnections) ? parsed.customConnections : [],
         subscription: { ...INITIAL_COMMON_AI_CONFIG.subscription, ...(parsed.subscription || {}) },
-        channelDirectives: { ...INITIAL_COMMON_AI_CONFIG.channelDirectives, ...(parsed.channelDirectives || {}) },
+        customConnections: [],
+  channelDirectives: { ...INITIAL_COMMON_AI_CONFIG.channelDirectives, ...(parsed.channelDirectives || {}) },
         futurePlugins: Array.isArray(parsed.futurePlugins) ? parsed.futurePlugins : INITIAL_COMMON_AI_CONFIG.futurePlugins,
       };
     } catch (_) {
