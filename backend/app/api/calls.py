@@ -22,21 +22,27 @@ router = APIRouter(prefix="/calls", tags=["Calls"])
 @router.get("/live", response_model=list[dict])
 async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends(get_db)):
     """
-    Returns only active live conversations. Auto-purges dead/stale calls
-    (calls that ended or stuck in dialing > 10 mins).
+    Returns live conversations. Auto-purges dead/stale calls older than 10 minutes.
     """
     cutoff = datetime.utcnow() - timedelta(minutes=10)
-    # Purge stale dead calls
+    # Only purge stale calls older than 10 mins (preserves newly concluded calls)
     await db.execute(
         delete(LiveCall).where(
-            (LiveCall.ended == True) |
-            (LiveCall.state.in_(["ended", "failed", "canceled"])) |
+            ((LiveCall.ended == True) & (LiveCall.created_at < cutoff)) |
+            (LiveCall.state.in_(["ended", "failed", "canceled"]) & (LiveCall.created_at < cutoff)) |
             ((LiveCall.state == "calling") & (LiveCall.created_at < cutoff))
         )
     )
     await db.commit()
 
-    result = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
+    if not include_ended:
+        result = await db.execute(
+            select(LiveCall)
+            .where((LiveCall.ended == False) & (~LiveCall.state.in_(["ended", "failed", "canceled"])))
+            .order_by(LiveCall.created_at.desc())
+        )
+    else:
+        result = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
     calls = result.scalars().all()
     
     return [{
@@ -521,6 +527,55 @@ async def twilio_dial_action(request: Request, db: AsyncSession = Depends(get_db
             matched.transcript = (matched.transcript or []) + [f"System: Call concluded ({matched.duration})."]
 
         await db.commit()
+
+        # Ensure CallLog entry is created/updated so it appears permanently in Call Logs tab
+        try:
+            log_id = f"cl_{matched.id.replace('call_', '')}"
+            existing_log_res = await db.execute(select(CallLog).where(CallLog.id == log_id))
+            existing_log = existing_log_res.scalars().first()
+
+            formatted_transcript = []
+            for item in (matched.transcript or []):
+                if isinstance(item, dict) and "text" in item and "who" in item:
+                    formatted_transcript.append(item)
+                elif isinstance(item, str):
+                    s = item.strip()
+                    if not s:
+                        continue
+                    if s.startswith("AI:"):
+                        formatted_transcript.append({"who": "ai", "text": s[3:].strip()})
+                    elif s.startswith("Prospect:") or s.startswith("Them:"):
+                        text_val = s.replace("Prospect:", "").replace("Them:", "").strip()
+                        formatted_transcript.append({"who": "them", "text": text_val})
+                    elif s.startswith("System:"):
+                        formatted_transcript.append({"who": "ai", "text": f"[{s[7:].strip()}]"})
+                    else:
+                        formatted_transcript.append({"who": "ai", "text": s})
+
+            now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
+            if not existing_log:
+                new_cl = CallLog(
+                    id=log_id,
+                    canonical_name=matched.prospect or "Valued Prospect",
+                    listed_as=matched.prospect or "Valued Prospect",
+                    channel="voice",
+                    mission=matched.mission or "Outbound Voice",
+                    started_at=now_str,
+                    ended_at=now_str,
+                    duration=f"{matched.duration} min",
+                    outcome="meeting_booked" if matched.booked else ("contacted" if not error_msg else "failed"),
+                    transcript=formatted_transcript
+                )
+                db.add(new_cl)
+            else:
+                existing_log.transcript = formatted_transcript
+                existing_log.duration = f"{matched.duration} min"
+                if matched.booked:
+                    existing_log.outcome = "meeting_booked"
+            await db.commit()
+        except Exception as log_err:
+            logger.warning(f"Could not persist CallLog in dial_action: {log_err}")
+
         await call_hub.broadcast("call_updated", {
             "callId": matched.id,
             "state": matched.state,

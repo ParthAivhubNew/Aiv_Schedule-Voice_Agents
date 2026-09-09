@@ -16005,6 +16005,26 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     } catch (_) {}
   };
 
+  const refreshWorkspaceLogs = async () => {
+    try {
+      const [cl, mt, sc] = await Promise.all([
+        api.getCallLogs(),
+        api.getMeetings(),
+        api.getSchedule()
+      ]);
+      if (Array.isArray(cl)) setCallLog(cl);
+      if (Array.isArray(mt)) setMeetings(mt);
+      if (Array.isArray(sc)) setScheduleItems(sc);
+    } catch (_) {}
+  };
+
+  // Auto-sync when entering Call Log, Meetings, or Schedule
+  useEffect(() => {
+    if (["call-log", "schedule", "meetings"].includes(view)) {
+      refreshWorkspaceLogs();
+    }
+  }, [view]);
+
   // Real-time WebSocket connection to Call Hub + auto polling fallback
   useEffect(() => {
     let ws = null;
@@ -16014,6 +16034,9 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         (msg) => {
           if (msg && msg.type) {
             refreshLiveCalls();
+            if (["call_ended", "booking_confirmed", "call_updated"].includes(msg.type)) {
+              refreshWorkspaceLogs();
+            }
           }
         },
         () => console.log("[LiveCalls] WebSocket linked to CallHub"),

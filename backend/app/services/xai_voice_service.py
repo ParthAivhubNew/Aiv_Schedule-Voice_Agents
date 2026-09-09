@@ -7,6 +7,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timedelta
+import re
 from typing import Any, Dict, List, Optional
 
 import websockets
@@ -105,8 +106,14 @@ def verify_xai_webhook_signature(
 async def build_xai_system_instructions(caller_number: str, prospect_name: Optional[str] = None) -> str:
     """
     Constructs real-time system prompt customized with Company Profile,
-    Service Catalog, caller context, and conversational ground rules.
+    Service Catalog, caller context, real-world temporal ground truth,
+    and charismatic, natural conversational rules.
     """
+    now = datetime.utcnow()
+    current_date_str = now.strftime("%A, %d %B %Y")
+    current_time_str = now.strftime("%I:%M %p UTC")
+    tomorrow_str = (now + timedelta(days=1)).strftime("%A, %d %B %Y")
+
     async with AsyncSessionLocal() as db:
         prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
         profile = prof_res.scalars().first()
@@ -120,12 +127,12 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     company_name = profile.name if profile else "AIVHub"
     caller_name = profile.caller_name if profile else "Sam"
     pitch = profile.pitch if profile else "AI-driven operational intelligence and workflow automation."
-    tone = profile.tone if profile else "Warm, confident, concise, professional"
+    tone = profile.tone if profile else "Warm, charismatic, articulate, consultative, natural"
     disclosure = profile.disclosure if profile else "This call may be recorded for quality purposes."
     
     catalog_lines = []
     for s in services[:5]:
-        catalog_lines.append(f"- {s.name}: {s.desc} (Best for: {s.ideal})")
+        catalog_lines.append(f"- {s.name}: {s.desc} (Ideal for: {s.ideal})")
     catalog_text = "\n".join(catalog_lines) if catalog_lines else "- Enterprise Voice & Knowledge Intelligence"
 
     faq_lines = []
@@ -133,32 +140,42 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
         faq_lines.append(f"- Q: {f.question}\n  A: {f.answer}")
     faq_text = "\n".join(faq_lines) if faq_lines else "None provided yet."
 
-    target_name = prospect_name or "the customer"
+    target_name = prospect_name or "there"
 
-    instructions = f"""You are {caller_name}, a friendly and articulate AI voice representative calling from {company_name}.
-Tone & Style: {tone}.
+    instructions = f"""You are {caller_name}, a highly articulate, warm, and charismatic AI executive representative calling from {company_name}.
+Tone & Personality: {tone}. You sound like an experienced, personable enterprise partner having a relaxed, confident conversation — NEVER like a rigid telemarketer or robot reading a checklist.
 
-Your Core Objective:
-Engage with {target_name}, introduce our value proposition, answer their questions accurately using your tools, and secure a 15-minute discovery call.
+TEMPORAL GROUND TRUTH (CRITICAL):
+- Today's Date: {current_date_str}
+- Current Time: {current_time_str}
+- Tomorrow: {tomorrow_str}
+- Current Year: {now.year}
+- NEVER schedule, suggest, or accept past dates (e.g. 2024, 2025, or any day prior to today). If the prospect mentions a month without a year or a date in the past (like "27 July"), clarify naturally: "Just to confirm, are you thinking later this year or next week? For this week, I've got tomorrow or Friday open."
 
-Company Background:
+Your Objective:
+Engage {target_name} warmly, share how {company_name} delivers real-world operational and voice AI results, answer their questions using your tools, and find a mutually convenient 15-minute slot for a live demo.
+
+Company Pitch:
 {pitch}
 
 Key Services & Capabilities:
 {catalog_text}
 
-Verified Knowledge & FAQs (Use these facts to answer questions accurately):
+Verified Knowledge & FAQs (Ground Truth):
 {faq_text}
 
 Call Disclosure:
 "{disclosure}"
 
-CRITICAL SPOKEN CONVERSATION RULES:
-1. Speak naturally with brief conversational turns (1-3 sentences maximum per turn).
-2. Never read long bulleted lists over the phone. Summarize concepts clearly.
-3. If the caller asks specific questions about pricing, technical features, legal, onboarding, or documentation, ALWAYS invoke the `query_knowledge_base` tool to retrieve accurate information before answering.
-4. If the caller shows interest in learning more, seeing a demo, or scheduling a discussion, immediately ask for their preferred day and time, then invoke the `book_calendar_meeting` tool.
-5. If the caller is busy or asks to call back later, politely confirm their preference and wrap up gracefully.
+CONVERSATION STYLE & VOICE GUIDELINES:
+1. Speak in natural, fluid spoken English (1-3 sentences per turn maximum). Let the other person talk.
+2. Use conversational bridges naturally ("Brilliant", "That makes total sense", "Spot on", "Fair enough", "I completely understand").
+3. Be adaptable: If the person interrupts, changes topic, or asks a tough question, answer directly with confidence.
+4. When booking a meeting:
+   - Suggest near-term options: "Would tomorrow afternoon or perhaps Friday morning suit you better?"
+   - When they mention a day and time, invoke `check_calendar_availability` or `book_calendar_meeting` immediately.
+5. If they ask about detailed pricing, technical architecture, or onboarding, run `query_knowledge_base` to retrieve accurate facts.
+6. If they are busy or in a meeting, say: "No problem at all, I know your time is valuable. Would it be better if I ping you a quick calendar invite for tomorrow, or when would be a quieter time?"
 """
     return instructions.strip()
 
@@ -276,9 +293,19 @@ async def execute_xai_tool(
             }
 
         elif name == "book_calendar_meeting":
-            date_val = args.get("date", "Tomorrow")
+            raw_date = args.get("date", "Tomorrow")
             time_val = args.get("time", "14:00")
             notes_val = args.get("notes", "Discovery call booked via xAI Voice Agent")
+
+            # Ground date to real-world future timeline
+            now = datetime.utcnow()
+            date_val = raw_date.strip()
+            # If past year like 2024 or 2025 was provided, bump to current year
+            date_val = re.sub(r"\b202[0-5]\b", str(now.year), date_val)
+            if not date_val or date_val.lower() in ["tomorrow", "tmrw"]:
+                date_val = (now + timedelta(days=1)).strftime("%A, %d %b %Y")
+            elif date_val.lower() in ["today"]:
+                date_val = now.strftime("%A, %d %b %Y")
             
             async with AsyncSessionLocal() as db:
                 call_res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
@@ -288,8 +315,6 @@ async def execute_xai_tool(
                 
                 if call_record:
                     call_record.booked = True
-                    call_record.state = "ended"
-                    call_record.ended = True
 
                 if prospect_id:
                     p_res = await db.execute(select(Prospect).where(Prospect.id == prospect_id))
@@ -312,7 +337,7 @@ async def execute_xai_tool(
                     platform="Google Meet",
                     host="AI Voice Rep",
                     attendee=prospect_name,
-                    prep=f"Auto-scheduled from inbound call. Notes: {notes_val}",
+                    prep=f"Auto-scheduled from voice outreach. Notes: {notes_val}",
                     call_transcript=call_record.transcript if call_record else []
                 )
                 db.add(meeting)
@@ -356,11 +381,20 @@ async def execute_xai_tool(
             }
 
         elif name == "check_calendar_availability":
-            date_val = args.get("date", "Tomorrow")
-            slots = ["10:00 AM", "11:30 AM", "02:00 PM", "04:15 PM"]
+            raw_date = args.get("date", "Tomorrow")
+            now = datetime.utcnow()
+            date_val = raw_date.strip()
+            date_val = re.sub(r"\b202[0-5]\b", str(now.year), date_val)
+            if not date_val or date_val.lower() in ["tomorrow", "tmrw"]:
+                date_val = (now + timedelta(days=1)).strftime("%A, %d %b %Y")
+            elif date_val.lower() in ["today"]:
+                date_val = now.strftime("%A, %d %b %Y")
+
+            slots = ["10:30 AM", "02:00 PM", "04:15 PM"]
             return {
                 "available_slots": slots,
-                "message": f"Available times for {date_val} are: {', '.join(slots)}."
+                "date": date_val,
+                "message": f"For {date_val}, we have available slots at: {', '.join(slots)}."
             }
 
         else:
@@ -552,25 +586,55 @@ async def join_xai_call_session(
                         "delta": delta_text
                     })
 
-                elif event_type == "response.audio_transcript.done":
-                    final_text = event.get("transcript", "")
+                elif event_type in ["response.audio_transcript.done", "response.text.done"]:
+                    final_text = event.get("transcript") or event.get("text", "")
                     if final_text:
                         line = f"AI: {final_text}"
-                        transcript_history.append(line)
-                        await _update_call_transcript(local_call_id, line)
+                        if line not in transcript_history:
+                            transcript_history.append(line)
+                            await _update_call_transcript(local_call_id, line)
+
+                elif event_type == "response.output_item.done":
+                    item = event.get("item", {})
+                    if item.get("role") == "assistant":
+                        for content_part in item.get("content", []):
+                            text_part = content_part.get("transcript") or content_part.get("text")
+                            if text_part:
+                                line = f"AI: {text_part}"
+                                if line not in transcript_history:
+                                    transcript_history.append(line)
+                                    await _update_call_transcript(local_call_id, line)
 
                 # Handle Caller Transcription (User speaking)
-                elif event_type == "conversation.item.input_audio_transcription.completed":
+                elif event_type in ["conversation.item.input_audio_transcription.completed", "conversation.item.input_audio_transcription"]:
                     caller_text = event.get("transcript", "")
                     if caller_text:
                         line = f"Prospect: {caller_text}"
-                        transcript_history.append(line)
-                        await _update_call_transcript(local_call_id, line)
-                        await call_hub.broadcast("call_transcript_delta", {
-                            "callId": local_call_id,
-                            "who": "them",
-                            "delta": caller_text
-                        })
+                        if line not in transcript_history:
+                            transcript_history.append(line)
+                            await _update_call_transcript(local_call_id, line)
+                            await call_hub.broadcast("call_transcript_delta", {
+                                "callId": local_call_id,
+                                "who": "them",
+                                "delta": caller_text
+                            })
+
+                elif event_type == "conversation.item.created":
+                    item = event.get("item", {})
+                    role = item.get("role", "")
+                    for content_part in item.get("content", []):
+                        text_part = content_part.get("transcript") or content_part.get("text")
+                        if text_part:
+                            prefix = "Prospect:" if role == "user" else "AI:"
+                            line = f"{prefix} {text_part}"
+                            if line not in transcript_history:
+                                transcript_history.append(line)
+                                await _update_call_transcript(local_call_id, line)
+                                await call_hub.broadcast("call_transcript_delta", {
+                                    "callId": local_call_id,
+                                    "who": "them" if role == "user" else "ai",
+                                    "delta": text_part
+                                })
 
                 # Handle Tool/Function Calls
                 elif event_type == "response.function_call_arguments.done":
@@ -649,34 +713,74 @@ async def _update_call_transcript(call_id: str, new_line: str):
 
 
 async def _finalize_call(call_id: str, duration_str: str, transcript: List[str]):
-    """Cleans up call state in database and notifies UI and telephony logs."""
+    """Cleans up call state in database and reliably writes formatted permanent CallLog entry."""
     try:
         async with AsyncSessionLocal() as db:
             res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
             call_obj = res.scalars().first()
+
+            prospect_name = "Valued Prospect"
+            mission_name = "Outbound Voice"
+            is_booked = False
+            raw_lines = transcript or []
+
             if call_obj:
                 call_obj.ended = True
                 call_obj.state = "ended"
                 call_obj.duration = duration_str
-                prospect_name = call_obj.prospect
-                mission_name = call_obj.mission
-                is_booked = call_obj.booked
+                prospect_name = call_obj.prospect or prospect_name
+                mission_name = call_obj.mission or mission_name
+                is_booked = bool(call_obj.booked)
+                if call_obj.transcript:
+                    raw_lines = list(call_obj.transcript)
                 await db.commit()
 
+            # Format into UI CallLog transcript objects: [{"who": "ai"|"them", "text": "..."}]
+            formatted_transcript = []
+            for item in raw_lines:
+                if isinstance(item, dict) and "text" in item and "who" in item:
+                    formatted_transcript.append(item)
+                elif isinstance(item, str):
+                    s = item.strip()
+                    if not s:
+                        continue
+                    if s.startswith("AI:"):
+                        formatted_transcript.append({"who": "ai", "text": s[3:].strip()})
+                    elif s.startswith("Prospect:") or s.startswith("Them:"):
+                        text_val = s.replace("Prospect:", "").replace("Them:", "").strip()
+                        formatted_transcript.append({"who": "them", "text": text_val})
+                    elif s.startswith("System:"):
+                        formatted_transcript.append({"who": "ai", "text": f"[{s[7:].strip()}]"})
+                    else:
+                        formatted_transcript.append({"who": "ai", "text": s})
+
+            # Check if CallLog already exists for this call to avoid duplicate
+            log_id = f"cl_{call_id.replace('call_', '')}"
+            existing_log_res = await db.execute(select(CallLog).where(CallLog.id == log_id))
+            existing_log = existing_log_res.scalars().first()
+
+            now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
+            if not existing_log:
                 call_log_entry = CallLog(
-                    id=f"clog_{uuid.uuid4().hex[:8]}",
+                    id=log_id,
                     canonical_name=prospect_name,
                     listed_as=prospect_name,
                     channel="voice",
                     mission=mission_name,
-                    started_at=datetime.utcnow().strftime("%H:%M"),
-                    ended_at=datetime.utcnow().strftime("%H:%M"),
+                    started_at=now_str,
+                    ended_at=now_str,
                     duration=f"{duration_str} min",
                     outcome="meeting_booked" if is_booked else "contacted",
-                    transcript=call_obj.transcript or transcript
+                    transcript=formatted_transcript
                 )
                 db.add(call_log_entry)
-                await db.commit()
+            else:
+                existing_log.transcript = formatted_transcript
+                existing_log.duration = f"{duration_str} min"
+                if is_booked:
+                    existing_log.outcome = "meeting_booked"
+
+            await db.commit()
 
         await call_hub.broadcast("call_ended", {
             "callId": call_id,
@@ -687,12 +791,12 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
         await log_process_event(
             subsystem="telephony",
             process_name="call_session_finalized",
-            message=f"Call {call_id} completed and finalized. Duration: {duration_str}.",
+            message=f"Call {call_id} completed and saved to CallLog. Duration: {duration_str}, transcript lines: {len(formatted_transcript)}.",
             level="SUCCESS",
-            details={"callId": call_id, "duration": duration_str, "transcriptLines": len(transcript)}
+            details={"callId": call_id, "duration": duration_str, "transcriptLines": len(formatted_transcript), "booked": is_booked}
         )
     except Exception as err:
-        logger.error(f"Error finalizing call {call_id}: {err}")
+        logger.error(f"Error finalizing call {call_id}: {err}", exc_info=True)
 
 
 async def _run_simulated_xai_session(call_id: str, caller_number: str):
