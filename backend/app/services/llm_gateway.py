@@ -33,31 +33,46 @@ async def resolve_llm_credentials(
             "model": mod
         }
 
-    # Otherwise query DB for any saved Connection in LLM group
+    # Otherwise query DB for any saved Connection
     if db is not None:
         try:
-            res = await db.execute(select(Connection).where(Connection.group_name == "LLM"))
+            res = await db.execute(select(Connection))
             conns = res.scalars().all()
 
-            # Prefer connected provider
+            # 1. Exact or partial match on provider name if provider was requested
+            if prov:
+                for c in conns:
+                    cfg = c.config or {}
+                    k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
+                    c_name = c.name.lower()
+                    cfg_prov = str(cfg.get("provider", "")).lower()
+                    if k and (prov in c_name or c_name in prov or prov in cfg_prov):
+                        return {
+                            "provider": prov,
+                            "api_key": k,
+                            "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
+                            "model": mod or cfg.get("model")
+                        }
+
+            # 2. Prefer connected provider in LLM or Scheduler groups
             for c in conns:
                 cfg = c.config or {}
                 k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
-                if k and c.status == "connected":
+                if k and c.status == "connected" and c.group_name in ["LLM", "Social", "Scheduler", "postWriter"]:
                     return {
-                        "provider": c.name.lower(),
+                        "provider": cfg.get("provider") or c.name.lower(),
                         "api_key": k,
                         "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
                         "model": mod or cfg.get("model")
                     }
 
-            # Next check any with non-empty key
+            # 3. Next check any connection with a non-empty key
             for c in conns:
                 cfg = c.config or {}
                 k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
                 if k:
                     return {
-                        "provider": c.name.lower(),
+                        "provider": cfg.get("provider") or c.name.lower(),
                         "api_key": k,
                         "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
                         "model": mod or cfg.get("model")
@@ -257,6 +272,8 @@ async def _call_openai_compatible(
     # Determine base endpoint and model
     if base_url:
         endpoint = base_url.rstrip("/")
+        if "generativelanguage.googleapis.com" in endpoint and not endpoint.endswith("/openai"):
+            endpoint += "/openai"
         if not endpoint.endswith("/chat/completions"):
             endpoint += "/chat/completions"
         target_model = model or "gpt-4o-mini"
@@ -269,6 +286,12 @@ async def _call_openai_compatible(
     elif "xai" in prov or "grok" in prov:
         endpoint = "https://api.x.ai/v1/chat/completions"
         target_model = model or "grok-2-latest"
+    elif "gemini" in prov or "google" in prov:
+        endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        target_model = model or "gemini-1.5-flash"
+    elif "openrouter" in prov:
+        endpoint = "https://openrouter.ai/api/v1/chat/completions"
+        target_model = model or "meta-llama/llama-3.3-70b-instruct"
     elif "ollama" in prov:
         endpoint = "http://localhost:11434/v1/chat/completions"
         target_model = model or "llama3.2"

@@ -10102,6 +10102,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
 function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, company }) {
   const [dirty, setDirty] = useState(false);
+  const [savedSuccess, setSavedSuccess] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -10217,8 +10218,8 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
             next.baseUrl = getProviderDefaultBaseUrl(detected);
           }
           const matchedKey = (commonAi?.providers || []).find((p) => p.id === detected)?.apiKey;
-          if (matchedKey && !next.apiKey) {
-            next.apiKey = matchedKey;
+          if (detected !== prev.provider) {
+            next.apiKey = matchedKey || "";
           }
         }
       }
@@ -10227,7 +10228,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
       if (key === "provider") {
         next.baseUrl = getProviderDefaultBaseUrl(val);
         const matchedKey = (commonAi?.providers || []).find((p) => p.id === val)?.apiKey;
-        if (matchedKey) next.apiKey = matchedKey;
+        next.apiKey = matchedKey || "";
       }
 
       // 1. Immediately persist to localStorage
@@ -10350,7 +10351,11 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     }
 
     setDirty(true);
-    setTimeout(() => setDirty(false), 2400);
+    setSavedSuccess(true);
+    setTimeout(() => {
+      setDirty(false);
+      setSavedSuccess(false);
+    }, 3000);
   };
 
   return (
@@ -10403,19 +10408,26 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                 padding: "10px 22px",
                 borderRadius: 10,
                 border: "none",
-                background: C.gradientTeal,
+                background: savedSuccess ? "#16a34a" : C.gradientTeal,
                 color: "#fff",
                 fontFamily: FONT_BODY,
                 fontSize: 13,
                 fontWeight: 700,
                 cursor: "pointer",
-                boxShadow: C.glowTeal,
+                boxShadow: savedSuccess ? "0 2px 10px rgba(22,163,74,0.35)" : C.glowTeal,
+                transition: "all 0.2s ease",
               }}
             >
-              <Save size={15} /> Save Settings
+              {savedSuccess ? <><Check size={15} color="#fff" /> Saved Successfully!</> : <><Save size={15} /> Save Settings</>}
             </button>
           </div>
         </div>
+
+        {savedSuccess && (
+          <div style={{ background: "#E8F5E9", color: "#1B5E20", padding: "12px 18px", borderRadius: 10, marginBottom: 18, border: "1px solid #C8E6C9", display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 600 }}>
+            <Check size={16} color="#1B5E20" /> Settings saved! Post Scheduler is now actively using {aiSettings.provider.toUpperCase()} ({aiSettings.model}).
+          </div>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
@@ -13564,21 +13576,25 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const executeIntent = (text) => {
     const parsed = parseChatIntent(text, { schedules, company });
     if (parsed.kind === "open") {
+      setTyping(false);
       setView(parsed.view);
       pushAi("Opened that screen. " + statusLine());
       return;
     }
     if (parsed.kind === "connect") {
+      setTyping(false);
       setChannels((c) => ({ ...c, [parsed.channel]: true }));
       setView("channels");
       pushAi("Connected " + (SOCIAL_CHANNELS[parsed.channel] && SOCIAL_CHANNELS[parsed.channel].label) + ". Drafts can publish here after you approve.");
       return;
     }
     if (parsed.kind === "status") {
+      setTyping(false);
       pushAi(statusLine() + " Stay in Plan chat to research and shape dates. Save when the plan is final. Then write → due → approve → publish.");
       return;
     }
     if (parsed.kind === "save_plan") {
+      setTyping(false);
       if (!schedules.length) {
         pushAi("No plan to save yet. Tell me a horizon first — next 2 days, this week, or September — plus themes.");
         setView("plan");
@@ -13589,12 +13605,14 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       return;
     }
     if (parsed.kind === "research") {
+      setTyping(false);
       const q = parsed.query;
       pushAi(q ? ("Searching “" + q + "” — web + " + company.name + " knowledge. Results stay on this plan.") : ("No query — I'll search from this plan's themes and " + company.name + " knowledge."));
       runResearch(q, false);
       return;
     }
     if (parsed.kind === "pin_topics") {
+      setTyping(false);
       if (!topics.length) {
         pushAi("Nothing researched yet. Type a topic in this chat — e.g. live ops dashboards — and I'll search here.");
         return;
@@ -13603,6 +13621,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       return;
     }
     if (parsed.kind === "write_posts") {
+      setTyping(false);
       if (!planSaved) {
         pushAi("Plan isn't saved yet. Say “save this plan” first — then I write posts here from the KB.");
         setView("month");
@@ -13618,11 +13637,13 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       return;
     }
     if (parsed.kind === "send_due") {
+      setTyping(false);
       const n = sendDue();
       pushAi(n ? ("Time's up for " + n + " post" + (n === 1 ? "" : "s") + ". Sent to you here and to " + operatorEmail(operator) + ". Approve in this app or from the inbox.") : "Nothing due yet. Scheduled posts wait until their slot. Say “write posts” if the calendar is empty.");
       return;
     }
     if (parsed.kind === "run_all") {
+      setTyping(false);
       if (!schedules.length) {
         pushAi("Need a plan first. Example: Plan next 2 days on LinkedIn about product.");
         return;
@@ -13633,50 +13654,14 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       return;
     }
     if (parsed.kind === "rename_company") {
+      setTyping(false);
       setProfile((p) => ({ ...p, name: parsed.name }));
       setView("company");
       pushAi("We post as " + parsed.name + ". Same company knowledge as the voice plugin.");
       return;
     }
-    if (parsed.kind === "plan") {
-      if (parsed.companyName) setProfile((p) => ({ ...p, name: parsed.companyName }));
-      const { list, range } = applyPlan(parsed.schedules, parsed.replace, parsed.horizon, parsed.range);
-      const who = parsed.companyName || company.name;
-      const lines = list.map((s) => s.weekday + " — " + s.theme).join("\n");
-      pushAi((parsed.replace ? "Draft for " + who + " — " + range.label + ".\n\n" : "Added to the draft.\n\n") + lines + "\n\nGenerating AI topics and visuals...");
-
-      // Call backend chat-plan with user's AI key
-      const aiConf = commonAi?.schedulerAi || (() => {
-        try {
-          const s = localStorage.getItem("aivhub_scheduler_ai");
-          return s ? JSON.parse(s) : null;
-        } catch (_) { return null; }
-      })();
-
-      api.chatPlan({
-        text,
-        apiKey: aiConf?.apiKey || undefined,
-        provider: aiConf?.provider || "deepseek",
-        model: aiConf?.model || "deepseek-chat",
-        baseUrl: aiConf?.baseUrl || undefined,
-        imageStyle: aiConf?.imageStyle || "modern_saas"
-      }).then((res) => {
-        if (res && res.postsCreated && res.postsCreated.length) {
-          setPosts((ps) => [...res.postsCreated, ...ps]);
-        }
-        if (res && res.topics && res.topics.length) {
-          setTopics((ts) => [...res.topics, ...ts]);
-        }
-        if (res && res.reply) {
-          pushAi(res.reply);
-        }
-      }).catch((e) => {
-        console.warn("Backend chat-plan error:", e);
-      });
-
-      return;
-    }
     if (parsed.kind === "approve_all") {
+      setTyping(false);
       const ids = posts.filter((p) => p.status === "awaiting_approval").map((p) => p.id);
       if (!ids.length) {
         pushAi("Nothing waiting. Due posts show up here and in email when their time comes.");
@@ -13690,6 +13675,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       return;
     }
     if (parsed.kind === "approve") {
+      setTyping(false);
       const first = posts.find((p) => p.status === "awaiting_approval");
       if (!first) {
         pushAi("Nothing waiting on approval.");
@@ -13703,6 +13689,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       return;
     }
     if (parsed.kind === "publish_all") {
+      setTyping(false);
       const ready = posts.filter((p) => p.status === "approved");
       if (!ready.length) {
         pushAi("Need an approval first — in this app or from the email. Scheduled posts wait until due.");
@@ -13714,6 +13701,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       return;
     }
     if (parsed.kind === "reject") {
+      setTyping(false);
       const first = posts.find((p) => p.status === "awaiting_approval" || p.status === "approved");
       if (!first) {
         pushAi("No draft to reject.");
@@ -13727,6 +13715,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       return;
     }
     if (parsed.kind === "regenerate") {
+      setTyping(false);
       const first = posts.find((p) => p.status === "awaiting_approval" || p.status === "scheduled");
       if (!first) {
         pushAi("No draft to regenerate.");
@@ -13737,7 +13726,17 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       pushAi("Regenerated in this software from the next topic + company knowledge.");
       return;
     }
-    if (view === "images") {
+
+    if (parsed.kind === "plan") {
+      if (parsed.companyName) setProfile((p) => ({ ...p, name: parsed.companyName }));
+      const { list, range } = applyPlan(parsed.schedules, parsed.replace, parsed.horizon, parsed.range);
+      const who = parsed.companyName || company.name;
+      const lines = list.map((s) => s.weekday + " — " + s.theme).join("\n");
+      pushAi((parsed.replace ? "Draft for " + who + " — " + range.label + ".\n\n" : "Added to the draft.\n\n") + lines + "\n\nConsulting AI Strategist...");
+    }
+
+    if (view === "images" && !text.toLowerCase().includes("plan") && !text.toLowerCase().includes("post")) {
+      setTyping(false);
       const clean = text.trim();
       const promptIdea1 = `Modern sleek SaaS vector illustration of ${clean}, glowing cyan telemetry graphs, frosted glassmorphism UI components, clean gradients, 4k`;
       const promptIdea2 = `Photorealistic editorial photography of ${clean}, natural corporate executive studio lighting, 35mm lens, high detail, 8k`;
@@ -13749,12 +13748,45 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       );
       return;
     }
-    if (view === "plan" && text.trim().split(/\s+/).length >= 2) {
-      pushAi("Searching “" + text.trim() + "” for this plan.");
-      runResearch(text.trim(), false);
-      return;
-    }
-    pushAi("Chat dates & themes, or type a topic to research. Stay on Plan until you save. " + statusLine());
+
+    // Call Real LLM Gateway for open conversational partner & planning
+    const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
+
+    const historyMsgs = (chat || []).slice(-10).map((m) => ({
+      role: m.who === "user" ? "user" : "assistant",
+      content: m.text
+    }));
+    historyMsgs.push({ role: "user", content: text });
+
+    api.chatPlan({
+      text,
+      messages: historyMsgs,
+      apiKey: creds.apiKey || undefined,
+      provider: creds.provider || "deepseek",
+      model: creds.model || "deepseek-chat",
+      baseUrl: creds.baseUrl || undefined,
+      imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas"
+    }).then((res) => {
+      setTyping(false);
+      if (res && (res.postsCreated || res.posts)) {
+        const newPosts = res.postsCreated || res.posts;
+        if (newPosts.length) {
+          setPosts((ps) => [...newPosts, ...ps]);
+        }
+      }
+      if (res && res.topics && res.topics.length) {
+        setTopics((ts) => [...res.topics, ...ts]);
+      }
+      if (res && res.reply) {
+        pushAi(res.reply);
+      } else if (res && res.error) {
+        pushAi("⚠️ " + res.error);
+      }
+    }).catch((err) => {
+      setTyping(false);
+      console.warn("Post scheduler chat error:", err);
+      pushAi("⚠️ AI Chat Error: " + (err.message || "Failed to reach AI provider. Please verify your API key in AI Config."));
+    });
   };
 
   const sendChat = (e) => {
@@ -13764,10 +13796,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     setDraft("");
     setChat((cs) => [...cs, { id: "c_" + Date.now(), who: "user", text }]);
     setTyping(true);
-    window.setTimeout(() => {
-      setTyping(false);
-      executeIntent(text);
-    }, 550);
+    executeIntent(text);
   };
 
   const runPrompt = (text) => {
@@ -13775,12 +13804,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     setDraft("");
     setChat((cs) => [...cs, { id: "c_" + Date.now(), who: "user", text }]);
     setTyping(true);
-    window.setTimeout(() => {
-      setTyping(false);
-      executeIntent(text);
-    }, 550);
+    executeIntent(text);
   };
-
   const saveEdit = (id) => {
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, copy: editCopy, edited: true } : p)));
     setEditingId(null);

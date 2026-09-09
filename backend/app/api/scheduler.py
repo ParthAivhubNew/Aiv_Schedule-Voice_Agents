@@ -287,10 +287,12 @@ If the user asks general questions or discusses strategy, respond conversational
         await db.commit()
 
     return {
-        "status": "ok",
+        "status": "ok" if llm_res.get("success", True) else "error",
         "reply": reply_text,
         "topics": topics_data,
         "posts": generated_posts,
+        "postsCreated": generated_posts,
         "model": llm_res.get("model", model),
-        "provider": llm_res.get("provider", provider)
+        "provider": llm_res.get("provider", provider),
+        "error": llm_res.get("error")
     }

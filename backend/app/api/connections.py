@@ -131,9 +131,16 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     )
     existing = result.scalars().first()
     
+    conn_config = {
+        "api_key": clean_key,
+        "base_url": req.resolved_base_url,
+        "provider": req.provider
+    }
+
     if existing:
         existing.status = "connected"
         existing.api_key_masked = masked
+        existing.config = conn_config
         conn_id = existing.id
     else:
         conn_id = f"conn_{uuid.uuid4().hex[:6]}"
@@ -142,7 +149,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             group_name=req.layer,
             name=display_name,
             status="connected",
-            api_key_masked=masked
+            api_key_masked=masked,
+            config=conn_config
         )
         db.add(conn)
 

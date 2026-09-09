@@ -98,22 +98,33 @@ export function timezoneLabel(tzId) {
 }
 
 export function getActiveAiCredentials(commonAi, pluginType = "leadgen", featureKey = "") {
-  if (!commonAi) {
-    // Try recovering from local storage for scheduler
-    if (pluginType === "scheduler") {
-      try {
-        const s = localStorage.getItem("aivhub_scheduler_ai");
-        if (s) {
-          const parsed = JSON.parse(s);
+  // If scheduler, prioritize schedulerAi state and localStorage directly
+  if (pluginType === "scheduler") {
+    if (commonAi?.schedulerAi?.apiKey) {
+      return {
+        apiKey: commonAi.schedulerAi.apiKey,
+        provider: commonAi.schedulerAi.provider || "deepseek",
+        model: commonAi.schedulerAi.model || "deepseek-chat",
+        baseUrl: commonAi.schedulerAi.baseUrl || ""
+      };
+    }
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_ai");
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (parsed.apiKey) {
           return {
-            apiKey: parsed.apiKey || "",
+            apiKey: parsed.apiKey,
             provider: parsed.provider || "deepseek",
             model: parsed.model || "deepseek-chat",
             baseUrl: parsed.baseUrl || ""
           };
         }
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
+  }
+
+  if (!commonAi) {
     return { apiKey: "", provider: "deepseek", model: "DeepSeek-V3", baseUrl: "" };
   }
 
@@ -125,7 +136,7 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
 
   // Check custom connections
   const customConn = (commonAi.customConnections || []).find(
-    (c) => c.modelId && c.modelId.toLowerCase() === modelName.toLowerCase()
+    (c) => c.modelId && c.modelId.toLowerCase() === String(modelName).toLowerCase()
   );
   if (customConn && customConn.apiKey) {
     return {
@@ -169,11 +180,21 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
     }
   }
 
+  // Fallback: if resolvedKey is still empty, search ANY connected provider with an API key
+  if (!resolvedKey && Array.isArray(commonAi.providers)) {
+    const anyConnected = commonAi.providers.find((p) => p.apiKey && p.apiKey.trim().length > 0);
+    if (anyConnected) {
+      resolvedKey = anyConnected.apiKey;
+      provId = anyConnected.id;
+      modelName = modelName || anyConnected.models?.[0] || anyConnected.name;
+    }
+  }
+
   return {
     apiKey: resolvedKey,
     provider: provObj?.name || provId,
     model: modelName,
-    baseUrl: provObj?.baseUrl || (commonAi.schedulerAi?.baseUrl) || ""
+    baseUrl: provObj?.baseUrl || commonAi.schedulerAi?.baseUrl || ""
   };
 }
 
