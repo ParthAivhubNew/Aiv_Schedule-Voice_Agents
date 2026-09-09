@@ -27,7 +27,16 @@ IMAGE_STYLES = {
     "modern_saas": "modern sleek SaaS vector illustration, clean UI gradients, professional tech graphics, high quality, 4k",
     "editorial": "photorealistic editorial corporate photography, natural soft studio lighting, sharp focus, magazine style, 8k",
     "minimalist_3d": "3d isometric clay style render, smooth pastel lighting, minimalist geometric tech shapes, clean aesthetic",
-    "neon_tech": "dark theme holographic interface, glowing data visualisations, neon accents, futuristic operational intelligence"
+    "neon_tech": "dark theme holographic interface, glowing data visualisations, neon accents, futuristic operational intelligence",
+    "b2b_ad": "high contrast corporate B2B marketing visual, modern typography, bold branding, clean negative space, premium graphic design",
+    "cinematic": "cinematic widescreen shot, dramatic volumetric lighting, depth of field, atmospheric, 8k masterpiece"
+}
+
+ASPECT_RATIOS = {
+    "1:1": (1080, 1080),
+    "16:9": (1200, 675),
+    "9:16": (720, 1280),
+    "4:5": (1080, 1350)
 }
 
 def create_topic_image_prompt(title: str, angle: str = "", theme: str = "Operations", style: str = "modern_saas") -> str:
@@ -36,7 +45,7 @@ def create_topic_image_prompt(title: str, angle: str = "", theme: str = "Operati
     style_suffix = IMAGE_STYLES.get(style, IMAGE_STYLES["modern_saas"])
     return f"{base_concept}, {theme.lower()} focus, {style_suffix}"
 
-def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 1200, height: int = 675) -> str:
+def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 1200, height: int = 675, aspect_ratio: str = "16:9") -> str:
     """Generates an instant high-resolution AI image URL using Pollinations FLUX/AI image service."""
     clean_prompt = prompt.strip()
     if not clean_prompt:
@@ -45,18 +54,19 @@ def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 120
     full_prompt = f"{clean_prompt}, {style_suffix}".strip(", ")
     encoded = urllib.parse.quote(full_prompt)
     seed = random.randint(1000, 999999)
+    
+    if aspect_ratio in ASPECT_RATIOS:
+        width, height = ASPECT_RATIOS[aspect_ratio]
+        
     return f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}"
 
 def parse_chat_intent(text: str) -> Dict[str, Any]:
     t = (text or "").lower()
-    
-    # Check for schedule requests e.g. "Schedule 3 posts on Mon/Wed/Fri at 10am"
     days = []
     for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
         if day in t or day[:3] in t:
             days.append(day.capitalize())
             
-    # Check horizon
     horizon = "month"
     if "2 day" in t or "two day" in t:
         horizon = "2-day"
@@ -80,84 +90,112 @@ def parse_chat_intent(text: str) -> Dict[str, Any]:
         "raw": text,
     }
 
-async def call_llm_chat(
-    user_prompt: str,
-    system_prompt: str,
-    provider: str = "deepseek",
+async def generate_complete_social_package(
+    topic: str,
+    company_name: str = "AIVHub",
+    company_pitch: str = "AI-powered business intelligence dashboards",
     api_key: Optional[str] = None,
+    provider: Optional[str] = None,
     model: Optional[str] = None,
-    base_url: Optional[str] = None
-) -> Optional[str]:
+    base_url: Optional[str] = None,
+    style: str = "modern_saas",
+    aspect_ratio: str = "16:9",
+    db: Any = None
+) -> Dict[str, Any]:
     """
-    Calls any standard OpenAI-compatible chat API (DeepSeek, OpenAI, Groq, Ollama, etc.)
+    Generates a full social media package:
+    - Scroll hook
+    - LinkedIn structured copy
+    - X (Twitter) punchy copy (<280 chars)
+    - Smart hashtags
+    - Call to action (CTA)
+    - First comment text
+    - Image prompt & URL
+    - Alt text
     """
-    if not api_key:
-        return None
+    from app.services.llm_gateway import call_open_chat_llm
 
-    # Determine endpoint & model (user-provided model has highest priority)
-    prov = (provider or "deepseek").lower()
-    target_model = (model or "").strip()
-    if not target_model:
-        target_model = "gpt-4o-mini" if prov == "openai" else "deepseek-chat"
-
-    if base_url:
-        endpoint = base_url.rstrip("/") + "/chat/completions"
-    elif prov == "openai":
-        endpoint = "https://api.openai.com/v1/chat/completions"
-    else:
-        endpoint = "https://api.deepseek.com/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {api_key.strip()}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "model": target_model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": 0.7
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(25.0, connect=8.0)) as client:
-            res = await client.post(endpoint, headers=headers, json=payload)
-            if res.status_code == 200:
-                data = res.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                return content.strip()
-            else:
-                logger.warning(f"LLM call returned status {res.status_code}: {res.text[:200]}")
-                return None
-    except Exception as e:
-        logger.error(f"Error calling LLM API ({endpoint}): {e}")
-        return None
-
-def generate_social_post(topic_title: str, channel: str = "linkedin", company_name: str = "AIVHub") -> str:
-    if channel == "linkedin":
-        return f"""🚀 {topic_title}
-
-In mid-market operations, real-time visibility is the difference between proactive fixes and costly firefighting.
-
-At {company_name}, we help teams replace manual end-of-shift reporting with automated, real-time business intelligence dashboards.
-
-Key takeaways for ops leaders:
-• Eliminate 10+ hours of weekly spreadsheet assembly
-• Spot throughput bottlenecks before they impact delivery
-• Give frontline managers live operational control
-
-How is your team currently tracking live line efficiency? Let's discuss in the comments below.
-
-#BusinessIntelligence #Operations #Manufacturing #Logistics #DataAnalytics"""
+    clean_topic = topic.strip() or "Why ops teams lose 2 days/week to manual spreadsheets"
     
-    elif channel == "x":
-        return f"Manual spreadsheets shouldn't be running your operations. Real-time dashboards give mid-market teams instant visibility without the reporting delay. Read more on {topic_title.lower()}: #OpsEx #BI"
-        
-    elif channel == "facebook":
-        return f"💡 {topic_title}\n\nRunning operations with yesterday's data costs time and efficiency. Discover how modern BI dashboards give your frontline team real-time control.\n\nLearn more at aivhub.io"
-        
-    else:
-        return f"Operational excellence in action: {topic_title}. #Operations #BI #DataDriven"
+    # 1. Attempt LLM generation if credentials available
+    system_prompt = f"""You are an elite B2B Social Media Marketing Strategist and Copywriter for {company_name}.
+Value Proposition: {company_pitch}.
+Your job is to generate a comprehensive, publication-ready social media content package based on the given topic.
 
+Return ONLY a valid JSON object with these EXACT keys:
+{{
+  "hook": "A 1-2 sentence scroll-stopping opening hook designed to beat 'see more' cutoffs",
+  "linkedin_copy": "Full-length LinkedIn post with structured paragraphs, emoji bullets, and compelling business insight",
+  "x_copy": "A punchy, viral tweet strictly under 250 characters with a strong takeaway",
+  "hashtags": ["#Tag1", "#Tag2", "#Tag3", "#Tag4", "#Tag5"],
+  "cta": "Engaging question or prompt to drive comment interaction",
+  "first_comment": "First comment snippet for resource or demo links (keeps outbound link out of main post)",
+  "image_prompt": "Evocative, descriptive prompt for generating a visual graphic matching this topic",
+  "alt_text": "Accessibility description for the image graphic",
+  "recommended_time": "Optimal day and time to post (e.g. Tuesday 09:30 AM)"
+}}"""
+
+    llm_payload = None
+    try:
+        res = await call_open_chat_llm(
+            messages=[{"role": "user", "content": f"Topic: {clean_topic}"}],
+            system_prompt=system_prompt,
+            api_key=api_key,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            temperature=0.7,
+            db=db
+        )
+        if res and res.get("success") and res.get("reply"):
+            reply_str = res["reply"].strip()
+            # Extract JSON if enclosed in code fences
+            if "```" in reply_str:
+                m = re.search(r"```(?:json)?\s*({[\s\S]*?})\s*```", reply_str)
+                if m:
+                    reply_str = m.group(1)
+            llm_payload = json.loads(reply_str)
+    except Exception as e:
+        logger.warning(f"LLM package generation fallback triggered: {e}")
+
+    # 2. Intelligent deterministic fallback if LLM is unavailable
+    if not llm_payload:
+        clean_headline = clean_topic.replace("Why ", "").replace("How ", "").strip()
+        llm_payload = {
+            "hook": f"Most operations leaders don't realize this: {clean_topic.lower()}.",
+            "linkedin_copy": f"""🚀 {clean_topic}
+
+In mid-market operations, real-time visibility is the difference between proactive decisions and expensive firefighting.
+
+At {company_name}, we help operational teams replace manual reporting with automated intelligence.
+
+Key insights for ops leaders:
+• Eliminate 8+ hours of weekly spreadsheet assembly
+• Spot production and dispatch bottlenecks before delivery deadlines
+• Empower supervisors with live, decision-ready metrics
+
+How is your team currently tracking daily throughput? Let's discuss in the comments below.
+
+#Operations #BusinessIntelligence #Automation #B2B #Logistics""",
+            "x_copy": f"Manual reporting shouldn't be running your operations. Real-time dashboards give mid-market teams instant visibility without reporting delay. Read on: {clean_topic.lower()} #OpsEx",
+            "hashtags": ["#Operations", "#BusinessIntelligence", "#Automation", "#B2BTech", "#Logistics"],
+            "cta": "What's the biggest reporting bottleneck in your operations right now? Drop your thoughts below 👇",
+            "first_comment": f"🔗 Learn how {company_name} helps teams eliminate manual reporting: https://aivhub.io/demo",
+            "alt_text": f"A high-tech digital operational dashboard displaying telemetry and analytics for {clean_headline}.",
+            "recommended_time": "Tuesday 09:30 AM (Peak B2B Traffic)"
+        }
+
+    # Generate Image URL
+    img_prompt = llm_payload.get("image_prompt") or create_topic_image_prompt(clean_topic, style=style)
+    width, height = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
+    img_url = generate_image_url(img_prompt, style=style, width=width, height=height, aspect_ratio=aspect_ratio)
+
+    llm_payload["imageUrl"] = img_url
+    llm_payload["imagePrompt"] = img_prompt
+    llm_payload["style"] = style
+    llm_payload["aspect_ratio"] = aspect_ratio
+    llm_payload["width"] = width
+    llm_payload["height"] = height
+    llm_payload["topic"] = clean_topic
+
+    return llm_payload

@@ -107,8 +107,10 @@ export const api = {
   // Analytics
   getAnalytics: () => apiRequest('/analytics'),
 
-  // Post Scheduler
+  // Post Scheduler & Visual Generator
   getPosts: () => apiRequest('/scheduler/posts'),
+  createPost: (payload) => apiRequest('/scheduler/posts/create', { method: 'POST', body: payload }),
+  deletePost: (postId) => apiRequest(`/scheduler/posts/${postId}`, { method: 'DELETE' }),
   chatPlan: (payload) => apiRequest('/scheduler/chat-plan', { 
     method: 'POST', 
     body: typeof payload === 'string' ? { text: payload } : payload 
@@ -120,6 +122,10 @@ export const api = {
   generateImage: (payload) => apiRequest('/scheduler/generate-image', { 
     method: 'POST', 
     body: typeof payload === 'string' ? { prompt: payload } : payload 
+  }),
+  generateSocialPackage: (payload) => apiRequest('/scheduler/generate-package', {
+    method: 'POST',
+    body: payload
   }),
   getEmails: () => apiRequest('/scheduler/emails'),
 
