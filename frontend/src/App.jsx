@@ -3260,6 +3260,9 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
             : "No live cards for this mission yet."}
         </div>
       )}
+      <div style={{ padding: "16px 32px 0" }}>
+        <DirectOutboundCallCard notifications={notifications} setNotifications={setNotifications} defaultFromNumber="+447307216767" />
+      </div>
       <div style={{ padding: "20px 32px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
         {filtered.map((c) => {
           const isMessage = c.channel === "whatsapp" || c.channel === "sms" || c.channel === "email";
@@ -5718,6 +5721,411 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
   );
 }
 
+
+/* ---------------------------------- Direct Outbound Calling Component ---------------------------------- */
+
+function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNumber, onViewLiveCalls }) {
+  const [toNumber, setToNumber] = useState("");
+  const [prospectName, setProspectName] = useState("");
+  const [missionTitle, setMissionTitle] = useState("Direct Client Outreach");
+  const [fromNumber, setFromNumber] = useState(defaultFromNumber || "+447307216767");
+  const [carrierChoice, setCarrierChoice] = useState("twilio");
+  const [accountSid, setAccountSid] = useState("");
+  const [authToken, setAuthToken] = useState("");
+  const [showCreds, setShowCreds] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  const [dialing, setDialing] = useState(false);
+  const [dialResult, setDialResult] = useState(null);
+  const [dialError, setDialError] = useState("");
+
+  const handleDial = async (e) => {
+    if (e) e.preventDefault();
+    if (!toNumber.trim()) {
+      setDialError("Please enter a destination phone number.");
+      return;
+    }
+    setDialing(true);
+    setDialError("");
+    setDialResult(null);
+
+    try {
+      const payload = {
+        to_number: toNumber.trim(),
+        from_number: fromNumber.trim() || undefined,
+        prospect_name: prospectName.trim() || undefined,
+        mission_title: missionTitle.trim() || "Direct Client Outreach",
+        carrier: carrierChoice,
+        account_sid: accountSid.trim() || undefined,
+        api_key: authToken.trim() || undefined
+      };
+      const res = await api.dialOutbound(payload);
+      setDialResult(res);
+      setNotifications((ns) => [
+        {
+          id: "n_" + Date.now(),
+          text: `📞 Outbound call dispatched to ${toNumber} via ${res.carrier || carrierChoice.toUpperCase()}`,
+          time: "just now",
+          unread: true,
+          type: "success"
+        },
+        ...ns
+      ]);
+    } catch (err) {
+      setDialError(err.message || "Failed to initiate outbound call.");
+    } finally {
+      setDialing(false);
+    }
+  };
+
+  return (
+    <div style={{
+      background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+      borderRadius: 14,
+      padding: "20px 24px",
+      color: "#F8FAFC",
+      border: "1px solid rgba(255, 255, 255, 0.12)",
+      boxShadow: "0 10px 30px rgba(0, 0, 0, 0.25)",
+      marginBottom: 20
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: isExpanded ? 16 : 0 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ background: "#22C55E", width: 9, height: 9, borderRadius: "50%", display: "inline-block", boxShadow: "0 0 8px #22C55E" }} />
+            <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#4ADE80" }}>
+              Autonomous Outbound Calling Plugin
+            </span>
+            <span style={{ background: "rgba(255,255,255,0.1)", fontSize: 11, padding: "2px 8px", borderRadius: 12, color: "#94A3B8" }}>
+              Twilio / Telnyx / SIP / Sim
+            </span>
+          </div>
+          <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 18, color: "#fff", margin: "4px 0 2px" }}>
+            📞 Direct Outbound Voice Dial (Client Call / Live Test)
+          </h2>
+          <p style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#94A3B8", margin: 0, maxWidth: 680, lineHeight: 1.4 }}>
+            Place autonomous outbound calls to clients or test contacts. Carrier connects audio to xAI Realtime AI with live pitch and meeting booking.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {onViewLiveCalls && (
+            <button
+              type="button"
+              onClick={onViewLiveCalls}
+              style={{
+                background: "rgba(255, 255, 255, 0.08)",
+                border: "1px solid rgba(255, 255, 255, 0.18)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                color: "#F1F5F9",
+                fontFamily: FONT_BODY,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 5
+              }}
+            >
+              <Activity size={12} color="#38BDF8" /> Live Activity
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            style={{
+              background: "rgba(255, 255, 255, 0.08)",
+              border: "1px solid rgba(255, 255, 255, 0.18)",
+              borderRadius: 8,
+              padding: "6px 12px",
+              color: "#F1F5F9",
+              fontFamily: FONT_BODY,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer"
+            }}
+          >
+            {isExpanded ? "Collapse Dialer" : "Expand Dialer"}
+          </button>
+        </div>
+      </div>
+
+      {isExpanded && (
+        <form onSubmit={handleDial} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+            {/* Destination Number */}
+            <div>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 5 }}>
+                Destination Number <span style={{ color: "#F87171" }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={toNumber}
+                onChange={(e) => setToNumber(e.target.value)}
+                placeholder="e.g. +447307216767"
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  borderRadius: 7,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(15, 23, 42, 0.8)",
+                  color: "#fff",
+                  fontFamily: FONT_MONO,
+                  fontSize: 13.5,
+                  boxSizing: "border-box"
+                }}
+              />
+              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 3 }}>
+                UK mobile (+447...) or international
+              </div>
+            </div>
+
+            {/* Prospect Name */}
+            <div>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 5 }}>
+                Prospect / Contact Name
+              </label>
+              <input
+                type="text"
+                value={prospectName}
+                onChange={(e) => setProspectName(e.target.value)}
+                placeholder="e.g. Boss (VIP Test)"
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  borderRadius: 7,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(15, 23, 42, 0.8)",
+                  color: "#fff",
+                  fontFamily: FONT_BODY,
+                  fontSize: 13,
+                  boxSizing: "border-box"
+                }}
+              />
+              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 3 }}>
+                AI addresses them by name
+              </div>
+            </div>
+
+            {/* Carrier Plugin */}
+            <div>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 5 }}>
+                Carrier Plugin
+              </label>
+              <select
+                value={carrierChoice}
+                onChange={(e) => setCarrierChoice(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  borderRadius: 7,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "#0F172A",
+                  color: "#38BDF8",
+                  fontFamily: FONT_BODY,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  boxSizing: "border-box"
+                }}
+              >
+                <option value="twilio">Twilio Voice (UK PSTN)</option>
+                <option value="telnyx">Telnyx (BYO SIP Trunk)</option>
+                <option value="generic_sip">Generic SIP / PBX</option>
+                <option value="simulation">Local Simulator (Free Test)</option>
+              </select>
+              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 3 }}>
+                Multi-provider adapter
+              </div>
+            </div>
+
+            {/* Caller ID */}
+            <div>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 5 }}>
+                Caller ID (From)
+              </label>
+              <input
+                type="text"
+                value={fromNumber}
+                onChange={(e) => setFromNumber(e.target.value)}
+                placeholder="+447307216767"
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  borderRadius: 7,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(15, 23, 42, 0.8)",
+                  color: "#38BDF8",
+                  fontFamily: FONT_MONO,
+                  fontSize: 13,
+                  boxSizing: "border-box"
+                }}
+              />
+              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 3 }}>
+                Presented phone line
+              </div>
+            </div>
+          </div>
+
+          {/* Optional Twilio credentials override */}
+          {carrierChoice === "twilio" && (
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => setShowCreds(!showCreds)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94A3B8",
+                  fontSize: 11.5,
+                  cursor: "pointer",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5
+                }}
+              >
+                <span>{showCreds ? "▼ Hide" : "▶ Optional:"} Custom Twilio SID & Token (override saved)</span>
+              </button>
+              {showCreds && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
+                  <input
+                    type="text"
+                    value={accountSid}
+                    onChange={(e) => setAccountSid(e.target.value)}
+                    placeholder="Twilio Account SID (AC...)"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "#0F172A",
+                      color: "#fff",
+                      fontFamily: FONT_MONO,
+                      fontSize: 12
+                    }}
+                  />
+                  <input
+                    type="password"
+                    value={authToken}
+                    onChange={(e) => setAuthToken(e.target.value)}
+                    placeholder="Twilio Auth Token"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "#0F172A",
+                      color: "#fff",
+                      fontFamily: FONT_MONO,
+                      fontSize: 12
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error Alert */}
+          {dialError && (
+            <div style={{
+              background: "rgba(239, 68, 68, 0.2)",
+              border: "1px solid #EF4444",
+              color: "#FCA5A5",
+              borderRadius: 8,
+              padding: "9px 12px",
+              fontSize: 12.5,
+              display: "flex",
+              alignItems: "center",
+              gap: 8
+            }}>
+              <AlertTriangle size={14} color="#EF4444" />
+              <span>{dialError}</span>
+            </div>
+          )}
+
+          {/* Success Alert */}
+          {dialResult && (
+            <div style={{
+              background: "rgba(34, 197, 94, 0.2)",
+              border: "1px solid #22C55E",
+              color: "#86EFAC",
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 12.5,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
+                  <CheckCircle2 size={15} color="#22C55E" />
+                  <span>Call Dispatched! (Status: {dialResult.status})</span>
+                </div>
+                {onViewLiveCalls && (
+                  <button
+                    type="button"
+                    onClick={onViewLiveCalls}
+                    style={{
+                      background: "#22C55E",
+                      color: "#0F172A",
+                      border: "none",
+                      borderRadius: 6,
+                      padding: "4px 10px",
+                      fontWeight: 700,
+                      fontSize: 11.5,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4
+                    }}
+                  >
+                    <Activity size={12} /> Monitor Live Activity →
+                  </button>
+                )}
+              </div>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: "#CBD5E1" }}>
+                SID: <strong>{dialResult.call_id}</strong> • Carrier: <strong>{dialResult.carrier}</strong> • SIP: <strong>{dialResult.bridge_sip_uri}</strong>
+              </div>
+            </div>
+          )}
+
+          {/* Submit Button */}
+          <div>
+            <button
+              type="submit"
+              disabled={dialing}
+              style={{
+                background: dialing ? "#475569" : "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 7,
+                padding: "10px 22px",
+                fontFamily: FONT_DISPLAY,
+                fontSize: 13.5,
+                fontWeight: 800,
+                cursor: dialing ? "wait" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 7,
+                boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)"
+              }}
+            >
+              {dialing ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" /> Calling {toNumber || "Prospect"}...
+                </>
+              ) : (
+                <>
+                  <PhoneCall size={15} /> 📞 Initiate Outbound Call Now
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+
 /* ---------------------------------- Voice & Telephony Trunking Hub (Multi-Provider) ---------------------------------- */
 
 function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProfile }) {
@@ -6005,6 +6413,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           </div>
         )}
       </div>
+
+      {/* Direct Outbound Dialing Card */}
+      <DirectOutboundCallCard notifications={notifications} setNotifications={setNotifications} defaultFromNumber={phoneNumber || hubData.phoneNumber} />
 
       {/* 2. PLUGGABLE STACK SELECTOR FORM */}
       <form onSubmit={handleProvision} style={{ display: "flex", flexDirection: "column", gap: 24 }}>

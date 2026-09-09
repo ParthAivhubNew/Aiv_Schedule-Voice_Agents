@@ -65,6 +65,8 @@ export const api = {
   toggleTakeover: (callId) => apiRequest(`/calls/live/${callId}/takeover`, { method: 'POST' }),
   confirmBooking: (callId) => apiRequest(`/calls/live/${callId}/confirm-booking`, { method: 'POST' }),
   getCallLogs: () => apiRequest('/calls/logs'),
+  dialOutbound: (payload) => apiRequest('/calls/outbound/dial', { method: 'POST', body: payload }),
+  getCarrierPlugins: () => apiRequest('/calls/outbound/carriers'),
 
   // Meetings
   getMeetings: () => apiRequest('/meetings'),

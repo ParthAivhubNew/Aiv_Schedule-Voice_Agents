@@ -378,7 +378,12 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 name=carrier_name,
                 status="connected",
                 api_key_masked=masked_key,
-                config={"phoneNumber": phone_clean, "carrier": carrier_name}
+                config={
+                    "phoneNumber": phone_clean,
+                    "carrier": carrier_name,
+                    "account_sid": req.account_sid,
+                    "api_key": key_clean if ("twilio" in carrier or "telnyx" in carrier) else None
+                }
             ))
             db.add(Connection(
                 id=f"conn_{uuid.uuid4().hex[:6]}",

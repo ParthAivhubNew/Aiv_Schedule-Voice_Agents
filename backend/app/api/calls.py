@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db
-from app.models.models import LiveCall, CallLog, Meeting, ScheduleItem, Notification, Prospect, ContactRegistry
+from app.models.models import LiveCall, CallLog, Meeting, ScheduleItem, Notification, Prospect, ContactRegistry, Connection, CompanyProfile
 from app.services.call_simulator import extract_requested_time
 from app.services.identity import find_identity_match
 from app.websockets.call_hub import call_hub
+from app.services.telephony_provider import carrier_registry, normalize_phone_number
+from app.services.xai_voice_service import _run_simulated_xai_session
+from app.services.process_logger import log_process_event
+from app.config import settings
 from datetime import datetime
 import uuid
+import asyncio
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, List
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
 
@@ -168,3 +175,175 @@ async def get_call_logs(db: AsyncSession = Depends(get_db)):
         "wordsLocked": l.words_locked,
         "transcript": l.transcript or []
     } for l in logs]
+
+
+# ----------------------------------------------------------------------
+# PLUGGABLE OUTBOUND CALLING ENGINE
+# ----------------------------------------------------------------------
+
+class OutboundDialRequest(BaseModel):
+    to_number: str
+    from_number: Optional[str] = None
+    prospect_name: Optional[str] = None
+    mission_id: Optional[str] = None
+    mission_title: Optional[str] = None
+    carrier: Optional[str] = None
+    account_sid: Optional[str] = None
+    api_key: Optional[str] = None
+    bridge_sip_uri: Optional[str] = None
+
+
+@router.get("/outbound/carriers")
+async def get_outbound_carriers(db: AsyncSession = Depends(get_db)):
+    """Returns available telephony carrier plugins and the active configured carrier."""
+    c_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+    conn = c_res.scalars().first()
+    active_carrier = conn.name.lower() if conn else "twilio"
+    return {
+        "active_carrier": active_carrier,
+        "carriers": carrier_registry.list_carriers()
+    }
+
+
+@router.post("/outbound/dial")
+async def dial_outbound_call(
+    req: OutboundDialRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Modular outbound dialing engine:
+    1. Normalizes destination and caller numbers.
+    2. Resolves selected or active carrier adapter (Twilio, Telnyx, Generic SIP, Simulation).
+    3. Retrieves carrier credentials from DB Connection or payload or settings.
+    4. Creates a LiveCall record immediately in SQLite so the frontend tracks it.
+    5. Dispatches outbound call via carrier plugin with TwiML SIP bridge to xAI.
+    6. Broadcasts call_started event to CallHub WebSockets.
+    """
+    to_raw = req.to_number.strip()
+    if not to_raw or len(to_raw) < 7:
+        raise HTTPException(status_code=400, detail="A valid phone number (at least 7 digits) is required.")
+
+    to_clean = normalize_phone_number(to_raw)
+
+    # 1. Determine From / Caller ID number
+    from_clean = req.from_number.strip() if req.from_number else None
+    if not from_clean:
+        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+        profile = prof_res.scalars().first()
+        if profile and profile.caller_id:
+            from_clean = profile.caller_id
+        else:
+            conn_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+            tele_conn = conn_res.scalars().first()
+            if tele_conn and tele_conn.config and isinstance(tele_conn.config, dict):
+                from_clean = tele_conn.config.get("phoneNumber")
+
+    if not from_clean:
+        from_clean = settings.TWILIO_PHONE_NUMBER or "+447307216767"
+    from_clean = normalize_phone_number(from_clean)
+
+    # 2. Determine carrier plugin
+    carrier_choice = (req.carrier or "").strip().lower()
+    conn_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+    tele_conn = conn_res.scalars().first()
+
+    if not carrier_choice:
+        if tele_conn:
+            carrier_choice = tele_conn.name.lower()
+        else:
+            carrier_choice = "twilio"
+
+    # 3. Resolve credentials
+    stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
+    sid = req.account_sid or stored_cfg.get("account_sid") or settings.TWILIO_ACCOUNT_SID
+    token = req.api_key or stored_cfg.get("api_key") or settings.TWILIO_AUTH_TOKEN
+
+    credentials = {
+        "account_sid": sid,
+        "api_key": token,
+        "auth_token": token,
+        "carrier": carrier_choice
+    }
+
+    # If twilio requested but credentials missing and not explicitly simulation,
+    # prompt user clearly with the exact resolution
+    if "twilio" in carrier_choice and (not sid or not token):
+        if not req.carrier or carrier_choice == "twilio":
+            raise HTTPException(
+                status_code=400,
+                detail="Twilio Account SID & Auth Token are not yet configured. Please enter them or select 'Local Testing Simulator' to test the flow immediately."
+            )
+
+    # 4. Resolve bridge SIP URI
+    bridge_sip = req.bridge_sip_uri or f"sip:{from_clean}@{settings.XAI_SIP_FQDN};transport=tls"
+
+    # 5. Create LiveCall entry
+    prospect_label = req.prospect_name.strip() if req.prospect_name else f"Prospect ({to_clean[-4:]})"
+    mission_label = req.mission_title or "Direct Outbound Outreach"
+    call_id = f"call_{uuid.uuid4().hex[:8]}"
+
+    live_call = LiveCall(
+        id=call_id,
+        mission_id=req.mission_id or "m_outbound",
+        prospect_id=None,
+        prospect=prospect_label,
+        mission=mission_label,
+        state="calling",
+        channel="voice",
+        duration="00:01",
+        listening=False,
+        taken=False,
+        confirming_end=False,
+        ended=False,
+        booked=False,
+        transcript=[
+            f"AI: [Outbound call initiated via {carrier_choice.upper()} to {to_clean}]",
+            f"System: Ringing {to_clean} from {from_clean}..."
+        ]
+    )
+    db.add(live_call)
+    await db.commit()
+
+    # Broadcast call started immediately to frontend
+    await call_hub.broadcast("call_started", {
+        "callId": call_id,
+        "caller": from_clean,
+        "prospect": prospect_label,
+        "state": "calling",
+        "duration": "00:01"
+    })
+
+    # 6. Execute Dial via Carrier Plugin
+    adapter = carrier_registry.get_adapter(carrier_choice)
+    try:
+        dial_res = await adapter.dial_outbound(
+            to_number=to_clean,
+            from_number=from_clean,
+            bridge_sip_uri=bridge_sip,
+            metadata={"call_id": call_id, "prospect": prospect_label},
+            credentials=credentials
+        )
+
+        # If simulation mode, launch the simulated conversation session in background
+        if dial_res.get("simulated") or "sim" in carrier_choice:
+            background_tasks.add_task(_run_simulated_xai_session, call_id, to_clean)
+
+        return {
+            "success": True,
+            "call_id": call_id,
+            "carrier_call_id": dial_res.get("call_id"),
+            "carrier": adapter.display_name,
+            "status": dial_res.get("status", "ringing"),
+            "to": to_clean,
+            "from": from_clean,
+            "bridge_sip_uri": bridge_sip,
+            "message": f"Outbound call initiated to {to_clean} via {adapter.display_name}."
+        }
+    except Exception as exc:
+        live_call.state = "failed"
+        live_call.ended = True
+        live_call.transcript = (live_call.transcript or []) + [f"System: Dial failed - {str(exc)}"]
+        await db.commit()
+        await call_hub.broadcast("call_ended", {"callId": call_id, "reason": str(exc)})
+        raise HTTPException(status_code=400, detail=str(exc))
