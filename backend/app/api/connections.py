@@ -309,6 +309,22 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 # Register number with xAI BYO trunk API
                 target_webhook = req.webhook_url or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
                 reg_error = None
+
+                def extract_xai_secret(data: dict) -> Optional[str]:
+                    if not isinstance(data, dict):
+                        return None
+                    wh = data.get("webhook")
+                    if isinstance(wh, dict):
+                        for k in ["dispatch_signing_secret", "signing_secret", "secret", "webhook_secret"]:
+                            v = wh.get(k)
+                            if v and str(v).strip():
+                                return str(v).strip()
+                    for k in ["dispatch_signing_secret", "signing_secret", "webhook_secret", "secret"]:
+                        v = data.get(k)
+                        if v and str(v).strip():
+                            return str(v).strip()
+                    return None
+
                 try:
                     async with httpx.AsyncClient(timeout=15.0) as client:
                         # 1. Query existing registered numbers on xAI
@@ -324,14 +340,31 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                                     for item in num_list:
                                         if item.get("phone_number") == phone_clean:
                                             existing_number = item
-                                            signing_secret = item.get("signing_secret") or item.get("webhook_secret")
+                                            signing_secret = extract_xai_secret(item)
                                             auto_registered = True
                                             logger.info(f"Number {phone_clean} already registered with xAI (ID: {item.get('id')}).")
                                             break
                         except Exception as list_err:
                             logger.warning(f"Could not list xAI phone numbers: {list_err}")
 
-                        # 2. If not registered, create it
+                        # If number already exists on xAI but secret was omitted by GET, and user has no secret saved,
+                        # delete and recreate to obtain a fresh dispatch_signing_secret!
+                        active_secret_now = req.signing_secret or settings.XAI_WEBHOOK_SECRET
+                        if existing_number and not active_secret_now:
+                            num_id = existing_number.get("id") or existing_number.get("phone_number_id")
+                            if num_id:
+                                try:
+                                    logger.info(f"Re-creating {phone_clean} on xAI to obtain fresh signing secret (deleting {num_id})...")
+                                    del_res = await client.delete(
+                                        f"https://api.x.ai/v2/phone-numbers/{num_id}",
+                                        headers={"Authorization": f"Bearer {key_clean}"}
+                                    )
+                                    if del_res.status_code in [200, 204]:
+                                        existing_number = None
+                                except Exception as del_err:
+                                    logger.warning(f"Could not delete number to rotate secret: {del_err}")
+
+                        # 2. Create registration on xAI if new or recreating
                         if not existing_number:
                             payload = {
                                 "origin": "byo_trunk",
@@ -353,8 +386,9 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                             logger.info(f"xAI phone registration response ({phone_clean}): HTTP {reg_res.status_code} - {reg_res.text}")
                             if reg_res.status_code in [200, 201]:
                                 reg_data = reg_res.json()
-                                signing_secret = reg_data.get("signing_secret") or reg_data.get("webhook_secret")
+                                signing_secret = extract_xai_secret(reg_data)
                                 auto_registered = True
+                                logger.info(f"xAI registration succeeded. Signing secret extracted: {bool(signing_secret)}")
                             else:
                                 reg_error = f"xAI returned HTTP {reg_res.status_code}: {reg_res.text}"
                                 logger.error(f"xAI registration failed: {reg_error}")
@@ -556,5 +590,29 @@ async def test_telephony_hub_ping():
         "latencyMs": round(elapsed_ms, 1),
         "details": details
     }
+
+
+@router.get("/telephony-hub/xai-numbers")
+async def list_xai_registered_numbers(db: AsyncSession = Depends(get_db)):
+    """Queries xAI directly to list all numbers currently registered on the xAI account."""
+    key = settings.XAI_API_KEY
+    if not key:
+        c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+        c = c_res.scalars().first()
+        if c and c.config and isinstance(c.config, dict):
+            key = c.config.get("api_key")
+    if not key:
+        raise HTTPException(status_code=400, detail="No xAI API Key configured.")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await client.get(
+            "https://api.x.ai/v2/phone-numbers",
+            headers={"Authorization": f"Bearer {key}"}
+        )
+        return {
+            "statusCode": res.status_code,
+            "data": res.json() if res.status_code == 200 else res.text
+        }
+
 
 
