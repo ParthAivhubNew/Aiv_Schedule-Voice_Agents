@@ -15322,6 +15322,11 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   };
 
   const createNewSession = () => {
+    if (window._schedulerChatAbort) {
+      try { window._schedulerChatAbort.abort(); } catch (_) {}
+      window._schedulerChatAbort = null;
+    }
+    setTyping(false);
     const newId = "sess_" + Date.now();
     const newSession = {
       id: newId,
@@ -15343,6 +15348,11 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   };
 
   const switchSession = (id) => {
+    if (window._schedulerChatAbort) {
+      try { window._schedulerChatAbort.abort(); } catch (_) {}
+      window._schedulerChatAbort = null;
+    }
+    setTyping(false);
     setActiveSessionId(id);
     try { localStorage.setItem("aivhub_scheduler_chat_active", id); } catch (_) {}
     setShowHistoryModal(false);
@@ -15417,6 +15427,11 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   };
 
   const clearCurrentChat = () => {
+    if (window._schedulerChatAbort) {
+      try { window._schedulerChatAbort.abort(); } catch (_) {}
+      window._schedulerChatAbort = null;
+    }
+    setTyping(false);
     setChat([
       { id: "c_" + Date.now(), who: "ai", text: "Chat history cleared. What should we work on next?" }
     ]);
@@ -15766,16 +15781,38 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     }));
     historyMsgs.push({ role: "user", content: text });
 
+    // Safety timeout: auto-unfreeze after 35 seconds if network or LLM hangs
+    if (window._schedulerChatAbort) {
+      try { window._schedulerChatAbort.abort(); } catch (_) {}
+    }
+    const controller = new AbortController();
+    window._schedulerChatAbort = controller;
+    const timeoutId = setTimeout(() => {
+      try { controller.abort(); } catch (_) {}
+      setTyping(false);
+      pushAi("⚠️ AI response timed out (35s). Please check your API key and network connection.");
+    }, 35000);
+
+    console.info("[Scheduler Chat] Sending chatPlan request:", {
+      provider: creds.provider,
+      model: creds.model,
+      hasApiKey: !!creds.apiKey,
+      keyLength: creds.apiKey ? creds.apiKey.length : 0,
+      baseUrl: creds.baseUrl
+    });
+
     api.chatPlan({
       text,
       messages: historyMsgs,
-      apiKey: creds.apiKey || undefined,
+      apiKey: creds.apiKey || "",
       provider: creds.provider || "openai",
       model: creds.model || "gpt-4o",
-      baseUrl: creds.baseUrl || undefined,
+      baseUrl: creds.baseUrl || "",
       imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas"
     }).then((res) => {
+      clearTimeout(timeoutId);
       setTyping(false);
+      window._schedulerChatAbort = null;
       if (res && (res.postsCreated || res.posts)) {
         const newPosts = res.postsCreated || res.posts;
         if (newPosts.length) {
@@ -15791,7 +15828,13 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         pushAi("⚠️ " + res.error);
       }
     }).catch((err) => {
+      clearTimeout(timeoutId);
       setTyping(false);
+      window._schedulerChatAbort = null;
+      if (err.name === "AbortError") {
+        console.info("[Scheduler Chat] Request aborted by user or timeout.");
+        return;
+      }
       console.warn("Post scheduler chat error:", err);
       pushAi("⚠️ AI Chat Error: " + (err.message || "Failed to reach AI provider. Please verify your API key in AI Config."));
     });
@@ -17572,13 +17615,46 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                 <Trash2 size={13} />
               </button>
 
-              <button
-                type="submit"
-                disabled={typing || !draft.trim()}
-                style={{ width: 40, height: 40, borderRadius: 9, border: "none", background: typing || !draft.trim() ? "#C4D1D0" : C.teal, color: "#fff", cursor: typing || !draft.trim() ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(12,140,125,0.22)" }}
-              >
-                <Send size={14} />
-              </button>
+              {typing ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window._schedulerChatAbort) {
+                      try { window._schedulerChatAbort.abort(); } catch (_) {}
+                      window._schedulerChatAbort = null;
+                    }
+                    setTyping(false);
+                    pushAi("⏹️ Process stopped by user.");
+                  }}
+                  title="Stop generating response"
+                  style={{
+                    height: 40,
+                    padding: "0 12px",
+                    borderRadius: 9,
+                    border: "none",
+                    background: C.redSolid,
+                    color: "#fff",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    boxShadow: "0 2px 6px rgba(220,38,38,0.25)"
+                  }}
+                >
+                  <Square size={12} fill="#fff" />
+                  <span>Stop</span>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!draft.trim()}
+                  style={{ width: 40, height: 40, borderRadius: 9, border: "none", background: !draft.trim() ? "#C4D1D0" : C.teal, color: "#fff", cursor: !draft.trim() ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(12,140,125,0.22)" }}
+                >
+                  <Send size={14} />
+                </button>
+              )}
             </div>
           </form>
         </div>

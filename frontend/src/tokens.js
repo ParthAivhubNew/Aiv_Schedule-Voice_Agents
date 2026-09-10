@@ -128,9 +128,19 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
       }
     }
 
-    // Ultimate fallback: if still no key, use ANY provider that has a key configured in Global AI Studio
-    if (!schedKey && Array.isArray(commonAi?.providers)) {
-      const anyConnected = commonAi.providers.find((p) => p.apiKey && p.apiKey.trim().length > 0);
+    // Ultimate fallback: check commonAi.providers or localStorage['aivhub_common_ai'] for ANY working key
+    if (!schedKey) {
+      let provs = Array.isArray(commonAi?.providers) ? commonAi.providers : [];
+      if (!provs.length) {
+        try {
+          const savedCommon = localStorage.getItem("aivhub_common_ai");
+          if (savedCommon) {
+            const parsed = JSON.parse(savedCommon);
+            if (Array.isArray(parsed.providers)) provs = parsed.providers;
+          }
+        } catch (_) {}
+      }
+      const anyConnected = provs.find((p) => p.apiKey && p.apiKey.trim().length > 0);
       if (anyConnected) {
         schedKey = anyConnected.apiKey;
         if (!schedProv) schedProv = anyConnected.id;

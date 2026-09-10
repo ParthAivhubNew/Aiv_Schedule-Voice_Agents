@@ -224,6 +224,8 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
     base_url = payload.get("baseUrl") or payload.get("base_url")
     image_style = payload.get("imageStyle", "modern_saas")
 
+    logger.info(f"[Scheduler Chat] Incoming /chat-plan request: provider={provider}, model={model}, has_api_key={bool(api_key)}, key_len={len(api_key) if api_key else 0}, msgs_count={len(messages)}, prompt_snippet={prompt[:40]!r}")
+
     prof_res = await db.execute(select(CompanyProfile).limit(1))
     profile = prof_res.scalars().first()
     company_name = profile.name if profile else "AIVHub"
