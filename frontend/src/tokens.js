@@ -98,27 +98,27 @@ export function timezoneLabel(tzId) {
 }
 
 export function getActiveAiCredentials(commonAi, pluginType = "leadgen", featureKey = "") {
-  // If scheduler, check schedulerAi state, localStorage, and commonAi.providers
+  // If scheduler, directly read the user's configured scheduler AI settings
   if (pluginType === "scheduler") {
     let schedProv = commonAi?.schedulerAi?.provider;
     let schedKey = commonAi?.schedulerAi?.apiKey;
     let schedModel = commonAi?.schedulerAi?.model || commonAi?.schedulerLayers?.postWriter;
     let schedBaseUrl = commonAi?.schedulerAi?.baseUrl;
 
-    if (!schedKey) {
+    if (!schedKey || !schedProv) {
       try {
         const s = localStorage.getItem("aivhub_scheduler_ai");
         if (s) {
           const parsed = JSON.parse(s);
-          if (parsed.apiKey) schedKey = parsed.apiKey;
-          if (parsed.provider) schedProv = parsed.provider;
-          if (parsed.model) schedModel = schedModel || parsed.model;
-          if (parsed.baseUrl) schedBaseUrl = schedBaseUrl || parsed.baseUrl;
+          if (!schedKey && parsed.apiKey) schedKey = parsed.apiKey;
+          if (!schedProv && parsed.provider) schedProv = parsed.provider;
+          if (!schedModel && parsed.model) schedModel = parsed.model;
+          if (!schedBaseUrl && parsed.baseUrl) schedBaseUrl = parsed.baseUrl;
         }
       } catch (_) {}
     }
 
-    // If key not in schedulerAi, check if key is in commonAi.providers for schedProv
+    // If key not entered directly in Scheduler card, look up the key for this chosen provider in commonAi.providers
     if (!schedKey && schedProv && Array.isArray(commonAi?.providers)) {
       const matched = commonAi.providers.find((p) => p.id === schedProv || p.name?.toLowerCase() === schedProv.toLowerCase());
       if (matched && matched.apiKey) {
@@ -127,75 +127,12 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
       }
     }
 
-    // Check if schedModel matches any provider in commonAi.providers
-    if (!schedKey && schedModel && Array.isArray(commonAi?.providers)) {
-      const sm = schedModel.toLowerCase();
-      let matchedId = sm.includes("claude") || sm.includes("anthropic") ? "anthropic" :
-                      sm.includes("gpt") || sm.includes("openai") ? "openai" :
-                      sm.includes("deepseek") ? "deepseek" :
-                      sm.includes("groq") || sm.includes("llama") ? "groq" :
-                      sm.includes("grok") || sm.includes("xai") ? "xai" : "";
-      if (matchedId) {
-        const matched = commonAi.providers.find((p) => p.id === matchedId);
-        if (matched && matched.apiKey) {
-          schedKey = matched.apiKey;
-          schedProv = matchedId;
-          schedBaseUrl = schedBaseUrl || matched.baseUrl;
-        }
-      }
-    }
-
-    // Check imageApiKey if text key is still empty
-    if (!schedKey && commonAi?.schedulerAi?.imageApiKey) {
-      schedKey = commonAi.schedulerAi.imageApiKey;
-      if (!schedProv || schedProv === "deepseek") {
-        schedProv = commonAi.schedulerAi.imageProvider || "openai";
-      }
-    }
-
-    // Check localStorage "aivhub_common_ai"
-    if (!schedKey) {
-      try {
-        const raw = localStorage.getItem("aivhub_common_ai");
-        if (raw) {
-          const parsedCommon = JSON.parse(raw);
-          if (Array.isArray(parsedCommon.providers)) {
-            const connected = parsedCommon.providers.find((p) => p.apiKey && p.apiKey.trim().length > 0);
-            if (connected) {
-              schedKey = connected.apiKey;
-              schedProv = connected.id;
-              schedModel = schedModel || connected.models?.[0] || connected.name;
-              schedBaseUrl = schedBaseUrl || connected.baseUrl;
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
-    // Auto-detect provider from key prefix to prevent cross-provider authentication failures
-    if (schedKey) {
-      const k = schedKey.trim();
-      if (k.startsWith("sk-ant-")) {
-        schedProv = "anthropic";
-        if (!schedModel || !schedModel.toLowerCase().includes("claude")) schedModel = "claude-3-5-sonnet-20241022";
-      } else if (k.startsWith("sk-proj-") || (k.startsWith("sk-") && !k.startsWith("sk-ant-") && !k.startsWith("sk-or-"))) {
-        schedProv = "openai";
-        if (!schedModel || !schedModel.toLowerCase().includes("gpt")) schedModel = "gpt-4o";
-      } else if (k.startsWith("gsk_")) {
-        schedProv = "groq";
-        if (!schedModel || !schedModel.toLowerCase().includes("llama")) schedModel = "llama-3.3-70b-versatile";
-      } else if (k.startsWith("xai-")) {
-        schedProv = "xai";
-        if (!schedModel || !schedModel.toLowerCase().includes("grok")) schedModel = "grok-2-latest";
-      }
-
-      return {
-        apiKey: schedKey,
-        provider: schedProv || "openai",
-        model: schedModel || "gpt-4o",
-        baseUrl: schedBaseUrl || ""
-      };
-    }
+    return {
+      apiKey: schedKey || "",
+      provider: schedProv || "openai",
+      model: schedModel || "gpt-4o",
+      baseUrl: schedBaseUrl || ""
+    };
   }
 
   if (!commonAi) {
@@ -261,23 +198,6 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
       resolvedKey = anyConnected.apiKey;
       provId = anyConnected.id;
       modelName = modelName || anyConnected.models?.[0] || anyConnected.name;
-    }
-  }
-
-  if (resolvedKey) {
-    const k = resolvedKey.trim();
-    if (k.startsWith("sk-ant-")) {
-      provId = "anthropic";
-      if (!modelName || !modelName.toLowerCase().includes("claude")) modelName = "claude-3-5-sonnet-20241022";
-    } else if (k.startsWith("sk-proj-") || (k.startsWith("sk-") && !k.startsWith("sk-ant-") && !k.startsWith("sk-or-"))) {
-      provId = "openai";
-      if (!modelName || !modelName.toLowerCase().includes("gpt")) modelName = "gpt-4o";
-    } else if (k.startsWith("gsk_")) {
-      provId = "groq";
-      if (!modelName || !modelName.toLowerCase().includes("llama")) modelName = "llama-3.3-70b-versatile";
-    } else if (k.startsWith("xai-")) {
-      provId = "xai";
-      if (!modelName || !modelName.toLowerCase().includes("grok")) modelName = "grok-2-latest";
     }
   }
 

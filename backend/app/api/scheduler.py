@@ -219,34 +219,10 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
     prompt = payload.get("text") or payload.get("message") or ""
     messages = payload.get("messages") or []
     api_key = (payload.get("apiKey") or payload.get("api_key") or "").strip() or None
-    provider = (payload.get("provider") or "").strip().lower()
-    model = payload.get("model")
+    provider = (payload.get("provider") or "openai").strip().lower()
+    model = payload.get("model") or ("gpt-4o" if provider == "openai" else None)
     base_url = payload.get("baseUrl") or payload.get("base_url")
     image_style = payload.get("imageStyle", "modern_saas")
-
-    # Unmistakable key prefix detection
-    if api_key:
-        if api_key.startswith("sk-ant-"):
-            provider = "anthropic"
-            if not model or "claude" not in model.lower():
-                model = "claude-3-5-sonnet-20241022"
-        elif api_key.startswith("sk-proj-") or (api_key.startswith("sk-") and not api_key.startswith("sk-ant-") and not api_key.startswith("sk-or-")):
-            provider = "openai"
-            if not model or "gpt" not in model.lower():
-                model = "gpt-4o"
-        elif api_key.startswith("gsk_"):
-            provider = "groq"
-            if not model or "llama" not in model.lower():
-                model = "llama-3.3-70b-versatile"
-        elif api_key.startswith("xai-"):
-            provider = "xai"
-            if not model or "grok" not in model.lower():
-                model = "grok-2-latest"
-
-    if not provider:
-        provider = "openai"
-    if not model:
-        model = "gpt-4o" if provider == "openai" else None
 
     prof_res = await db.execute(select(CompanyProfile).limit(1))
     profile = prof_res.scalars().first()

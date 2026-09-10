@@ -24,18 +24,7 @@ async def resolve_llm_credentials(
     burl = (base_url or "").strip() or None
     mod = (model or "").strip() or None
 
-    # Auto-detect provider if key prefix is unmistakable
-    if key:
-        if key.startswith("sk-ant-"):
-            prov = "anthropic"
-        elif key.startswith("sk-proj-"):
-            prov = "openai"
-        elif key.startswith("gsk_"):
-            prov = "groq"
-        elif key.startswith("xai-"):
-            prov = "xai"
-
-    # Normalize common provider aliases
+    # Normalize common provider aliases if provided
     if "claude" in prov:
         prov = "anthropic"
     elif "chatgpt" in prov or "gpt" in prov:
@@ -43,10 +32,10 @@ async def resolve_llm_credentials(
     elif "grok" in prov:
         prov = "xai"
 
-    # If explicit key was passed in request, use it!
+    # If explicit key was passed in request, use it directly!
     if key:
         return {
-            "provider": prov or "custom",
+            "provider": prov or "openai",
             "api_key": key,
             "base_url": burl,
             "model": mod
@@ -229,17 +218,36 @@ async def call_open_chat_llm(
 
     # Normalize vendor model names so user-friendly names (e.g. 'Claude 3.5 Sonnet', 'GPT-4o') match provider APIs
     norm_model = (resolved_model or "").strip()
-    if "anthropic" in resolved_provider or "claude" in resolved_provider:
-        if not norm_model or "claude" not in norm_model.lower():
-            norm_model = "claude-3-5-sonnet-20241022"
-        elif "3.7" in norm_model or "3-7" in norm_model:
-            norm_model = "claude-3-7-sonnet-20250219"
-        elif "haiku" in norm_model.lower():
-            norm_model = "claude-3-5-haiku-20241022"
-        elif "sonnet" in norm_model.lower():
-            norm_model = "claude-3-5-sonnet-20241022"
-        resolved_model = norm_model
 
+    # Map friendly display labels to exact API slugs if needed (e.g. 'Claude 3.5 Sonnet' -> 'claude-3-5-sonnet-20241022')
+    friendly_slug_map = {
+        "claude 3.5 sonnet": "claude-3-5-sonnet-20241022",
+        "claude 3.7 sonnet": "claude-3-7-sonnet-20250219",
+        "claude 3.5 haiku": "claude-3-5-haiku-20241022",
+        "deepseek-v3": "deepseek-chat",
+        "deepseek-r1": "deepseek-reasoner",
+        "groq llama 3.3 70b": "llama-3.3-70b-versatile",
+        "xai grok-2": "grok-2-latest",
+    }
+    if norm_model.lower() in friendly_slug_map:
+        norm_model = friendly_slug_map[norm_model.lower()]
+
+    # If no model was specified at all, supply a provider default
+    if not norm_model:
+        if "anthropic" in resolved_provider or "claude" in resolved_provider:
+            norm_model = "claude-3-5-sonnet-20241022"
+        elif "deepseek" in resolved_provider:
+            norm_model = "deepseek-chat"
+        elif "groq" in resolved_provider:
+            norm_model = "llama-3.3-70b-versatile"
+        elif "xai" in resolved_provider or "grok" in resolved_provider:
+            norm_model = "grok-2-latest"
+        else:
+            norm_model = "gpt-4o"
+
+    resolved_model = norm_model
+
+    if "anthropic" in resolved_provider or "claude" in resolved_provider:
         return await _call_anthropic(
             messages=formatted_messages,
             api_key=resolved_key,
@@ -247,34 +255,6 @@ async def call_open_chat_llm(
             temperature=temperature,
             max_tokens=max_tokens
         )
-
-    # Normalize OpenAI / DeepSeek / Groq / xAI models
-    if "openai" in resolved_provider:
-        if not norm_model or ("gpt" not in norm_model.lower() and "o3" not in norm_model.lower()):
-            norm_model = "gpt-4o"
-        elif "mini" in norm_model.lower():
-            norm_model = "gpt-4o-mini"
-        elif "o3" in norm_model.lower():
-            norm_model = "o3-mini"
-        elif "4o" in norm_model.lower():
-            norm_model = "gpt-4o"
-        else:
-            norm_model = norm_model.lower()
-    elif "deepseek" in resolved_provider:
-        if not norm_model or "deepseek" not in norm_model.lower():
-            norm_model = "deepseek-chat"
-        elif "r1" in norm_model.lower() or "reasoner" in norm_model.lower():
-            norm_model = "deepseek-reasoner"
-        else:
-            norm_model = "deepseek-chat"
-    elif "groq" in resolved_provider:
-        if not norm_model or "llama" not in norm_model.lower():
-            norm_model = "llama-3.3-70b-versatile"
-    elif "xai" in resolved_provider or "grok" in resolved_provider:
-        if not norm_model or "grok" not in norm_model.lower():
-            norm_model = "grok-2-latest"
-
-    resolved_model = norm_model or resolved_model
 
     # 2. OPENAI / DEEPSEEK / GROQ / XAI / OLLAMA / CUSTOM OPENAI-COMPATIBLE
     return await _call_openai_compatible(
