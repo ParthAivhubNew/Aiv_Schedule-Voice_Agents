@@ -24,6 +24,25 @@ async def resolve_llm_credentials(
     burl = (base_url or "").strip() or None
     mod = (model or "").strip() or None
 
+    # Auto-detect provider if key prefix is unmistakable
+    if key:
+        if key.startswith("sk-ant-"):
+            prov = "anthropic"
+        elif key.startswith("sk-proj-"):
+            prov = "openai"
+        elif key.startswith("gsk_"):
+            prov = "groq"
+        elif key.startswith("xai-"):
+            prov = "xai"
+
+    # Normalize common provider aliases
+    if "claude" in prov:
+        prov = "anthropic"
+    elif "chatgpt" in prov or "gpt" in prov:
+        prov = "openai"
+    elif "grok" in prov:
+        prov = "xai"
+
     # If explicit key was passed in request, use it!
     if key:
         return {
@@ -80,30 +99,43 @@ async def resolve_llm_credentials(
         except Exception as e:
             logger.warning(f"Failed to query DB for LLM connections: {e}")
 
-    # Fallback to standard environment variables
-    env_keys = [
-        ("deepseek", "DEEPSEEK_API_KEY", "https://api.deepseek.com", "deepseek-chat"),
-        ("openai", "OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4o"),
-        ("anthropic", "ANTHROPIC_API_KEY", "https://api.anthropic.com/v1", "claude-3-5-sonnet-20241022"),
-        ("groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-        ("xai", "XAI_API_KEY", "https://api.x.ai/v1", "grok-2-latest"),
-    ]
-    for p_name, env_var, default_url, default_model in env_keys:
+    # Fallback to standard environment variables ONLY if matching the provider or unassigned
+    prov_env_map = {
+        "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "deepseek-chat"),
+        "openai": ("OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4o"),
+        "anthropic": ("ANTHROPIC_API_KEY", "https://api.anthropic.com/v1", "claude-3-5-sonnet-20241022"),
+        "groq": ("GROQ_API_KEY", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
+        "xai": ("XAI_API_KEY", "https://api.x.ai/v1", "grok-2-latest"),
+    }
+
+    if prov in prov_env_map:
+        env_var, default_url, default_model = prov_env_map[prov]
         k = os.getenv(env_var, "").strip()
-        if k:
+        if k and (env_var != "ANTHROPIC_API_KEY" or k.startswith("sk-ant-")):
             return {
-                "provider": prov or p_name,
+                "provider": prov,
                 "api_key": k,
                 "base_url": burl or default_url,
                 "model": mod or default_model
             }
 
-    # Return whatever was provided (may be Ollama or unauthenticated local)
+    if not prov:
+        for p_name, (env_var, default_url, default_model) in prov_env_map.items():
+            k = os.getenv(env_var, "").strip()
+            if k and (env_var != "ANTHROPIC_API_KEY" or k.startswith("sk-ant-")):
+                return {
+                    "provider": p_name,
+                    "api_key": k,
+                    "base_url": burl or default_url,
+                    "model": mod or default_model
+                }
+
+    # Return whatever was provided without pretending to have a key
     return {
-        "provider": prov or "ollama",
+        "provider": prov or "openai",
         "api_key": "",
-        "base_url": burl or "http://localhost:11434/v1",
-        "model": mod or "llama3.2"
+        "base_url": burl or "",
+        "model": mod or "gpt-4o"
     }
 
 
@@ -149,7 +181,14 @@ async def call_open_chat_llm(
     if effective_system:
         formatted_messages.append({"role": "system", "content": effective_system})
 
+    if isinstance(messages, str):
+        messages = [{"role": "user", "content": messages}]
+
     for m in messages:
+        if isinstance(m, str):
+            if m.strip():
+                formatted_messages.append({"role": "user", "content": m.strip()})
+            continue
         role = m.get("role") or m.get("sender") or "user"
         if role in ["ai", "assistant", "bot"]:
             role = "assistant"
@@ -167,30 +206,69 @@ async def call_open_chat_llm(
             "reply": "Please enter a message to start chatting."
         }
 
-    # If no key and not a local endpoint, inform user clearly
-    is_local = "localhost" in str(resolved_base_url) or "127.0.0.1" in str(resolved_base_url) or "ollama" in resolved_provider
+    # If no key and not an explicit local endpoint, inform user immediately without buffering
+    is_local = bool(resolved_base_url and ("localhost" in str(resolved_base_url) or "127.0.0.1" in str(resolved_base_url)))
     if not resolved_key and not is_local:
+        prov_display = resolved_provider.upper() if resolved_provider else "AI"
         return {
             "success": False,
-            "error": "Missing API Key",
+            "error": f"Missing {prov_display} API Key",
             "reply": (
-                "⚠️ **No AI API Key is currently configured.**\n\n"
-                "Please configure an API key in the **AI Plugin Configuration** window (e.g. OpenAI, DeepSeek, Anthropic Claude, Groq, or xAI), "
-                "or start Ollama on `http://localhost:11434` for private local models."
+                f"⚠️ **No active API key configured for {prov_display}.**\n\n"
+                "Please configure and save your API key in **Post Scheduler AI Config** (or the Global AI Config window) to activate real-time chat and planning."
             ),
             "model": resolved_model or "None",
             "provider": resolved_provider
         }
 
-    # 1. ANTHROPIC CLAUDE DIRECT
+    # Normalize vendor model names so user-friendly names (e.g. 'Claude 3.5 Sonnet', 'GPT-4o') match provider APIs
+    norm_model = (resolved_model or "").strip()
     if "anthropic" in resolved_provider or "claude" in resolved_provider:
+        if not norm_model or "claude" not in norm_model.lower():
+            norm_model = "claude-3-5-sonnet-20241022"
+        elif "3.7" in norm_model or "3-7" in norm_model:
+            norm_model = "claude-3-7-sonnet-20250219"
+        elif "haiku" in norm_model.lower():
+            norm_model = "claude-3-5-haiku-20241022"
+        elif "sonnet" in norm_model.lower():
+            norm_model = "claude-3-5-sonnet-20241022"
+        resolved_model = norm_model
+
         return await _call_anthropic(
             messages=formatted_messages,
             api_key=resolved_key,
-            model=resolved_model or "claude-3-5-sonnet-20241022",
+            model=resolved_model,
             temperature=temperature,
             max_tokens=max_tokens
         )
+
+    # Normalize OpenAI / DeepSeek / Groq / xAI models
+    if "openai" in resolved_provider:
+        if not norm_model or ("gpt" not in norm_model.lower() and "o3" not in norm_model.lower()):
+            norm_model = "gpt-4o"
+        elif "mini" in norm_model.lower():
+            norm_model = "gpt-4o-mini"
+        elif "o3" in norm_model.lower():
+            norm_model = "o3-mini"
+        elif "4o" in norm_model.lower():
+            norm_model = "gpt-4o"
+        else:
+            norm_model = norm_model.lower()
+    elif "deepseek" in resolved_provider:
+        if not norm_model or "deepseek" not in norm_model.lower():
+            norm_model = "deepseek-chat"
+        elif "r1" in norm_model.lower() or "reasoner" in norm_model.lower():
+            norm_model = "deepseek-reasoner"
+        else:
+            norm_model = "deepseek-chat"
+    elif "groq" in resolved_provider:
+        if not norm_model or "llama" not in norm_model.lower():
+            norm_model = "llama-3.3-70b-versatile"
+    elif "xai" in resolved_provider or "grok" in resolved_provider:
+        if not norm_model or "grok" not in norm_model.lower():
+            norm_model = "grok-2-latest"
+
+    resolved_model = norm_model or resolved_model
 
     # 2. OPENAI / DEEPSEEK / GROQ / XAI / OLLAMA / CUSTOM OPENAI-COMPATIBLE
     return await _call_openai_compatible(

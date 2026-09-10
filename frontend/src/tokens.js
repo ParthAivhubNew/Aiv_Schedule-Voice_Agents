@@ -98,39 +98,81 @@ export function timezoneLabel(tzId) {
 }
 
 export function getActiveAiCredentials(commonAi, pluginType = "leadgen", featureKey = "") {
-  // If scheduler, prioritize schedulerAi state and localStorage directly
+  // If scheduler, check schedulerAi state, localStorage, and commonAi.providers
   if (pluginType === "scheduler") {
-    if (commonAi?.schedulerAi?.apiKey) {
-      return {
-        apiKey: commonAi.schedulerAi.apiKey,
-        provider: commonAi.schedulerAi.provider || "deepseek",
-        model: commonAi.schedulerAi.model || "deepseek-chat",
-        baseUrl: commonAi.schedulerAi.baseUrl || ""
-      };
+    let schedProv = commonAi?.schedulerAi?.provider;
+    let schedKey = commonAi?.schedulerAi?.apiKey;
+    let schedModel = commonAi?.schedulerAi?.model || commonAi?.schedulerLayers?.postWriter;
+    let schedBaseUrl = commonAi?.schedulerAi?.baseUrl;
+
+    if (!schedKey) {
+      try {
+        const s = localStorage.getItem("aivhub_scheduler_ai");
+        if (s) {
+          const parsed = JSON.parse(s);
+          if (parsed.apiKey) schedKey = parsed.apiKey;
+          if (parsed.provider) schedProv = parsed.provider;
+          if (parsed.model) schedModel = schedModel || parsed.model;
+          if (parsed.baseUrl) schedBaseUrl = schedBaseUrl || parsed.baseUrl;
+        }
+      } catch (_) {}
     }
-    try {
-      const s = localStorage.getItem("aivhub_scheduler_ai");
-      if (s) {
-        const parsed = JSON.parse(s);
-        if (parsed.apiKey) {
-          return {
-            apiKey: parsed.apiKey,
-            provider: parsed.provider || "deepseek",
-            model: parsed.model || "deepseek-chat",
-            baseUrl: parsed.baseUrl || ""
-          };
+
+    // If key not in schedulerAi, check if key is in commonAi.providers for schedProv
+    if (!schedKey && schedProv && Array.isArray(commonAi?.providers)) {
+      const matched = commonAi.providers.find((p) => p.id === schedProv || p.name?.toLowerCase() === schedProv.toLowerCase());
+      if (matched && matched.apiKey) {
+        schedKey = matched.apiKey;
+        schedBaseUrl = schedBaseUrl || matched.baseUrl;
+      }
+    }
+
+    // Check if schedModel matches any provider in commonAi.providers
+    if (!schedKey && schedModel && Array.isArray(commonAi?.providers)) {
+      const sm = schedModel.toLowerCase();
+      let matchedId = sm.includes("claude") || sm.includes("anthropic") ? "anthropic" :
+                      sm.includes("gpt") || sm.includes("openai") ? "openai" :
+                      sm.includes("deepseek") ? "deepseek" :
+                      sm.includes("groq") || sm.includes("llama") ? "groq" :
+                      sm.includes("grok") || sm.includes("xai") ? "xai" : "";
+      if (matchedId) {
+        const matched = commonAi.providers.find((p) => p.id === matchedId);
+        if (matched && matched.apiKey) {
+          schedKey = matched.apiKey;
+          schedProv = matchedId;
+          schedBaseUrl = schedBaseUrl || matched.baseUrl;
         }
       }
-    } catch (_) {}
+    }
+
+    // Fallback: search ANY connected provider in commonAi.providers that has an API key
+    if (!schedKey && Array.isArray(commonAi?.providers)) {
+      const anyConn = commonAi.providers.find((p) => p.apiKey && p.apiKey.trim().length > 0);
+      if (anyConn) {
+        schedKey = anyConn.apiKey;
+        schedProv = anyConn.id;
+        schedModel = schedModel || anyConn.models?.[0] || anyConn.name;
+        schedBaseUrl = schedBaseUrl || anyConn.baseUrl;
+      }
+    }
+
+    if (schedKey) {
+      return {
+        apiKey: schedKey,
+        provider: schedProv || "openai",
+        model: schedModel || "gpt-4o",
+        baseUrl: schedBaseUrl || ""
+      };
+    }
   }
 
   if (!commonAi) {
-    return { apiKey: "", provider: "deepseek", model: "DeepSeek-V3", baseUrl: "" };
+    return { apiKey: "", provider: "openai", model: "gpt-4o", baseUrl: "" };
   }
 
   let modelName = "";
   if (pluginType === "leadgen") modelName = commonAi.leadgenLayers?.[featureKey || "researchLlm"] || "DeepSeek-V3";
-  else if (pluginType === "scheduler") modelName = commonAi.schedulerLayers?.[featureKey || "postWriter"] || commonAi.schedulerAi?.model || "Claude 3.5 Sonnet";
+  else if (pluginType === "scheduler") modelName = commonAi.schedulerLayers?.[featureKey || "postWriter"] || commonAi.schedulerAi?.model || "gpt-4o";
   else if (pluginType === "email") modelName = commonAi.emailLayers?.[featureKey || "copywriterLlm"] || "Claude 3.5 Sonnet";
   else if (pluginType === "voice") modelName = commonAi.voiceLayers?.[featureKey || "llm"] || "xAI Grok-2";
 
@@ -149,7 +191,7 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
 
   // Check provider in commonAi.providers
   const m = String(modelName || "").toLowerCase();
-  let provId = "deepseek";
+  let provId = "openai";
   if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet") || m.includes("haiku")) provId = "anthropic";
   else if (m.includes("gpt") || m.includes("openai") || m.includes("o3")) provId = "openai";
   else if (m.includes("deepseek")) provId = "deepseek";
@@ -192,9 +234,9 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
 
   return {
     apiKey: resolvedKey,
-    provider: provObj?.name || provId,
-    model: modelName,
-    baseUrl: provObj?.baseUrl || commonAi.schedulerAi?.baseUrl || ""
+    provider: provId,
+    model: modelName || "gpt-4o",
+    baseUrl: provObj?.baseUrl || commonAi?.schedulerAi?.baseUrl || ""
   };
 }
 
