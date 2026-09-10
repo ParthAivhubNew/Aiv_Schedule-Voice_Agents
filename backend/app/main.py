@@ -57,6 +57,24 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text("ALTER TABLE knowledge_sources ADD COLUMN chunk_count INTEGER DEFAULT 0;"))
             except Exception:
                 pass
+
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS last_error TEXT;"))
+        except Exception:
+            try:
+                await conn.execute(text("ALTER TABLE knowledge_sources ADD COLUMN last_error TEXT;"))
+            except Exception:
+                pass
+
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS crawled_at TIMESTAMPTZ;"))
+        except Exception:
+            try:
+                await conn.execute(text("ALTER TABLE knowledge_sources ADD COLUMN crawled_at TIMESTAMP;"))
+            except Exception:
+                pass
     await seed_database()
     try:
         from app.services.process_logger import log_process_event

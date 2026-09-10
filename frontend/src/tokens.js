@@ -105,6 +105,7 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
     let schedModel = commonAi?.schedulerAi?.model || commonAi?.schedulerLayers?.postWriter;
     let schedBaseUrl = commonAi?.schedulerAi?.baseUrl;
 
+    // Also check persisted localStorage for Scheduler AI config
     if (!schedKey || !schedProv) {
       try {
         const s = localStorage.getItem("aivhub_scheduler_ai");
@@ -124,6 +125,17 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
       if (matched && matched.apiKey) {
         schedKey = matched.apiKey;
         schedBaseUrl = schedBaseUrl || matched.baseUrl;
+      }
+    }
+
+    // Ultimate fallback: if still no key, use ANY provider that has a key configured in Global AI Studio
+    if (!schedKey && Array.isArray(commonAi?.providers)) {
+      const anyConnected = commonAi.providers.find((p) => p.apiKey && p.apiKey.trim().length > 0);
+      if (anyConnected) {
+        schedKey = anyConnected.apiKey;
+        if (!schedProv) schedProv = anyConnected.id;
+        if (!schedModel) schedModel = anyConnected.models?.[0] || undefined;
+        schedBaseUrl = schedBaseUrl || anyConnected.baseUrl || "";
       }
     }
 
