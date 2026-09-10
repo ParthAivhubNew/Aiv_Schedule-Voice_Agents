@@ -14367,8 +14367,13 @@ const SOCIAL_CHANNELS = {
   instagram: { label: "Instagram", color: "#E4405F", soft: "#FDECEE", mark: "Ig" },
 };
 
-const PLAN_MONTH = { year: 2026, month: 8, label: "September 2026" };
-const SCHEDULER_NOW = new Date(2026, 8, 1, 10, 0, 0);
+const _currentNow = new Date();
+const PLAN_MONTH = {
+  year: _currentNow.getFullYear(),
+  month: _currentNow.getMonth(),
+  label: _currentNow.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+};
+const SCHEDULER_NOW = _currentNow;
 const WEEKDAY_NUM = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
 const THEME_TINT = {
   ps_mon: { fg: "#3457D5", bg: "#EAEEFC" },
@@ -14448,15 +14453,19 @@ function weekdayName(dateObj) {
 function horizonRange(horizon, now) {
   const n = now || SCHEDULER_NOW;
   const start = new Date(startOfDayMs(n));
+  const daysMatch = String(horizon || "").match(/^(\d+)days$/);
+  if (daysMatch) {
+    const count = parseInt(daysMatch[1], 10);
+    return rangeFromDates(start, addDays(start, Math.max(0, count - 1)), `${count}days`);
+  }
   if (horizon === "2days") {
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    return rangeFromDates(start, end, "2days");
+    return rangeFromDates(start, addDays(start, 1), "2days");
+  }
+  if (horizon === "3days") {
+    return rangeFromDates(start, addDays(start, 2), "3days");
   }
   if (horizon === "week") {
-    const end = new Date(start);
-    end.setDate(end.getDate() + 6);
-    return rangeFromDates(start, end, "week");
+    return rangeFromDates(start, addDays(start, 6), "week");
   }
   return monthRange(n.getFullYear(), n.getMonth());
 }
@@ -14514,6 +14523,14 @@ function parseDateRangeFromText(text, now) {
   const iso = t.match(/\b(\d{4}-\d{2}-\d{2})\s*(?:to|–|-)\s*(\d{4}-\d{2}-\d{2})\b/);
   if (iso) return rangeFromDates(new Date(iso[1]), new Date(iso[2]), "custom");
 
+  const nextDays = t.match(/\b(?:next|for|upcoming)\s+(\d{1,2})\s+days?\b/i) || t.match(/\b(\d{1,2})\s+days?\b/i);
+  if (nextDays) {
+    const num = parseInt(nextDays[1], 10);
+    if (num >= 1 && num <= 60) {
+      return rangeFromDates(today, addDays(today, num - 1), `${num}days`);
+    }
+  }
+
   if (/\blast week\b/.test(t)) {
     const end = addDays(today, -1);
     return rangeFromDates(addDays(end, -6), end, "past_week");
@@ -14550,7 +14567,10 @@ function parseDateRangeFromText(text, now) {
 }
 
 function parseHorizonFromText(t) {
+  const m = t.match(/\b(?:next|for|upcoming)?\s*(\d{1,2})\s+days?\b/i);
+  if (m) return `${m[1]}days`;
   if (/\b(2 days|two days|couple of days|next two)\b/.test(t)) return "2days";
+  if (/\b(3 days|three days)\b/.test(t)) return "3days";
   if (/\b(this week|one week|a week)\b/.test(t) && !/\blast week\b/.test(t) && !/\bnext week\b/.test(t)) return "week";
   if (/\b(this month|the month|whole month)\b/.test(t) && !/\blast month\b/.test(t) && !/\bnext month\b/.test(t)) return "month";
   return null;
@@ -14787,268 +14807,15 @@ function writePostsFrom(schList, topicList, slotList, company) {
 }
 
 
-const INITIAL_MONTH_SLOTS = expandMonthSlots(INITIAL_POST_SCHEDULES, PLAN_MONTH.year, PLAN_MONTH.month).map((s, idx) => {
-  if (idx === 0) return { ...s, topicId: "t_mon_1", postId: "post_seed_pub_1" };
-  if (idx === 1) return { ...s, topicId: "t_mon_2", postId: "post_seed_awaiting_1" };
-  if (idx === 2) return { ...s, topicId: "t_mon_3", postId: "post_seed_awaiting_2" };
-  if (idx === 3) return { ...s, topicId: "t_mon_4", postId: "post_seed_approved_1" };
-  if (idx === 4) return { ...s, topicId: "t_mon_5", postId: "post_seed_scheduled_1" };
-  return s;
-});
+const INITIAL_MONTH_SLOTS = [];
+const INITIAL_SCHEDULER_TOPICS = [];
+const INITIAL_RESEARCH_SETS = [];
 
-const INITIAL_SCHEDULER_TOPICS = [
-  {
-    id: "t_mon_1",
-    freshness: "Yesterday",
-    source: "Industry Benchmark",
-    query: "UK logistics efficiency & fleet tech",
-    headline: "Fleet operators report 28% telematics integration lag in Q3",
-    angle: "Why standalone telematics without dispatch integration costs fleets 4.2 hours per driver per week.",
-    saved: true,
-  },
-  {
-    id: "t_mon_2",
-    freshness: "2 days ago",
-    source: "Customer Interviews",
-    query: "UK logistics efficiency & fleet tech",
-    headline: "Why multi-depot operations directors are ditching disconnected spreadsheets",
-    angle: "Manual reconciliation across 4+ depots creates invoicing latency that eats straight into EBITDA.",
-    saved: true,
-  },
-  {
-    id: "t_mon_3",
-    freshness: "3 days ago",
-    source: "Technical Analysis",
-    query: "B2B warehouse automation trends 2026",
-    headline: "Autonomous dispatch vs human dispatcher intuition: where the real ROI lands",
-    angle: "AI route sequencing isn't about replacing dispatchers—it gives them 35 extra minutes per run.",
-    saved: true,
-  },
-  {
-    id: "t_mon_4",
-    freshness: "4 days ago",
-    source: "Regulatory Updates",
-    query: "Cold chain telematics compliance",
-    headline: "Cold chain compliance: new 2026 digital reporting standards for food & pharma",
-    angle: "Manual temperature logs are facing audit penalties under the revised traceability guidelines.",
-    saved: true,
-  },
-  {
-    id: "t_mon_5",
-    freshness: "5 days ago",
-    source: "Case Study",
-    query: "UK logistics efficiency & fleet tech",
-    headline: "How mid-market distributors cut invoice turnaround from 14 days to 4 hours",
-    angle: "Instant proof-of-delivery sync eliminates 85% of debtor payment disputes.",
-    saved: true,
-  },
-  {
-    id: "t_mon_6",
-    freshness: "Last week",
-    source: "Operations Survey",
-    query: "B2B warehouse automation trends 2026",
-    headline: "Driver retention correlates directly with transparent run scheduling",
-    angle: "Predictable schedules reduce churn by 32% in heavy haulage and pallet networks.",
-    saved: true,
-  },
-  {
-    id: "t_mon_7",
-    freshness: "Last week",
-    source: "Market Intelligence",
-    query: "B2B warehouse automation trends 2026",
-    headline: "Zero-emission logistics zones: navigating urban fleet transition without margin shock",
-    angle: "Practical route clustering strategies to manage EV payload and charging constraints.",
-    saved: true,
-  },
-  {
-    id: "t_mon_8",
-    freshness: "Last week",
-    source: "Cost Engineering",
-    query: "Cold chain telematics compliance",
-    headline: "Predictive fleet maintenance algorithms save £420 per vehicle per month",
-    angle: "Spotting alternator and brake wear 500 miles before roadside failure.",
-    saved: true,
-  },
-];
-
-const INITIAL_RESEARCH_SETS = [
-  { id: "rs_1", query: "UK logistics efficiency & fleet tech", at: "Yesterday", count: 4 },
-  { id: "rs_2", query: "B2B warehouse automation trends 2026", at: "3 days ago", count: 3 },
-  { id: "rs_3", query: "Cold chain telematics compliance", at: "Last week", count: 2 },
-];
-
-const INITIAL_SCHEDULER_EMAILS = [
-  {
-    id: "em_1",
-    to: "operator@aivhub.com",
-    sentAt: "Today 08:30",
-    status: "unread",
-    subject: "[Approval Required] LinkedIn Post for Tomorrow: Multi-depot Spreadsheet Inefficiencies",
-    preview: "Why multi-depot operations directors are ditching disconnected spreadsheets...",
-    body: "Hi Team,\n\nThe post scheduled for Tuesday 09:00 is ready for your review:\n\n'Why multi-depot operations directors are ditching disconnected spreadsheets...\n\nManual reconciliation across 4+ depots creates invoicing latency that eats straight into EBITDA.'\n\nTarget Channels: LinkedIn, Facebook\nCTA: Request an operations audit →",
-  },
-  {
-    id: "em_2",
-    to: "operator@aivhub.com",
-    sentAt: "Yesterday 16:15",
-    status: "unread",
-    subject: "[Approval Required] Post for Thu 14:00: Autonomous Dispatch vs Dispatcher Intuition",
-    preview: "AI route sequencing isn't about replacing dispatchers—it gives them 35 extra minutes per run...",
-    body: "Hi Team,\n\nPost generated by Claude 3.5 Sonnet for Thursday afternoon run is pending approval.\n\nPreview:\n'AI route sequencing isn't about replacing dispatchers—it gives them 35 extra minutes per run to solve customer exceptions.'",
-  },
-  {
-    id: "em_3",
-    to: "operator@aivhub.com",
-    sentAt: "Mon 24 Aug 09:05",
-    status: "read",
-    subject: "[Published] Monday Ops Weekly successfully posted to LinkedIn and X",
-    preview: "Your post 'Ops teams still closing the week in spreadsheets' is live.",
-    body: "Your post has been broadcast to LinkedIn and X. Real-time impressions and engagement are now tracking in your Published tab.",
-  },
-];
-const INITIAL_POST_ITEMS = [
-  {
-    id: "post_seed_awaiting_1",
-    slotId: "slot_seed_tue",
-    scheduleId: "ps_tue",
-    weekday: "Tuesday",
-    dateLabel: "Tomorrow · 09:00",
-    channels: ["linkedin", "facebook"],
-    theme: "Operations — streamlining multi-depot dispatch and reporting",
-    topicId: "t_mon_2",
-    topicHeadline: "Why multi-depot operations directors are ditching disconnected spreadsheets",
-    topicSource: "Customer Interviews",
-    topicFreshness: "2 days ago",
-    copy: "Most logistics directors spend Friday afternoon praying their VLOOKUPs hold together across 4 separate depot spreadsheets.\n\nHere is what changed: automated data pipelines don't just save 14 hours a week—they eliminate the silent invoice discrepancies that cause 6-week debtor payment delays.\n\nWhen every depot runs on the same real-time dispatch truth, finance closes month-end in 4 hours instead of 4 days.",
-    cta: "See how AIVHub unifies multi-depot operations →",
-    writtenInApp: true,
-    kbUsed: ["Company Overview", "Enterprise Case Studies"],
-    emailSent: true,
-    approvalVia: [],
-    status: "awaiting_approval",
-    publishedAt: null,
-    edited: false,
-    variant: 0,
-  },
-  {
-    id: "post_seed_awaiting_2",
-    slotId: "slot_seed_thu",
-    scheduleId: "ps_thu",
-    weekday: "Thursday",
-    dateLabel: "Thu 14:00",
-    channels: ["linkedin", "x"],
-    theme: "Tech insight — dispatch automation without driver friction",
-    topicId: "t_mon_3",
-    topicHeadline: "Autonomous dispatch vs dispatcher intuition: where the real ROI lands",
-    topicSource: "Technical Analysis",
-    topicFreshness: "3 days ago",
-    copy: "Automated route sequencing was never about replacing skilled dispatchers.\n\nIt's about giving them 45 minutes back per shift so they can manage exceptions, handle driver delays, and satisfy high-priority accounts instead of manually dragging job pins across a map.",
-    cta: "Explore modern voice & dispatch automation →",
-    writtenInApp: true,
-    kbUsed: ["AIVHub Whitepaper 2026"],
-    emailSent: true,
-    approvalVia: [],
-    status: "awaiting_approval",
-    publishedAt: null,
-    edited: false,
-    variant: 0,
-  },
-  {
-    id: "post_seed_approved_1",
-    slotId: "slot_seed_fri",
-    scheduleId: "ps_fri",
-    weekday: "Friday",
-    dateLabel: "Fri 11:30",
-    channels: ["linkedin", "threads"],
-    theme: "Compliance & Security — cold chain tracking",
-    topicId: "t_mon_4",
-    topicHeadline: "Cold chain compliance: new 2026 digital reporting standards",
-    topicSource: "Regulatory Updates",
-    topicFreshness: "4 days ago",
-    copy: "Audit failure in cold-chain transport doesn't happen on the road—it happens when paperwork arrives 72 hours after perishable delivery.\n\nReal-time telemetry and automated compliance logs protect operating licenses before inspectors ask.",
-    cta: "Download the 2026 cold chain compliance checklist →",
-    writtenInApp: true,
-    kbUsed: ["Regulatory Briefing"],
-    emailSent: true,
-    approvalVia: ["email"],
-    status: "approved",
-    publishedAt: null,
-    edited: false,
-    variant: 0,
-  },
-  {
-    id: "post_seed_scheduled_1",
-    slotId: "slot_seed_next_mon",
-    scheduleId: "ps_mon",
-    weekday: "Monday",
-    dateLabel: "Mon 8 Sep · 09:00",
-    channels: ["linkedin", "facebook"],
-    theme: "Customer success — fast invoicing turnaround",
-    topicId: "t_mon_5",
-    topicHeadline: "How mid-market distributors cut invoice turnaround from 14 days to 4 hours",
-    topicSource: "Case Study",
-    topicFreshness: "5 days ago",
-    copy: "When paper delivery notes sit in driver cabs for 10 days, cash flow suffers.\n\nSwitching to immediate voice & mobile proof-of-delivery cut disputes by 85% for UK freight operators.",
-    cta: "Read the case study →",
-    writtenInApp: true,
-    kbUsed: ["Customer Success Stories"],
-    emailSent: false,
-    approvalVia: [],
-    status: "scheduled",
-    publishedAt: null,
-    edited: false,
-    variant: 0,
-  },
-  {
-    id: "post_seed_pub_1",
-    slotId: null,
-    scheduleId: "ps_mon",
-    weekday: "Monday",
-    dateLabel: "Mon 24 Aug · 09:00",
-    channels: ["linkedin", "facebook"],
-    theme: "Product — what we shipped and how it helps ops teams",
-    topicId: "t_mon_1",
-    topicHeadline: "Ops teams still closing the week in spreadsheets — that's the gap we built for",
-    topicSource: "Customer calls",
-    topicFreshness: "Last week",
-    copy: "Ops teams still closing the week in spreadsheets — that's the gap we built for.\n\nIf Friday still means exporting CSV and praying the numbers match, the dashboard isn't a nice-to-have. It's how the week should have felt.",
-    cta: "See how AIVHub dashboards work →",
-    writtenInApp: true,
-    kbUsed: ["Company website"],
-    emailSent: false,
-    approvalVia: [],
-    status: "published",
-    publishedAt: "Mon 24 Aug · 2.1k views",
-    edited: false,
-    variant: 0,
-  },
-  {
-    id: "post_seed_pub_2",
-    slotId: null,
-    scheduleId: "ps_wed",
-    weekday: "Wednesday",
-    dateLabel: "Wed 26 Aug · 13:00",
-    channels: ["linkedin", "x"],
-    theme: "Greentech — zero-emission urban delivery zones",
-    topicId: "t_mon_7",
-    topicHeadline: "Zero-emission logistics zones: navigating urban fleet transition",
-    topicSource: "Market Intelligence",
-    topicFreshness: "Last week",
-    copy: "Fleet electrification isn't just a vehicle purchase decision; it is a route topology problem. Range buffers require dynamic routing.",
-    cta: "View our EV route planning playbook →",
-    writtenInApp: true,
-    kbUsed: ["Fleet Planning Deck"],
-    emailSent: false,
-    approvalVia: [],
-    status: "published",
-    publishedAt: "Wed 26 Aug · 1.8k views",
-    edited: false,
-    variant: 0,
-  },
-];
+const INITIAL_SCHEDULER_EMAILS = [];
+const INITIAL_POST_ITEMS = [];
 
 const INITIAL_SCHEDULER_CHAT = [
-  { id: "c0", who: "ai", text: "This is Plan AI. Stay here.\n\nChat dates, themes, channels — and search topics in this same thread. Results land on the left. Keep talking until the plan is ready, then save." },
+  { id: "c0", who: "ai", text: "Welcome to Plan AI! Ask me to plan content for any horizon (e.g. *“Plan next 3 days on LinkedIn and X about real-time operations dashboards”*), research trending angles, draft hooks, or craft social media copy." }
 ];
 
 function extractChannelsFromText(t) {
@@ -15101,7 +14868,7 @@ function themesByDayFromText(text) {
 function fallbackThemeFromText(text, company) {
   let t = String(text || "");
   DAY_CANON.forEach((d) => { t = t.replace(new RegExp("\\b" + d + "s?\\b", "gi"), " "); });
-  t = t.replace(/\b(plan|planning|september|october|november|month|weekly|every|weekday|weekend|daily|for|on|in|the|and|then|find|topics|write|posts|linkedin|facebook|instagram|twitter|\bx\b|schedule|set up|please|this|next|our|company|we|are)\b/gi, " ");
+  t = t.replace(/\b(\d+\s*days?|next\s*\d+\s*days?|about|plan|planning|september|october|november|december|january|february|march|april|may|june|july|august|month|weekly|every|weekday|weekend|daily|for|on|in|the|and|then|find|topics|write|posts|linkedin|facebook|instagram|twitter|\bx\b|schedule|set up|please|this|next|our|company|we|are)\b/gi, " ");
   t = t.replace(/[—–:]+/g, " ").replace(/\s+/g, " ").trim();
   const who = (company && company.name) || "us";
   return t || ("What " + who + " is shipping");
@@ -15114,11 +14881,22 @@ function buildSchedulesFromText(text, company) {
   const time = extractTimeFromText(t);
   const byDay = themesByDayFromText(text);
   let days = weekdaysFromText(t);
+
+  const nextDaysMatch = t.match(/\b(?:next|for|upcoming)?\s*(\d{1,2})\s+days?\b/i);
+  if (nextDaysMatch && !days.length) {
+    const num = Math.min(14, parseInt(nextDaysMatch[1], 10));
+    const now = SCHEDULER_NOW || new Date();
+    days = [];
+    for (let i = 0; i < num; i++) {
+      days.push(weekdayName(addDays(now, i)));
+    }
+  }
+
   if (!days.length) days = Object.keys(byDay);
   if (!days.length) days = ["Monday", "Wednesday", "Friday"];
   const sharedTheme = fallbackThemeFromText(text, company);
-  return days.map((weekday) => ({
-    id: "ps_" + weekday.slice(0, 3).toLowerCase(),
+  return days.map((weekday, idx) => ({
+    id: "ps_" + weekday.slice(0, 3).toLowerCase() + "_" + idx,
     weekday,
     time,
     cadence: "weekly",
@@ -15184,6 +14962,265 @@ function parseChatIntent(text, ctx) {
   if (renamed) return { kind: "rename_company", name: renamed };
 
   return { kind: "help" };
+}
+
+function renderInlineMarkdown(str) {
+  if (!str) return null;
+  const tokenRegex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|#[a-zA-Z0-9_]+)/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = tokenRegex.exec(str)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(str.substring(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**")) {
+      parts.push(
+        <strong key={`b_${match.index}`} style={{ fontWeight: 700, color: "#0f172a" }}>
+          {token.slice(2, -2)}
+        </strong>
+      );
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      parts.push(
+        <em key={`i_${match.index}`} style={{ fontStyle: "italic", color: "#334155" }}>
+          {token.slice(1, -1)}
+        </em>
+      );
+    } else if (token.startsWith("`") && token.endsWith("`")) {
+      parts.push(
+        <code
+          key={`c_${match.index}`}
+          style={{
+            background: "rgba(0,0,0,0.06)",
+            padding: "2px 5px",
+            borderRadius: 4,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "0.88em",
+            color: "#0f172a"
+          }}
+        >
+          {token.slice(1, -1)}
+        </code>
+      );
+    } else if (token.startsWith("#")) {
+      parts.push(
+        <span
+          key={`h_${match.index}`}
+          style={{
+            display: "inline-block",
+            background: "#eff6ff",
+            color: "#1d4ed8",
+            padding: "1px 6px",
+            marginRight: 4,
+            marginBottom: 2,
+            borderRadius: 4,
+            fontSize: "0.88em",
+            fontWeight: 600
+          }}
+        >
+          {token}
+        </span>
+      );
+    }
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < str.length) {
+    parts.push(str.substring(lastIndex));
+  }
+
+  return parts;
+}
+
+function FormattedChatResponse({ text }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const elements = [];
+  let blockquoteBuffer = [];
+  let listBuffer = [];
+
+  const flushBlockquote = (key) => {
+    if (blockquoteBuffer.length > 0) {
+      const bqText = blockquoteBuffer.join("\n");
+      blockquoteBuffer = [];
+      return (
+        <div
+          key={key}
+          style={{
+            background: "#f8fafc",
+            borderLeft: "3.5px solid #0D9488",
+            borderRadius: "0 8px 8px 0",
+            padding: "10px 14px",
+            margin: "8px 0 12px 0",
+            color: "#334155",
+            fontSize: 13,
+            lineHeight: 1.6,
+            boxShadow: "0 1px 2px rgba(0,0,0,0.02)"
+          }}
+        >
+          {bqText.split("\n").map((bql, bqi) => (
+            <div key={bqi} style={{ minHeight: bql.trim() === "" ? 6 : "auto" }}>
+              {renderInlineMarkdown(bql)}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const flushList = (key) => {
+    if (listBuffer.length > 0) {
+      const items = [...listBuffer];
+      listBuffer = [];
+      return (
+        <div key={key} style={{ margin: "6px 0 10px 4px", display: "flex", flexDirection: "column", gap: 5 }}>
+          {items.map((it, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 7, fontSize: 13, lineHeight: 1.55 }}>
+              <span style={{ color: "#0D9488", fontWeight: 700, minWidth: 14 }}>{it.bullet}</span>
+              <span style={{ flex: 1, color: "#1e293b" }}>{renderInlineMarkdown(it.text)}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Check blockquote (e.g. > Quote)
+    if (trimmed.startsWith(">")) {
+      const flushedList = flushList(`fl_${i}`);
+      if (flushedList) elements.push(flushedList);
+      blockquoteBuffer.push(trimmed.replace(/^>\s?/, ""));
+      continue;
+    } else {
+      const flushedBq = flushBlockquote(`fbq_${i}`);
+      if (flushedBq) elements.push(flushedBq);
+    }
+
+    // Check list item (→, •, -, *, or 1.)
+    const listMatch = trimmed.match(/^([→•\-*]|\d+\.)\s+(.+)$/);
+    if (listMatch) {
+      listBuffer.push({ bullet: listMatch[1], text: listMatch[2] });
+      continue;
+    } else {
+      const flushedList = flushList(`fl_${i}`);
+      if (flushedList) elements.push(flushedList);
+    }
+
+    // Check horizontal rule (--- or ***)
+    if (/^[-*_]{3,}$/.test(trimmed)) {
+      elements.push(
+        <div key={`hr_${i}`} style={{ height: 1, background: "rgba(0,0,0,0.08)", margin: "14px 0" }} />
+      );
+      continue;
+    }
+
+    // Check Day Header (e.g. ## 📅 DAY 1 — ... or ## DAY 1)
+    if (/^##\s+(?:📅\s*)?DAY\s+\d+/i.test(trimmed)) {
+      const cleanHeader = trimmed.replace(/^##\s+/, "");
+      elements.push(
+        <div
+          key={`day_${i}`}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "linear-gradient(135deg, #f0fdfa 0%, #e6fffa 100%)",
+            border: "1px solid #99f6e4",
+            borderRadius: 10,
+            padding: "8px 12px",
+            margin: "14px 0 8px",
+            color: "#0f766e"
+          }}
+        >
+          <span style={{ background: "#0d9488", color: "#fff", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>
+            DAY
+          </span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: "#115e59" }}>
+            {cleanHeader.replace(/^📅?\s*DAY\s*\d+\s*[—–-]?\s*/i, "") || cleanHeader}
+          </span>
+        </div>
+      );
+      continue;
+    }
+
+    // Check Channel Header (### LinkedIn, ### X (Twitter), ### Instagram, ### Facebook, ### Threads)
+    const channelMatch = trimmed.match(/^###\s+(LinkedIn|X\s*\(Twitter\)|Twitter|\bX\b|Instagram|Facebook|Threads)(.*)$/i);
+    if (channelMatch) {
+      const chName = channelMatch[1];
+      const chSuffix = channelMatch[2] || "";
+      const isLi = /linkedin/i.test(chName);
+      const isX = /x|twitter/i.test(chName);
+      const badgeBg = isLi ? "#0A66C2" : (isX ? "#0f172a" : "#475569");
+      elements.push(
+        <div key={`ch_${i}`} style={{ display: "flex", alignItems: "center", gap: 6, margin: "12px 0 6px" }}>
+          <span style={{ background: badgeBg, color: "#fff", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
+            {chName}
+          </span>
+          {chSuffix && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#64748b" }}>{chSuffix}</span>}
+        </div>
+      );
+      continue;
+    }
+
+    // Check H1
+    if (trimmed.startsWith("# ")) {
+      elements.push(
+        <div key={`h1_${i}`} style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: "14px 0 6px", lineHeight: 1.3 }}>
+          {renderInlineMarkdown(trimmed.slice(2))}
+        </div>
+      );
+      continue;
+    }
+
+    // Check H2
+    if (trimmed.startsWith("## ")) {
+      elements.push(
+        <div key={`h2_${i}`} style={{ fontSize: 14.5, fontWeight: 700, color: "#1e293b", margin: "12px 0 5px", lineHeight: 1.35 }}>
+          {renderInlineMarkdown(trimmed.slice(3))}
+        </div>
+      );
+      continue;
+    }
+
+    // Check H3
+    if (trimmed.startsWith("### ")) {
+      elements.push(
+        <div key={`h3_${i}`} style={{ fontSize: 13.5, fontWeight: 700, color: "#334155", margin: "10px 0 4px", lineHeight: 1.35 }}>
+          {renderInlineMarkdown(trimmed.slice(4))}
+        </div>
+      );
+      continue;
+    }
+
+    // Empty line
+    if (!trimmed) {
+      elements.push(<div key={`blank_${i}`} style={{ height: 6 }} />);
+      continue;
+    }
+
+    // Regular paragraph line
+    elements.push(
+      <div key={`p_${i}`} style={{ fontSize: 13, lineHeight: 1.6, color: "#1e293b", margin: "2px 0" }}>
+        {renderInlineMarkdown(line)}
+      </div>
+    );
+  }
+
+  // Flush remaining buffers
+  const finalBq = flushBlockquote("fbq_final");
+  if (finalBq) elements.push(finalBq);
+  const finalList = flushList("fl_final");
+  if (finalList) elements.push(finalList);
+
+  return <div style={{ display: "flex", flexDirection: "column" }}>{elements}</div>;
 }
 
 function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, commonAi, setCommonAi, onOpenCommonAi }) {
@@ -15455,6 +15492,16 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   useEffect(() => {
     if (chatEnd.current) chatEnd.current.scrollIntoView({ behavior: "smooth" });
   }, [chat, typing]);
+
+  useEffect(() => {
+    api.getPosts()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setPosts(data);
+        }
+      })
+      .catch((e) => console.warn("Could not load backend posts:", e));
+  }, []);
 
   const awaiting = posts.filter((p) => p.status === "awaiting_approval");
   const approved = posts.filter((p) => p.status === "approved");
@@ -16110,14 +16157,30 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     const usedBy = slots.find((s) => s.topicId === t.id);
     const tint = tintFor(t.query || t.id);
     return (
-      <div key={t.id} className="hover-float" style={{ background: "#fff", border: "1px solid " + (usedBy ? tint.fg : C.border), borderRadius: 14, padding: 16 }}>
-        {t.imageUrl && (
-          <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", marginBottom: 12, border: `1px solid ${C.borderLight}` }}>
-            <img src={t.imageUrl} alt={t.headline} style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+      <div key={t.id || t.headline} className="hover-float" style={{ background: "#fff", border: "1px solid " + (usedBy ? tint.fg : C.border), borderRadius: 14, padding: 16 }}>
+        {t.imageUrl ? (
+          <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", marginBottom: 12, border: `1px solid ${C.borderLight}`, background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)", position: "relative" }}>
+            <img
+              src={t.imageUrl}
+              alt={t.headline || t.title}
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+              loading="lazy"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 12, pointerEvents: "none" }}>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Sparkles size={16} color={C.teal || "#0C8C7D"} />
+              </div>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 600, color: "#94a3b8", textAlign: "center", lineHeight: 1.2 }}>
+                {t.theme || (t.headline && t.headline.slice(0, 30)) || "AI Creative"}
+              </span>
+            </div>
           </div>
-        )}
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slateLight }}>{t.freshness} · {t.source}{t.query ? " · " + t.query : ""}{t.saved ? " · saved" : ""}</div>
-        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginTop: 6, lineHeight: 1.3 }}>{t.headline}</div>
+        ) : null}
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slateLight }}>{t.freshness || "Today"} · {t.source || "AI Strategist"}{t.query ? " · " + t.query : ""}{t.saved ? " · saved" : ""}</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginTop: 6, lineHeight: 1.3 }}>{t.headline || t.title}</div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 8, lineHeight: 1.45 }}>{t.angle}</div>
         <div style={{ marginTop: 12 }}>
           <select
@@ -17480,21 +17543,24 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                       <>
                         <div
                           style={{
-                            maxWidth: "88%",
-                            background: isUser ? C.ink : HUB_PAPER,
+                            maxWidth: isUser ? "85%" : "95%",
+                            background: isUser ? C.ink : "#ffffff",
                             color: isUser ? "#fff" : C.textInk,
                             border: isUser ? "none" : `1px solid ${C.border}`,
                             borderRadius: isUser ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                            padding: "11px 14px",
+                            padding: isUser ? "10px 14px" : "14px 16px",
                             fontFamily: FONT_BODY,
                             fontSize: 13,
                             lineHeight: 1.54,
-                            whiteSpace: "pre-wrap",
                             wordBreak: "break-word",
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                            boxShadow: isUser ? "0 1px 3px rgba(0,0,0,0.08)" : "0 2px 8px rgba(0,0,0,0.04)",
                           }}
                         >
-                          {m.text}
+                          {isUser ? (
+                            <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+                          ) : (
+                            <FormattedChatResponse text={m.text} />
+                          )}
                         </div>
 
                         {/* Action Toolbar for Message (Copy, Edit, Delete, Regenerate) */}

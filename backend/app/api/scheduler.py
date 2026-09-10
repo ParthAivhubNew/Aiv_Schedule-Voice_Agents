@@ -287,11 +287,18 @@ If the user asks general questions or discusses strategy, respond conversational
                 channel = channels[i % len(channels)]
                 img_prompt = create_topic_image_prompt(chosen_topic["title"], chosen_topic["angle"], theme, image_style)
                 img_url = generate_image_url(img_prompt, style=image_style, aspect_ratio="16:9")
+                t_id = f"top_{uuid.uuid4().hex[:8]}"
                 topics_data.append({
+                    "id": t_id,
                     "theme": theme,
                     "title": chosen_topic["title"],
+                    "headline": chosen_topic["title"],
                     "angle": chosen_topic["angle"],
                     "hook": chosen_topic["hook"],
+                    "source": "AI Strategist",
+                    "freshness": "Today",
+                    "query": theme,
+                    "saved": True,
                     "imagePrompt": img_prompt,
                     "imageUrl": img_url,
                     "day": days[i] if i < len(days) else f"Day {i+1}",
@@ -299,13 +306,15 @@ If the user asks general questions or discusses strategy, respond conversational
                 })
                 # Insert into database in awaiting_approval status so they show in Inbox!
                 p_id = f"draft_ai_{int(time.time())}_{i}_{uuid.uuid4().hex[:4]}"
+                slot_time_ms = float(time.time() * 1000 + (i + 1) * 86400000)
+                post_copy = f"🚀 {chosen_topic['title']}\n\n{chosen_topic['angle']}\n\n#Operations #BI #DataDriven"
                 db_post = SocialPost(
                     id=p_id,
                     title=chosen_topic["title"],
-                    copy=f"🚀 {chosen_topic['title']}\n\n{chosen_topic['angle']}\n\n#Operations #BI #DataDriven",
+                    copy=post_copy,
                     channels=[channel],
                     status="awaiting_approval",
-                    slot_date_ms=float(time.time() * 1000 + (i + 1) * 86400000),
+                    slot_date_ms=slot_time_ms,
                     time="10:00",
                     theme=theme,
                     image_url=img_url,
@@ -315,9 +324,16 @@ If the user asks general questions or discusses strategy, respond conversational
                 generated_posts.append({
                     "id": p_id,
                     "title": chosen_topic["title"],
+                    "copy": post_copy,
                     "channel": channel,
+                    "channels": [channel],
                     "status": "awaiting_approval",
-                    "imageUrl": img_url
+                    "slotDateMs": slot_time_ms,
+                    "dateMs": slot_time_ms,
+                    "time": "10:00",
+                    "theme": theme,
+                    "imageUrl": img_url,
+                    "imagePrompt": img_prompt
                 })
             await db.commit()
         except Exception as db_err:
