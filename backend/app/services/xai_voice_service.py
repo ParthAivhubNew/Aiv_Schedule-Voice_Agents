@@ -169,15 +169,28 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     current_time_str = now.strftime("%I:%M %p UTC")
     tomorrow_str = (now + timedelta(days=1)).strftime("%A, %d %B %Y")
 
-    async with AsyncSessionLocal() as db:
-        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
-        profile = prof_res.scalars().first()
-        
-        services_res = await db.execute(select(Service))
-        services = services_res.scalars().all()
+    global _knowledge_cache
+    current_time = asyncio.get_event_loop().time()
+    if "_knowledge_cache" not in globals() or (current_time - _knowledge_cache.get("last_fetched", 0) > 60):
+        try:
+            async with AsyncSessionLocal() as db:
+                prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+                services_res = await db.execute(select(Service))
+                faqs_res = await db.execute(select(FAQ))
+                _knowledge_cache = {
+                    "profile": prof_res.scalars().first(),
+                    "services": services_res.scalars().all(),
+                    "faqs": faqs_res.scalars().all(),
+                    "last_fetched": current_time
+                }
+        except Exception as cache_err:
+            logger.warning(f"Error fetching knowledge cache: {cache_err}")
+            if "_knowledge_cache" not in globals():
+                _knowledge_cache = {"profile": None, "services": [], "faqs": [], "last_fetched": current_time}
 
-        faqs_res = await db.execute(select(FAQ))
-        faqs = faqs_res.scalars().all()
+    profile = _knowledge_cache.get("profile")
+    services = _knowledge_cache.get("services") or []
+    faqs = _knowledge_cache.get("faqs") or []
 
     company_name = profile.name if profile else "AIVHub"
     caller_name = profile.caller_name if profile else "Sam"
@@ -640,8 +653,8 @@ async def join_xai_call_session(
                     "turn_detection": {
                         "type": "server_vad",
                         "threshold": 0.5,
-                        "prefix_padding_ms": 300,
-                        "silence_duration_ms": 500
+                        "prefix_padding_ms": 200,
+                        "silence_duration_ms": 400
                     },
                     "tools": tools_list,
                     "tool_choice": "auto",
@@ -652,8 +665,18 @@ async def join_xai_call_session(
             }
             await ws.send(json.dumps(session_config))
 
-            # Trigger opening agent greeting
-            await ws.send(json.dumps({"type": "response.create"}))
+            # Trigger opening agent greeting immediately with targeted single-shot instruction
+            target_first_name = (prospect_name or "there").strip().split()[0]
+            opening_payload = {
+                "type": "response.create",
+                "response": {
+                    "instructions": (
+                        f"Greet {target_first_name} immediately in one natural, friendly sentence as Sam from AIVHub, "
+                        f"asking how they are doing today. Keep it short and conversational."
+                    )
+                }
+            }
+            await ws.send(json.dumps(opening_payload))
 
             # 3. Event Processing Loop
             event_count = 0
