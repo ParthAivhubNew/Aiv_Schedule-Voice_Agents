@@ -61,6 +61,8 @@ services:
       dockerfile: Dockerfile
     container_name: aivhub_backend
     restart: unless-stopped
+    volumes:
+      - ./backend:/app
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aivhub}
       REDIS_URL: redis://redis:6379/0
