@@ -94,6 +94,7 @@ import {
   Image as ImageIcon,
   Smartphone,
   Briefcase,
+  Square,
 } from "lucide-react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
