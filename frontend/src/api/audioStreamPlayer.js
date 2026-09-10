@@ -1,14 +1,16 @@
 // G.711 Mu-Law Audio Decoder & Web Audio Streaming Player
 // Plays real-time phone audio chunks from Twilio/xAI in the browser
 
-function decodeMuLawByte(muLawByte) {
-  muLawByte = ~muLawByte;
+// Precomputed G.711 Mu-Law decoding lookup table (256 entries for ultra-fast decoding)
+const MULAW_LOOKUP = new Float32Array(256);
+for (let i = 0; i < 256; i++) {
+  let muLawByte = ~i;
   const sign = muLawByte & 0x80;
   const exponent = (muLawByte >> 4) & 0x07;
   const mantissa = muLawByte & 0x0f;
   let sample = ((mantissa << 3) + 132) << exponent;
   sample -= 132;
-  return (sign !== 0 ? -sample : sample) / 32768.0;
+  MULAW_LOOKUP[i] = (sign !== 0 ? -sample : sample) / 32768.0;
 }
 
 function decodeMuLawBase64(base64Str) {
@@ -16,7 +18,7 @@ function decodeMuLawBase64(base64Str) {
   const len = binary.length;
   const float32 = new Float32Array(len);
   for (let i = 0; i < len; i++) {
-    float32[i] = decodeMuLawByte(binary.charCodeAt(i));
+    float32[i] = MULAW_LOOKUP[binary.charCodeAt(i)];
   }
   return float32;
 }
@@ -71,14 +73,24 @@ export class AudioStreamPlayer {
     this.onStatusChange = onStatusChange;
     this.onAudioLevel = onAudioLevel;
     this.audioCtx = null;
+    this.masterGain = null;
     this.socket = null;
-    this.nextStartTime = 0;
     this.isPlaying = false;
     this.isMicActive = false;
     this.mediaStream = null;
     this.scriptProcessor = null;
     this.silentGainNode = null;
     this.micSampleBuffer = [];
+
+    // Separate playback timelines for each track so inbound (caller) and outbound (AI)
+    // mix concurrently in real time without chopping or delaying each other.
+    this.trackTimelines = {
+      inbound: 0,
+      outbound: 0
+    };
+
+    // Throttle audio level updates to protect React render loop (max 10fps)
+    this.lastLevelTime = 0;
   }
 
   startListening() {
@@ -86,14 +98,23 @@ export class AudioStreamPlayer {
 
     try {
       const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-      this.audioCtx = new AudioCtxClass();
+      this.audioCtx = new AudioCtxClass({ latencyHint: 'interactive' });
       if (this.audioCtx.state === 'suspended') {
         this.audioCtx.resume();
       }
+      this.masterGain = this.audioCtx.createGain();
+      this.masterGain.gain.value = 1.0;
+      this.masterGain.connect(this.audioCtx.destination);
     } catch (err) {
       console.error('[AudioPlayer] AudioContext error:', err);
       return;
     }
+
+    // Reset track timelines
+    this.trackTimelines = {
+      inbound: 0,
+      outbound: 0
+    };
 
     const host = window.location.host;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -108,7 +129,6 @@ export class AudioStreamPlayer {
       if (this.audioCtx && this.audioCtx.state === 'suspended') {
         this.audioCtx.resume();
       }
-      this.nextStartTime = this.audioCtx ? this.audioCtx.currentTime + 0.05 : 0;
       if (this.onStatusChange) this.onStatusChange({ listening: true, connected: true });
     };
 
@@ -116,7 +136,7 @@ export class AudioStreamPlayer {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'audio_chunk' && data.payload) {
-          this.playAudioChunk(data.payload, data.track);
+          this.playAudioChunk(data.payload, data.track || 'inbound');
         }
       } catch (err) {
         console.warn('[AudioPlayer] Error parsing audio packet:', err);
@@ -145,34 +165,54 @@ export class AudioStreamPlayer {
       const pcm8k = decodeMuLawBase64(base64Payload);
       if (pcm8k.length === 0) return;
 
-      // Calculate simple RMS volume level for visualizer
-      let sum = 0;
-      for (let i = 0; i < pcm8k.length; i++) {
-        sum += pcm8k[i] * pcm8k[i];
-      }
-      const rms = Math.sqrt(sum / pcm8k.length);
-      if (this.onAudioLevel) {
-        this.onAudioLevel(Math.min(1.0, rms * 6), track);
+      // Throttle RMS calculation to 10fps to keep JS main thread & React 60fps smooth
+      const nowMs = Date.now();
+      if (this.onAudioLevel && (nowMs - this.lastLevelTime > 100)) {
+        this.lastLevelTime = nowMs;
+        let sum = 0;
+        for (let i = 0; i < pcm8k.length; i++) {
+          sum += pcm8k[i] * pcm8k[i];
+        }
+        const rms = Math.sqrt(sum / pcm8k.length);
+        this.onAudioLevel(Math.min(1.0, rms * 5), track);
       }
 
-      // Resample 8kHz telephony audio to the native AudioContext sample rate (e.g. 44.1kHz or 48kHz)
-      const resampled = resampleToAudioContext(pcm8k, this.audioCtx.sampleRate);
-
-      // Create an AudioBuffer matching native hardware sample rate for flawless playback
-      const buffer = this.audioCtx.createBuffer(1, resampled.length, this.audioCtx.sampleRate);
-      buffer.copyToChannel(resampled, 0);
+      // Create an AudioBuffer. Standard Web Audio API natively supports 8000 Hz.
+      // The browser's native C++ engine will resample smoothly to hardware output.
+      let buffer;
+      try {
+        buffer = this.audioCtx.createBuffer(1, pcm8k.length, 8000);
+        buffer.copyToChannel(pcm8k, 0);
+      } catch (_) {
+        const resampled = resampleToAudioContext(pcm8k, this.audioCtx.sampleRate);
+        buffer = this.audioCtx.createBuffer(1, resampled.length, this.audioCtx.sampleRate);
+        buffer.copyToChannel(resampled, 0);
+      }
 
       const source = this.audioCtx.createBufferSource();
       source.buffer = buffer;
-      source.connect(this.audioCtx.destination);
-
-      // Schedule seamless continuous playback
-      const now = this.audioCtx.currentTime;
-      if (this.nextStartTime < now) {
-        this.nextStartTime = now + 0.015;
+      if (this.masterGain) {
+        source.connect(this.masterGain);
+      } else {
+        source.connect(this.audioCtx.destination);
       }
-      source.start(this.nextStartTime);
-      this.nextStartTime += buffer.duration;
+
+      // Independent jitter-buffered timeline per track (inbound vs outbound):
+      // Target lead time: 60ms (prevents underrun clicks on network packet jitter)
+      // Max latency cap: 220ms (ensures operator always hears what is happening right now in the moment)
+      const now = this.audioCtx.currentTime;
+      const JITTER_LEAD = 0.060;
+      const MAX_LATENCY = 0.220;
+
+      const trackKey = track === 'outbound' ? 'outbound' : 'inbound';
+      let trackStart = this.trackTimelines[trackKey] || 0;
+
+      if (trackStart < now || trackStart > now + MAX_LATENCY) {
+        trackStart = now + JITTER_LEAD;
+      }
+
+      source.start(trackStart);
+      this.trackTimelines[trackKey] = trackStart + buffer.duration;
     } catch (e) {
       console.warn('[AudioPlayer] Playback error:', e);
     }
@@ -186,10 +226,15 @@ export class AudioStreamPlayer {
       try { this.socket.close(); } catch (_) {}
       this.socket = null;
     }
+    if (this.masterGain) {
+      try { this.masterGain.disconnect(); } catch (_) {}
+      this.masterGain = null;
+    }
     if (this.audioCtx) {
       try { this.audioCtx.close(); } catch (_) {}
       this.audioCtx = null;
     }
+    this.trackTimelines = { inbound: 0, outbound: 0 };
     if (this.onStatusChange) {
       this.onStatusChange({ listening: false, connected: false });
     }

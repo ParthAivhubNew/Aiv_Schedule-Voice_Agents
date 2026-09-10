@@ -55,9 +55,9 @@ class MediaStreamHub:
 
     def unregister_listener(self, call_id: str, ws: WebSocket):
         canonical = self.resolve_canonical(call_id)
-        for cid in [call_id, canonical]:
-            if cid in self.call_listeners and ws in self.call_listeners[cid]:
-                self.call_listeners[cid].remove(ws)
+        for cid in list(self.call_listeners.keys()):
+            if ws in self.call_listeners[cid]:
+                self.call_listeners[cid].discard(ws)
                 if not self.call_listeners[cid]:
                     del self.call_listeners[cid]
         logger.info(f"[AudioHub] Supervisor disconnected from call {call_id}.")
