@@ -226,8 +226,13 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
 
     logger.info(f"[Scheduler Chat] Incoming /chat-plan request: provider={provider}, model={model}, has_api_key={bool(api_key)}, key_len={len(api_key) if api_key else 0}, msgs_count={len(messages)}, prompt_snippet={prompt[:40]!r}")
 
-    prof_res = await db.execute(select(CompanyProfile).limit(1))
-    profile = prof_res.scalars().first()
+    try:
+        prof_res = await db.execute(select(CompanyProfile).limit(1))
+        profile = prof_res.scalars().first()
+    except Exception as prof_err:
+        logger.warning(f"Could not load company profile: {prof_err}")
+        profile = None
+
     company_name = profile.name if profile else "AIVHub"
     company_pitch = profile.pitch if profile else "AI-powered business intelligence dashboards"
 
@@ -245,15 +250,23 @@ You help craft compelling social copy, refine hooks, ideate campaigns, and answe
 If the user asks to schedule posts or plan topics, provide engaging post ideas with hooks and hashtags.
 If the user asks general questions or discusses strategy, respond conversationally with high intelligence and clarity."""
 
-    llm_res = await call_open_chat_llm(
-        messages=chat_msgs,
-        system_prompt=system_prompt,
-        api_key=api_key,
-        provider=provider,
-        model=model,
-        base_url=base_url,
-        db=db
-    )
+    try:
+        llm_res = await call_open_chat_llm(
+            messages=chat_msgs,
+            system_prompt=system_prompt,
+            api_key=api_key,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            db=db
+        )
+    except Exception as llm_err:
+        logger.error(f"[Scheduler Chat] Exception in call_open_chat_llm: {llm_err}")
+        llm_res = {
+            "success": False,
+            "error": str(llm_err),
+            "reply": f"⚠️ LLM Call Error: {llm_err}"
+        }
 
     reply_text = llm_res.get("reply", "")
     if not reply_text:
@@ -264,48 +277,52 @@ If the user asks general questions or discusses strategy, respond conversational
     generated_posts = []
 
     if parsed["intent"] == "plan_schedule" or "schedule" in prompt.lower() or "post" in prompt.lower():
-        theme_keys = list(TOPIC_BANK.keys())
-        days = parsed["days"]
-        channels = parsed["channels"]
-        for i in range(min(3, len(days))):
-            theme = theme_keys[i % len(theme_keys)]
-            chosen_topic = random.choice(TOPIC_BANK[theme])
-            channel = channels[i % len(channels)]
-            img_prompt = create_topic_image_prompt(chosen_topic["title"], chosen_topic["angle"], theme, image_style)
-            img_url = generate_image_url(img_prompt, style=image_style, aspect_ratio="16:9")
-            topics_data.append({
-                "theme": theme,
-                "title": chosen_topic["title"],
-                "angle": chosen_topic["angle"],
-                "hook": chosen_topic["hook"],
-                "imagePrompt": img_prompt,
-                "imageUrl": img_url,
-                "day": days[i] if i < len(days) else f"Day {i+1}",
-                "channel": channel
-            })
-            # Insert into database in awaiting_approval status so they show in Inbox!
-            p_id = f"draft_ai_{int(time.time())}_{i}"
-            db_post = SocialPost(
-                id=p_id,
-                title=chosen_topic["title"],
-                copy=f"🚀 {chosen_topic['title']}\n\n{chosen_topic['angle']}\n\n#Operations #BI #DataDriven",
-                channels=[channel],
-                status="awaiting_approval",
-                slot_date_ms=float(time.time() * 1000 + (i + 1) * 86400000),
-                time="10:00",
-                theme=theme,
-                image_url=img_url,
-                image_prompt=img_prompt
-            )
-            db.add(db_post)
-            generated_posts.append({
-                "id": p_id,
-                "title": chosen_topic["title"],
-                "channel": channel,
-                "status": "awaiting_approval",
-                "imageUrl": img_url
-            })
-        await db.commit()
+        try:
+            theme_keys = list(TOPIC_BANK.keys())
+            days = parsed["days"]
+            channels = parsed["channels"]
+            for i in range(min(3, len(days))):
+                theme = theme_keys[i % len(theme_keys)]
+                chosen_topic = random.choice(TOPIC_BANK[theme])
+                channel = channels[i % len(channels)]
+                img_prompt = create_topic_image_prompt(chosen_topic["title"], chosen_topic["angle"], theme, image_style)
+                img_url = generate_image_url(img_prompt, style=image_style, aspect_ratio="16:9")
+                topics_data.append({
+                    "theme": theme,
+                    "title": chosen_topic["title"],
+                    "angle": chosen_topic["angle"],
+                    "hook": chosen_topic["hook"],
+                    "imagePrompt": img_prompt,
+                    "imageUrl": img_url,
+                    "day": days[i] if i < len(days) else f"Day {i+1}",
+                    "channel": channel
+                })
+                # Insert into database in awaiting_approval status so they show in Inbox!
+                p_id = f"draft_ai_{int(time.time())}_{i}_{uuid.uuid4().hex[:4]}"
+                db_post = SocialPost(
+                    id=p_id,
+                    title=chosen_topic["title"],
+                    copy=f"🚀 {chosen_topic['title']}\n\n{chosen_topic['angle']}\n\n#Operations #BI #DataDriven",
+                    channels=[channel],
+                    status="awaiting_approval",
+                    slot_date_ms=float(time.time() * 1000 + (i + 1) * 86400000),
+                    time="10:00",
+                    theme=theme,
+                    image_url=img_url,
+                    image_prompt=img_prompt
+                )
+                db.add(db_post)
+                generated_posts.append({
+                    "id": p_id,
+                    "title": chosen_topic["title"],
+                    "channel": channel,
+                    "status": "awaiting_approval",
+                    "imageUrl": img_url
+                })
+            await db.commit()
+        except Exception as db_err:
+            logger.error(f"[Scheduler Chat] Error creating SocialPost records: {db_err}")
+            await db.rollback()
 
     return {
         "status": "ok" if llm_res.get("success", True) else "error",
