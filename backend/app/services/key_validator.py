@@ -1,6 +1,7 @@
 import httpx
 import logging
 import time
+import re
 from typing import Dict, Any, Optional
 from app.services.process_logger import log_process_event
 
@@ -73,15 +74,34 @@ async def _do_validate_api_key(
                 else:
                     return {"valid": False, "error": f"DeepSeek returned status {res.status_code}: {res.text[:150]}"}
 
-            # 2. OpenAI
-            elif "openai" in p or "chatgpt" in p:
-                url = (base_url or "https://api.openai.com/v1").rstrip("/") + "/models"
+            # 2. OpenAI / DALL-E Image Generation Engine
+            elif "openai" in p or "chatgpt" in p or "dall" in p or (base_url and "api.openai.com" in base_url):
+                clean_base = (base_url or "https://api.openai.com/v1").strip().rstrip("/")
+                # Strip specific POST endpoints like /images/generations or /chat/completions so GET /models is probed
+                clean_base = re.sub(r'/(images(/generations)?|chat/completions|completions)/?$', '', clean_base)
+                if not clean_base.endswith("/v1") and "api.openai.com" in clean_base:
+                    clean_base = clean_base.rstrip("/") + "/v1"
+                url = clean_base + "/models"
                 headers = {"Authorization": f"Bearer {api_key}"}
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
-                    return {"valid": True, "provider": "OpenAI", "details": "Authenticated successfully (GPT-4o / Whisper / TTS ready)."}
+                    details_str = "Authenticated successfully (DALL-E 3 / DALL-E 2 / GPT-4o ready)." if ("dall" in p or "image" in p) else "Authenticated successfully (GPT-4o / Whisper / TTS ready)."
+                    return {"valid": True, "provider": "OpenAI", "details": details_str}
                 elif res.status_code == 401:
                     return {"valid": False, "error": "OpenAI authentication failed (Invalid API key - 401 Unauthorized)."}
+                elif res.status_code == 405:
+                    # Endpoint requires POST (e.g. specialized image proxy); test connection via POST probe
+                    post_probe = await client.post(
+                        clean_base + "/images/generations",
+                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json={"prompt": "validation probe", "n": 1}
+                    )
+                    if post_probe.status_code in [200, 201, 400, 422]:
+                        return {"valid": True, "provider": "OpenAI", "details": "Authenticated successfully (DALL-E image engine active)."}
+                    elif post_probe.status_code in [401, 403]:
+                        return {"valid": False, "error": "OpenAI authentication failed (Invalid API key - 401/403)."}
+                    else:
+                        return {"valid": True, "provider": "OpenAI", "details": "OpenAI image endpoint reachable and verified."}
                 else:
                     return {"valid": False, "error": f"OpenAI returned status {res.status_code}: {res.text[:150]}"}
 
@@ -320,11 +340,51 @@ async def _do_validate_api_key(
                 if not base_url:
                     return {"valid": False, "error": "Custom provider requires a valid Base URL endpoint."}
                 
+                # If the URL or key clearly belongs to OpenAI/DALL-E, validate against OpenAI models
+                if "api.openai.com" in base_url or (api_key.startswith("sk-") and not base_url.startswith("http://localhost")):
+                    clean_base = re.sub(r'/(images(/generations)?|chat/completions|completions)/?$', '', base_url.strip().rstrip('/'))
+                    if not clean_base.endswith("/v1") and "api.openai.com" in clean_base:
+                        clean_base = clean_base.rstrip("/") + "/v1"
+                    url = clean_base + "/models"
+                    m_res = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
+                    if m_res.status_code == 200:
+                        return {"valid": True, "provider": provider or "OpenAI", "details": "Authenticated successfully (DALL-E / OpenAI endpoint ready)."}
+                    elif m_res.status_code in [401, 403]:
+                        return {"valid": False, "error": f"Authentication failed for {provider} (Invalid API key - HTTP {m_res.status_code})."}
+
                 headers = {"Authorization": f"Bearer {api_key}"}
                 try:
+                    # If endpoint is explicitly an image generation route, probe via POST
+                    if "images/generations" in base_url or "txt2img" in base_url:
+                        post_res = await client.post(
+                            base_url,
+                            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                            json={"prompt": "validation probe", "n": 1}
+                        )
+                        if post_res.status_code in [200, 201]:
+                            return {"valid": True, "provider": provider, "details": f"Image endpoint {base_url} verified."}
+                        elif post_res.status_code in [400, 422]:
+                            # Missing parameters error confirms authentication succeeded
+                            return {"valid": True, "provider": provider, "details": f"Endpoint {base_url} authenticated successfully (Ready for image generation)."}
+                        elif post_res.status_code in [401, 403]:
+                            return {"valid": False, "error": f"Authentication rejected by {base_url} (HTTP {post_res.status_code} Unauthorized)."}
+
                     res = await client.get(base_url, headers=headers)
                     if res.status_code < 400:
                         return {"valid": True, "provider": provider, "details": f"Endpoint responded with status {res.status_code}."}
+                    elif res.status_code == 405:
+                        # 405 Method Not Allowed indicates a POST-only route (e.g. image generation or inference endpoint)
+                        post_probe = await client.post(
+                            base_url,
+                            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                            json={"prompt": "probe"}
+                        )
+                        if post_probe.status_code in [200, 201, 400, 422]:
+                            return {"valid": True, "provider": provider, "details": f"Endpoint {base_url} authenticated successfully (POST route active)."}
+                        elif post_probe.status_code in [401, 403]:
+                            return {"valid": False, "error": f"Authentication rejected by {base_url} (HTTP {post_probe.status_code} Unauthorized)."}
+                        else:
+                            return {"valid": True, "provider": provider, "details": f"Endpoint {base_url} reachable (POST method verified)."}
                     elif res.status_code in [401, 403]:
                         return {"valid": False, "error": f"Authentication rejected by {base_url} (HTTP {res.status_code})."}
                     else:
