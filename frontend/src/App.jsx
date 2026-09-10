@@ -12537,18 +12537,43 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
 
           {/* CARD 4: Brand Tone, Persona Directives & Multi-Channel Formatting */}
           <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Sliders size={16} color={C.teal} />
-              </div>
-              <div>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
-                  Copywriting Temperature & Brand Persona Directives
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Sliders size={16} color={C.teal} />
                 </div>
-                <div style={{ fontSize: 12, color: C.slate }}>
-                  Governs writing variance and injects tone guidelines into every AI post draft
+                <div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: C.ink }}>
+                    Copywriting Temperature & Brand Persona Directives
+                  </div>
+                  <div style={{ fontSize: 12, color: C.slate }}>
+                    Governs writing variance and injects tone guidelines into every AI post draft
+                  </div>
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "8px 18px",
+                  borderRadius: 9,
+                  border: "none",
+                  background: savedSuccess ? "#16a34a" : C.gradientTeal,
+                  color: "#fff",
+                  fontFamily: FONT_BODY,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  boxShadow: savedSuccess ? "0 2px 8px rgba(22,163,74,0.3)" : C.glowTeal,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {savedSuccess ? <><Check size={14} color="#fff" /> Saved!</> : <><Save size={14} /> Save Directives</>}
+              </button>
             </div>
 
             {/* Temperature Slider */}
@@ -12579,9 +12604,14 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
 
             {/* Brand Persona Directives */}
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                Brand Voice Persona Directive (Injected into Writer System Prompt)
-              </label>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <label style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>
+                  Brand Voice Persona Directive (Injected into Writer System Prompt)
+                </label>
+                <span style={{ fontSize: 11, color: C.slateLight }}>
+                  Custom tone, audience, vocabulary
+                </span>
+              </div>
               <textarea
                 rows={3}
                 value={aiSettings.brandPersona}
@@ -12599,6 +12629,33 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                   lineHeight: 1.45,
                 }}
               />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+                <span style={{ fontSize: 11, color: C.slateLight, display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: C.teal }}></span>
+                  Automatically updated in writer prompts on every keystroke
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "7px 16px",
+                    borderRadius: 8,
+                    border: `1px solid ${savedSuccess ? "#16a34a" : C.teal}`,
+                    background: savedSuccess ? "#E8F5E9" : C.tealSoft,
+                    color: savedSuccess ? "#1B5E20" : C.teal,
+                    fontFamily: FONT_BODY,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {savedSuccess ? <><Check size={13} color="#1B5E20" /> Persona Saved!</> : <><Save size={13} color={C.teal} /> Save Persona & Directives</>}
+                </button>
+              </div>
             </div>
 
             {/* Multi-channel Directives Preview */}
@@ -12623,6 +12680,50 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
 
           </div>
 
+        </div>
+
+        {/* Bottom Save Action Bar */}
+        <div style={{
+          marginTop: 22,
+          padding: "16px 22px",
+          background: "#fff",
+          border: `1px solid ${C.border}`,
+          borderRadius: 14,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          boxShadow: C.shadowCard
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
+              Ready to apply your configuration?
+            </div>
+            <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>
+              Saves temperature, brand persona directives, and model credentials across the entire software.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleSave}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 24px",
+              borderRadius: 10,
+              border: "none",
+              background: savedSuccess ? "#16a34a" : C.gradientTeal,
+              color: "#fff",
+              fontFamily: FONT_BODY,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: savedSuccess ? "0 2px 10px rgba(22,163,74,0.35)" : C.glowTeal,
+              transition: "all 0.2s ease",
+            }}
+          >
+            {savedSuccess ? <><Check size={15} color="#fff" /> Saved Successfully!</> : <><Save size={15} /> Save All AI Settings</>}
+          </button>
         </div>
 
         {/* Save confirmation toast */}
