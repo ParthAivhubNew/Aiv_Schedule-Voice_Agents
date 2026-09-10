@@ -117,6 +117,7 @@ import { WebSocketClient } from "./api/wsClient";
 import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
+import { getActiveAiCredentials } from "./tokens";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
