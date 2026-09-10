@@ -8,6 +8,56 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [expandedId, setExpandedId] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+
+  const fallbackCopy = (text) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.opacity = "0";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand("copy");
+    } catch (_) {}
+    document.body.removeChild(textArea);
+  };
+
+  const handleCopyTranscript = (evt, item) => {
+    evt.stopPropagation();
+    const fullText = (item.transcript || [])
+      .map((t) => {
+        if (!t) return "";
+        if (typeof t === "string") return t;
+        const speaker = t.who === "ai" ? "AI (Sam)" : t.who === "system" ? "System" : (item.personListedAs || item.canonicalName || "Prospect");
+        return `${speaker}: ${t.text || ""}`;
+      })
+      .filter(Boolean)
+      .join("\n");
+
+    const onDone = () => {
+      setCopiedId(item.id);
+      setTimeout(() => setCopiedId(null), 2500);
+      if (setNotifications) {
+        setNotifications((ns) => [
+          { id: "n_" + Date.now(), text: `📋 Transcript copied to clipboard for ${item.canonicalName}`, time: "just now", unread: true, type: "info" },
+          ...ns
+        ]);
+      }
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(fullText).then(onDone).catch(() => {
+        fallbackCopy(fullText);
+        onDone();
+      });
+    } else {
+      fallbackCopy(fullText);
+      onDone();
+    }
+  };
 
   const filtered = entries.filter((e) => {
     if (query && !e.canonicalName.toLowerCase().includes(query.toLowerCase())) return false;
@@ -103,35 +153,24 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
                         <span style={{ fontSize: 10.5, fontWeight: 600, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 12 }}>Locked</span>
                       </div>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const fullText = (log.transcript || [])
-                            .map((t) => `${t.who === "ai" ? "AI (Sam)" : t.who === "system" ? "System" : "Prospect"}: ${t.text}`)
-                            .join("\n");
-                          navigator.clipboard.writeText(fullText);
-                          if (setNotifications) {
-                            setNotifications((ns) => [
-                              { id: "n_" + Date.now(), text: `📋 Transcript copied to clipboard for ${log.canonicalName}`, time: "just now", unread: true, type: "info" },
-                              ...ns
-                            ]);
-                          }
-                        }}
+                        onClick={(evt) => handleCopyTranscript(evt, log)}
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 6,
-                          background: "#FFFFFF",
-                          border: `1px solid ${C.border}`,
+                          background: copiedId === log.id ? "#DCFCE7" : "#FFFFFF",
+                          border: `1px solid ${copiedId === log.id ? "#86EFAC" : C.border}`,
                           borderRadius: 7,
                           padding: "5px 10px",
                           fontFamily: FONT_BODY,
                           fontSize: 11.5,
                           fontWeight: 600,
-                          color: C.slate,
-                          cursor: "pointer"
+                          color: copiedId === log.id ? "#166534" : C.slate,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
                         }}
                       >
-                        📋 Copy Transcript
+                        {copiedId === log.id ? "✅ Copied!" : "📋 Copy Transcript"}
                       </button>
                     </div>
 

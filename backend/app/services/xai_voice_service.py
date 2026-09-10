@@ -164,9 +164,16 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     Service Catalog, caller context, real-world temporal ground truth,
     and charismatic, natural conversational rules.
     """
-    now = datetime.utcnow()
+    try:
+        import zoneinfo
+        london_tz = zoneinfo.ZoneInfo("Europe/London")
+        now = datetime.now(london_tz)
+    except Exception:
+        now = datetime.utcnow() + timedelta(hours=1)
+
     current_date_str = now.strftime("%A, %d %B %Y")
-    current_time_str = now.strftime("%I:%M %p UTC")
+    current_time_str = now.strftime("%I:%M %p")
+    day_part = "morning" if now.hour < 12 else "afternoon" if now.hour < 17 else "evening"
     tomorrow_str = (now + timedelta(days=1)).strftime("%A, %d %B %Y")
 
     global _knowledge_cache
@@ -233,12 +240,15 @@ CRITICAL MEETING BOOKING & CONTACT DETAILS CAPTURE (MANDATORY):
    - "And is this the best number to reach you on, or do you have a direct mobile you prefer?"
 5. ONLY invoke the `book_calendar_meeting` tool AFTER you have collected their confirmed email address, date, and time! Always provide the email in the `email` argument of `book_calendar_meeting`.
 
-TEMPORAL GROUND TRUTH (CRITICAL):
-- Today's Date: {current_date_str}
-- Current Time: {current_time_str}
-- Tomorrow: {tomorrow_str}
-- Current Year: {now.year}
-- NEVER schedule, suggest, or accept past dates (e.g. 2024, 2025, or any day prior to today). If the prospect mentions a month without a year or a date in the past (like "27 July"), clarify naturally: "Just to confirm, are you thinking later this year or next week? For this week, I've got tomorrow or Friday open."
+TEMPORAL GROUND TRUTH & UK CLOCK (MANDATORY & EXACT):
+- Location & Timezone: London, United Kingdom (BST / Europe/London). Both you and the prospect are in the UK.
+- EXACT CURRENT UK TIME: {current_time_str} ({day_part})
+- EXACT TODAY'S DATE: {current_date_str}
+- TOMORROW: {tomorrow_str}
+- CURRENT YEAR: {now.year}
+- IF ASKED WHAT TIME OR DAY IT IS: State the exact current UK time immediately: "It is currently {current_time_str} on {current_date_str} here in the UK."
+- WHEN PROPOSING SLOTS FOR "TODAY": Only propose times later than {current_time_str}.
+- NEVER schedule, suggest, or accept past dates (e.g. 2024, 2025, or any past day or hour). If the prospect mentions a month without a year or a date in the past, clarify naturally: "Just to confirm, are you thinking later this year or next week? For this week, I've got tomorrow or Friday open."
 
 Company Pitch:
 {pitch}
@@ -500,18 +510,49 @@ async def execute_xai_tool(
 
         elif name == "check_calendar_availability":
             raw_date = args.get("date", "Tomorrow")
-            now = datetime.utcnow()
-            date_val = raw_date.strip()
-            date_val = re.sub(r"\b202[0-5]\b", str(now.year), date_val)
-            if not date_val or date_val.lower() in ["tomorrow", "tmrw"]:
-                date_val = (now + timedelta(days=1)).strftime("%A, %d %b %Y")
-            elif date_val.lower() in ["today"]:
-                date_val = now.strftime("%A, %d %b %Y")
+            try:
+                import zoneinfo
+                london_tz = zoneinfo.ZoneInfo("Europe/London")
+                now_uk = datetime.now(london_tz)
+            except Exception:
+                now_uk = datetime.utcnow() + timedelta(hours=1)
 
-            slots = ["10:30 AM", "02:00 PM", "04:15 PM"]
+            date_val = raw_date.strip()
+            date_val = re.sub(r"\b202[0-5]\b", str(now_uk.year), date_val)
+            is_today = False
+            if not date_val or date_val.lower() in ["tomorrow", "tmrw"]:
+                date_val = (now_uk + timedelta(days=1)).strftime("%A, %d %b %Y")
+            elif date_val.lower() in ["today"]:
+                date_val = now_uk.strftime("%A, %d %b %Y")
+                is_today = True
+
+            cur_hour = now_uk.hour
+            cur_minute = now_uk.minute
+            if is_today:
+                slots = []
+                if cur_hour < 11:
+                    slots.append("11:30 AM")
+                if cur_hour < 14:
+                    slots.append("02:30 PM")
+                if cur_hour < 16:
+                    slots.append("04:30 PM")
+                if cur_hour < 17:
+                    slots.append("05:15 PM")
+                if not slots:
+                    tomorrow_name = (now_uk + timedelta(days=1)).strftime("%A, %d %b %Y")
+                    return {
+                        "available_slots": ["10:30 AM", "02:00 PM", "04:30 PM"],
+                        "date": tomorrow_name,
+                        "current_uk_time": now_uk.strftime("%I:%M %p"),
+                        "message": f"Our working hours for today are nearly wrapped up (it is currently {now_uk.strftime('%I:%M %p')} in the UK). The earliest available slots are tomorrow ({tomorrow_name}) at 10:30 AM or 02:00 PM."
+                    }
+            else:
+                slots = ["10:30 AM", "02:00 PM", "04:15 PM"]
+
             return {
                 "available_slots": slots,
                 "date": date_val,
+                "current_uk_time": now_uk.strftime("%I:%M %p"),
                 "message": f"For {date_val}, we have available slots at: {', '.join(slots)}."
             }
 
@@ -713,9 +754,17 @@ async def join_xai_call_session(
                     }
                 }
             }
+            # 1. Cancel any pre-configured default greeting from the xAI console template
+            try:
+                await ws.send(json.dumps({"type": "response.cancel"}))
+                logger.info(f"[XAI-WS] Sent response.cancel to abort any default console template greeting")
+            except Exception as c_err:
+                logger.debug(f"[XAI-WS] response.cancel error: {c_err}")
+
+            # 2. Update session with complete AIVHub configuration
             await ws.send(json.dumps(session_config))
 
-            # Set up instant first-turn greeting trigger
+            # 3. Set up instant first-turn greeting trigger
             target_first_name = (prospect_name or "there").strip().split()[0]
             greeting_dispatched = False
 
@@ -731,6 +780,7 @@ async def join_xai_call_session(
                         "modalities": ["audio", "text"],
                         "instructions": (
                             f"You are calling {target_first_name} as Sam from AIVHub on an outbound business call. "
+                            f"The current time in London is {current_time_str} on {current_date_str}. "
                             f"Speak FIRST immediately! Say clearly: 'Hi {target_first_name}, this is Sam calling from AIVHub. How are you doing today?' "
                             f"Do not wait for the other person to speak."
                         )
