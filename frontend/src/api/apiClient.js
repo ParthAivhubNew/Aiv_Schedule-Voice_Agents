@@ -61,6 +61,7 @@ export const api = {
 
   // Calls
   getLiveCalls: () => apiRequest('/calls/live'),
+  endLiveCall: (callId) => apiRequest(`/calls/live/${callId}/end`, { method: 'POST' }),
   deleteLiveCall: (callId) => apiRequest(`/calls/live/${callId}`, { method: 'DELETE' }),
   clearLiveCalls: () => apiRequest('/calls/live', { method: 'DELETE' }),
   toggleListen: (callId) => apiRequest(`/calls/live/${callId}/listen`, { method: 'POST' }),

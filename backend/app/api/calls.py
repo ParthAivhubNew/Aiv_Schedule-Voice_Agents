@@ -45,23 +45,100 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
         result = await db.execute(select(LiveCall).order_by(LiveCall.created_at.desc()))
     calls = result.scalars().all()
     
-    return [{
-        "id": c.id,
-        "missionId": c.mission_id,
-        "prospectId": c.prospect_id,
-        "prospect": c.prospect,
-        "mission": c.mission,
-        "state": c.state,
-        "channel": c.channel,
-        "duration": c.duration,
-        "flag": c.flag,
-        "taken": c.taken,
-        "listening": c.listening,
-        "confirmingEnd": c.confirming_end,
-        "ended": c.ended,
-        "booked": c.booked,
-        "transcript": c.transcript or [],
-    } for c in calls]
+    out_calls = []
+    now_utc = datetime.utcnow()
+    for c in calls:
+        dur = c.duration
+        if not c.ended and c.state not in ["ended", "failed", "canceled"] and c.created_at:
+            secs = max(0, int((now_utc - c.created_at).total_seconds()))
+            dur = f"{secs // 60:02d}:{secs % 60:02d}"
+        out_calls.append({
+            "id": c.id,
+            "missionId": c.mission_id,
+            "prospectId": c.prospect_id,
+            "prospect": c.prospect,
+            "mission": c.mission,
+            "state": c.state,
+            "channel": c.channel,
+            "duration": dur,
+            "flag": c.flag,
+            "taken": c.taken,
+            "listening": c.listening,
+            "confirmingEnd": c.confirming_end,
+            "ended": c.ended,
+            "booked": c.booked,
+            "transcript": c.transcript or [],
+        })
+    return out_calls
+
+@router.post("/live/{call_id}/end")
+async def end_live_call(call_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Immediately terminates a live call: hangs up carrier leg, closes xAI session, marks ended, and records CallLog.
+    """
+    res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
+    call = res.scalars().first()
+    if not call:
+        res2 = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == call_id))
+        call = res2.scalars().first()
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+
+    call.ended = True
+    call.state = "ended"
+    call.confirming_end = False
+
+    # 1. Hangup on carrier (Twilio)
+    if call.carrier_sid:
+        try:
+            adapter = carrier_registry.get_adapter("twilio")
+            await adapter.hangup_call(call.carrier_sid)
+            await log_process_event(
+                subsystem="telephony",
+                process_name="carrier_hangup_dispatched",
+                message=f"Terminated carrier call {call.carrier_sid} on Twilio upon operator End Call.",
+                level="INFO",
+                details={"callId": call.id, "carrierSid": call.carrier_sid}
+            )
+        except Exception as e:
+            pass
+
+    # 2. Close active xAI session if open
+    try:
+        from app.services.xai_voice_service import active_xai_sessions
+        ws = active_xai_sessions.pop(call_id, None) or active_xai_sessions.pop(call.id, None)
+        if ws:
+            await ws.send(json.dumps({"type": "response.cancel"}))
+            await ws.close()
+    except Exception:
+        pass
+
+    # 3. Calculate final duration
+    if call.created_at:
+        secs = max(1, int((datetime.utcnow() - call.created_at).total_seconds()))
+        call.duration = f"{secs // 60:02d}:{secs % 60:02d}"
+
+    # 4. Save to CallLog
+    try:
+        existing_log_res = await db.execute(select(CallLog).where(CallLog.id == f"log_{call.id}"))
+        if not existing_log_res.scalars().first():
+            log_entry = CallLog(
+                id=f"log_{call.id}",
+                contact=call.prospect,
+                channel=call.channel,
+                duration=f"{call.duration} min",
+                status="operator_ended",
+                started_at=call.created_at.strftime("%I:%M %p") if call.created_at else "Just now",
+                transcript=call.transcript or ["Call ended by supervisor."]
+            )
+            db.add(log_entry)
+    except Exception:
+        pass
+
+    await db.commit()
+    await call_hub.broadcast("call_ended", {"callId": call.id})
+    await call_hub.broadcast("call_updated", {"callId": call.id, "ended": True, "state": "ended", "duration": call.duration})
+    return {"status": "ok", "callId": call.id, "duration": call.duration}
 
 @router.delete("/live/{call_id}")
 async def delete_live_call(call_id: str, db: AsyncSession = Depends(get_db)):

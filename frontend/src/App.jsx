@@ -18133,9 +18133,28 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
       refreshLiveCalls();
     }, 2500);
 
+    const ticker = setInterval(() => {
+      setLiveCalls((prev) =>
+        prev.map((c) => {
+          if (c.ended || c.state === "ended" || c.state === "failed" || c.state === "canceled") return c;
+          const currentDur = c.duration || "00:00";
+          if (!currentDur.includes(":")) return c;
+          const [mm, ss] = currentDur.split(":").map((n) => parseInt(n, 10) || 0);
+          const totalSecs = mm * 60 + ss + 1;
+          const nextMin = Math.floor(totalSecs / 60);
+          const nextSec = totalSecs % 60;
+          return {
+            ...c,
+            duration: `${String(nextMin).padStart(2, "0")}:${String(nextSec).padStart(2, "0")}`
+          };
+        })
+      );
+    }, 1000);
+
     return () => {
       if (ws) ws.close();
       clearInterval(interval);
+      clearInterval(ticker);
     };
   }, []);
 
@@ -18406,11 +18425,32 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     return entry;
   };
 
-  const confirmEndCall = (id) => {
+  const confirmEndCall = async (id) => {
     const call = liveCalls.find((c) => c.id === id);
-    setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, ended: true, confirmingEnd: false } : c)));
+
+    // Stop audio player if listening to this call
+    if (activeAudioPlayerRef.current && listeningCallId === id) {
+      try {
+        activeAudioPlayerRef.current.stopListening();
+      } catch (_) {}
+      activeAudioPlayerRef.current = null;
+      setListeningCallId(null);
+    }
+
+    setLiveCalls((cs) => cs.map((c) => (c.id === id ? { ...c, ended: true, confirmingEnd: false, state: "ended" } : c)));
     const isMessage = call && (call.channel === "whatsapp" || call.channel === "sms" || call.channel === "email");
     if (call) appendCallLog(call, isMessage ? "thread_ended" : "operator_ended");
+
+    // Immediately notify backend to hang up carrier (Twilio) and cancel xAI session
+    try {
+      await api.endLiveCall(id);
+    } catch (err) {
+      console.warn("[EndCall] Error sending end call to backend:", err);
+    }
+    try {
+      refreshLiveCalls();
+      refreshWorkspaceLogs();
+    } catch (_) {}
 
     if (call && call.missionId && call.prospectId) {
       const mission = missions.find((m) => m.id === call.missionId);

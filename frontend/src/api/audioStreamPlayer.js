@@ -103,8 +103,24 @@ export class AudioStreamPlayer {
         this.audioCtx.resume();
       }
       this.masterGain = this.audioCtx.createGain();
-      this.masterGain.gain.value = 1.0;
-      this.masterGain.connect(this.audioCtx.destination);
+      this.masterGain.gain.value = 0.95;
+
+      // Telephony bandpass lowpass filter (removes aliasing grit and digital hiss above 3800Hz)
+      this.filterNode = this.audioCtx.createBiquadFilter();
+      this.filterNode.type = 'lowpass';
+      this.filterNode.frequency.value = 3800;
+
+      // Dynamics compressor: prevents clipping or distortion when caller & AI speak concurrently
+      this.compressor = this.audioCtx.createDynamicsCompressor();
+      this.compressor.threshold.value = -12;
+      this.compressor.knee.value = 10;
+      this.compressor.ratio.value = 4;
+      this.compressor.attack.value = 0.005;
+      this.compressor.release.value = 0.050;
+
+      this.masterGain.connect(this.filterNode);
+      this.filterNode.connect(this.compressor);
+      this.compressor.connect(this.audioCtx.destination);
     } catch (err) {
       console.error('[AudioPlayer] AudioContext error:', err);
       return;
@@ -192,18 +208,21 @@ export class AudioStreamPlayer {
         source.connect(this.audioCtx.destination);
       }
 
-      // Independent jitter-buffered timeline per track (inbound vs outbound):
-      // Target lead time: 40ms (prevents underrun clicks on network packet jitter)
-      // Max latency cap: 160ms (ensures operator always hears what is happening right now in the moment)
+      // Smooth continuous scheduling (zero artificial gaps, zero tremolo / shakiness):
       const now = this.audioCtx.currentTime;
-      const JITTER_LEAD = 0.040;
-      const MAX_LATENCY = 0.160;
-
       const trackKey = track === 'outbound' ? 'outbound' : 'inbound';
       let trackStart = this.trackTimelines[trackKey] || 0;
 
-      if (trackStart < now || trackStart > now + MAX_LATENCY) {
-        trackStart = now + JITTER_LEAD;
+      // If starting fresh or recovering from a silence gap (> 100ms):
+      if (trackStart === 0 || (now - trackStart) > 0.100) {
+        trackStart = now + 0.050; // 50ms initial safety cushion
+      } else if (trackStart < now) {
+        // Minor network packet jitter (1-50ms late): start IMMEDIATELY at 'now'
+        // NEVER inject 40ms of dead silence which causes shaky / robotic stutter!
+        trackStart = now;
+      } else if (trackStart > now + 0.250) {
+        // Excess latency drift (> 250ms behind real-time): gently resync
+        trackStart = now + 0.050;
       }
 
       source.start(trackStart);
@@ -224,6 +243,14 @@ export class AudioStreamPlayer {
     if (this.masterGain) {
       try { this.masterGain.disconnect(); } catch (_) {}
       this.masterGain = null;
+    }
+    if (this.filterNode) {
+      try { this.filterNode.disconnect(); } catch (_) {}
+      this.filterNode = null;
+    }
+    if (this.compressor) {
+      try { this.compressor.disconnect(); } catch (_) {}
+      this.compressor = null;
     }
     if (this.audioCtx) {
       try { this.audioCtx.close(); } catch (_) {}
