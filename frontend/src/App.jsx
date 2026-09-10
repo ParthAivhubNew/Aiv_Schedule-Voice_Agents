@@ -15802,31 +15802,41 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       baseUrl: creds.baseUrl
     });
 
-    api.chatPlan({
-      text,
-      messages: historyMsgs,
-      apiKey: creds.apiKey || "",
-      provider: creds.provider || "openai",
-      model: creds.model || "gpt-4o",
-      baseUrl: creds.baseUrl || "",
-      imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas"
-    }).then((res) => {
+    api.chatPlan(
+      {
+        text,
+        messages: historyMsgs,
+        apiKey: creds.apiKey || "",
+        provider: creds.provider || "openai",
+        model: creds.model || "gpt-4o",
+        baseUrl: creds.baseUrl || "",
+        imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas"
+      },
+      { signal: controller.signal }
+    ).then((res) => {
       clearTimeout(timeoutId);
       setTyping(false);
       window._schedulerChatAbort = null;
-      if (res && (res.postsCreated || res.posts)) {
-        const newPosts = res.postsCreated || res.posts;
-        if (newPosts.length) {
-          setPosts((ps) => [...newPosts, ...ps]);
+      try {
+        if (res && (res.postsCreated || res.posts)) {
+          const newPosts = res.postsCreated || res.posts;
+          if (Array.isArray(newPosts) && newPosts.length) {
+            setPosts((ps) => [...newPosts, ...ps]);
+          }
         }
-      }
-      if (res && res.topics && res.topics.length) {
-        setTopics((ts) => [...res.topics, ...ts]);
-      }
-      if (res && res.reply) {
-        pushAi(res.reply);
-      } else if (res && res.error) {
-        pushAi("⚠️ " + res.error);
+        if (res && res.topics && Array.isArray(res.topics) && res.topics.length) {
+          setTopics((ts) => [...res.topics, ...ts]);
+        }
+        if (res && res.reply) {
+          pushAi(res.reply);
+        } else if (res && res.error) {
+          pushAi("⚠️ " + res.error);
+        } else {
+          pushAi("Received response from AI, but reply was empty.");
+        }
+      } catch (renderErr) {
+        console.error("[Scheduler Chat] Error processing reply:", renderErr);
+        pushAi("⚠️ Failed to process AI response: " + renderErr.message);
       }
     }).catch((err) => {
       clearTimeout(timeoutId);

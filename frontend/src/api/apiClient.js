@@ -117,9 +117,10 @@ export const api = {
   getPosts: () => apiRequest('/scheduler/posts'),
   createPost: (payload) => apiRequest('/scheduler/posts/create', { method: 'POST', body: payload }),
   deletePost: (postId) => apiRequest(`/scheduler/posts/${postId}`, { method: 'DELETE' }),
-  chatPlan: (payload) => apiRequest('/scheduler/chat-plan', { 
+  chatPlan: (payload, options = {}) => apiRequest('/scheduler/chat-plan', { 
     method: 'POST', 
-    body: typeof payload === 'string' ? { text: payload } : payload 
+    body: typeof payload === 'string' ? { text: payload } : payload,
+    ...options
   }),
   updatePostStatus: (postId, status, copy, imageUrl, imagePrompt) => apiRequest(`/scheduler/posts/${postId}/status`, { 
     method: 'POST', 
