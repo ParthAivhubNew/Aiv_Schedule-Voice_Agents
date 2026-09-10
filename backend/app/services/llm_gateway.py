@@ -73,16 +73,19 @@ async def resolve_llm_credentials(
                             "model": mod or cfg.get("model")
                         }
 
-            # 2. Prefer connected provider in LLM or Scheduler groups
+            # 2. Prefer connected provider in LLM, Social, Scheduler, or Image groups
             for c in conns:
                 cfg = c.config or {}
                 k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
-                if k and c.status == "connected" and c.group_name in ["LLM", "Social", "Scheduler", "postWriter"]:
+                if k and c.status == "connected":
+                    c_prov = (cfg.get("provider") or c.name.lower()).strip()
+                    if "dall-e" in c_prov or "openai" in c_prov:
+                        c_prov = "openai"
                     return {
-                        "provider": cfg.get("provider") or c.name.lower(),
+                        "provider": c_prov,
                         "api_key": k,
                         "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
-                        "model": mod or cfg.get("model")
+                        "model": "gpt-4o" if c_prov == "openai" else (mod or cfg.get("model"))
                     }
 
             # 3. Next check any connection with a non-empty key
@@ -90,19 +93,22 @@ async def resolve_llm_credentials(
                 cfg = c.config or {}
                 k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
                 if k:
+                    c_prov = (cfg.get("provider") or c.name.lower()).strip()
+                    if "dall-e" in c_prov or "openai" in c_prov:
+                        c_prov = "openai"
                     return {
-                        "provider": cfg.get("provider") or c.name.lower(),
+                        "provider": c_prov,
                         "api_key": k,
                         "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
-                        "model": mod or cfg.get("model")
+                        "model": "gpt-4o" if c_prov == "openai" else (mod or cfg.get("model"))
                     }
         except Exception as e:
             logger.warning(f"Failed to query DB for LLM connections: {e}")
 
-    # Fallback to standard environment variables ONLY if matching the provider or unassigned
+    # Fallback to standard environment variables
     prov_env_map = {
-        "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "deepseek-chat"),
         "openai": ("OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4o"),
+        "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "deepseek-chat"),
         "anthropic": ("ANTHROPIC_API_KEY", "https://api.anthropic.com/v1", "claude-3-5-sonnet-20241022"),
         "groq": ("GROQ_API_KEY", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
         "xai": ("XAI_API_KEY", "https://api.x.ai/v1", "grok-2-latest"),
@@ -119,16 +125,16 @@ async def resolve_llm_credentials(
                 "model": mod or default_model
             }
 
-    if not prov:
-        for p_name, (env_var, default_url, default_model) in prov_env_map.items():
-            k = os.getenv(env_var, "").strip()
-            if k and (env_var != "ANTHROPIC_API_KEY" or k.startswith("sk-ant-")):
-                return {
-                    "provider": p_name,
-                    "api_key": k,
-                    "base_url": burl or default_url,
-                    "model": mod or default_model
-                }
+    # If requested provider has no key in env, check if ANY other provider has an active key in env!
+    for p_name, (env_var, default_url, default_model) in prov_env_map.items():
+        k = os.getenv(env_var, "").strip()
+        if k and (env_var != "ANTHROPIC_API_KEY" or k.startswith("sk-ant-")):
+            return {
+                "provider": p_name,
+                "api_key": k,
+                "base_url": burl or default_url,
+                "model": mod or default_model
+            }
 
     # Return whatever was provided without pretending to have a key
     return {

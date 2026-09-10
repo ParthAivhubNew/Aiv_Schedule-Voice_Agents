@@ -145,18 +145,50 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
       }
     }
 
-    // Fallback: search ANY connected provider in commonAi.providers that has an API key
-    if (!schedKey && Array.isArray(commonAi?.providers)) {
-      const anyConn = commonAi.providers.find((p) => p.apiKey && p.apiKey.trim().length > 0);
-      if (anyConn) {
-        schedKey = anyConn.apiKey;
-        schedProv = anyConn.id;
-        schedModel = schedModel || anyConn.models?.[0] || anyConn.name;
-        schedBaseUrl = schedBaseUrl || anyConn.baseUrl;
+    // Check imageApiKey if text key is still empty
+    if (!schedKey && commonAi?.schedulerAi?.imageApiKey) {
+      schedKey = commonAi.schedulerAi.imageApiKey;
+      if (!schedProv || schedProv === "deepseek") {
+        schedProv = commonAi.schedulerAi.imageProvider || "openai";
       }
     }
 
+    // Check localStorage "aivhub_common_ai"
+    if (!schedKey) {
+      try {
+        const raw = localStorage.getItem("aivhub_common_ai");
+        if (raw) {
+          const parsedCommon = JSON.parse(raw);
+          if (Array.isArray(parsedCommon.providers)) {
+            const connected = parsedCommon.providers.find((p) => p.apiKey && p.apiKey.trim().length > 0);
+            if (connected) {
+              schedKey = connected.apiKey;
+              schedProv = connected.id;
+              schedModel = schedModel || connected.models?.[0] || connected.name;
+              schedBaseUrl = schedBaseUrl || connected.baseUrl;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Auto-detect provider from key prefix to prevent cross-provider authentication failures
     if (schedKey) {
+      const k = schedKey.trim();
+      if (k.startsWith("sk-ant-")) {
+        schedProv = "anthropic";
+        if (!schedModel || !schedModel.toLowerCase().includes("claude")) schedModel = "claude-3-5-sonnet-20241022";
+      } else if (k.startsWith("sk-proj-") || (k.startsWith("sk-") && !k.startsWith("sk-ant-") && !k.startsWith("sk-or-"))) {
+        schedProv = "openai";
+        if (!schedModel || !schedModel.toLowerCase().includes("gpt")) schedModel = "gpt-4o";
+      } else if (k.startsWith("gsk_")) {
+        schedProv = "groq";
+        if (!schedModel || !schedModel.toLowerCase().includes("llama")) schedModel = "llama-3.3-70b-versatile";
+      } else if (k.startsWith("xai-")) {
+        schedProv = "xai";
+        if (!schedModel || !schedModel.toLowerCase().includes("grok")) schedModel = "grok-2-latest";
+      }
+
       return {
         apiKey: schedKey,
         provider: schedProv || "openai",
@@ -229,6 +261,23 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
       resolvedKey = anyConnected.apiKey;
       provId = anyConnected.id;
       modelName = modelName || anyConnected.models?.[0] || anyConnected.name;
+    }
+  }
+
+  if (resolvedKey) {
+    const k = resolvedKey.trim();
+    if (k.startsWith("sk-ant-")) {
+      provId = "anthropic";
+      if (!modelName || !modelName.toLowerCase().includes("claude")) modelName = "claude-3-5-sonnet-20241022";
+    } else if (k.startsWith("sk-proj-") || (k.startsWith("sk-") && !k.startsWith("sk-ant-") && !k.startsWith("sk-or-"))) {
+      provId = "openai";
+      if (!modelName || !modelName.toLowerCase().includes("gpt")) modelName = "gpt-4o";
+    } else if (k.startsWith("gsk_")) {
+      provId = "groq";
+      if (!modelName || !modelName.toLowerCase().includes("llama")) modelName = "llama-3.3-70b-versatile";
+    } else if (k.startsWith("xai-")) {
+      provId = "xai";
+      if (!modelName || !modelName.toLowerCase().includes("grok")) modelName = "grok-2-latest";
     }
   }
 

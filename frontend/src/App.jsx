@@ -15245,7 +15245,183 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const [searching, setSearching] = useState(false);
   const [posts, setPosts] = useState(INITIAL_POST_ITEMS);
   const [emails, setEmails] = useState(INITIAL_SCHEDULER_EMAILS);
-  const [chat, setChat] = useState(INITIAL_SCHEDULER_CHAT);
+  // Smart Multi-Session Chat State with Persistent History
+  const [chatSessions, setChatSessions] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aivhub_scheduler_chat_sessions");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+    return [
+      {
+        id: "sess_default",
+        title: "Editorial Strategy & Planning",
+        messages: INITIAL_SCHEDULER_CHAT,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }
+    ];
+  });
+
+  const [activeSessionId, setActiveSessionId] = useState(() => {
+    try {
+      const active = localStorage.getItem("aivhub_scheduler_chat_active");
+      if (active) return active;
+    } catch (_) {}
+    return "sess_default";
+  });
+
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editMessageDraft, setEditMessageDraft] = useState("");
+  const [copiedMessageId, setCopiedMessageId] = useState(null);
+  const [historySearchQuery, setHistorySearchQuery] = useState("");
+
+  const currentSession = chatSessions.find((s) => s.id === activeSessionId) || chatSessions[0] || {
+    id: "sess_default",
+    title: "Editorial Strategy & Planning",
+    messages: INITIAL_SCHEDULER_CHAT
+  };
+  const chat = currentSession.messages || INITIAL_SCHEDULER_CHAT;
+
+  const setChat = (updater) => {
+    setChatSessions((prevSessions) => {
+      const sId = activeSessionId;
+      const index = prevSessions.findIndex((s) => s.id === sId);
+      const targetSession = index >= 0 ? prevSessions[index] : prevSessions[0];
+      const prevMsgs = targetSession ? targetSession.messages : INITIAL_SCHEDULER_CHAT;
+      const nextMsgs = typeof updater === "function" ? updater(prevMsgs) : updater;
+
+      let title = targetSession?.title || "Editorial Strategy & Planning";
+      if ((title === "Editorial Strategy & Planning" || title === "New Conversation") && nextMsgs.length > 1) {
+        const firstUser = nextMsgs.find((m) => m.who === "user");
+        if (firstUser) {
+          title = firstUser.text.slice(0, 36) + (firstUser.text.length > 36 ? "..." : "");
+        }
+      }
+
+      const updatedSession = {
+        ...(targetSession || {}),
+        id: targetSession?.id || sId,
+        title,
+        messages: nextMsgs,
+        updatedAt: Date.now()
+      };
+
+      const nextSessions = index >= 0
+        ? [...prevSessions.slice(0, index), updatedSession, ...prevSessions.slice(index + 1)]
+        : [updatedSession, ...prevSessions];
+
+      try {
+        localStorage.setItem("aivhub_scheduler_chat_sessions", JSON.stringify(nextSessions));
+      } catch (_) {}
+      return nextSessions;
+    });
+  };
+
+  const createNewSession = () => {
+    const newId = "sess_" + Date.now();
+    const newSession = {
+      id: newId,
+      title: "New Conversation",
+      messages: [
+        { id: "c_" + Date.now(), who: "ai", text: "New conversation started. Plan your social media schedule, draft topics, hooks, or brainstorm campaign strategy." }
+      ],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    setChatSessions((prev) => {
+      const next = [newSession, ...prev];
+      try { localStorage.setItem("aivhub_scheduler_chat_sessions", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+    setActiveSessionId(newId);
+    try { localStorage.setItem("aivhub_scheduler_chat_active", newId); } catch (_) {}
+    setShowHistoryModal(false);
+  };
+
+  const switchSession = (id) => {
+    setActiveSessionId(id);
+    try { localStorage.setItem("aivhub_scheduler_chat_active", id); } catch (_) {}
+    setShowHistoryModal(false);
+  };
+
+  const deleteSession = (e, id) => {
+    e.stopPropagation();
+    setChatSessions((prev) => {
+      const filtered = prev.filter((s) => s.id !== id);
+      const remaining = filtered.length > 0 ? filtered : [{
+        id: "sess_" + Date.now(),
+        title: "Editorial Strategy & Planning",
+        messages: INITIAL_SCHEDULER_CHAT,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }];
+      if (activeSessionId === id) {
+        setActiveSessionId(remaining[0].id);
+        try { localStorage.setItem("aivhub_scheduler_chat_active", remaining[0].id); } catch (_) {}
+      }
+      try { localStorage.setItem("aivhub_scheduler_chat_sessions", JSON.stringify(remaining)); } catch (_) {}
+      return remaining;
+    });
+  };
+
+  const deleteChatMessage = (msgId) => {
+    setChat((prev) => prev.filter((m) => m.id !== msgId));
+  };
+
+  const copyChatMessage = (msgId, text) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedMessageId(msgId);
+      setTimeout(() => setCopiedMessageId(null), 1800);
+    } catch (_) {}
+  };
+
+  const startEditMessage = (m) => {
+    setEditingMessageId(m.id);
+    setEditMessageDraft(m.text);
+  };
+
+  const cancelEditMessage = () => {
+    setEditingMessageId(null);
+    setEditMessageDraft("");
+  };
+
+  const saveAndResubmitMessage = (msgId) => {
+    if (!editMessageDraft.trim()) return;
+    const newText = editMessageDraft.trim();
+    setEditingMessageId(null);
+    setEditMessageDraft("");
+
+    setChat((prev) => {
+      const idx = prev.findIndex((m) => m.id === msgId);
+      if (idx < 0) return prev;
+      const truncated = prev.slice(0, idx + 1);
+      truncated[idx] = { ...truncated[idx], text: newText };
+      return truncated;
+    });
+
+    setTyping(true);
+    executeIntent(newText);
+  };
+
+  const regenerateAiResponse = (aiMsgIndex) => {
+    const precedingUser = chat.slice(0, aiMsgIndex).reverse().find((m) => m.who === "user");
+    if (!precedingUser) return;
+    setChat((prev) => prev.filter((_, idx) => idx !== aiMsgIndex));
+    setTyping(true);
+    executeIntent(precedingUser.text);
+  };
+
+  const clearCurrentChat = () => {
+    setChat([
+      { id: "c_" + Date.now(), who: "ai", text: "Chat history cleared. What should we work on next?" }
+    ]);
+  };
+
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
   const [channels, setChannels] = useState({ linkedin: true, threads: true, x: true, facebook: true, instagram: false });
@@ -15563,10 +15739,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
 
     if (parsed.kind === "plan") {
       if (parsed.companyName) setProfile((p) => ({ ...p, name: parsed.companyName }));
-      const { list, range } = applyPlan(parsed.schedules, parsed.replace, parsed.horizon, parsed.range);
-      const who = parsed.companyName || company.name;
-      const lines = list.map((s) => s.weekday + " — " + s.theme).join("\n");
-      pushAi((parsed.replace ? "Draft for " + who + " — " + range.label + ".\n\n" : "Added to the draft.\n\n") + lines + "\n\nConsulting AI Strategist...");
+      applyPlan(parsed.schedules, parsed.replace, parsed.horizon, parsed.range);
+      // Strictly no hardcoded text. All responses are streamed dynamically from the real AI LLM.
     }
 
     if (view === "images" && !text.toLowerCase().includes("plan") && !text.toLowerCase().includes("post")) {
@@ -15596,8 +15770,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       text,
       messages: historyMsgs,
       apiKey: creds.apiKey || undefined,
-      provider: creds.provider || "deepseek",
-      model: creds.model || "deepseek-chat",
+      provider: creds.provider || "openai",
+      model: creds.model || "gpt-4o",
       baseUrl: creds.baseUrl || undefined,
       imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas"
     }).then((res) => {
@@ -16991,15 +17165,75 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
             <div style={{ width: 2, height: 28, borderRadius: 999, background: isDraggingChat ? C.teal : "#C8CCD6" }} />
           </div>
 
-          {/* Header with Title and Quick Stretch Controls */}
-          <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.ink }}>
-              <Sparkles size={15} color={C.teal} /> {view === "images" ? "Visual Director AI" : "Plan AI"}
-              <span style={{ fontSize: 11, color: C.slateLight, fontWeight: 500 }}>({chatWidth}px)</span>
+          {/* Header with Title, History, New Chat, and Stretch Controls */}
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <div style={{ width: 26, height: 26, borderRadius: 7, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Sparkles size={14} color={C.teal} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                    {view === "images" ? "Visual Director AI" : "Plan AI"}
+                  </span>
+                  <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: C.cobaltSoft, color: C.cobalt, fontWeight: 600 }}>
+                    Active
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: Math.max(140, chatWidth - 260) }}>
+                  {currentSession?.title || "Editorial Chat"}
+                </div>
+              </div>
             </div>
 
-            {/* Quick Stretch Buttons */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {/* Controls: History, New Chat, Stretch */}
+            <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal((prev) => !prev)}
+                title="Chat Conversations History"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 8px",
+                  borderRadius: 6,
+                  border: `1px solid ${showHistoryModal ? C.teal : C.border}`,
+                  background: showHistoryModal ? C.tealSoft : HUB_PAPER,
+                  color: showHistoryModal ? C.teal : C.textInk,
+                  fontFamily: FONT_BODY,
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <History size={12} color={showHistoryModal ? C.teal : C.slate} />
+                <span>History ({chatSessions.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={createNewSession}
+                title="Start a new conversation"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 8px",
+                  borderRadius: 6,
+                  border: `1px solid ${C.border}`,
+                  background: HUB_PAPER,
+                  color: C.textInk,
+                  fontFamily: FONT_BODY,
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <Plus size={12} color={C.slate} />
+                <span>New</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setChatWidth((w) => (w <= 420 ? 620 : w <= 650 ? 820 : 380))}
@@ -17008,7 +17242,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                   display: "flex",
                   alignItems: "center",
                   gap: 4,
-                  padding: "4px 8px",
+                  padding: "5px 8px",
                   borderRadius: 6,
                   border: `1px solid ${C.border}`,
                   background: HUB_PAPER,
@@ -17025,54 +17259,325 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
             </div>
           </div>
 
-          <div style={{ padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, borderBottom: `1px solid ${C.border}`, background: HUB_PAPER, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>{view === "images" ? "Brainstorm visual ideas, prompt refinements, or graphic styles." : "Dates, themes, or topic research. Drag border ↔ to stretch."}</span>
+          {/* Subheader info or Search bar */}
+          <div style={{ padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 11, color: C.slate, borderBottom: `1px solid ${C.borderLight}`, background: HUB_PAPER, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span>{view === "images" ? "Visual prompt suggestions & design ideation" : "Plan campaign days, hooks, and topic strategy"}</span>
+            <span style={{ color: C.teal, fontWeight: 600 }}>⚡ Real-time AI Assistant</span>
           </div>
 
-          {/* Message List */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px" }}>
-            {chat.map((m) => (
-              <div key={m.id} style={{ display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start", marginBottom: 12 }}>
-                <div
-                  style={{
-                    maxWidth: "88%",
-                    background: m.who === "user" ? C.ink : HUB_PAPER,
-                    color: m.who === "user" ? "#fff" : C.textInk,
-                    border: m.who === "user" ? "none" : `1px solid ${C.border}`,
-                    borderRadius: m.who === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                    padding: "11px 14px",
-                    fontFamily: FONT_BODY,
-                    fontSize: 13,
-                    lineHeight: 1.52,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-                  }}
-                >
-                  {m.text}
+          {/* Chat History Slide-Over Drawer */}
+          {showHistoryModal ? (
+            <div style={{ flex: 1, overflowY: "auto", padding: 14, background: "#fff", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                  Chat Conversation History
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowHistoryModal(false)}
+                  style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }}
+                >
+                  <X size={15} color={C.slate} />
+                </button>
               </div>
-            ))}
-            {typing && (
-              <div style={{ display: "flex", gap: 5, padding: "8px 12px", background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, width: 52 }}>
-                {[0, 1, 2].map((i) => <span key={i} style={{ width: 6, height: 6, borderRadius: 999, background: C.teal, animation: `typingDot 1s ${i * 0.15}s infinite` }} />)}
-              </div>
-            )}
-            <div ref={chatEnd} />
-          </div>
 
-          {/* Chat Input */}
-          <form onSubmit={sendChat} style={{ padding: "12px 14px 14px", borderTop: `1px solid ${C.border}`, background: "#fff" }}>
-            <div style={{ display: "flex", gap: 8 }}>
+              {/* Search History */}
+              <div style={{ position: "relative" }}>
+                <Search size={13} color={C.slateLight} style={{ position: "absolute", left: 10, top: 11 }} />
+                <input
+                  type="text"
+                  value={historySearchQuery}
+                  onChange={(e) => setHistorySearchQuery(e.target.value)}
+                  placeholder="Filter saved conversations..."
+                  style={{ width: "100%", boxSizing: "border-box", height: 34, padding: "0 10px 0 30px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, background: HUB_PAPER }}
+                />
+              </div>
+
+              {/* Start New Button */}
+              <button
+                type="button"
+                onClick={createNewSession}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: `1px dashed ${C.teal}`,
+                  background: C.tealSoft,
+                  color: C.teal,
+                  fontWeight: 600,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                <Plus size={14} /> Start New Conversation
+              </button>
+
+              {/* Sessions List */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                {chatSessions
+                  .filter((s) => !historySearchQuery.trim() || (s.title || "").toLowerCase().includes(historySearchQuery.toLowerCase()))
+                  .map((session) => {
+                    const isActive = session.id === activeSessionId;
+                    const dateStr = session.updatedAt
+                      ? new Date(session.updatedAt).toLocaleDateString([], { month: "short", day: "numeric" })
+                      : "Recent";
+                    const msgCount = (session.messages || []).length;
+
+                    return (
+                      <div
+                        key={session.id}
+                        onClick={() => switchSession(session.id)}
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: 8,
+                          border: `1px solid ${isActive ? C.teal : C.borderLight}`,
+                          background: isActive ? C.tealSoft : HUB_PAPER,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: isActive ? 700 : 600, color: isActive ? C.ink : C.textInk, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {session.title || "Untitled Chat"}
+                          </div>
+                          <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>
+                            {dateStr} · {msgCount} message{msgCount === 1 ? "" : "s"}
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          {isActive && (
+                            <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: C.teal, color: "#fff", fontWeight: 700 }}>
+                              Active
+                            </span>
+                          )}
+                          {chatSessions.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => deleteSession(e, session.id)}
+                              title="Delete conversation"
+                              style={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: 5,
+                                border: "none",
+                                background: "transparent",
+                                color: C.slate,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.color = C.redSolid; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.color = C.slate; }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          ) : (
+            /* Standard Message List */
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 14px 8px" }}>
+              {chat.map((m, idx) => {
+                const isUser = m.who === "user";
+                const isEditing = editingMessageId === m.id;
+
+                return (
+                  <div key={m.id || `msg_${idx}`} style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", marginBottom: 14 }}>
+                    {isEditing ? (
+                      <div style={{ width: "100%", maxWidth: "92%", background: "#fff", border: `1.5px solid ${C.teal}`, borderRadius: 12, padding: 10, boxShadow: "0 4px 14px rgba(0,0,0,0.06)" }}>
+                        <textarea
+                          value={editMessageDraft}
+                          onChange={(e) => setEditMessageDraft(e.target.value)}
+                          rows={3}
+                          style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", resize: "vertical" }}
+                        />
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 8 }}>
+                          <button
+                            type="button"
+                            onClick={cancelEditMessage}
+                            style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: HUB_PAPER, fontSize: 11.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => saveAndResubmitMessage(m.id)}
+                            style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: C.teal, fontSize: 11.5, fontWeight: 600, color: "#fff", cursor: "pointer" }}
+                          >
+                            Save & Resubmit
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          style={{
+                            maxWidth: "88%",
+                            background: isUser ? C.ink : HUB_PAPER,
+                            color: isUser ? "#fff" : C.textInk,
+                            border: isUser ? "none" : `1px solid ${C.border}`,
+                            borderRadius: isUser ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                            padding: "11px 14px",
+                            fontFamily: FONT_BODY,
+                            fontSize: 13,
+                            lineHeight: 1.54,
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                          }}
+                        >
+                          {m.text}
+                        </div>
+
+                        {/* Action Toolbar for Message (Copy, Edit, Delete, Regenerate) */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "0 4px" }}>
+                          {/* Copy Action */}
+                          <button
+                            type="button"
+                            onClick={() => copyChatMessage(m.id, m.text)}
+                            title="Copy message to clipboard"
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              padding: "2px 4px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 3,
+                              color: copiedMessageId === m.id ? C.teal : C.slateLight,
+                              fontSize: 10.5,
+                              fontFamily: FONT_BODY,
+                            }}
+                          >
+                            {copiedMessageId === m.id ? <Check size={11} color={C.teal} /> : <Copy size={11} />}
+                            <span>{copiedMessageId === m.id ? "Copied" : "Copy"}</span>
+                          </button>
+
+                          {/* Edit Action (User messages) */}
+                          {isUser && (
+                            <button
+                              type="button"
+                              onClick={() => startEditMessage(m)}
+                              title="Edit this prompt"
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                                padding: "2px 4px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 3,
+                                color: C.slateLight,
+                                fontSize: 10.5,
+                                fontFamily: FONT_BODY,
+                              }}
+                            >
+                              <PenLine size={11} />
+                              <span>Edit</span>
+                            </button>
+                          )}
+
+                          {/* Regenerate Action (AI messages) */}
+                          {!isUser && idx > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => regenerateAiResponse(idx)}
+                              title="Regenerate this AI response"
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                                padding: "2px 4px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 3,
+                                color: C.slateLight,
+                                fontSize: 10.5,
+                                fontFamily: FONT_BODY,
+                              }}
+                            >
+                              <RefreshCw size={11} />
+                              <span>Regenerate</span>
+                            </button>
+                          )}
+
+                          {/* Delete Message */}
+                          <button
+                            type="button"
+                            onClick={() => deleteChatMessage(m.id)}
+                            title="Delete this message"
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              padding: "2px 4px",
+                              display: "flex",
+                              alignItems: "center",
+                              color: C.slateLight,
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = C.redSolid; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = C.slateLight; }}
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+
+              {typing && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+                  <div style={{ display: "flex", gap: 5, padding: "8px 12px", background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, width: 52 }}>
+                    {[0, 1, 2].map((i) => <span key={i} style={{ width: 6, height: 6, borderRadius: 999, background: C.teal, animation: `typingDot 1s ${i * 0.15}s infinite` }} />)}
+                  </div>
+                  <span style={{ fontSize: 11, color: C.slateLight, fontStyle: "italic" }}>Consulting AI Engine...</span>
+                </div>
+              )}
+              <div ref={chatEnd} />
+            </div>
+          )}
+
+          {/* Chat Input Bar */}
+          <form onSubmit={sendChat} style={{ padding: "10px 12px 12px", borderTop: `1px solid ${C.border}`, background: "#fff" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <input
                 ref={chatInput}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={view === "images" ? "Ask for visual concepts or prompt ideas (e.g. sleek SaaS graphic for ops)…" : "Plan dates, frequencies, themes, or search a topic…"}
-                style={{ flex: 1, height: 42, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 14px", fontFamily: FONT_BODY, fontSize: 13.5, background: HUB_PAPER, color: C.textInk, outline: "none" }}
+                placeholder={view === "images" ? "Ask for visual concepts or prompt ideas…" : "Type campaign ideas, dates, or topics to plan…"}
+                style={{ flex: 1, height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13, background: HUB_PAPER, color: C.textInk, outline: "none" }}
               />
-              <button type="submit" style={{ width: 42, height: 42, borderRadius: 10, border: "none", background: C.teal, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(12,140,125,0.22)" }}>
-                <Send size={15} />
+
+              <button
+                type="button"
+                onClick={clearCurrentChat}
+                title="Clear current thread"
+                style={{ width: 34, height: 40, borderRadius: 8, border: `1px solid ${C.border}`, background: HUB_PAPER, color: C.slate, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
+                <Trash2 size={13} />
+              </button>
+
+              <button
+                type="submit"
+                disabled={typing || !draft.trim()}
+                style={{ width: 40, height: 40, borderRadius: 9, border: "none", background: typing || !draft.trim() ? "#C4D1D0" : C.teal, color: "#fff", cursor: typing || !draft.trim() ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(12,140,125,0.22)" }}
+              >
+                <Send size={14} />
               </button>
             </div>
           </form>
