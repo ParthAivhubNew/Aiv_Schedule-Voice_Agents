@@ -177,17 +177,12 @@ export class AudioStreamPlayer {
         this.onAudioLevel(Math.min(1.0, rms * 5), track);
       }
 
-      // Create an AudioBuffer. Standard Web Audio API natively supports 8000 Hz.
-      // The browser's native C++ engine will resample smoothly to hardware output.
-      let buffer;
-      try {
-        buffer = this.audioCtx.createBuffer(1, pcm8k.length, 8000);
-        buffer.copyToChannel(pcm8k, 0);
-      } catch (_) {
-        const resampled = resampleToAudioContext(pcm8k, this.audioCtx.sampleRate);
-        buffer = this.audioCtx.createBuffer(1, resampled.length, this.audioCtx.sampleRate);
-        buffer.copyToChannel(resampled, 0);
-      }
+      // Resample 8kHz telephony audio directly to native AudioContext hardware sample rate (e.g. 44.1kHz or 48kHz).
+      // This eliminates browser resampler mismatches and guarantees 100% natural human pitch and 1.0x real-time speed.
+      const targetRate = this.audioCtx.sampleRate || 48000;
+      const resampled = resampleToAudioContext(pcm8k, targetRate);
+      const buffer = this.audioCtx.createBuffer(1, resampled.length, targetRate);
+      buffer.copyToChannel(resampled, 0);
 
       const source = this.audioCtx.createBufferSource();
       source.buffer = buffer;
@@ -198,11 +193,11 @@ export class AudioStreamPlayer {
       }
 
       // Independent jitter-buffered timeline per track (inbound vs outbound):
-      // Target lead time: 60ms (prevents underrun clicks on network packet jitter)
-      // Max latency cap: 220ms (ensures operator always hears what is happening right now in the moment)
+      // Target lead time: 40ms (prevents underrun clicks on network packet jitter)
+      // Max latency cap: 160ms (ensures operator always hears what is happening right now in the moment)
       const now = this.audioCtx.currentTime;
-      const JITTER_LEAD = 0.060;
-      const MAX_LATENCY = 0.220;
+      const JITTER_LEAD = 0.040;
+      const MAX_LATENCY = 0.160;
 
       const trackKey = track === 'outbound' ? 'outbound' : 'inbound';
       let trackStart = this.trackTimelines[trackKey] || 0;

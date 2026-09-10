@@ -145,7 +145,7 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
             f"<Parameter name=\"internalCallId\" value=\"{internal_call_id}\" />"
             f"</Stream>"
             f"</Start>"
-            f"<Dial answerOnBridge=\"true\" callerId=\"{from_clean}\" timeout=\"30\" action=\"{action_url}\" method=\"POST\">"
+            f"<Dial callerId=\"{from_clean}\" timeout=\"20\" action=\"{action_url}\" method=\"POST\">"
             f"<Sip>{sip_target}</Sip>"
             f"</Dial>"
             f"</Response>"
