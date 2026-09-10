@@ -44,7 +44,7 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
     )
     logger.info(f"[SIP-WEBHOOK] Body preview: {body_preview}")
 
-    await log_process_event(
+    asyncio.create_task(log_process_event(
         subsystem="telephony",
         process_name="sip_webhook_hit",
         message=f"xAI SIP webhook endpoint received a POST ({len(raw_body)} bytes).",
@@ -56,7 +56,7 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
             "hasWebhookId": "webhook-id" in headers_dict or "Webhook-Id" in headers_dict,
             "hasWebhookSig": "webhook-signature" in headers_dict or "Webhook-Signature" in headers_dict,
         }
-    )
+    ))
 
     # 1. Signature Verification
     active_secret = settings.XAI_WEBHOOK_SECRET
@@ -155,13 +155,13 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
         f"caller={caller}, callee={callee}, twilio_sid={twilio_call_sid}, custom_call_id={custom_call_id}"
     )
 
-    await log_process_event(
+    asyncio.create_task(log_process_event(
         subsystem="telephony",
         process_name="sip_webhook_received",
         message=f"Verified xAI SIP webhook: sip_call_id={call_id}, event={event_type}, caller={caller}, twilio_sid={twilio_call_sid}, custom_call_id={custom_call_id}.",
         level="SUCCESS",
         details={"callId": call_id, "event": event_type, "caller": caller, "callee": callee, "twilioSid": twilio_call_sid, "customCallId": custom_call_id, "fullPayload": data}
-    )
+    ))
 
     # 3. Handle Call Events
     if event_type in ["call.incoming", "call.initiated", "session.start", "call.answered",

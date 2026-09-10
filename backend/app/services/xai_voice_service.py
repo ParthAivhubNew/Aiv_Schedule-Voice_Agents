@@ -209,9 +209,29 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     faq_text = "\n".join(faq_lines) if faq_lines else "None provided yet."
 
     target_name = prospect_name or "there"
+    target_first_name = target_name.strip().split()[0] if target_name else "there"
 
-    instructions = f"""You are {caller_name}, a highly articulate, warm, and charismatic AI executive representative calling from {company_name}.
-Tone & Personality: {tone}. You sound like an experienced, personable enterprise partner having a relaxed, confident conversation — NEVER like a rigid telemarketer or robot reading a checklist.
+    instructions = f"""You are {caller_name}, a highly articulate, warm, and charismatic executive AI representative calling from {company_name}.
+Tone & Personality: {tone}. You sound like an experienced, personable enterprise partner having a relaxed, confident conversation — NEVER like a rigid telemarketer or robot reading a script.
+
+CRITICAL OUTBOUND CALL OPENING RULE (SPEAK FIRST):
+- You are placing an OUTBOUND CALL to {target_name}. The person on the other end has just answered their phone.
+- You MUST speak FIRST immediately! Do NOT stay silent waiting for the caller to ask who is calling.
+- Your opening greeting MUST introduce yourself and your company clearly and warmly:
+  "Hi {target_first_name}, this is {caller_name} calling from {company_name}. How are you doing today?"
+- Once they reply, state the reason for your call naturally:
+  "I'm reaching out because we help businesses automate their operations and client outreach with human-grade voice AI. I wanted to see if we could set up a quick 15-minute demo to show you how it works."
+
+CRITICAL MEETING BOOKING & CONTACT DETAILS CAPTURE (MANDATORY):
+1. The PRIMARY OBJECTIVE of this call is to schedule a 15-minute discovery demo AND CAPTURE THEIR DIRECT CONTACT DETAILS (Email address and Phone number).
+2. When the prospect agrees to a day or time (e.g. tomorrow afternoon, Friday, etc.):
+   - You MUST ask for their email address before confirming the meeting:
+     "Brilliant! What is the best email address to send the calendar invite and meeting link to?"
+3. Listen carefully to their email address (e.g. name@company.com). Acknowledge and repeat it back naturally to confirm:
+   - "Got it, that's [email]. I'll make sure the invite goes straight there."
+4. Also confirm their direct phone number:
+   - "And is this the best number to reach you on, or do you have a direct mobile you prefer?"
+5. ONLY invoke the `book_calendar_meeting` tool AFTER you have collected their confirmed email address, date, and time! Always provide the email in the `email` argument of `book_calendar_meeting`.
 
 TEMPORAL GROUND TRUTH (CRITICAL):
 - Today's Date: {current_date_str}
@@ -219,9 +239,6 @@ TEMPORAL GROUND TRUTH (CRITICAL):
 - Tomorrow: {tomorrow_str}
 - Current Year: {now.year}
 - NEVER schedule, suggest, or accept past dates (e.g. 2024, 2025, or any day prior to today). If the prospect mentions a month without a year or a date in the past (like "27 July"), clarify naturally: "Just to confirm, are you thinking later this year or next week? For this week, I've got tomorrow or Friday open."
-
-Your Objective:
-Engage {target_name} warmly, share how {company_name} delivers real-world operational and voice AI results, answer their questions using your tools, and find a mutually convenient 15-minute slot for a live demo.
 
 Company Pitch:
 {pitch}
@@ -236,14 +253,11 @@ Call Disclosure:
 "{disclosure}"
 
 CONVERSATION STYLE & VOICE GUIDELINES:
-1. Speak in natural, fluid spoken English (1-3 sentences per turn maximum). Let the other person talk.
+1. Speak in natural, fluid spoken English (1-2 sentences per turn). Keep turns punchy and conversational.
 2. Use conversational bridges naturally ("Brilliant", "That makes total sense", "Spot on", "Fair enough", "I completely understand").
 3. Be adaptable: If the person interrupts, changes topic, or asks a tough question, answer directly with confidence.
-4. When booking a meeting:
-   - Suggest near-term options: "Would tomorrow afternoon or perhaps Friday morning suit you better?"
-   - When they mention a day and time, invoke `check_calendar_availability` or `book_calendar_meeting` immediately.
-5. If they ask about detailed pricing, technical architecture, or onboarding, run `query_knowledge_base` to retrieve accurate facts.
-6. If they are busy or in a meeting, say: "No problem at all, I know your time is valuable. Would it be better if I ping you a quick calendar invite for tomorrow, or when would be a quieter time?"
+4. If they ask about detailed pricing, technical architecture, or onboarding, run `query_knowledge_base` to retrieve accurate facts.
+5. If they are busy or in a meeting, say: "No problem at all, I know your time is valuable. What is the best email address to ping you a quick calendar invite for tomorrow?"
 """
     return instructions.strip()
 
@@ -271,24 +285,32 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "name": "book_calendar_meeting",
-            "description": "Schedules a 15-minute discovery meeting or demo with the caller on the company calendar.",
+            "description": "Schedules a 15-minute discovery meeting or demo with the caller on the company calendar. Requires the prospect's confirmed email address.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "date": {
                         "type": "string",
-                        "description": "Date of meeting in YYYY-MM-DD format or descriptive day (e.g., 2026-09-10 or tomorrow)."
+                        "description": "Date of meeting in YYYY-MM-DD format or descriptive day (e.g. tomorrow, Friday, or 2026-09-11)."
                     },
                     "time": {
                         "type": "string",
-                        "description": "Time of meeting in 24-hour HH:MM format (e.g., 14:00 or 10:30)."
+                        "description": "Time of meeting in 24-hour HH:MM format (e.g. 14:00 or 10:30)."
+                    },
+                    "email": {
+                        "type": "string",
+                        "description": "The prospect's confirmed email address to send the calendar invite and video meeting link."
+                    },
+                    "phone": {
+                        "type": "string",
+                        "description": "The prospect's direct phone number or mobile."
                     },
                     "notes": {
                         "type": "string",
-                        "description": "Short topic or meeting note requested by caller."
+                        "description": "Short topic, interest, or meeting note requested by the prospect."
                     }
                 },
-                "required": ["date", "time"]
+                "required": ["date", "time", "email"]
             }
         },
         {
@@ -363,6 +385,8 @@ async def execute_xai_tool(
         elif name == "book_calendar_meeting":
             raw_date = args.get("date", "Tomorrow")
             time_val = args.get("time", "14:00")
+            email_val = (args.get("email") or "").strip()
+            phone_val = (args.get("phone") or "").strip()
             notes_val = args.get("notes", "Discovery call booked via xAI Voice Agent")
 
             # Ground date to real-world future timeline
@@ -383,6 +407,10 @@ async def execute_xai_tool(
                 
                 if call_record:
                     call_record.booked = True
+                    log_notes = f"System: Meeting booked for {date_val} at {time_val}"
+                    if email_val:
+                        log_notes += f" | Email: {email_val}"
+                    call_record.transcript = (call_record.transcript or []) + [log_notes]
 
                 if prospect_id:
                     p_res = await db.execute(select(Prospect).where(Prospect.id == prospect_id))
@@ -390,6 +418,26 @@ async def execute_xai_tool(
                     if p:
                         p.status = "meeting_booked"
                         p.note = f"Booked: {date_val} at {time_val} ({notes_val})"
+                        if email_val:
+                            p.email = email_val
+                        if phone_val:
+                            p.phone = phone_val
+
+                # Also update contact registry if entry exists for this prospect
+                if email_val and prospect_name:
+                    try:
+                        from app.models.models import ContactRegistry
+                        reg_res = await db.execute(select(ContactRegistry).where(ContactRegistry.canonical_name == prospect_name))
+                        reg_entry = reg_res.scalars().first()
+                        if reg_entry:
+                            people = list(reg_entry.people or [])
+                            if people and isinstance(people[0], dict):
+                                people[0]["email"] = email_val
+                                if phone_val:
+                                    people[0]["phone"] = phone_val
+                                reg_entry.people = people
+                    except Exception:
+                        pass
 
                 meeting_id = f"mt_{uuid.uuid4().hex[:8]}"
                 meeting = Meeting(
@@ -403,9 +451,10 @@ async def execute_xai_tool(
                     channel="voice",
                     format="video",
                     platform="Google Meet",
-                    host="AI Voice Rep",
-                    attendee=prospect_name,
-                    prep=f"Auto-scheduled from voice outreach. Notes: {notes_val}",
+                    host="AI Voice Rep (Sam)",
+                    attendee=f"{prospect_name} <{email_val}>" if email_val else prospect_name,
+                    dial_in=phone_val or getattr(call_record, "caller", None),
+                    prep=f"Email: {email_val or 'Not provided'} | Phone: {phone_val or 'Direct'} | Notes: {notes_val}",
                     call_transcript=call_record.transcript if call_record else []
                 )
                 db.add(meeting)
@@ -427,7 +476,8 @@ async def execute_xai_tool(
                 "booked": True,
                 "meetingId": meeting_id,
                 "date": date_val,
-                "time": time_val
+                "time": time_val,
+                "email": email_val
             })
 
             elapsed = (time.time() - start_time) * 1000
@@ -665,18 +715,40 @@ async def join_xai_call_session(
             }
             await ws.send(json.dumps(session_config))
 
-            # Trigger opening agent greeting immediately with targeted single-shot instruction
+            # Set up instant first-turn greeting trigger
             target_first_name = (prospect_name or "there").strip().split()[0]
-            opening_payload = {
-                "type": "response.create",
-                "response": {
-                    "instructions": (
-                        f"Greet {target_first_name} immediately in one natural, friendly sentence as Sam from AIVHub, "
-                        f"asking how they are doing today. Keep it short and conversational."
-                    )
+            greeting_dispatched = False
+
+            async def dispatch_opening_greeting(trigger_source: str):
+                nonlocal greeting_dispatched
+                if greeting_dispatched:
+                    return
+                greeting_dispatched = True
+                logger.info(f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source}...")
+                greeting_cmd = {
+                    "type": "response.create",
+                    "response": {
+                        "modalities": ["audio", "text"],
+                        "instructions": (
+                            f"You are calling {target_first_name} as Sam from AIVHub on an outbound business call. "
+                            f"Speak FIRST immediately! Say clearly: 'Hi {target_first_name}, this is Sam calling from AIVHub. How are you doing today?' "
+                            f"Do not wait for the other person to speak."
+                        )
+                    }
                 }
-            }
-            await ws.send(json.dumps(opening_payload))
+                try:
+                    await ws.send(json.dumps(greeting_cmd))
+                    logger.info(f"[XAI-WS] Opening greeting dispatched successfully to xAI ({trigger_source})")
+                except Exception as g_err:
+                    logger.warning(f"[XAI-WS] Failed to dispatch opening greeting: {g_err}")
+
+            # Fallback timer: if session.updated doesn't trigger within 0.7s, dispatch anyway
+            async def fallback_greeting_timer():
+                await asyncio.sleep(0.7)
+                if not greeting_dispatched:
+                    await dispatch_opening_greeting("fallback_timer")
+
+            asyncio.create_task(fallback_greeting_timer())
 
             # 3. Event Processing Loop
             event_count = 0
@@ -685,17 +757,24 @@ async def join_xai_call_session(
                 event_type = event.get("type", "")
                 event_count += 1
 
+                # Trigger greeting on session readiness events
+                if event_type in ["session.created", "session.updated"]:
+                    await dispatch_opening_greeting(event_type)
+
+                if event_type == "error":
+                    logger.error(f"[XAI-WS] xAI returned error event for {call_id}: {event.get('error')}")
+
                 # Log first few events for diagnostics
                 if event_count <= 3:
                     logger.info(f"[XAI-WS] Event #{event_count} for {call_id}: type={event_type}")
                     if event_count == 1:
-                        await log_process_event(
+                        asyncio.create_task(log_process_event(
                             subsystem="voice",
                             process_name="xai_ws_first_event",
                             message=f"First xAI event received for call {call_id}: {event_type}",
                             level="INFO",
                             details={"callId": call_id, "eventType": event_type}
-                        )
+                        ))
 
                 # Handle Voice Audio Transcripts (Assistant speaking)
                 if event_type in ["response.audio_transcript.delta", "response.text.delta"]:
