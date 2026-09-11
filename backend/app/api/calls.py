@@ -701,3 +701,136 @@ async def twilio_dial_action(request: Request, db: AsyncSession = Depends(get_db
     return Response(content=twiml_response, media_type="application/xml")
 
 
+@router.api_route("/twilio/inbound", methods=["GET", "POST"])
+@router.api_route("/twilio/voice", methods=["GET", "POST"])
+async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Twilio Inbound Voice Webhook.
+    Fires when any prospect or customer dials the Twilio phone number (+447307216767).
+    1. Extracts caller info (From, To, CallSid).
+    2. Identifies caller against Prospect / ContactRegistry.
+    3. Spawns an active LiveCall card with state='pitching' on the supervisor dashboard.
+    4. Registers aliases in media_stream_hub for live audio streaming.
+    5. Returns TwiML bridging caller directly to xAI Realtime Voice Agent (Sam).
+    """
+    params = dict(request.query_params)
+    if request.method == "POST":
+        try:
+            form = await request.form()
+            params.update(dict(form))
+        except Exception:
+            pass
+
+    call_sid = params.get("CallSid", f"CA_{uuid.uuid4().hex[:16]}")
+    from_number = params.get("From", "+440000000000")
+    to_number = params.get("To", settings.TWILIO_PHONE_NUMBER or "+447307216767")
+
+    # Match caller against existing contacts / prospects
+    caller_clean = normalize_phone_number(from_number)
+    prospect_label = f"Caller ({caller_clean[-4:] if len(caller_clean) >= 4 else caller_clean})"
+    matched_prospect_id = None
+    matched_mission_id = "m_inbound"
+    matched_mission_title = "Inbound Customer Call"
+
+    try:
+        from app.models.models import ContactRegistry, Prospect
+        reg_res = await db.execute(select(ContactRegistry))
+        registries = reg_res.scalars().all()
+        for r in registries:
+            if r.phone and normalize_phone_number(r.phone) == caller_clean:
+                prospect_label = r.canonical_name or r.name or prospect_label
+                break
+
+        if prospect_label.startswith("Caller"):
+            pros_res = await db.execute(select(Prospect).where(Prospect.phone == caller_clean))
+            p = pros_res.scalars().first()
+            if p:
+                prospect_label = p.name or prospect_label
+                matched_prospect_id = p.id
+                matched_mission_id = p.mission_id or matched_mission_id
+    except Exception as e:
+        pass
+
+    internal_call_id = f"call_{uuid.uuid4().hex[:8]}"
+
+    live_call = LiveCall(
+        id=internal_call_id,
+        carrier_sid=call_sid,
+        mission_id=matched_mission_id,
+        prospect_id=matched_prospect_id,
+        prospect=prospect_label,
+        mission=matched_mission_title,
+        state="pitching",
+        channel="voice",
+        duration="00:00",
+        listening=False,
+        taken=False,
+        confirming_end=False,
+        ended=False,
+        booked=False,
+        transcript=[
+            f"System: Inbound call from {from_number} received on {to_number}.",
+            f"AI: Connecting caller to Sam from AIVHub..."
+        ]
+    )
+    db.add(live_call)
+    await db.commit()
+
+    # Register in media_stream_hub for live audio streaming / listening
+    try:
+        from app.websockets.media_stream import media_stream_hub
+        media_stream_hub.register_alias(internal_call_id, internal_call_id)
+        media_stream_hub.register_alias(call_sid, internal_call_id)
+    except Exception:
+        pass
+
+    # Broadcast new call to dashboard WebSockets
+    try:
+        await call_hub.broadcast("call_created", {
+            "id": internal_call_id,
+            "prospect": prospect_label,
+            "mission": matched_mission_title,
+            "state": "pitching",
+            "channel": "voice",
+            "duration": "00:00",
+            "carrierSid": call_sid
+        })
+    except Exception:
+        pass
+
+    # Log process event
+    await log_process_event(
+        subsystem="telephony",
+        process_name="inbound_call_connected",
+        message=f"Inbound call from {from_number} ({prospect_label}) bridged to xAI voice agent.",
+        level="SUCCESS",
+        details={
+            "callId": internal_call_id,
+            "carrierSid": call_sid,
+            "caller": from_number,
+            "prospect": prospect_label,
+            "to": to_number
+        }
+    )
+
+    # Generate TwiML: fork media stream for supervisor + bridge to xAI SIP trunk
+    media_stream_url = "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
+    action_url = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/calls/twilio/dial-action"
+    sip_target = f"sip:{settings.XAI_AGENT_ID}@{settings.XAI_SIP_FQDN}?x-custom-callid={internal_call_id}&amp;x-twilio-callsid={call_sid}"
+
+    twiml = (
+        f"<Response>"
+        f"<Start>"
+        f"<Stream track=\"both_tracks\" url=\"{media_stream_url}\">"
+        f"<Parameter name=\"internalCallId\" value=\"{internal_call_id}\" />"
+        f"</Stream>"
+        f"</Start>"
+        f"<Dial callerId=\"{from_number}\" timeout=\"30\" action=\"{action_url}\" method=\"POST\">"
+        f"<Sip>{sip_target}</Sip>"
+        f"</Dial>"
+        f"</Response>"
+    )
+    return Response(content=twiml, media_type="application/xml")
+
+
+

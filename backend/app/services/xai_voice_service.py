@@ -774,16 +774,31 @@ async def join_xai_call_session(
                     return
                 greeting_dispatched = True
                 logger.info(f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source}...")
+                is_inbound = (
+                    "inbound" in (mission_name or "").lower() or 
+                    (call_obj and "inbound" in (call_obj.mission or "").lower()) or
+                    (call_obj and "inbound" in (call_obj.mission_id or "").lower())
+                )
+                if is_inbound:
+                    greeting_instruction = (
+                        f"You are Sam, the AI voice representative at AIVHub, answering an INCOMING phone call. "
+                        f"The current time in London is {current_time_str} on {current_date_str}. "
+                        f"Speak FIRST immediately! Say warmly: 'Hello, thanks for calling AIVHub! This is Sam. How can I help you today?' "
+                        f"Do not wait for the caller to speak first."
+                    )
+                else:
+                    greeting_instruction = (
+                        f"You are calling {target_first_name} as Sam from AIVHub on an outbound business call. "
+                        f"The current time in London is {current_time_str} on {current_date_str}. "
+                        f"Speak FIRST immediately! Say clearly: 'Hi {target_first_name}, this is Sam calling from AIVHub. How are you doing today?' "
+                        f"Do not wait for the other person to speak."
+                    )
+
                 greeting_cmd = {
                     "type": "response.create",
                     "response": {
                         "modalities": ["audio", "text"],
-                        "instructions": (
-                            f"You are calling {target_first_name} as Sam from AIVHub on an outbound business call. "
-                            f"The current time in London is {current_time_str} on {current_date_str}. "
-                            f"Speak FIRST immediately! Say clearly: 'Hi {target_first_name}, this is Sam calling from AIVHub. How are you doing today?' "
-                            f"Do not wait for the other person to speak."
-                        )
+                        "instructions": greeting_instruction
                     }
                 }
                 try:
