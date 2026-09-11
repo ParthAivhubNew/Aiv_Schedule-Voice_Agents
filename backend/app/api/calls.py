@@ -398,155 +398,224 @@ async def dial_outbound_call(
         else:
             carrier_choice = "twilio"
 
-    # 3. Resolve credentials
-    stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
-    sid = req.account_sid or stored_cfg.get("account_sid")
-    token = req.api_key or stored_cfg.get("auth_token") or stored_cfg.get("api_key")
+    try:
+        # 3. Resolve credentials
+        stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
+        sid = (req.account_sid or stored_cfg.get("account_sid") or "").strip() or None
+        token = (req.api_key or stored_cfg.get("auth_token") or stored_cfg.get("api_key") or "").strip() or None
 
-    # If the stored token was erroneously set to an xAI key, ignore it
-    if token and token.startswith("xai-"):
-        token = None
+        # If the stored token was erroneously set to an xAI key, ignore it
+        if token and token.startswith("xai-"):
+            token = None
 
-    # Fallback to server env settings if not provided
-    if not sid:
-        sid = settings.TWILIO_ACCOUNT_SID
-    if not token:
-        token = settings.TWILIO_AUTH_TOKEN
+        # Fallback to server env settings if not provided
+        if not sid and settings.TWILIO_ACCOUNT_SID:
+            sid = settings.TWILIO_ACCOUNT_SID.strip()
+        if not token and settings.TWILIO_AUTH_TOKEN:
+            token = settings.TWILIO_AUTH_TOKEN.strip()
 
-    # Auto-save credentials permanently to database if newly provided
-    if req.account_sid and (req.api_key or req.account_sid):
-        try:
-            if not tele_conn:
-                tele_conn = Connection(
-                    id="conn_twilio_telephony",
-                    name="Twilio",
-                    group_name="Telephony",
-                    status="connected",
-                    config={"account_sid": sid, "api_key": token, "auth_token": token}
+        # Strict validation for Twilio provider
+        if "twilio" in carrier_choice:
+            if not sid or not token:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Twilio Account SID (34 characters, starts with 'AC') & Auth Token (32 characters) are required to make real phone calls. Please enter or save your complete credentials."
                 )
-                db.add(tele_conn)
-            else:
-                existing_cfg = dict(tele_conn.config or {})
-                tele_conn.config = {**existing_cfg, "account_sid": sid, "api_key": token, "auth_token": token}
-                tele_conn.status = "connected"
+            if not sid.startswith("AC") or len(sid) != 34:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Twilio Account SID is invalid ({len(sid)} characters; expected 34 chars starting with 'AC'). Your input '{sid}' appears truncated. Please copy the full Account SID from console.twilio.com."
+                )
+            if len(token) != 32:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Twilio Auth Token is invalid ({len(token)} characters; expected 32 characters). Your input appears truncated. Please copy the full 32-character Auth Token from console.twilio.com."
+                )
+
+        # Auto-save credentials permanently to database ONLY if valid
+        if req.account_sid and (req.api_key or req.account_sid):
+            if sid and token and len(sid) == 34 and len(token) == 32 and sid.startswith("AC"):
+                try:
+                    masked = token[:3] + "••••••••" + token[-4:]
+                    if not tele_conn:
+                        tele_conn = Connection(
+                            id=f"conn_{uuid.uuid4().hex[:6]}",
+                            name="Twilio",
+                            group_name="Telephony",
+                            status="connected",
+                            api_key_masked=masked,
+                            config={"account_sid": sid, "api_key": token, "auth_token": token}
+                        )
+                        db.add(tele_conn)
+                    else:
+                        existing_cfg = dict(tele_conn.config) if isinstance(tele_conn.config, dict) else {}
+                        tele_conn.config = {**existing_cfg, "account_sid": sid, "api_key": token, "auth_token": token}
+                        tele_conn.status = "connected"
+                        tele_conn.api_key_masked = masked
+                    await db.commit()
+                    logger.info("Persisted Twilio credentials permanently to database Connection table.")
+                except Exception as save_err:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    logger.warning(f"Could not persist Twilio credentials to DB: {save_err}")
+
+        credentials = {
+            "account_sid": sid,
+            "api_key": token,
+            "auth_token": token,
+            "carrier": carrier_choice
+        }
+
+        # 4. Resolve bridge SIP URI
+        bridge_sip = req.bridge_sip_uri or f"sip:{from_clean}@{settings.XAI_SIP_FQDN};transport=tls"
+
+        # Retire any previous hanging/unended calls so Live Activity displays the fresh call cleanly
+        try:
+            prev_active_res = await db.execute(select(LiveCall).where(LiveCall.ended == False))
+            for prev_call in prev_active_res.scalars().all():
+                prev_call.ended = True
+                prev_call.state = "ended"
             await db.commit()
-            logger.info("Persisted Twilio credentials permanently to database Connection table.")
-        except Exception as save_err:
-            logger.warning(f"Could not persist Twilio credentials to DB: {save_err}")
-
-    credentials = {
-        "account_sid": sid,
-        "api_key": token,
-        "auth_token": token,
-        "carrier": carrier_choice
-    }
-
-    # If twilio requested but credentials missing and not explicitly simulation,
-    # prompt user clearly with the exact resolution
-    if "twilio" in carrier_choice and (not sid or not token or not sid.startswith("AC")):
-        if not req.carrier or carrier_choice == "twilio":
-            raise HTTPException(
-                status_code=400,
-                detail="Twilio Account SID (starts with AC...) & Auth Token are required to make real phone calls. Please save your Twilio credentials above."
-            )
-
-    # 4. Resolve bridge SIP URI
-    bridge_sip = req.bridge_sip_uri or f"sip:{from_clean}@{settings.XAI_SIP_FQDN};transport=tls"
-
-    # Retire any previous hanging/unended calls so Live Activity displays the fresh call cleanly
-    prev_active_res = await db.execute(select(LiveCall).where(LiveCall.ended == False))
-    for prev_call in prev_active_res.scalars().all():
-        prev_call.ended = True
-        prev_call.state = "ended"
-    await db.commit()
-
-    # 5. Create LiveCall entry
-    prospect_label = req.prospect_name.strip() if req.prospect_name else f"Prospect ({to_clean[-4:]})"
-    mission_label = req.mission_title or "Direct Outbound Outreach"
-    call_id = f"call_{uuid.uuid4().hex[:8]}"
-
-    live_call = LiveCall(
-        id=call_id,
-        mission_id=req.mission_id or "m_outbound",
-        prospect_id=None,
-        prospect=prospect_label,
-        mission=mission_label,
-        state="calling",
-        channel="voice",
-        duration="00:01",
-        listening=False,
-        taken=False,
-        confirming_end=False,
-        ended=False,
-        booked=False,
-        transcript=[
-            f"AI: [Outbound call initiated via {carrier_choice.upper()} to {to_clean}]",
-            f"System: Ringing {to_clean} from {from_clean}..."
-        ]
-    )
-    db.add(live_call)
-    await db.commit()
-
-    # Register initial alias in media_stream_hub
-    try:
-        from app.websockets.media_stream import media_stream_hub
-        media_stream_hub.register_alias(call_id, call_id)
-    except Exception:
-        pass
-
-    # Broadcast call started immediately to frontend
-    await call_hub.broadcast("call_started", {
-        "callId": call_id,
-        "caller": from_clean,
-        "prospect": prospect_label,
-        "state": "calling",
-        "duration": "00:01"
-    })
-
-    # 6. Execute Dial via Carrier Plugin
-    adapter = carrier_registry.get_adapter(carrier_choice)
-    try:
-        dial_res = await adapter.dial_outbound(
-            to_number=to_clean,
-            from_number=from_clean,
-            bridge_sip_uri=bridge_sip,
-            metadata={"call_id": call_id, "prospect": prospect_label},
-            credentials=credentials
-        )
-
-        carrier_sid = dial_res.get("call_id")
-        if carrier_sid:
-            live_call.carrier_sid = carrier_sid
-            live_call.transcript = (live_call.transcript or []) + [f"System: Provider Call SID: {carrier_sid}"]
-            await db.commit()
+        except Exception as retire_err:
             try:
-                from app.websockets.media_stream import media_stream_hub
-                media_stream_hub.register_alias(carrier_sid, call_id)
+                await db.rollback()
             except Exception:
                 pass
+            logger.warning(f"Failed to retire old calls cleanly: {retire_err}")
 
-        # If simulation mode, launch the simulated conversation session in background
-        if dial_res.get("simulated") or "sim" in carrier_choice:
-            background_tasks.add_task(_run_simulated_xai_session, call_id, to_clean)
+        # 5. Create LiveCall entry
+        prospect_label = req.prospect_name.strip() if req.prospect_name else f"Prospect ({to_clean[-4:]})"
+        mission_label = req.mission_title or "Direct Outbound Outreach"
+        call_id = f"call_{uuid.uuid4().hex[:8]}"
 
-        return {
-            "success": True,
-            "call_id": call_id,
-            "carrier_call_id": carrier_sid,
-            "carrier": adapter.display_name,
-            "status": dial_res.get("status", "ringing"),
-            "to": to_clean,
-            "from": from_clean,
-            "bridge_sip_uri": bridge_sip,
-            "message": f"Outbound call initiated to {to_clean} via {adapter.display_name}."
-        }
-    except Exception as exc:
-        live_call.state = "failed"
-        live_call.ended = True
-        live_call.transcript = (live_call.transcript or []) + [f"System: Dial failed - {str(exc)}"]
-        await db.commit()
-        await call_hub.broadcast("call_ended", {"callId": call_id, "reason": str(exc)})
-        raise HTTPException(status_code=400, detail=str(exc))
+        live_call = LiveCall(
+            id=call_id,
+            mission_id=req.mission_id or "m_outbound",
+            prospect_id=None,
+            prospect=prospect_label,
+            mission=mission_label,
+            state="calling",
+            channel="voice",
+            duration="00:01",
+            listening=False,
+            taken=False,
+            confirming_end=False,
+            ended=False,
+            booked=False,
+            transcript=[
+                f"AI: [Outbound call initiated via {carrier_choice.upper()} to {to_clean}]",
+                f"System: Ringing {to_clean} from {from_clean}..."
+            ]
+        )
+        try:
+            db.add(live_call)
+            await db.commit()
+        except Exception as live_err:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            logger.warning(f"Could not commit live call record: {live_err}")
+
+        # Register initial alias in media_stream_hub
+        try:
+            from app.websockets.media_stream import media_stream_hub
+            media_stream_hub.register_alias(call_id, call_id)
+        except Exception:
+            pass
+
+        # Broadcast call started immediately to frontend
+        await call_hub.broadcast("call_started", {
+            "callId": call_id,
+            "caller": from_clean,
+            "prospect": prospect_label,
+            "state": "calling",
+            "duration": "00:01"
+        })
+
+        # 6. Execute Dial via Carrier Plugin
+        adapter = carrier_registry.get_adapter(carrier_choice)
+        try:
+            dial_res = await adapter.dial_outbound(
+                to_number=to_clean,
+                from_number=from_clean,
+                bridge_sip_uri=bridge_sip,
+                metadata={"call_id": call_id, "prospect": prospect_label},
+                credentials=credentials
+            )
+
+            carrier_sid = dial_res.get("call_id")
+            if carrier_sid:
+                try:
+                    live_call.carrier_sid = carrier_sid
+                    live_call.transcript = (live_call.transcript or []) + [f"System: Provider Call SID: {carrier_sid}"]
+                    await db.commit()
+                except Exception as c_err:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    logger.warning(f"Could not persist carrier SID on live_call: {c_err}")
+                try:
+                    from app.websockets.media_stream import media_stream_hub
+                    media_stream_hub.register_alias(carrier_sid, call_id)
+                except Exception:
+                    pass
+
+            # If simulation mode, launch the simulated conversation session in background
+            if dial_res.get("simulated") or "sim" in carrier_choice:
+                background_tasks.add_task(_run_simulated_xai_session, call_id, to_clean)
+
+            return {
+                "success": True,
+                "call_id": call_id,
+                "carrier_call_id": carrier_sid,
+                "carrier": adapter.display_name,
+                "status": dial_res.get("status", "ringing"),
+                "to": to_clean,
+                "from": from_clean,
+                "bridge_sip_uri": bridge_sip,
+                "message": f"Outbound call initiated to {to_clean} via {adapter.display_name}."
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            err_msg = str(exc)
+            logger.error(f"Outbound dial error: {err_msg}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            # Mark call as failed in DB safely using a fresh session
+            try:
+                from app.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as fail_session:
+                    res = await fail_session.execute(select(LiveCall).where(LiveCall.id == call_id))
+                    rec = res.scalars().first()
+                    if rec:
+                        rec.state = "failed"
+                        rec.ended = True
+                        rec.transcript = (rec.transcript or []) + [f"System: Dial failed - {err_msg}"]
+                        await fail_session.commit()
+            except Exception as update_err:
+                logger.warning(f"Could not update failed call state in DB: {update_err}")
+
+            try:
+                await call_hub.broadcast("call_ended", {"callId": call_id, "reason": err_msg})
+            except Exception:
+                pass
+            raise HTTPException(status_code=400, detail=err_msg)
+    except HTTPException:
+        raise
+    except Exception as top_exc:
+        logger.error(f"Unhandled error in dial_outbound_call: {top_exc}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=f"Outbound dial failed: {str(top_exc)}")
 
 
 @router.post("/twilio/status-callback")

@@ -6264,19 +6264,29 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
   const [saveStatus, setSaveStatus] = useState(null);
 
   const handleSaveTwilioCreds = async () => {
-    if (!accountSid.trim() || !authToken.trim()) {
+    const cleanSid = (accountSid || "").trim();
+    const cleanToken = (authToken || "").trim();
+    if (!cleanSid || !cleanToken) {
       setSaveStatus({ error: "Please enter both Twilio Account SID and Auth Token." });
+      return;
+    }
+    if (!cleanSid.startsWith("AC") || cleanSid.length !== 34) {
+      setSaveStatus({ error: `Account SID must start with 'AC' and be exactly 34 characters (currently ${cleanSid.length}). Found: '${cleanSid}'. Please copy the full Account SID from console.twilio.com.` });
+      return;
+    }
+    if (cleanToken.length !== 32) {
+      setSaveStatus({ error: `Auth Token must be exactly 32 characters (currently ${cleanToken.length}). Please copy the full Auth Token from console.twilio.com.` });
       return;
     }
     setSaveStatus({ saving: true });
     try {
-      localStorage.setItem("aivhub_twilio_sid", accountSid.trim());
-      localStorage.setItem("aivhub_twilio_token", authToken.trim());
+      localStorage.setItem("aivhub_twilio_sid", cleanSid);
+      localStorage.setItem("aivhub_twilio_token", cleanToken);
       await api.testAndSaveConnection({
         layer: "Telephony",
         provider: "Twilio",
-        api_key: authToken.trim(),
-        account_sid: accountSid.trim()
+        api_key: cleanToken,
+        account_sid: cleanSid
       });
       setSaveStatus({ success: "✓ Twilio credentials securely saved to database & vault!" });
       setTimeout(() => setSaveStatus(null), 3500);
@@ -6299,11 +6309,24 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
     const cleanSid = (accountSid || "").trim();
     const cleanToken = (authToken || "").trim();
 
-    // Ensure creds are saved locally if non-empty
-    if (cleanSid) {
+    if (carrierChoice === "twilio") {
+      if (cleanSid && (!cleanSid.startsWith("AC") || cleanSid.length !== 34)) {
+        setDialError(`Twilio Account SID is incomplete (${cleanSid.length} chars; expected 34 chars starting with 'AC'). Full format: ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (34 characters). Please check console.twilio.com.`);
+        setDialing(false);
+        return;
+      }
+      if (cleanToken && cleanToken.length !== 32) {
+        setDialError(`Twilio Auth Token is incomplete (${cleanToken.length} chars; expected 32 characters). Please check console.twilio.com.`);
+        setDialing(false);
+        return;
+      }
+    }
+
+    // Ensure creds are saved locally if non-empty and valid
+    if (cleanSid && cleanSid.length === 34) {
       try { localStorage.setItem("aivhub_twilio_sid", cleanSid); } catch (_) {}
     }
-    if (cleanToken) {
+    if (cleanToken && cleanToken.length === 32) {
       try { localStorage.setItem("aivhub_twilio_token", cleanToken); } catch (_) {}
     }
 
@@ -6605,7 +6628,16 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
-                  <label style={{ display: "block", fontSize: 10.5, color: "#94A3B8", marginBottom: 3 }}>Twilio Account SID</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                    <label style={{ fontSize: 10.5, color: "#94A3B8" }}>Twilio Account SID</label>
+                    <span style={{
+                      fontSize: 9.5,
+                      fontWeight: 600,
+                      color: !accountSid ? "#64748B" : (accountSid.length === 34 && accountSid.startsWith("AC") ? "#34D399" : "#F87171")
+                    }}>
+                      {accountSid ? `${accountSid.length}/34 chars ${accountSid.length === 34 && accountSid.startsWith("AC") ? "✓" : "(incomplete)"}` : "Required (34 chars)"}
+                    </span>
+                  </div>
                   <input
                     type="text"
                     value={accountSid}
@@ -6615,7 +6647,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                       width: "100%",
                       padding: "8px 10px",
                       borderRadius: 6,
-                      border: "1px solid rgba(255,255,255,0.2)",
+                      border: `1px solid ${accountSid && (accountSid.length !== 34 || !accountSid.startsWith("AC")) ? "rgba(239, 68, 68, 0.6)" : "rgba(255,255,255,0.2)"}`,
                       background: "#0F172A",
                       color: "#fff",
                       fontFamily: FONT_MONO,
@@ -6625,7 +6657,16 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: 10.5, color: "#94A3B8", marginBottom: 3 }}>Twilio Auth Token</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                    <label style={{ fontSize: 10.5, color: "#94A3B8" }}>Twilio Auth Token</label>
+                    <span style={{
+                      fontSize: 9.5,
+                      fontWeight: 600,
+                      color: !authToken ? "#64748B" : (authToken.length === 32 ? "#34D399" : "#F87171")
+                    }}>
+                      {authToken ? `${authToken.length}/32 chars ${authToken.length === 32 ? "✓" : "(incomplete)"}` : "Required (32 chars)"}
+                    </span>
+                  </div>
                   <input
                     type="password"
                     value={authToken}
@@ -6635,7 +6676,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                       width: "100%",
                       padding: "8px 10px",
                       borderRadius: 6,
-                      border: "1px solid rgba(255,255,255,0.2)",
+                      border: `1px solid ${authToken && authToken.length !== 32 ? "rgba(239, 68, 68, 0.6)" : "rgba(255,255,255,0.2)"}`,
                       background: "#0F172A",
                       color: "#fff",
                       fontFamily: FONT_MONO,
