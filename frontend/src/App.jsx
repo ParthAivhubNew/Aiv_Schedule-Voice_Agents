@@ -15942,7 +15942,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     if (!precedingUser) return;
     setChat((prev) => prev.filter((_, idx) => idx !== aiMsgIndex));
     setTyping(true);
-    executeIntent(precedingUser.text);
+    executeIntent(precedingUser.text, { chatOnly: true });
   };
 
   const clearCurrentChat = () => {
@@ -16127,8 +16127,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     return (planRange && planRange.label ? planRange.label : PLAN_MONTH.label) + " · " + (planSaved ? "saved" : "draft — not saved") + " · " + slots.length + " slots, " + topics.length + " topics, " + scheduledPosts.length + " scheduled, " + awaiting.length + " waiting approval, " + published.length + " published.";
   };
 
-  const executeIntent = (text) => {
-    const parsed = parseChatIntent(text, { schedules, company });
+  const executeIntent = (text, { chatOnly = false } = {}) => {
+    const parsed = chatOnly ? { kind: "chat" } : parseChatIntent(text, { schedules, company });
     if (parsed.kind === "open") {
       setTyping(false);
       setView(parsed.view);
@@ -16338,7 +16338,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         provider: creds.provider || "openai",
         model: creds.model || "gpt-4o",
         baseUrl: creds.baseUrl || "",
-        imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas"
+        imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas",
+        chatOnly: !!chatOnly
       },
       { signal: controller.signal }
     ).then((res) => {
@@ -16346,14 +16347,17 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       setTyping(false);
       window._schedulerChatAbort = null;
       try {
-        if (res && (res.postsCreated || res.posts)) {
-          const newPosts = res.postsCreated || res.posts;
-          if (Array.isArray(newPosts) && newPosts.length) {
-            setPosts((ps) => [...newPosts, ...ps]);
+        if (!chatOnly) {
+          if (res && res.topics && Array.isArray(res.topics) && res.topics.length) {
+            setTopics((prev) => {
+              const pinnedTopicIds = new Set(slots.filter((s) => s.topicId).map((s) => s.topicId));
+              const pinned = prev.filter((t) => pinnedTopicIds.has(t.id));
+              const newUnique = res.topics.filter(
+                (nt) => !pinned.some((pt) => pt.headline === nt.headline || pt.title === nt.title)
+              );
+              return [...pinned, ...newUnique].slice(0, 3);
+            });
           }
-        }
-        if (res && res.topics && Array.isArray(res.topics) && res.topics.length) {
-          setTopics((ts) => [...res.topics, ...ts]);
         }
         if (res && res.reply) {
           pushAi(res.reply);

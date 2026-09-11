@@ -272,80 +272,48 @@ If the user asks general questions or discusses strategy, respond conversational
     if not reply_text:
         reply_text = f"I'm ready to help plan your content strategy for {company_name}. What topics or channels would you like to explore?"
 
-    parsed = parse_chat_intent(prompt)
+    chat_only = bool(payload.get("chatOnly", False))
     topics_data = []
-    generated_posts = []
 
-    if parsed["intent"] == "plan_schedule" or "schedule" in prompt.lower() or "post" in prompt.lower():
-        try:
-            theme_keys = list(TOPIC_BANK.keys())
-            days = parsed["days"]
-            channels = parsed["channels"]
-            for i in range(min(3, len(days))):
-                theme = theme_keys[i % len(theme_keys)]
-                chosen_topic = random.choice(TOPIC_BANK[theme])
-                channel = channels[i % len(channels)]
-                img_prompt = create_topic_image_prompt(chosen_topic["title"], chosen_topic["angle"], theme, image_style)
-                img_url = generate_image_url(img_prompt, style=image_style, aspect_ratio="16:9")
-                t_id = f"top_{uuid.uuid4().hex[:8]}"
-                topics_data.append({
-                    "id": t_id,
-                    "theme": theme,
-                    "title": chosen_topic["title"],
-                    "headline": chosen_topic["title"],
-                    "angle": chosen_topic["angle"],
-                    "hook": chosen_topic["hook"],
-                    "source": "AI Strategist",
-                    "freshness": "Today",
-                    "query": theme,
-                    "saved": True,
-                    "imagePrompt": img_prompt,
-                    "imageUrl": img_url,
-                    "day": days[i] if i < len(days) else f"Day {i+1}",
-                    "channel": channel
-                })
-                # Insert into database in awaiting_approval status so they show in Inbox!
-                p_id = f"draft_ai_{int(time.time())}_{i}_{uuid.uuid4().hex[:4]}"
-                slot_time_ms = float(time.time() * 1000 + (i + 1) * 86400000)
-                post_copy = f"🚀 {chosen_topic['title']}\n\n{chosen_topic['angle']}\n\n#Operations #BI #DataDriven"
-                db_post = SocialPost(
-                    id=p_id,
-                    title=chosen_topic["title"],
-                    copy=post_copy,
-                    channels=[channel],
-                    status="awaiting_approval",
-                    slot_date_ms=slot_time_ms,
-                    time="10:00",
-                    theme=theme,
-                    image_url=img_url,
-                    image_prompt=img_prompt
-                )
-                db.add(db_post)
-                generated_posts.append({
-                    "id": p_id,
-                    "title": chosen_topic["title"],
-                    "copy": post_copy,
-                    "channel": channel,
-                    "channels": [channel],
-                    "status": "awaiting_approval",
-                    "slotDateMs": slot_time_ms,
-                    "dateMs": slot_time_ms,
-                    "time": "10:00",
-                    "theme": theme,
-                    "imageUrl": img_url,
-                    "imagePrompt": img_prompt
-                })
-            await db.commit()
-        except Exception as db_err:
-            logger.error(f"[Scheduler Chat] Error creating SocialPost records: {db_err}")
-            await db.rollback()
+    if not chat_only:
+        parsed = parse_chat_intent(prompt)
+        if parsed["intent"] == "plan_schedule" or "schedule" in prompt.lower() or "post" in prompt.lower():
+            try:
+                theme_keys = list(TOPIC_BANK.keys())
+                days = parsed["days"]
+                channels = parsed["channels"]
+                for i in range(min(3, len(days))):
+                    theme = theme_keys[i % len(theme_keys)]
+                    chosen_topic = random.choice(TOPIC_BANK[theme])
+                    channel = channels[i % len(channels)]
+                    img_prompt = create_topic_image_prompt(chosen_topic["title"], chosen_topic["angle"], theme, image_style)
+                    img_url = generate_image_url(img_prompt, style=image_style, aspect_ratio="16:9")
+                    t_id = f"top_{uuid.uuid4().hex[:8]}"
+                    topics_data.append({
+                        "id": t_id,
+                        "theme": theme,
+                        "title": chosen_topic["title"],
+                        "headline": chosen_topic["title"],
+                        "angle": chosen_topic["angle"],
+                        "hook": chosen_topic["hook"],
+                        "source": "AI Strategist",
+                        "freshness": "Today",
+                        "query": theme,
+                        "saved": True,
+                        "imagePrompt": img_prompt,
+                        "imageUrl": img_url,
+                        "day": days[i] if i < len(days) else f"Day {i+1}",
+                        "channel": channel
+                    })
+            except Exception as gen_err:
+                logger.error(f"[Scheduler Chat] Error generating topics: {gen_err}")
 
     return {
         "status": "ok" if llm_res.get("success", True) else "error",
         "reply": reply_text,
         "topics": topics_data,
-        "posts": generated_posts,
-        "postsCreated": generated_posts,
+        "posts": [],
+        "postsCreated": [],
         "model": llm_res.get("model", model),
         "provider": llm_res.get("provider", provider),
         "error": llm_res.get("error")
