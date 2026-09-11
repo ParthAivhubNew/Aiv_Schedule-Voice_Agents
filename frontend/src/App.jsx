@@ -6309,25 +6309,15 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
     const cleanSid = (accountSid || "").trim();
     const cleanToken = (authToken || "").trim();
 
-    if (carrierChoice === "twilio") {
-      if (cleanSid && (!cleanSid.startsWith("AC") || cleanSid.length !== 34)) {
-        setDialError(`Twilio Account SID is incomplete (${cleanSid.length} chars; expected 34 chars starting with 'AC'). Full format: ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (34 characters). Please check console.twilio.com.`);
-        setDialing(false);
-        return;
-      }
-      if (cleanToken && cleanToken.length !== 32) {
-        setDialError(`Twilio Auth Token is incomplete (${cleanToken.length} chars; expected 32 characters). Please check console.twilio.com.`);
-        setDialing(false);
-        return;
-      }
-    }
+    // If valid full credentials are provided, save to localStorage and pass in payload
+    const validSid = (cleanSid && cleanSid.startsWith("AC") && cleanSid.length === 34) ? cleanSid : undefined;
+    const validToken = (cleanToken && cleanToken.length === 32) ? cleanToken : undefined;
 
-    // Ensure creds are saved locally if non-empty and valid
-    if (cleanSid && cleanSid.length === 34) {
-      try { localStorage.setItem("aivhub_twilio_sid", cleanSid); } catch (_) {}
+    if (validSid) {
+      try { localStorage.setItem("aivhub_twilio_sid", validSid); } catch (_) {}
     }
-    if (cleanToken && cleanToken.length === 32) {
-      try { localStorage.setItem("aivhub_twilio_token", cleanToken); } catch (_) {}
+    if (validToken) {
+      try { localStorage.setItem("aivhub_twilio_token", validToken); } catch (_) {}
     }
 
     try {
@@ -6337,8 +6327,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
         prospect_name: prospectName.trim() || undefined,
         mission_title: missionTitle.trim() || "Direct Client Outreach",
         carrier: carrierChoice,
-        account_sid: (cleanSid && cleanSid.startsWith("AC")) ? cleanSid : undefined,
-        api_key: cleanToken || undefined
+        account_sid: validSid,
+        api_key: validToken
       };
       const res = await api.dialOutbound(payload);
       setDialResult(res);

@@ -36,5 +36,14 @@ async def get_db():
     async with AsyncSessionLocal() as session:
         try:
             yield session
+        except Exception:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            raise
         finally:
-            await session.close()
+            try:
+                await session.close()
+            except Exception:
+                pass

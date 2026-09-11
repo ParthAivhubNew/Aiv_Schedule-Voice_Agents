@@ -353,58 +353,75 @@ async def dial_outbound_call(
     5. Dispatches outbound call via carrier plugin with TwiML SIP bridge to xAI.
     6. Broadcasts call_started event to CallHub WebSockets.
     """
-    to_raw = req.to_number.strip()
-    if not to_raw or len(to_raw) < 7:
-        raise HTTPException(status_code=400, detail="A valid phone number (at least 7 digits) is required.")
-
-    to_clean = normalize_phone_number(to_raw)
-
-    # 1. Determine From / Caller ID number
-    from_clean = req.from_number.strip() if req.from_number else None
-    if not from_clean:
-        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
-        profile = prof_res.scalars().first()
-        if profile and profile.caller_id:
-            from_clean = profile.caller_id
-        else:
-            conn_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
-            tele_conn = conn_res.scalars().first()
-            if tele_conn and tele_conn.config and isinstance(tele_conn.config, dict):
-                from_clean = tele_conn.config.get("phoneNumber")
-
-    if not from_clean:
-        from_clean = settings.TWILIO_PHONE_NUMBER or "+447307216767"
-    from_clean = normalize_phone_number(from_clean)
-
-    # 2. Determine carrier plugin
-    carrier_choice = (req.carrier or "").strip().lower()
-    conn_res = await db.execute(
-        select(Connection).where(
-            (Connection.group_name == "Telephony") | (Connection.name.ilike("%twilio%"))
-        )
-    )
-    tele_conns = conn_res.scalars().all()
-    tele_conn = None
-    for c in tele_conns:
-        if c.name and "twilio" in c.name.lower():
-            tele_conn = c
-            break
-    if not tele_conn and tele_conns:
-        tele_conn = tele_conns[0]
-
-    if not carrier_choice:
-        if tele_conn:
-            carrier_choice = "twilio" if "twilio" in tele_conn.name.lower() else tele_conn.name.lower()
-        else:
-            carrier_choice = "twilio"
-
     try:
-        # 3. Resolve credentials
-        stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
-        sid = (req.account_sid or stored_cfg.get("account_sid") or "").strip() or None
-        token = (req.api_key or stored_cfg.get("auth_token") or stored_cfg.get("api_key") or "").strip() or None
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
-        # If the stored token was erroneously set to an xAI key, ignore it
+        to_raw = req.to_number.strip()
+        if not to_raw or len(to_raw) < 7:
+            raise HTTPException(status_code=400, detail="A valid phone number (at least 7 digits) is required.")
+
+        to_clean = normalize_phone_number(to_raw)
+
+        # 1. Determine From / Caller ID number
+        from_clean = req.from_number.strip() if req.from_number else None
+        if not from_clean:
+            prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+            profile = prof_res.scalars().first()
+            if profile and profile.caller_id:
+                from_clean = profile.caller_id
+            else:
+                conn_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+                tele_conn = conn_res.scalars().first()
+                if tele_conn and tele_conn.config and isinstance(tele_conn.config, dict):
+                    from_clean = tele_conn.config.get("phoneNumber")
+
+        if not from_clean:
+            from_clean = settings.TWILIO_PHONE_NUMBER or "+447307216767"
+        from_clean = normalize_phone_number(from_clean)
+
+        # 2. Determine carrier plugin
+        carrier_choice = (req.carrier or "").strip().lower()
+        conn_res = await db.execute(
+            select(Connection).where(
+                (Connection.group_name == "Telephony") | (Connection.name.ilike("%twilio%"))
+            )
+        )
+        tele_conns = conn_res.scalars().all()
+        tele_conn = None
+        for c in tele_conns:
+            if c.name and "twilio" in c.name.lower():
+                tele_conn = c
+                break
+        if not tele_conn and tele_conns:
+            tele_conn = tele_conns[0]
+
+        if not carrier_choice:
+            if tele_conn:
+                carrier_choice = "twilio" if "twilio" in tele_conn.name.lower() else tele_conn.name.lower()
+            else:
+                carrier_choice = "twilio"
+
+        # 3. Resolve credentials with smart fallback to saved DB vault
+        stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
+        req_sid = (req.account_sid or "").strip()
+        req_token = (req.api_key or "").strip()
+
+        # If payload provides a valid full 34-char SID, use it; otherwise fallback to DB
+        if req_sid and req_sid.startswith("AC") and len(req_sid) == 34:
+            sid = req_sid
+        else:
+            sid = (stored_cfg.get("account_sid") or "").strip() or None
+
+        # If payload provides a valid full 32-char token, use it; otherwise fallback to DB
+        if req_token and len(req_token) == 32 and not req_token.startswith("xai-"):
+            token = req_token
+        else:
+            token = (stored_cfg.get("auth_token") or stored_cfg.get("api_key") or "").strip() or None
+
+        # If stored token was mistakenly an xAI key, ignore it
         if token and token.startswith("xai-"):
             token = None
 
@@ -424,7 +441,7 @@ async def dial_outbound_call(
             if not sid.startswith("AC") or len(sid) != 34:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Twilio Account SID is invalid ({len(sid)} characters; expected 34 chars starting with 'AC'). Your input '{sid}' appears truncated. Please copy the full Account SID from console.twilio.com."
+                    detail=f"Twilio Account SID is invalid ({len(sid)} characters; expected 34 chars starting with 'AC'). Your input appears truncated. Please copy the full Account SID from console.twilio.com."
                 )
             if len(token) != 32:
                 raise HTTPException(
