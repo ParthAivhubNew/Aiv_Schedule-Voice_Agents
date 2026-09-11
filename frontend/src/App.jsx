@@ -3413,10 +3413,12 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
                 <div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>{c.prospect}</div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.cobaltDeep, fontWeight: 600, marginTop: 1 }}>{c.mission}</div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", fontSize: 11, color: C.slate }}>
-                    <span style={{ background: HUB_PAPER, padding: "2px 6px", borderRadius: 4, border: `1px solid ${C.border}` }}>🏢 48 HGVs · £22M Rev</span>
-                    <span style={{ background: HUB_PAPER, padding: "2px 6px", borderRadius: 4, border: `1px solid ${C.border}` }}>👤 James Whitfield (Ops Dir)</span>
-                  </div>
+                  {(c.company || c.phone || c.caller) && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", fontSize: 11, color: C.slate }}>
+                      {c.company && <span style={{ background: HUB_PAPER, padding: "2px 6px", borderRadius: 4, border: `1px solid ${C.border}` }}>🏢 {c.company}</span>}
+                      {(c.phone || c.caller) && <span style={{ background: HUB_PAPER, padding: "2px 6px", borderRadius: 4, border: `1px solid ${C.border}` }}>📞 {c.phone || c.caller}</span>}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {isMessage ? <ChannelTag channel={c.channel} small /> : <LivePulse />}
