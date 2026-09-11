@@ -816,7 +816,7 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
     # Generate TwiML: fork media stream for supervisor + bridge to xAI SIP trunk
     media_stream_url = "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
     action_url = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/calls/twilio/dial-action"
-    sip_target = f"sip:{settings.XAI_AGENT_ID}@{settings.XAI_SIP_FQDN}?x-custom-callid={internal_call_id}&amp;x-twilio-callsid={call_sid}"
+    sip_target = f"sip:{to_number}@{settings.XAI_SIP_FQDN};transport=tls?x-custom-callid={internal_call_id}&amp;x-twilio-callsid={call_sid}"
 
     twiml = (
         f"<Response>"
@@ -825,7 +825,7 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         f"<Parameter name=\"internalCallId\" value=\"{internal_call_id}\" />"
         f"</Stream>"
         f"</Start>"
-        f"<Dial callerId=\"{from_number}\" timeout=\"30\" action=\"{action_url}\" method=\"POST\">"
+        f"<Dial callerId=\"{to_number}\" timeout=\"30\" action=\"{action_url}\" method=\"POST\">"
         f"<Sip>{sip_target}</Sip>"
         f"</Dial>"
         f"</Response>"

@@ -754,17 +754,10 @@ async def join_xai_call_session(
                     }
                 }
             }
-            # 1. Cancel any pre-configured default greeting from the xAI console template
-            try:
-                await ws.send(json.dumps({"type": "response.cancel"}))
-                logger.info(f"[XAI-WS] Sent response.cancel to abort any default console template greeting")
-            except Exception as c_err:
-                logger.debug(f"[XAI-WS] response.cancel error: {c_err}")
-
-            # 2. Update session with complete AIVHub configuration
+            # 1. Update session with complete AIVHub configuration
             await ws.send(json.dumps(session_config))
 
-            # 3. Set up instant first-turn greeting trigger
+            # 2. Set up instant first-turn greeting trigger
             target_first_name = (prospect_name or "there").strip().split()[0]
             greeting_dispatched = False
 
