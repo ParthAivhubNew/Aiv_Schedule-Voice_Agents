@@ -15262,6 +15262,441 @@ function FormattedChatResponse({ text }) {
   return <div style={{ display: "flex", flexDirection: "column" }}>{elements}</div>;
 }
 
+function PinToSlotModal({
+  topic,
+  onClose,
+  date,
+  setDate,
+  time,
+  setTime,
+  channels,
+  setChannels,
+  existingSlots,
+  selectedSlotId,
+  setSelectedSlotId,
+  onConfirm,
+}) {
+  if (!topic) return null;
+
+  const todayIso = isoDate(Date.now());
+  const tomorrowIso = isoDate(addDays(Date.now(), 1));
+  const inTwoDaysIso = isoDate(addDays(Date.now(), 2));
+  const nextMondayDate = (() => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = (8 - (day === 0 ? 7 : day)) % 7 || 7;
+    return isoDate(addDays(d, diff));
+  })();
+
+  const timePresets = [
+    { label: "08:30 AM", val: "08:30", desc: "Morning Peak" },
+    { label: "11:00 AM", val: "11:00", desc: "Midday Prime" },
+    { label: "01:30 PM", val: "13:30", desc: "Lunch Break" },
+    { label: "05:30 PM", val: "17:30", desc: "Evening Commute" },
+    { label: "08:00 PM", val: "20:00", desc: "Night Focus" },
+  ];
+
+  const channelOptions = [
+    { id: "linkedin", label: "LinkedIn", color: "#0A66C2" },
+    { id: "x", label: "X (Twitter)", color: "#111827" },
+    { id: "threads", label: "Threads", color: "#000000" },
+    { id: "facebook", label: "Facebook", color: "#1877F2" },
+    { id: "instagram", label: "Instagram", color: "#E4405F" },
+  ];
+
+  const toggleChannel = (chId) => {
+    if (channels.includes(chId)) {
+      if (channels.length > 1) {
+        setChannels(channels.filter((c) => c !== chId));
+      }
+    } else {
+      setChannels([...channels, chId]);
+    }
+  };
+
+  const handleSelectExistingSlot = (e) => {
+    const slotId = e.target.value;
+    setSelectedSlotId(slotId);
+    if (slotId) {
+      const s = (existingSlots || []).find((sl) => sl.id === slotId);
+      if (s) {
+        setDate(isoDate(s.dateMs));
+        if (s.time) setTime(s.time);
+        if (s.channels && s.channels.length) setChannels(s.channels.slice());
+      }
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(15, 23, 42, 0.7)",
+        backdropFilter: "blur(5px)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 540,
+          background: "#ffffff",
+          borderRadius: 20,
+          boxShadow: "0 25px 55px rgba(0,0,0,0.3)",
+          overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.3)",
+          display: "flex",
+          flexDirection: "column",
+          maxHeight: "92vh",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div
+          style={{
+            padding: "18px 22px",
+            borderBottom: "1px solid #e2e8f0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            background: "#f8fafc",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                background: "linear-gradient(135deg, #0D9488 0%, #0891b2 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#fff",
+                boxShadow: "0 2px 8px rgba(13,148,136,0.25)",
+              }}
+            >
+              <Calendar size={20} />
+            </div>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: "#0f172a" }}>
+                Schedule & Pin to Slot
+              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: "#64748b" }}>
+                Pick any exact date & time you want the post to go live
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              padding: 6,
+              borderRadius: 8,
+              color: "#94a3b8",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div style={{ padding: "20px 22px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* Topic Preview Card */}
+          <div
+            style={{
+              background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              padding: "12px 14px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              <Sparkles size={13} color="#0D9488" />
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#0D9488", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Target Topic
+              </span>
+              {topic.freshness && (
+                <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "auto" }}>
+                  {topic.freshness}
+                </span>
+              )}
+            </div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: "#0f172a", lineHeight: 1.35 }}>
+              {topic.headline || topic.title}
+            </div>
+            {topic.angle && (
+              <div style={{ fontSize: 12, color: "#475569", marginTop: 4, lineHeight: 1.4 }}>
+                {topic.angle}
+              </div>
+            )}
+          </div>
+
+          {/* Existing Slots Option (if any) */}
+          {existingSlots && existingSlots.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                Attach to an Existing Planned Slot (Optional)
+              </div>
+              <select
+                value={selectedSlotId}
+                onChange={handleSelectExistingSlot}
+                style={{
+                  width: "100%",
+                  height: 38,
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  padding: "0 10px",
+                  fontSize: 12.5,
+                  fontFamily: FONT_BODY,
+                  background: "#fff",
+                  color: "#0f172a",
+                  outline: "none",
+                }}
+              >
+                <option value="">-- Create a New Dedicated Slot at Custom Date/Time --</option>
+                {existingSlots.slice().sort((a, b) => a.dateMs - b.dateMs).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {formatPlanDay(new Date(s.dateMs))} · {s.time} · {s.theme?.slice(0, 32) || "Open Slot"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Date Picker Section */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                1. Publishing Date
+              </label>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#0D9488" }}>
+                {date ? formatPlanDay(new Date(date + "T00:00:00")) : ""}
+              </span>
+            </div>
+
+            {/* Quick Date Presets */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              {[
+                { label: "Today", val: todayIso },
+                { label: "Tomorrow", val: tomorrowIso },
+                { label: "In 2 Days", val: inTwoDaysIso },
+                { label: "Next Monday", val: nextMondayDate },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    setDate(p.val);
+                    setSelectedSlotId("");
+                  }}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${date === p.val ? "#0D9488" : "#cbd5e1"}`,
+                    background: date === p.val ? "#0D9488" : "#fff",
+                    color: date === p.val ? "#fff" : "#334155",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            <input
+              type="date"
+              value={date}
+              min={todayIso}
+              onChange={(e) => {
+                setDate(e.target.value);
+                setSelectedSlotId("");
+              }}
+              style={{
+                width: "100%",
+                height: 40,
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                padding: "0 12px",
+                fontSize: 13,
+                fontFamily: FONT_BODY,
+                boxSizing: "border-box",
+                outline: "none",
+              }}
+            />
+          </div>
+
+          {/* Time Picker Section */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                2. Publishing Time (Any Time You Want)
+              </label>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#0D9488" }}>
+                {time}
+              </span>
+            </div>
+
+            {/* Quick Optimal Time Presets */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              {timePresets.map((tp) => (
+                <button
+                  key={tp.val}
+                  type="button"
+                  onClick={() => setTime(tp.val)}
+                  title={tp.desc}
+                  style={{
+                    padding: "5px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${time === tp.val ? "#0D9488" : "#cbd5e1"}`,
+                    background: time === tp.val ? "#0D9488" : "#fff",
+                    color: time === tp.val ? "#fff" : "#334155",
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {tp.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                style={{
+                  width: "100%",
+                  height: 40,
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  padding: "0 12px",
+                  fontSize: 13.5,
+                  fontFamily: FONT_BODY,
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>
+              Tip: You can choose any custom hour and minute or pick from optimal peak presets.
+            </div>
+          </div>
+
+          {/* Channels Selection */}
+          <div>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
+              3. Target Channels
+            </label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {channelOptions.map((ch) => {
+                const active = channels.includes(ch.id);
+                return (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => toggleChannel(ch.id)}
+                    style={{
+                      padding: "7px 14px",
+                      borderRadius: 8,
+                      border: `1.5px solid ${active ? ch.color : "#cbd5e1"}`,
+                      background: active ? ch.color : "#fff",
+                      color: active ? "#fff" : "#475569",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      transition: "all 0.15s ease",
+                      boxShadow: active ? "0 2px 6px rgba(0,0,0,0.12)" : "none",
+                    }}
+                  >
+                    {active && <Check size={13} strokeWidth={2.5} />}
+                    <span>{ch.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div
+          style={{
+            padding: "16px 22px",
+            borderTop: "1px solid #e2e8f0",
+            background: "#f8fafc",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            Scheduled for <strong style={{ color: "#0f172a" }}>{date ? formatPlanDay(new Date(date + "T00:00:00")) : ""} @ {time}</strong>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                background: "#fff",
+                color: "#475569",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              style={{
+                padding: "8px 20px",
+                borderRadius: 8,
+                border: "none",
+                background: "linear-gradient(135deg, #0D9488 0%, #0891b2 100%)",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 2px 10px rgba(13,148,136,0.25)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Calendar size={15} />
+              <span>Confirm & Schedule Post</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, commonAi, setCommonAi, onOpenCommonAi }) {
   const company = companyFromProfile(profile, knowledgeSources);
   const [view, setView] = useState("plan");
@@ -15323,6 +15758,12 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const [searching, setSearching] = useState(false);
   const [posts, setPosts] = useState(INITIAL_POST_ITEMS);
   const [emails, setEmails] = useState(INITIAL_SCHEDULER_EMAILS);
+  // Modern Pin-to-Slot & Custom Time Scheduling State
+  const [pinModalTopic, setPinModalTopic] = useState(null);
+  const [pinDate, setPinDate] = useState(() => isoDate(Date.now()));
+  const [pinTime, setPinTime] = useState("09:00");
+  const [pinChannels, setPinChannels] = useState(["linkedin", "x"]);
+  const [pinSelectedSlotId, setPinSelectedSlotId] = useState("");
   // Smart Multi-Session Chat State with Persistent History
   const [chatSessions, setChatSessions] = useState(() => {
     try {
@@ -15983,6 +16424,118 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   };
   const confirmPublish = (id) => setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, status: "published", publishedAt: "just now" } : p)));
 
+  const handleOpenPinModal = (topic) => {
+    const existingSlot = slots.find((s) => s.topicId === topic.id);
+    if (existingSlot) {
+      setPinDate(isoDate(existingSlot.dateMs));
+      setPinTime(existingSlot.time || "09:00");
+      setPinChannels(existingSlot.channels || ["linkedin", "x"]);
+      setPinSelectedSlotId(existingSlot.id);
+    } else {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      setPinDate(isoDate(tomorrow.getTime()));
+      setPinTime("09:00");
+      setPinChannels(["linkedin", "x"]);
+      setPinSelectedSlotId("");
+    }
+    setPinModalTopic(topic);
+  };
+
+  const handleUnpinTopic = (topicId) => {
+    const slot = slots.find((s) => s.topicId === topicId);
+    if (slot) {
+      setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, topicId: null, postId: null } : s)));
+      if (slot.postId) {
+        setPosts((prev) => prev.filter((p) => p.id !== slot.postId && p.slotId !== slot.id));
+      }
+      pushAi(`Unpinned topic from ${formatPlanDay(new Date(slot.dateMs))}.`);
+    }
+  };
+
+  const handleConfirmPin = async () => {
+    if (!pinModalTopic || !pinDate) return;
+
+    const parts = pinDate.split("-").map((x) => parseInt(x, 10));
+    const targetDate = new Date(parts[0], parts[1] - 1, parts[2]);
+    const dateMs = startOfDayMs(targetDate);
+    const weekday = weekdayName(targetDate);
+
+    let slotId = pinSelectedSlotId;
+    let targetSlot = slots.find((s) => s.id === slotId);
+
+    if (!targetSlot) {
+      slotId = "slot_" + parts[0] + "_" + parts[1] + "_" + parts[2] + "_" + Date.now();
+      targetSlot = {
+        id: slotId,
+        day: parts[2],
+        dateMs,
+        weekday,
+        scheduleId: "ps_" + weekday.slice(0, 3).toLowerCase(),
+        theme: pinModalTopic.theme || pinModalTopic.headline || "Content Update",
+        channels: pinChannels.slice(),
+        time: pinTime || "09:00",
+        topicId: pinModalTopic.id,
+        postId: null,
+      };
+    } else {
+      targetSlot = {
+        ...targetSlot,
+        dateMs,
+        day: parts[2],
+        weekday,
+        time: pinTime || targetSlot.time,
+        channels: pinChannels.slice(),
+        topicId: pinModalTopic.id,
+      };
+    }
+
+    const sch = schedules.find((s) => s.id === targetSlot.scheduleId) || {
+      id: targetSlot.scheduleId,
+      weekday,
+      channels: targetSlot.channels,
+      theme: targetSlot.theme,
+      time: targetSlot.time,
+    };
+
+    const newPost = writePostFromTopic(sch, pinModalTopic, targetSlot, null, company);
+    targetSlot.postId = newPost.id;
+
+    setSlots((prev) => {
+      const exists = prev.some((s) => s.id === targetSlot.id);
+      return exists ? prev.map((s) => (s.id === targetSlot.id ? targetSlot : s)) : [...prev, targetSlot];
+    });
+
+    setPosts((prev) => [newPost, ...prev.filter((p) => p.slotId !== targetSlot.id && p.id !== newPost.id)]);
+
+    try {
+      await api.createPost({
+        id: newPost.id,
+        title: newPost.topicHeadline || newPost.theme,
+        copy: newPost.copy,
+        channels: newPost.channels,
+        status: newPost.status,
+        slotDateMs: slotDueMs(targetSlot),
+        time: targetSlot.time,
+        theme: targetSlot.theme,
+        imageUrl: newPost.imageUrl,
+        imagePrompt: newPost.imagePrompt,
+      });
+    } catch (apiErr) {
+      console.warn("Could not save post to backend:", apiErr);
+    }
+
+    if (newPost.status === "awaiting_approval") {
+      mailDuePosts([newPost]);
+    }
+
+    pushAi(
+      `📌 Pinned “${pinModalTopic.headline || pinModalTopic.title}” to ${formatPlanDay(targetDate)} at ${pinTime} on ${pinChannels.join(", ")}. Draft post is generated and ready in calendar & approvals!`
+    );
+
+    setPinModalTopic(null);
+  };
+
   const assignTopic = (topicId, slotId) => {
     setSlots((ss) => ss.map((s) => (s.id === slotId ? { ...s, topicId } : s)));
   };
@@ -16221,18 +16774,97 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slateLight }}>{t.freshness || "Today"} · {t.source || "AI Strategist"}{t.query ? " · " + t.query : ""}{t.saved ? " · saved" : ""}</div>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginTop: 6, lineHeight: 1.3 }}>{t.headline || t.title}</div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 8, lineHeight: 1.45 }}>{t.angle}</div>
-        <div style={{ marginTop: 12 }}>
-          <select
-            value={usedBy ? usedBy.id : ""}
-            onChange={(e) => { if (e.target.value) assignTopic(t.id, e.target.value); }}
-            style={{ width: "100%", height: 34, borderRadius: 8, border: "1px solid " + C.border, fontFamily: FONT_BODY, fontSize: 12, background: HUB_PAPER, padding: "0 8px" }}
-          >
-            <option value="">{usedBy ? "Pinned to slot" : "Pin onto a slot…"}</option>
-            {slots.slice().sort((a, b) => a.dateMs - b.dateMs).map((s) => (
-              <option key={s.id} value={s.id}>{formatPlanDay(new Date(s.dateMs))} · {s.time} · {s.theme.slice(0, 28)}</option>
-            ))}
-          </select>
-        </div>
+        {usedBy ? (
+          <div style={{ marginTop: 14, padding: "10px 12px", background: "rgba(12,140,125,0.06)", border: `1px solid rgba(12,140,125,0.25)`, borderRadius: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: C.teal, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Check size={11} color="#fff" strokeWidth={3} />
+                </div>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 12.5, fontWeight: 700, color: C.tealDark || "#085047" }}>
+                  Pinned · {formatPlanDay(new Date(usedBy.dateMs))} @ {usedBy.time}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleUnpinTopic(t.id)}
+                title="Unpin topic from schedule"
+                style={{ border: "none", background: "transparent", color: C.slateLight, cursor: "pointer", padding: "2px 4px", display: "flex", alignItems: "center", fontSize: 11, fontWeight: 600 }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = C.redSolid; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = C.slateLight; }}
+              >
+                <X size={12} style={{ marginRight: 2 }} /> Unpin
+              </button>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {(usedBy.channels || ["linkedin"]).map((c) => (
+                  <span key={c} style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#fff", border: `1px solid rgba(12,140,125,0.2)`, color: C.textInk, textTransform: "capitalize" }}>
+                    {c}
+                  </span>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleOpenPinModal(t)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 10px",
+                  borderRadius: 7,
+                  border: `1px solid ${C.teal}`,
+                  background: "#fff",
+                  color: C.teal,
+                  fontFamily: FONT_BODY,
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: "pointer"
+                }}
+              >
+                <Clock size={12} /> Reschedule
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              onClick={() => handleOpenPinModal(t)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 7,
+                padding: "8px 12px",
+                borderRadius: 9,
+                border: `1px solid ${C.border}`,
+                background: HUB_PAPER,
+                color: C.textInk,
+                fontFamily: FONT_BODY,
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s ease"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = C.teal;
+                e.currentTarget.style.background = "rgba(12,140,125,0.06)";
+                e.currentTarget.style.color = C.teal;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = C.border;
+                e.currentTarget.style.background = HUB_PAPER;
+                e.currentTarget.style.color = C.textInk;
+              }}
+            >
+              <Calendar size={13} />
+              <span>Pin to Slot & Set Time</span>
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -17873,6 +18505,23 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
             </div>
           </div>
         </div>
+      )}
+
+      {pinModalTopic && (
+        <PinToSlotModal
+          topic={pinModalTopic}
+          onClose={() => setPinModalTopic(null)}
+          date={pinDate}
+          setDate={setPinDate}
+          time={pinTime}
+          setTime={setPinTime}
+          channels={pinChannels}
+          setChannels={setPinChannels}
+          existingSlots={slots}
+          selectedSlotId={pinSelectedSlotId}
+          setSelectedSlotId={setPinSelectedSlotId}
+          onConfirm={handleConfirmPin}
+        />
       )}
     </div>
   );
