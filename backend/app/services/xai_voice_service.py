@@ -6,6 +6,7 @@ import json
 import logging
 import time
 import uuid
+import zoneinfo
 from datetime import datetime, timedelta
 import re
 from typing import Any, Dict, List, Optional
@@ -165,7 +166,6 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     and charismatic, natural conversational rules.
     """
     try:
-        import zoneinfo
         london_tz = zoneinfo.ZoneInfo("Europe/London")
         now = datetime.now(london_tz)
     except Exception:
@@ -582,8 +582,9 @@ async def join_xai_call_session(
     """
     start_ts = time.time()
     agent_id = getattr(settings, "XAI_AGENT_ID", None) or "agent_QDoRHfWcKMybf197"
-    # CRITICAL: ws_url uses the xAI SIP call_id to bridge audio directly into the phone call
-    ws_url = f"{settings.XAI_REALTIME_WS_URL}?agent_id={agent_id}&call_id={call_id}"
+    # CRITICAL: For xAI SIP-bridged calls, use call_id ONLY in the WS URL.
+    # Adding agent_id alongside call_id can conflict with the SIP call context on xAI's side.
+    ws_url = f"{settings.XAI_REALTIME_WS_URL}?call_id={call_id}"
     api_key = settings.XAI_API_KEY
     if not api_key:
         try:
@@ -611,7 +612,7 @@ async def join_xai_call_session(
             "caller": caller_number,
             "customCallId": custom_call_id,
             "isLiveKey": bool(api_key and api_key.startswith("xai-")),
-            "wsUrl": ws_url.replace(api_key, "***") if api_key else ws_url,
+            "wsUrl": ws_url,
             "agentId": agent_id
         }
     )
@@ -744,14 +745,13 @@ async def join_xai_call_session(
                     "turn_detection": {
                         "type": "server_vad",
                         "threshold": 0.5,
-                        "prefix_padding_ms": 200,
-                        "silence_duration_ms": 400
+                        "prefix_padding_ms": 300,
+                        "silence_duration_ms": 600
                     },
                     "tools": tools_list,
                     "tool_choice": "auto",
-                    "input_audio_transcription": {
-                        "model": "whisper-1"
-                    }
+                    # Note: xAI uses its own transcription model; do not specify whisper-1
+                    "input_audio_transcription": {}
                 }
             }
             # 1. Update session with complete AIVHub configuration
@@ -805,13 +805,20 @@ async def join_xai_call_session(
                 }
                 try:
                     await ws.send(json.dumps(greeting_cmd))
-                    logger.info(f"[XAI-WS] Opening greeting dispatched successfully to xAI ({trigger_source})")
+                    logger.info(f"[XAI-WS] Opening greeting dispatched successfully to xAI ({trigger_source}) for {target_first_name}")
+                    asyncio.create_task(log_process_event(
+                        subsystem="voice",
+                        process_name="xai_greeting_dispatched",
+                        message=f"Opening greeting response.create sent to xAI for call {call_id} via {trigger_source}",
+                        level="INFO",
+                        details={"callId": call_id, "triggerSource": trigger_source, "prospect": target_first_name}
+                    ))
                 except Exception as g_err:
                     logger.warning(f"[XAI-WS] Failed to dispatch opening greeting: {g_err}")
 
-            # Fallback timer: if session.updated doesn't trigger within 0.7s, dispatch anyway
+            # Fallback timer: if session.created/updated doesn't trigger within 1.5s, dispatch anyway
             async def fallback_greeting_timer():
-                await asyncio.sleep(0.7)
+                await asyncio.sleep(1.5)
                 if not greeting_dispatched:
                     await dispatch_opening_greeting("fallback_timer")
 
@@ -829,11 +836,26 @@ async def join_xai_call_session(
                     await dispatch_opening_greeting(event_type)
 
                 if event_type == "error":
-                    logger.error(f"[XAI-WS] xAI returned error event for {call_id}: {event.get('error')}")
+                    err_detail = event.get("error", {})
+                    logger.error(f"[XAI-WS] xAI returned error event for {call_id}: {err_detail}")
+                    asyncio.create_task(log_process_event(
+                        subsystem="voice",
+                        process_name="xai_ws_error_event",
+                        message=f"xAI returned error event for call {call_id}: {err_detail}",
+                        level="ERROR",
+                        details={"callId": call_id, "error": err_detail}
+                    ))
 
-                # Log first few events for diagnostics
-                if event_count <= 3:
-                    logger.info(f"[XAI-WS] Event #{event_count} for {call_id}: type={event_type}")
+                # Log ALL events (not just first 3) for diagnostics — key events always logged
+                IMPORTANT_EVENTS = {
+                    "session.created", "session.updated", "error",
+                    "response.created", "response.done", "response.audio.started",
+                    "response.output_item.added", "response.output_item.done",
+                    "output_audio_buffer.started", "output_audio_buffer.stopped",
+                    "output_audio_buffer.done", "session.ended", "call.ended"
+                }
+                if event_type in IMPORTANT_EVENTS or event_count <= 5:
+                    logger.info(f"[XAI-WS] Event #{event_count} [{event_type}] for {call_id}")
                     if event_count == 1:
                         asyncio.create_task(log_process_event(
                             subsystem="voice",
