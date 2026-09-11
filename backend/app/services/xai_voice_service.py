@@ -201,14 +201,14 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
 
     company_name = profile.name if profile else "AIVHub"
     caller_name = profile.caller_name if profile else "Sam"
-    pitch = profile.pitch if profile else "AI-driven operational intelligence and workflow automation."
+    pitch = profile.pitch if (profile and profile.pitch) else "AIVHUB turns your scattered business data into real-time dashboards, AI-powered insights, and actionable decisions all in one platform."
     tone = profile.tone if profile else "Warm, charismatic, articulate, consultative, natural"
     disclosure = profile.disclosure if profile else "This call may be recorded for quality purposes."
     
     catalog_lines = []
     for s in services[:5]:
         catalog_lines.append(f"- {s.name}: {s.desc} (Ideal for: {s.ideal})")
-    catalog_text = "\n".join(catalog_lines) if catalog_lines else "- Enterprise Voice & Knowledge Intelligence"
+    catalog_text = "\n".join(catalog_lines) if catalog_lines else "- BI Dashboard Platform: Real-time operational dashboards pulling from existing systems (Ideal for mid-market ops teams, 50-500 staff)."
 
     faq_lines = []
     for f in faqs[:10]:
@@ -216,18 +216,21 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     faq_text = "\n".join(faq_lines) if faq_lines else "None provided yet."
 
     target_name = prospect_name or "there"
-    target_first_name = target_name.strip().split()[0] if target_name else "there"
+    target_clean = re.sub(r"\(.*?\)", "", target_name).strip()
+    target_first_name = target_clean.split()[0] if target_clean else "there"
+    if target_first_name.lower() in ["prospect", "caller"]:
+        target_first_name = "there"
 
-    instructions = f"""You are {caller_name}, a highly articulate, warm, and charismatic executive AI representative calling from {company_name}.
+    instructions = f"""You are {caller_name}, a highly articulate, warm, and charismatic executive representative calling on behalf of {company_name}.
 Tone & Personality: {tone}. You sound like an experienced, personable enterprise partner having a relaxed, confident conversation — NEVER like a rigid telemarketer or robot reading a script.
 
 CRITICAL OUTBOUND CALL OPENING RULE (SPEAK FIRST):
-- You are placing an OUTBOUND CALL to {target_name}. The person on the other end has just answered their phone.
-- You MUST speak FIRST immediately! Do NOT stay silent waiting for the caller to ask who is calling.
+- You are placing an OUTBOUND BUSINESS CALL to {target_name}. The person on the other end has just answered their phone.
+- You MUST speak FIRST immediately! Do NOT stay silent waiting for the other party to ask who is calling.
 - Your opening greeting MUST introduce yourself and your company clearly and warmly:
   "Hi {target_first_name}, this is {caller_name} calling from {company_name}. How are you doing today?"
 - Once they reply, state the reason for your call naturally:
-  "I'm reaching out because we help businesses automate their operations and client outreach with human-grade voice AI. I wanted to see if we could set up a quick 15-minute demo to show you how it works."
+  "I'm reaching out from {company_name} because we help businesses turn their scattered business data into real-time dashboards and AI-powered insights. I wanted to see if we could set up a quick 15-minute demo to show you how our BI platform works."
 
 CRITICAL MEETING BOOKING & CONTACT DETAILS CAPTURE (MANDATORY):
 1. The PRIMARY OBJECTIVE of this call is to schedule a 15-minute discovery demo AND CAPTURE THEIR DIRECT CONTACT DETAILS (Email address and Phone number).
@@ -651,11 +654,15 @@ async def join_xai_call_session(
         if call_obj:
             local_call_id = call_obj.id
             call_obj.state = "pitching"
+            if call_obj.prospect and (not prospect_name or prospect_name.lower().startswith("caller")):
+                prospect_name = call_obj.prospect
+            if call_obj.mission:
+                mission_name = call_obj.mission
             call_obj.transcript = (call_obj.transcript or []) + [
                 f"System: xAI Realtime Voice Agent connected (SIP Call: {call_id[:8]}...)"
             ]
             await db.commit()
-            logger.info(f"[XAI-WS] Successfully linked xAI session {call_id} to existing LiveCall {local_call_id} (carrier: {carrier_sid})")
+            logger.info(f"[XAI-WS] Successfully linked xAI session {call_id} to existing LiveCall {local_call_id} (carrier: {carrier_sid}, prospect: {prospect_name})")
         else:
             call_obj = LiveCall(
                 id=call_id,
@@ -758,7 +765,12 @@ async def join_xai_call_session(
             await ws.send(json.dumps(session_config))
 
             # 2. Set up instant first-turn greeting trigger
-            target_first_name = (prospect_name or "there").strip().split()[0]
+            target_raw = prospect_name or (call_obj.prospect if call_obj else None) or "there"
+            target_clean = re.sub(r"\(.*?\)", "", target_raw).strip()
+            target_first_name = target_clean.split()[0] if target_clean else "there"
+            if target_first_name.lower() in ["prospect", "caller", "there"]:
+                target_first_name = "there"
+
             greeting_dispatched = False
 
             async def dispatch_opening_greeting(trigger_source: str):
@@ -776,23 +788,30 @@ async def join_xai_call_session(
                 current_time_str = now_greeting.strftime("%I:%M %p")
                 current_date_str = now_greeting.strftime("%A, %d %B %Y")
 
-                is_inbound = (
-                    "inbound" in (mission_name or "").lower() or 
-                    (call_obj and "inbound" in (call_obj.mission or "").lower()) or
-                    (call_obj and "inbound" in (call_obj.mission_id or "").lower())
-                )
+                # Strictly determine inbound vs outbound:
+                # If call_obj was linked from an outbound dial (e.g. mission is "Direct Client Outreach"), it is OUTBOUND.
+                if call_obj and call_obj.mission and not ("inbound" in call_obj.mission.lower() or "inbound" in (call_obj.mission_id or "").lower()):
+                    is_inbound = False
+                elif mission_name and "inbound" in mission_name.lower():
+                    is_inbound = True
+                elif not call_obj:
+                    is_inbound = True
+                else:
+                    is_inbound = False
+
                 if is_inbound:
                     greeting_instruction = (
-                        f"You are Sam, the AI voice representative at AIVHub, answering an INCOMING phone call. "
+                        f"You are Sam, the AI executive representative at AIVHub, answering an INCOMING phone call. "
                         f"The current time in London is {current_time_str} on {current_date_str}. "
                         f"Speak FIRST immediately! Say warmly: 'Hello, thanks for calling AIVHub! This is Sam. How can I help you today?' "
                         f"Do not wait for the caller to speak first."
                     )
                 else:
+                    greeting_line = f"Hi {target_first_name}" if target_first_name != "there" else "Hi there"
                     greeting_instruction = (
                         f"You are calling {target_first_name} as Sam from AIVHub on an outbound business call. "
                         f"The current time in London is {current_time_str} on {current_date_str}. "
-                        f"Speak FIRST immediately! Say clearly: 'Hi {target_first_name}, this is Sam calling from AIVHub. How are you doing today?' "
+                        f"Speak FIRST immediately! Say warmly and clearly: '{greeting_line}, this is Sam calling from AIVHub. How are you doing today?' "
                         f"Do not wait for the other person to speak."
                     )
 
@@ -805,20 +824,23 @@ async def join_xai_call_session(
                 }
                 try:
                     await ws.send(json.dumps(greeting_cmd))
-                    logger.info(f"[XAI-WS] Opening greeting dispatched successfully to xAI ({trigger_source}) for {target_first_name}")
+                    logger.info(f"[XAI-WS] Opening greeting dispatched successfully to xAI ({trigger_source}) for {target_first_name} (is_inbound={is_inbound})")
                     asyncio.create_task(log_process_event(
                         subsystem="voice",
                         process_name="xai_greeting_dispatched",
-                        message=f"Opening greeting response.create sent to xAI for call {call_id} via {trigger_source}",
+                        message=f"Opening greeting response.create sent to xAI for call {call_id} via {trigger_source} (is_inbound={is_inbound})",
                         level="INFO",
-                        details={"callId": call_id, "triggerSource": trigger_source, "prospect": target_first_name}
+                        details={"callId": call_id, "triggerSource": trigger_source, "prospect": target_first_name, "isInbound": is_inbound}
                     ))
                 except Exception as g_err:
                     logger.warning(f"[XAI-WS] Failed to dispatch opening greeting: {g_err}")
 
-            # Fallback timer: if session.created/updated doesn't trigger within 1.5s, dispatch anyway
+            # Trigger opening greeting immediately upon connecting so audio begins generating instantly
+            await dispatch_opening_greeting("immediate_on_connect")
+
+            # Fallback timer: if not yet dispatched within 0.8s, trigger fallback
             async def fallback_greeting_timer():
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(0.8)
                 if not greeting_dispatched:
                     await dispatch_opening_greeting("fallback_timer")
 

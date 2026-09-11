@@ -166,7 +166,10 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
     # 3. Handle Call Events
     if event_type in ["call.incoming", "call.initiated", "session.start", "call.answered",
                        "realtime.call.incoming", "realtime.session.start"]:
-        logger.info(f"[SIP-WEBHOOK] Launching join_xai_call_session for sip_call_id={call_id}, twilio_sid={twilio_call_sid}, custom_call_id={custom_call_id}...")
+        # If custom_call_id or twilio_call_sid is present, it's a bridged outbound call; otherwise direct inbound
+        is_bridged_outbound = bool(custom_call_id or twilio_call_sid)
+        inferred_mission = "Direct Outbound Outreach" if is_bridged_outbound else "Inbound Voice Call"
+        logger.info(f"[SIP-WEBHOOK] Launching join_xai_call_session for sip_call_id={call_id}, twilio_sid={twilio_call_sid}, custom_call_id={custom_call_id}, inferred_mission={inferred_mission}...")
         # Launch WebSocket session in background (fire-and-forget for instant <15ms 200 response)
         asyncio.create_task(
             join_xai_call_session(
@@ -174,7 +177,7 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
                 caller_number=caller,
                 carrier_sid=twilio_call_sid,
                 custom_call_id=custom_call_id,
-                mission_name="Inbound Voice Call"
+                mission_name=inferred_mission if not is_bridged_outbound else None
             )
         )
         return {
