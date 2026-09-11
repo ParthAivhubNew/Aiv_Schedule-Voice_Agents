@@ -767,6 +767,15 @@ async def join_xai_call_session(
                     return
                 greeting_dispatched = True
                 logger.info(f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source}...")
+
+                try:
+                    london_tz = zoneinfo.ZoneInfo("Europe/London")
+                    now_greeting = datetime.now(london_tz)
+                except Exception:
+                    now_greeting = datetime.utcnow() + timedelta(hours=1)
+                current_time_str = now_greeting.strftime("%I:%M %p")
+                current_date_str = now_greeting.strftime("%A, %d %B %Y")
+
                 is_inbound = (
                     "inbound" in (mission_name or "").lower() or 
                     (call_obj and "inbound" in (call_obj.mission or "").lower()) or

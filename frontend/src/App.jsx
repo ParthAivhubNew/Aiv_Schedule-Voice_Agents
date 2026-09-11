@@ -6296,12 +6296,15 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
     setDialError("");
     setDialResult(null);
 
-    // Ensure creds are saved locally
-    if (accountSid.trim()) {
-      try { localStorage.setItem("aivhub_twilio_sid", accountSid.trim()); } catch (_) {}
+    const cleanSid = (accountSid || "").trim();
+    const cleanToken = (authToken || "").trim();
+
+    // Ensure creds are saved locally if non-empty
+    if (cleanSid) {
+      try { localStorage.setItem("aivhub_twilio_sid", cleanSid); } catch (_) {}
     }
-    if (authToken.trim()) {
-      try { localStorage.setItem("aivhub_twilio_token", authToken.trim()); } catch (_) {}
+    if (cleanToken) {
+      try { localStorage.setItem("aivhub_twilio_token", cleanToken); } catch (_) {}
     }
 
     try {
@@ -6311,8 +6314,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
         prospect_name: prospectName.trim() || undefined,
         mission_title: missionTitle.trim() || "Direct Client Outreach",
         carrier: carrierChoice,
-        account_sid: accountSid.trim() || undefined,
-        api_key: authToken.trim() || undefined
+        account_sid: (cleanSid && cleanSid.startsWith("AC")) ? cleanSid : undefined,
+        api_key: cleanToken || undefined
       };
       const res = await api.dialOutbound(payload);
       setDialResult(res);
