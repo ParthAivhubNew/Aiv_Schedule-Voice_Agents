@@ -35,10 +35,12 @@ async def list_posts(db: AsyncSession = Depends(get_db)):
         "topicId": p.topic_id,
         "scheduleId": p.schedule_id,
         "title": p.title,
+        "topicHeadline": p.title,
         "copy": p.copy,
         "channels": p.channels or ["linkedin", "x"],
         "status": p.status,
         "slotDateMs": p.slot_date_ms,
+        "dateMs": p.slot_date_ms,
         "time": p.time or "10:00",
         "theme": p.theme or "General",
         "tone": p.tone or "Professional",
@@ -68,60 +70,42 @@ async def generate_image_endpoint(payload: Dict[str, Any]):
     if not prompt and title:
         prompt = create_topic_image_prompt(title, theme=theme, style=style)
     elif not prompt:
-        prompt = "Business intelligence operations dashboard with real-time analytics"
+        prompt = f"Modern professional illustration representing {theme}, clean vector style, high quality"
         
-    res = await generate_image_with_provider(
+    final_url = generate_image_url(
         prompt=prompt,
+        style=style,
+        width=width,
+        height=height,
+        aspect_ratio=aspect_ratio,
         provider=provider,
         api_key=api_key,
         model=model,
-        base_url=base_url,
-        style=style,
-        aspect_ratio=aspect_ratio,
-        width=width,
-        height=height
+        base_url=base_url
     )
-    return res
+    
+    return {
+        "status": "ok",
+        "imageUrl": final_url,
+        "prompt": prompt,
+        "provider": provider,
+        "width": width,
+        "height": height
+    }
 
 @router.post("/generate-package")
 async def generate_package_endpoint(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-    """
-    Generates a full social media package with hook, multi-channel copy,
-    hashtags, CTA, first comment link, and AI image.
-    """
-    topic = payload.get("topic", "") or payload.get("prompt", "")
-    style = payload.get("style", "modern_saas")
-    aspect_ratio = payload.get("aspect_ratio", "16:9")
-    api_key = payload.get("apiKey") or payload.get("api_key")
-    provider = payload.get("provider")
-    model = payload.get("model")
-    base_url = payload.get("baseUrl") or payload.get("base_url")
-
-    # Image generation credentials
-    image_api_key = payload.get("imageApiKey") or payload.get("image_api_key") or payload.get("apiKey")
-    image_provider = payload.get("imageProvider") or payload.get("image_provider") or payload.get("imageEngine")
-    image_model = payload.get("imageModel") or payload.get("image_model")
-    image_base_url = payload.get("imageBaseUrl") or payload.get("image_base_url")
-
-    # Get company profile for context
-    prof_res = await db.execute(select(CompanyProfile).limit(1))
-    profile = prof_res.scalars().first()
-    company_name = profile.name if profile else "AIVHub"
-    company_pitch = profile.pitch if profile else "AI-powered business intelligence dashboards"
-
-    package = await generate_complete_social_package(
-        topic=topic,
-        company_name=company_name,
-        company_pitch=company_pitch,
-        api_key=api_key,
-        provider=provider,
-        model=model,
-        base_url=base_url,
-        image_api_key=image_api_key,
-        image_provider=image_provider,
-        image_model=image_model,
-        image_base_url=image_base_url,
-        style=style,
+    topic_id = payload.get("topicId")
+    custom_angle = payload.get("angle")
+    channels = payload.get("channels") or ["linkedin", "x"]
+    style = payload.get("imageStyle", "modern_saas")
+    aspect_ratio = payload.get("aspectRatio", "16:9")
+    
+    package = await generate_full_post_package(
+        topic_id=topic_id,
+        custom_angle=custom_angle,
+        channels=channels,
+        image_style=style,
         aspect_ratio=aspect_ratio,
         db=db
     )
@@ -134,7 +118,7 @@ async def generate_package_endpoint(payload: Dict[str, Any], db: AsyncSession = 
 @router.post("/posts/create")
 async def create_post_endpoint(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
     """
-    Creates a new post in the database (defaulting to awaiting_approval status).
+    Creates or updates a post in the database (defaulting to awaiting_approval status).
     """
     post_id = payload.get("id") or f"post_{uuid.uuid4().hex[:8]}"
     title = payload.get("title") or payload.get("hook") or "Untitled Social Post"
@@ -147,19 +131,35 @@ async def create_post_endpoint(payload: Dict[str, Any], db: AsyncSession = Depen
     image_url = payload.get("imageUrl")
     image_prompt = payload.get("imagePrompt")
 
-    new_post = SocialPost(
-        id=post_id,
-        title=title,
-        copy=copy,
-        channels=channels,
-        status=status,
-        slot_date_ms=float(slot_date_ms),
-        time=time_str,
-        theme=theme,
-        image_url=image_url,
-        image_prompt=image_prompt
-    )
-    db.add(new_post)
+    res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
+    existing_post = res.scalars().first()
+    if existing_post:
+        existing_post.title = title
+        existing_post.copy = copy
+        existing_post.channels = channels
+        existing_post.status = status
+        existing_post.slot_date_ms = float(slot_date_ms)
+        existing_post.time = time_str
+        existing_post.theme = theme
+        if image_url is not None:
+            existing_post.image_url = image_url
+        if image_prompt is not None:
+            existing_post.image_prompt = image_prompt
+        new_post = existing_post
+    else:
+        new_post = SocialPost(
+            id=post_id,
+            title=title,
+            copy=copy,
+            channels=channels,
+            status=status,
+            slot_date_ms=float(slot_date_ms),
+            time=time_str,
+            theme=theme,
+            image_url=image_url,
+            image_prompt=image_prompt
+        )
+        db.add(new_post)
     await db.commit()
     await db.refresh(new_post)
 

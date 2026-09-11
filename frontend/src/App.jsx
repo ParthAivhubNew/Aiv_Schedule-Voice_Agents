@@ -15861,20 +15861,74 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     }
   };
 
-  const [schedules, setSchedules] = useState(INITIAL_POST_SCHEDULES);
-  const [planHorizon, setPlanHorizon] = useState("month");
-  const [planRange, setPlanRange] = useState(() => monthRange(PLAN_MONTH.year, PLAN_MONTH.month));
-  const [planSaved, setPlanSaved] = useState(false);
-  const [savedPlans, setSavedPlans] = useState([]);
+  const [schedules, setSchedules] = useState(() => {
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_schedules");
+      return s ? JSON.parse(s) : INITIAL_POST_SCHEDULES;
+    } catch (_) {
+      return INITIAL_POST_SCHEDULES;
+    }
+  });
+  const [planHorizon, setPlanHorizon] = useState(() => {
+    try {
+      return localStorage.getItem("aivhub_scheduler_plan_horizon") || "month";
+    } catch (_) {
+      return "month";
+    }
+  });
+  const [planRange, setPlanRange] = useState(() => {
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_plan_range");
+      return s ? JSON.parse(s) : monthRange(PLAN_MONTH.year, PLAN_MONTH.month);
+    } catch (_) {
+      return monthRange(PLAN_MONTH.year, PLAN_MONTH.month);
+    }
+  });
+  const [planSaved, setPlanSaved] = useState(() => {
+    try {
+      return localStorage.getItem("aivhub_scheduler_plan_saved") === "true";
+    } catch (_) {
+      return false;
+    }
+  });
+  const [savedPlans, setSavedPlans] = useState(() => {
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_saved_plans");
+      return s ? JSON.parse(s) : [];
+    } catch (_) {
+      return [];
+    }
+  });
   const [activePlanId, setActivePlanId] = useState(null);
   const [calCursor, setCalCursor] = useState({ year: PLAN_MONTH.year, month: PLAN_MONTH.month });
-  const [slots, setSlots] = useState(INITIAL_MONTH_SLOTS);
-  const [topics, setTopics] = useState(INITIAL_SCHEDULER_TOPICS);
+  const [slots, setSlots] = useState(() => {
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_slots");
+      return s ? JSON.parse(s) : INITIAL_MONTH_SLOTS;
+    } catch (_) {
+      return INITIAL_MONTH_SLOTS;
+    }
+  });
+  const [topics, setTopics] = useState(() => {
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_topics");
+      return s ? JSON.parse(s) : INITIAL_SCHEDULER_TOPICS;
+    } catch (_) {
+      return INITIAL_SCHEDULER_TOPICS;
+    }
+  });
   const [researchQuery, setResearchQuery] = useState("");
   const [researchSets, setResearchSets] = useState(INITIAL_RESEARCH_SETS);
   const [topicFilter, setTopicFilter] = useState("");
   const [searching, setSearching] = useState(false);
-  const [posts, setPosts] = useState(INITIAL_POST_ITEMS);
+  const [posts, setPosts] = useState(() => {
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_posts");
+      return s ? JSON.parse(s) : INITIAL_POST_ITEMS;
+    } catch (_) {
+      return INITIAL_POST_ITEMS;
+    }
+  });
   const [emails, setEmails] = useState(INITIAL_SCHEDULER_EMAILS);
   // Modern Pin-to-Slot & Custom Time Scheduling State
   const [pinModalTopic, setPinModalTopic] = useState(null);
@@ -16092,10 +16146,56 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   }, [chat, typing]);
 
   useEffect(() => {
+    try { localStorage.setItem("aivhub_scheduler_schedules", JSON.stringify(schedules)); } catch (_) {}
+  }, [schedules]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_scheduler_plan_horizon", planHorizon); } catch (_) {}
+  }, [planHorizon]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_scheduler_plan_range", JSON.stringify(planRange)); } catch (_) {}
+  }, [planRange]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_scheduler_plan_saved", String(planSaved)); } catch (_) {}
+  }, [planSaved]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_scheduler_saved_plans", JSON.stringify(savedPlans)); } catch (_) {}
+  }, [savedPlans]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_scheduler_slots", JSON.stringify(slots)); } catch (_) {}
+  }, [slots]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_scheduler_topics", JSON.stringify(topics)); } catch (_) {}
+  }, [topics]);
+
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_scheduler_posts", JSON.stringify(posts)); } catch (_) {}
+  }, [posts]);
+
+  useEffect(() => {
     api.getPosts()
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
-          setPosts(data);
+          const normalized = data.map((p) => {
+            const d = p.slotDateMs ? new Date(p.slotDateMs) : (p.dateMs ? new Date(p.dateMs) : new Date());
+            return {
+              ...p,
+              dateMs: p.dateMs || p.slotDateMs || d.getTime(),
+              dateLabel: p.dateLabel || formatPlanDay(d),
+              weekday: p.weekday || weekdayName(d),
+              topicHeadline: p.topicHeadline || p.title || p.theme || "Social Post",
+            };
+          });
+          setPosts((prev) => {
+            const backendIds = new Set(normalized.map((n) => n.id));
+            const retained = prev.filter((p) => !backendIds.has(p.id));
+            return [...normalized, ...retained];
+          });
         }
       })
       .catch((e) => console.warn("Could not load backend posts:", e));
@@ -16190,7 +16290,23 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         window.setTimeout(() => {
           const { nextSlots, created } = writePostsFrom(schedules, found, assigned, company);
           setSlots(nextSlots);
-          if (created.length) setPosts((ps) => [...created, ...ps]);
+          if (created.length) {
+            setPosts((ps) => [...created, ...ps]);
+            created.forEach((np) => {
+              api.createPost({
+                id: np.id,
+                title: np.topicHeadline || np.theme,
+                copy: np.copy,
+                channels: np.channels,
+                status: np.status,
+                slotDateMs: np.dateMs,
+                time: np.time,
+                theme: np.theme,
+                imageUrl: np.imageUrl,
+                imagePrompt: np.imagePrompt,
+              }).catch((e) => console.warn("Could not persist created post:", e));
+            });
+          }
           const mailed = mailDuePosts(created);
           const later = created.length - mailed;
           setView(mailed ? "approval" : "month");
@@ -16221,7 +16337,23 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const writePosts = () => {
     const { nextSlots, created } = writePostsFrom(schedules, topics, slots, company);
     setSlots(nextSlots);
-    if (created.length) setPosts((ps) => [...created, ...ps]);
+    if (created.length) {
+      setPosts((ps) => [...created, ...ps]);
+      created.forEach((np) => {
+        api.createPost({
+          id: np.id,
+          title: np.topicHeadline || np.theme,
+          copy: np.copy,
+          channels: np.channels,
+          status: np.status,
+          slotDateMs: np.dateMs,
+          time: np.time,
+          theme: np.theme,
+          imageUrl: np.imageUrl,
+          imagePrompt: np.imagePrompt,
+        }).catch((e) => console.warn("Could not persist created post:", e));
+      });
+    }
     const mailed = mailDuePosts(created);
     setView(mailed ? "approval" : "month");
     return { n: created.length, mailed };
@@ -16520,6 +16652,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   };
   const saveEdit = (id) => {
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, copy: editCopy, edited: true } : p)));
+    api.updatePostStatus(id, undefined, editCopy).catch((e) => console.warn("Could not save post edit to backend:", e));
     setEditingId(null);
   };
 
@@ -16532,19 +16665,25 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     const rewritten = writePostFromTopic(sch, { ...nextTopic, scheduleId: post.scheduleId }, slot, "awaiting_approval", company);
     setPosts((ps) => ps.map((p) => (p.id === post.id ? { ...rewritten, id: post.id } : p)));
     if (slot) setSlots((ss) => ss.map((s) => (s.id === slot.id ? { ...s, topicId: nextTopic.id } : s)));
+    api.updatePostStatus(post.id, "awaiting_approval", rewritten.copy).catch((e) => console.warn("Could not regenerate post on backend:", e));
     setEditingId(null);
   };
 
   const approvePost = (id) => {
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, status: "approved" } : p)));
     setEmails((es) => es.map((e) => (e.postId === id ? { ...e, status: "approved" } : e)));
+    api.updatePostStatus(id, "approved").catch((e) => console.warn("Could not approve post on backend:", e));
   };
   const rejectPost = (id) => {
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, status: "rejected" } : p)));
     setEmails((es) => es.map((e) => (e.postId === id ? { ...e, status: "rejected" } : e)));
     setSlots((ss) => ss.map((s) => (s.postId === id ? { ...s, postId: null } : s)));
+    api.updatePostStatus(id, "rejected").catch((e) => console.warn("Could not reject post on backend:", e));
   };
-  const confirmPublish = (id) => setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, status: "published", publishedAt: "just now" } : p)));
+  const confirmPublish = (id) => {
+    setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, status: "published", publishedAt: "just now" } : p)));
+    api.updatePostStatus(id, "published").catch((e) => console.warn("Could not publish post on backend:", e));
+  };
 
   const handleOpenPinModal = (topic) => {
     const existingSlot = slots.find((s) => s.topicId === topic.id);
@@ -16570,6 +16709,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, topicId: null, postId: null } : s)));
       if (slot.postId) {
         setPosts((prev) => prev.filter((p) => p.id !== slot.postId && p.slotId !== slot.id));
+        api.deletePost(slot.postId).catch((e) => console.warn("Could not delete unpinned post on backend:", e));
       }
       pushAi(`Unpinned topic from ${formatPlanDay(new Date(slot.dateMs))}.`);
     }
