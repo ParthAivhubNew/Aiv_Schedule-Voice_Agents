@@ -1,10 +1,11 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
 from app.config import settings
-from app.database import engine, Base
+from app.database import engine, Base, get_db
 from app.seed_data import seed_database
 from app.websockets.call_hub import call_hub
 
@@ -111,6 +112,7 @@ app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(missions_router, prefix=settings.API_PREFIX)
 app.include_router(prospects_router, prefix=settings.API_PREFIX)
 app.include_router(calls_router, prefix=settings.API_PREFIX)
+app.include_router(calls_router)  # Direct /calls compatibility
 app.include_router(meetings_router, prefix=settings.API_PREFIX)
 app.include_router(schedule_router, prefix=settings.API_PREFIX)
 app.include_router(profile_router, prefix=settings.API_PREFIX)
@@ -122,6 +124,15 @@ app.include_router(sip_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router)  # Direct /sip-webhook compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
+
+# Universal Direct Fallback Webhooks for Twilio Inbound Voice
+@app.api_route("/twilio/inbound", methods=["GET", "POST"])
+@app.api_route("/twilio/voice", methods=["GET", "POST"])
+@app.api_route("/api/twilio/inbound", methods=["GET", "POST"])
+@app.api_route("/api/twilio/voice", methods=["GET", "POST"])
+async def direct_twilio_inbound_fallback(request: Request, db: AsyncSession = Depends(get_db)):
+    from app.api.calls import twilio_inbound_voice
+    return await twilio_inbound_voice(request, db)
 
 
 # WebSocket Endpoint

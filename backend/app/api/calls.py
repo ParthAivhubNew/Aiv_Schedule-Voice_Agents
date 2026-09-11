@@ -378,7 +378,11 @@ async def dial_outbound_call(
 
     # 2. Determine carrier plugin
     carrier_choice = (req.carrier or "").strip().lower()
-    conn_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+    conn_res = await db.execute(
+        select(Connection).where(
+            (Connection.group_name == "Telephony") | (Connection.name.ilike("%twilio%"))
+        )
+    )
     tele_conn = conn_res.scalars().first()
 
     if not carrier_choice:
@@ -390,7 +394,28 @@ async def dial_outbound_call(
     # 3. Resolve credentials
     stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
     sid = req.account_sid or stored_cfg.get("account_sid") or settings.TWILIO_ACCOUNT_SID
-    token = req.api_key or stored_cfg.get("api_key") or settings.TWILIO_AUTH_TOKEN
+    token = req.api_key or stored_cfg.get("api_key") or stored_cfg.get("auth_token") or settings.TWILIO_AUTH_TOKEN
+
+    # Auto-save credentials permanently to database if newly provided
+    if req.account_sid and (req.api_key or req.account_sid):
+        try:
+            if not tele_conn:
+                tele_conn = Connection(
+                    id="conn_twilio_telephony",
+                    name="Twilio",
+                    group_name="Telephony",
+                    status="connected",
+                    config={"account_sid": sid, "api_key": token, "auth_token": token}
+                )
+                db.add(tele_conn)
+            else:
+                existing_cfg = dict(tele_conn.config or {})
+                tele_conn.config = {**existing_cfg, "account_sid": sid, "api_key": token, "auth_token": token}
+                tele_conn.status = "connected"
+            await db.commit()
+            logger.info("Persisted Twilio credentials permanently to database Connection table.")
+        except Exception as save_err:
+            logger.warning(f"Could not persist Twilio credentials to DB: {save_err}")
 
     credentials = {
         "account_sid": sid,

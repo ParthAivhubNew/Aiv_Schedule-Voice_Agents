@@ -6189,10 +6189,55 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
   const [missionTitle, setMissionTitle] = useState(prefillData?.missionTitle || "Direct Client Outreach");
   const [fromNumber, setFromNumber] = useState(defaultFromNumber || "+447307216767");
   const [carrierChoice, setCarrierChoice] = useState("twilio");
-  const [accountSid, setAccountSid] = useState("");
-  const [authToken, setAuthToken] = useState("");
+  const [accountSid, setAccountSid] = useState(() => {
+    try {
+      return localStorage.getItem("aivhub_twilio_sid") || "";
+    } catch (_) { return ""; }
+  });
+  const [authToken, setAuthToken] = useState(() => {
+    try {
+      return localStorage.getItem("aivhub_twilio_token") || "";
+    } catch (_) { return ""; }
+  });
   const [showCreds, setShowCreds] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
+
+  // Auto-sync Twilio credentials to localStorage
+  useEffect(() => {
+    try {
+      if (accountSid) localStorage.setItem("aivhub_twilio_sid", accountSid.trim());
+    } catch (_) {}
+  }, [accountSid]);
+
+  useEffect(() => {
+    try {
+      if (authToken) localStorage.setItem("aivhub_twilio_token", authToken.trim());
+    } catch (_) {}
+  }, [authToken]);
+
+  // If localStorage empty, load from backend connection table
+  useEffect(() => {
+    async function loadSavedTwilio() {
+      if (!accountSid || !authToken) {
+        try {
+          const conns = await api.getConnections();
+          for (const c of (conns || [])) {
+            if (c.name && c.name.toLowerCase().includes("twilio") && c.config) {
+              if (!accountSid && c.config.account_sid) {
+                setAccountSid(c.config.account_sid);
+                try { localStorage.setItem("aivhub_twilio_sid", c.config.account_sid); } catch (_) {}
+              }
+              if (!authToken && (c.config.api_key || c.config.auth_token)) {
+                setAuthToken(c.config.api_key || c.config.auth_token);
+                try { localStorage.setItem("aivhub_twilio_token", c.config.api_key || c.config.auth_token); } catch (_) {}
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+    loadSavedTwilio();
+  }, []);
 
   const [savedContacts, setSavedContacts] = useState(() => {
     try {
@@ -6226,6 +6271,14 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
     setDialing(true);
     setDialError("");
     setDialResult(null);
+
+    // Ensure creds are saved locally
+    if (accountSid.trim()) {
+      try { localStorage.setItem("aivhub_twilio_sid", accountSid.trim()); } catch (_) {}
+    }
+    if (authToken.trim()) {
+      try { localStorage.setItem("aivhub_twilio_token", authToken.trim()); } catch (_) {}
+    }
 
     try {
       const payload = {
