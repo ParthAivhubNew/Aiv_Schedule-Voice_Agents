@@ -6261,6 +6261,30 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
   const [dialing, setDialing] = useState(false);
   const [dialResult, setDialResult] = useState(null);
   const [dialError, setDialError] = useState("");
+  const [saveStatus, setSaveStatus] = useState(null);
+
+  const handleSaveTwilioCreds = async () => {
+    if (!accountSid.trim() || !authToken.trim()) {
+      setSaveStatus({ error: "Please enter both Twilio Account SID and Auth Token." });
+      return;
+    }
+    setSaveStatus({ saving: true });
+    try {
+      localStorage.setItem("aivhub_twilio_sid", accountSid.trim());
+      localStorage.setItem("aivhub_twilio_token", authToken.trim());
+      await api.testAndSaveConnection({
+        layer: "Telephony",
+        provider: "Twilio",
+        api_key: authToken.trim(),
+        account_sid: accountSid.trim()
+      });
+      setSaveStatus({ success: "✓ Twilio credentials securely saved to database & vault!" });
+      setTimeout(() => setSaveStatus(null), 3500);
+    } catch (err) {
+      setSaveStatus({ error: err.message || "Failed to verify Twilio credentials." });
+      setTimeout(() => setSaveStatus(null), 4500);
+    }
+  };
 
   const handleDial = async (e) => {
     if (e) e.preventDefault();
@@ -6534,58 +6558,99 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
             </div>
           </div>
 
-          {/* Optional Twilio credentials override */}
+          {/* Twilio credentials vault */}
           {carrierChoice === "twilio" && (
-            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 8 }}>
-              <button
-                type="button"
-                onClick={() => setShowCreds(!showCreds)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#94A3B8",
-                  fontSize: 11.5,
-                  cursor: "pointer",
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5
-                }}
-              >
-                <span>{showCreds ? "▼ Hide" : "▶ Optional:"} Custom Twilio SID & Token (override saved)</span>
-              </button>
-              {showCreds && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
+            <div style={{
+              background: "rgba(15, 23, 42, 0.7)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 10,
+              padding: "12px 14px",
+              marginTop: 6
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#E2E8F0" }}>
+                  <KeyRound size={13} color="#38BDF8" />
+                  <span>Twilio Account Credentials (Saved Safely)</span>
+                  {accountSid && authToken && (
+                    <span style={{ fontSize: 10, color: "#34D399", background: "rgba(52,211,153,0.15)", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>
+                      ✓ Saved & Active
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveTwilioCreds}
+                  disabled={saveStatus?.saving}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                    background: C.cobalt,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 6,
+                    padding: "5px 12px",
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    cursor: "pointer"
+                  }}
+                >
+                  <Save size={12} />
+                  {saveStatus?.saving ? "Saving..." : "Save Credentials"}
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 10.5, color: "#94A3B8", marginBottom: 3 }}>Twilio Account SID</label>
                   <input
                     type="text"
                     value={accountSid}
                     onChange={(e) => setAccountSid(e.target.value)}
-                    placeholder="Twilio Account SID (AC...)"
+                    placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                     style={{
+                      width: "100%",
                       padding: "8px 10px",
                       borderRadius: 6,
                       border: "1px solid rgba(255,255,255,0.2)",
                       background: "#0F172A",
                       color: "#fff",
                       fontFamily: FONT_MONO,
-                      fontSize: 12
+                      fontSize: 12,
+                      boxSizing: "border-box"
                     }}
                   />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 10.5, color: "#94A3B8", marginBottom: 3 }}>Twilio Auth Token</label>
                   <input
                     type="password"
                     value={authToken}
                     onChange={(e) => setAuthToken(e.target.value)}
-                    placeholder="Twilio Auth Token"
+                    placeholder="••••••••••••••••••••••••••••••••"
                     style={{
+                      width: "100%",
                       padding: "8px 10px",
                       borderRadius: 6,
                       border: "1px solid rgba(255,255,255,0.2)",
                       background: "#0F172A",
                       color: "#fff",
                       fontFamily: FONT_MONO,
-                      fontSize: 12
+                      fontSize: 12,
+                      boxSizing: "border-box"
                     }}
                   />
+                </div>
+              </div>
+
+              {saveStatus?.success && (
+                <div style={{ marginTop: 8, fontSize: 11.5, color: "#34D399", fontWeight: 600 }}>
+                  {saveStatus.success}
+                </div>
+              )}
+              {saveStatus?.error && (
+                <div style={{ marginTop: 8, fontSize: 11.5, color: "#F87171", fontWeight: 600 }}>
+                  ⚠ {saveStatus.error}
                 </div>
               )}
             </div>

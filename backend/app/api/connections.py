@@ -134,6 +134,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     
     conn_config = {
         "api_key": clean_key,
+        "auth_token": clean_key,
+        "account_sid": req.account_sid or (existing.config.get("account_sid") if existing and isinstance(existing.config, dict) else None),
         "base_url": req.resolved_base_url,
         "provider": req.provider
     }
