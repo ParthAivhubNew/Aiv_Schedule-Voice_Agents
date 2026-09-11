@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   PhoneCall,
   Building2,
@@ -297,6 +297,46 @@ function parseHeaders(rawText) {
   if (firstLine.includes("\t")) return firstLine.split("\t").map((h) => h.trim());
   if (firstLine.includes(",")) return firstLine.split(",").map((h) => h.replace(/^["']|["']$/g, "").trim());
   return [firstLine.trim()];
+}
+
+/* ─── Graceful Error Boundary to prevent blank screens ─── */
+class SafeErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("[SafeErrorBoundary] Caught error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 32, background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0", margin: 24, maxWidth: 640 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 22 }}>⚠️</span>
+            <h3 style={{ margin: 0, color: "#0f172a", fontSize: 16 }}>{this.props.label || "View"} Recovery</h3>
+          </div>
+          <p style={{ color: "#64748b", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
+            {this.props.label || "This section"} encountered a temporary display issue: {this.state.error?.message || "Unknown display state"}.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              if (this.props.onReset) this.props.onReset();
+            }}
+            style={{ padding: "8px 18px", borderRadius: 8, background: "#0f172a", color: "#fff", border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13 }}
+          >
+            Reload Section
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 /* ---------------------------------- Company Intelligence & Live Call Dossier Modal ---------------------------------- */
@@ -12797,6 +12837,8 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
     return commonAi?.schedulerAi || {};
   }, [commonAi]);
 
+  const safeProvider = schedulerAi?.imageProvider || "pollinations";
+  const safeApiKey = schedulerAi?.imageApiKey || "";
   const defaultStyle = schedulerAi?.imageStyle || commonAi?.schedulerAi?.imageStyle || "modern_saas";
   const [style, setStyle] = useState(defaultStyle);
   const [aspectRatio, setAspectRatio] = useState(schedulerAi?.imageAspectRatio || "16:9"); // "16:9" | "1:1" | "9:16"
@@ -12807,23 +12849,23 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
 
   // Initial visual
   const [currentVisual, setCurrentVisual] = useState(() => {
-    const targetP = initialTargetPostId ? posts.find((p) => p.id === initialTargetPostId) : null;
+    const targetP = initialTargetPostId ? (posts || []).find((p) => p && p.id === initialTargetPostId) : null;
     if (targetP && targetP.imageUrl) {
       return {
         imageUrl: targetP.imageUrl,
-        prompt: targetP.imagePrompt || targetP.title || "Social graphic visual",
+        prompt: targetP.imagePrompt || targetP.title || targetP.topicHeadline || "Social graphic visual",
         style: defaultStyle,
         ratio: "16:9",
         width: 1200,
         height: 675,
       };
     }
-    const existingPost = posts.find((p) => p.imageUrl);
-    const existingTopic = topics.find((t) => t.imageUrl);
+    const existingPost = (posts || []).find((p) => p && p.imageUrl);
+    const existingTopic = (topics || []).find((t) => t && t.imageUrl);
     if (existingPost) {
       return {
         imageUrl: existingPost.imageUrl,
-        prompt: existingPost.imagePrompt || existingPost.title || "Social graphic visual",
+        prompt: existingPost.imagePrompt || existingPost.title || existingPost.topicHeadline || "Social graphic visual",
         style: defaultStyle,
         ratio: "16:9",
         width: 1200,
@@ -12833,7 +12875,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
     if (existingTopic) {
       return {
         imageUrl: existingTopic.imageUrl,
-        prompt: existingTopic.imagePrompt || existingTopic.headline,
+        prompt: existingTopic.imagePrompt || existingTopic.headline || existingTopic.title || "Topic Visual",
         style: defaultStyle,
         ratio: "16:9",
         width: 1200,
@@ -12853,11 +12895,11 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
   const [history, setHistory] = useState(() => {
     const list = [];
     if (currentVisual) list.push(currentVisual);
-    topics.filter((t) => t.imageUrl).forEach((t) => {
-      list.push({ imageUrl: t.imageUrl, prompt: t.headline, style: "modern_saas", ratio: "16:9", width: 1200, height: 675 });
+    (topics || []).filter((t) => t && t.imageUrl).forEach((t) => {
+      list.push({ imageUrl: t.imageUrl, prompt: t.headline || t.title || "Topic Visual", style: "modern_saas", ratio: "16:9", width: 1200, height: 675 });
     });
-    posts.filter((p) => p.imageUrl).forEach((p) => {
-      list.push({ imageUrl: p.imageUrl, prompt: p.title || p.copy?.slice(0, 40), style: "modern_saas", ratio: "16:9", width: 1200, height: 675 });
+    (posts || []).filter((p) => p && p.imageUrl).forEach((p) => {
+      list.push({ imageUrl: p.imageUrl, prompt: p.title || p.topicHeadline || p.copy?.slice(0, 40) || "Post Visual", style: "modern_saas", ratio: "16:9", width: 1200, height: 675 });
     });
     return list.slice(0, 8);
   });
@@ -13028,7 +13070,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
       )
     );
 
-    showToast(`✅ Visual pinned to topic: "${targetTopic.headline.slice(0, 32)}…"`);
+    showToast(`✅ Visual pinned to topic: "${(targetTopic.headline || targetTopic.title || targetTopic.id || "Topic").slice(0, 32)}…"`);
   };
 
   const handleDownload = () => {
@@ -13099,20 +13141,20 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
                 fontWeight: 700,
                 padding: "3px 10px",
                 borderRadius: 999,
-                background: (schedulerAi.imageProvider === "pollinations" || schedulerAi.imageApiKey) ? C.tealSoft : C.amberSoft,
-                color: (schedulerAi.imageProvider === "pollinations" || schedulerAi.imageApiKey) ? C.teal : C.amber,
-                border: `1px solid ${(schedulerAi.imageProvider === "pollinations" || schedulerAi.imageApiKey) ? C.teal + "33" : "rgba(217,119,6,0.3)"}`,
+                background: (safeProvider === "pollinations" || safeApiKey) ? C.tealSoft : C.amberSoft,
+                color: (safeProvider === "pollinations" || safeApiKey) ? C.teal : C.amber,
+                border: `1px solid ${(safeProvider === "pollinations" || safeApiKey) ? C.teal + "33" : "rgba(217,119,6,0.3)"}`,
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 5
               }}>
                 <Sparkles size={12} />
-                {schedulerAi.imageProvider === "openai" ? `Engine: OpenAI ${schedulerAi.imageModel || "DALL-E 3"}` :
-                 schedulerAi.imageProvider === "stability" ? `Engine: Stability SDXL` :
-                 schedulerAi.imageProvider === "fal" ? `Engine: Fal.ai FLUX` :
-                 schedulerAi.imageProvider === "custom" ? `Engine: Custom API` :
+                {safeProvider === "openai" ? `Engine: OpenAI ${schedulerAi?.imageModel || "DALL-E 3"}` :
+                 safeProvider === "stability" ? `Engine: Stability SDXL` :
+                 safeProvider === "fal" ? `Engine: Fal.ai FLUX` :
+                 safeProvider === "custom" ? `Engine: Custom API` :
                  "Engine: Pollinations FLUX (Free)"}
-                {schedulerAi.imageProvider !== "pollinations" && !schedulerAi.imageApiKey && " (Key Missing)"}
+                {safeProvider !== "pollinations" && !safeApiKey && " (Key Missing)"}
               </span>
             </div>
             <p style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, margin: "6px 0 0 0" }}>
@@ -13184,11 +13226,11 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
         </div>
 
         {/* Warning notice if paid engine selected without key */}
-        {schedulerAi.imageProvider !== "pollinations" && !schedulerAi.imageApiKey && (
+        {safeProvider !== "pollinations" && !safeApiKey && (
           <div style={{ background: C.amberSoft, border: "1px solid rgba(217,119,6,0.3)", borderRadius: 12, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.amber, fontWeight: 600 }}>
               <AlertTriangle size={16} />
-              <span>{schedulerAi.imageProvider.toUpperCase()} is selected, but an Image API Key hasn't been configured. Generating now will use the built-in free Pollinations FLUX fallback.</span>
+              <span>{String(safeProvider || "Custom").toUpperCase()} is selected, but an Image API Key hasn't been configured. Generating now will use the built-in free Pollinations FLUX fallback.</span>
             </div>
             <button
               type="button"
@@ -13353,7 +13395,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
                   >
                     {topics.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.headline} ({t.theme || "Topic"})
+                        {t.headline || t.title || t.id} ({t.theme || "Topic"})
                       </option>
                     ))}
                   </select>
@@ -13750,7 +13792,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
                   >
                     {posts.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.title ? p.title.slice(0, 30) : p.id} ({p.status})
+                        {(p.title || p.topicHeadline || p.id || "Post").slice(0, 30)} ({p.status || "draft"})
                       </option>
                     ))}
                   </select>
@@ -13800,7 +13842,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
                   >
                     {topics.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.headline.slice(0, 32)}…
+                        {(t.headline || t.title || t.id || "Topic").slice(0, 32)}…
                       </option>
                     ))}
                   </select>
@@ -18181,16 +18223,18 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
           </div>
         )}
         {view === "images" && (
-          <SchedulerImageStudioView
-            topics={topics}
-            setTopics={setTopics}
-            posts={posts}
-            setPosts={setPosts}
-            commonAi={commonAi}
-            company={company}
-            onNavigate={navigateSch}
-            initialTargetPostId={imageStudioTargetPostId}
-          />
+          <SafeErrorBoundary label="AI Image Studio" onReset={() => setView("images")}>
+            <SchedulerImageStudioView
+              topics={topics}
+              setTopics={setTopics}
+              posts={posts}
+              setPosts={setPosts}
+              commonAi={commonAi}
+              company={company}
+              onNavigate={navigateSch}
+              initialTargetPostId={imageStudioTargetPostId}
+            />
+          </SafeErrorBoundary>
         )}
         {view === "ai" && (
           <SchedulerAiConfigView
