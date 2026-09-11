@@ -1,5 +1,7 @@
 import os
 import uuid
+import time
+import httpx
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -600,33 +602,44 @@ async def test_telephony_hub_ping():
     """
     Sends an instant diagnostic health ping to measure roundtrip response time and log telemetry.
     """
-    start_time = time.time()
-    status_code = 200
-    details = {
-        "webhook_url": settings.XAI_WEBHOOK_URL or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook",
-        "voice_engine": settings.VOICE_ENGINE_MODE,
-        "xai_fqdn": settings.XAI_SIP_FQDN,
-        "xai_api_key_set": bool(settings.XAI_API_KEY),
-        "xai_webhook_secret_set": bool(settings.XAI_WEBHOOK_SECRET)
-    }
+    try:
+        start_time = time.time()
+        status_code = 200
+        details = {
+            "webhook_url": settings.XAI_WEBHOOK_URL or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook",
+            "voice_engine": settings.VOICE_ENGINE_MODE,
+            "xai_fqdn": settings.XAI_SIP_FQDN,
+            "xai_api_key_set": bool(settings.XAI_API_KEY),
+            "xai_webhook_secret_set": bool(settings.XAI_WEBHOOK_SECRET)
+        }
 
-    elapsed_ms = (time.time() - start_time) * 1000
+        elapsed_ms = (time.time() - start_time) * 1000
 
-    await log_process_event(
-        subsystem="telephony",
-        process_name="telephony_hub_diagnostic_ping",
-        message=f"Telephony diagnostic ping roundtrip: {elapsed_ms:.1f}ms (HTTP {status_code}).",
-        level="SUCCESS" if status_code < 400 else "WARNING",
-        duration_ms=elapsed_ms,
-        details=details
-    )
+        try:
+            await log_process_event(
+                subsystem="telephony",
+                process_name="telephony_hub_diagnostic_ping",
+                message=f"Telephony diagnostic ping roundtrip: {elapsed_ms:.1f}ms (HTTP {status_code}).",
+                level="SUCCESS" if status_code < 400 else "WARNING",
+                duration_ms=elapsed_ms,
+                details=details
+            )
+        except Exception:
+            pass
 
-    return {
-        "success": status_code < 400,
-        "statusCode": status_code,
-        "latencyMs": round(elapsed_ms, 1),
-        "details": details
-    }
+        return {
+            "success": True,
+            "statusCode": 200,
+            "latencyMs": round(elapsed_ms, 1),
+            "details": details
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "statusCode": 500,
+            "latencyMs": 0,
+            "details": {"error": str(exc)}
+        }
 
 
 @router.get("/telephony-hub/xai-numbers")

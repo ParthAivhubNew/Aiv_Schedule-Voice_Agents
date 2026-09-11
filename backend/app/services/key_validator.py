@@ -253,23 +253,29 @@ async def _do_validate_api_key(
 
             # 14. Twilio (Telephony)
             elif "twilio" in p:
-                sid = account_sid or "AC"
-                url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}.json"
-                # If secret is format SID:TOKEN
-                if ":" in api_key:
+                sid = (account_sid or "").strip()
+                if not sid and ":" in api_key:
                     parts = api_key.split(":", 1)
-                    auth = (parts[0], parts[1])
+                    sid = parts[0].strip()
+                    token = parts[1].strip()
                 else:
-                    auth = (account_sid or "AC", api_key)
-                res = await client.get(url, auth=auth)
-                if res.status_code == 200:
-                    return {"valid": True, "provider": "Twilio", "details": "Twilio Account SID & Token verified successfully."}
-                elif res.status_code == 401:
-                    return {"valid": False, "error": "Twilio authentication failed (Invalid Account SID / Auth Token)."}
-                else:
-                    # If user just provided auth token without SID, provide guidance
-                    if not account_sid and not ":" in api_key:
-                        return {"valid": False, "error": "Twilio requires both Account SID and Auth Token (format: ACxxx:auth_token)."}
+                    token = api_key.strip()
+
+                if not sid:
+                    return {"valid": False, "error": "Twilio requires both Account SID and Auth Token."}
+
+                url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}.json"
+                auth = (sid, token)
+                try:
+                    res = await client.get(url, auth=auth)
+                    if res.status_code == 200:
+                        return {"valid": True, "provider": "Twilio", "details": "Twilio Account SID & Token verified successfully."}
+                    elif res.status_code == 401:
+                        return {"valid": False, "error": "Twilio authentication failed (Invalid Account SID / Auth Token)."}
+                    else:
+                        return {"valid": False, "error": f"Twilio returned HTTP {res.status_code}: {res.text[:150]}"}
+                except Exception as ex:
+                    return {"valid": False, "error": f"Could not connect to Twilio: {str(ex)}"}
             # 14b. Telnyx (Telephony)
             elif "telnyx" in p:
                 url = "https://api.telnyx.com/v2/phone_numbers"
