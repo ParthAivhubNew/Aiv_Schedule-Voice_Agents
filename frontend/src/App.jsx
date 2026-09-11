@@ -6193,52 +6193,66 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
   const [carrierChoice, setCarrierChoice] = useState("twilio");
   const [accountSid, setAccountSid] = useState(() => {
     try {
-      return localStorage.getItem("aivhub_twilio_sid") || "";
+      const saved = (localStorage.getItem("aivhub_twilio_sid") || "").trim();
+      // If the saved value is truncated or invalid (not 34 chars starting with AC), purge it immediately!
+      if (saved && (!saved.startsWith("AC") || saved.length !== 34)) {
+        localStorage.removeItem("aivhub_twilio_sid");
+        return "";
+      }
+      return saved;
     } catch (_) { return ""; }
   });
   const [authToken, setAuthToken] = useState(() => {
     try {
-      return localStorage.getItem("aivhub_twilio_token") || "";
+      const saved = (localStorage.getItem("aivhub_twilio_token") || "").trim();
+      // If the saved token is truncated or invalid (not 32 chars), purge it immediately!
+      if (saved && saved.length !== 32) {
+        localStorage.removeItem("aivhub_twilio_token");
+        return "";
+      }
+      return saved;
     } catch (_) { return ""; }
   });
   const [showCreds, setShowCreds] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
 
-  // Auto-sync Twilio credentials to localStorage
+  // Auto-sync Twilio credentials to localStorage ONLY if completely valid; otherwise remove
   useEffect(() => {
     try {
-      if (accountSid) localStorage.setItem("aivhub_twilio_sid", accountSid.trim());
+      const clean = (accountSid || "").trim();
+      if (clean && clean.startsWith("AC") && clean.length === 34) {
+        localStorage.setItem("aivhub_twilio_sid", clean);
+      } else {
+        localStorage.removeItem("aivhub_twilio_sid");
+      }
     } catch (_) {}
   }, [accountSid]);
 
   useEffect(() => {
     try {
-      if (authToken) localStorage.setItem("aivhub_twilio_token", authToken.trim());
+      const clean = (authToken || "").trim();
+      if (clean && clean.length === 32) {
+        localStorage.setItem("aivhub_twilio_token", clean);
+      } else {
+        localStorage.removeItem("aivhub_twilio_token");
+      }
     } catch (_) {}
   }, [authToken]);
 
-  // If localStorage empty, load from backend connection table
+  // Clean any legacy invalid items from localStorage on mount
   useEffect(() => {
-    async function loadSavedTwilio() {
-      if (!accountSid || !authToken) {
-        try {
-          const conns = await api.getConnections();
-          for (const c of (conns || [])) {
-            if (c.name && c.name.toLowerCase().includes("twilio") && c.config) {
-              if (!accountSid && c.config.account_sid) {
-                setAccountSid(c.config.account_sid);
-                try { localStorage.setItem("aivhub_twilio_sid", c.config.account_sid); } catch (_) {}
-              }
-              if (!authToken && (c.config.api_key || c.config.auth_token)) {
-                setAuthToken(c.config.api_key || c.config.auth_token);
-                try { localStorage.setItem("aivhub_twilio_token", c.config.api_key || c.config.auth_token); } catch (_) {}
-              }
-            }
-          }
-        } catch (_) {}
+    try {
+      const s = localStorage.getItem("aivhub_twilio_sid");
+      if (s && (!s.startsWith("AC") || s.length !== 34)) {
+        localStorage.removeItem("aivhub_twilio_sid");
+        setAccountSid("");
       }
-    }
-    loadSavedTwilio();
+      const t = localStorage.getItem("aivhub_twilio_token");
+      if (t && t.length !== 32) {
+        localStorage.removeItem("aivhub_twilio_token");
+        setAuthToken("");
+      }
+    } catch (_) {}
   }, []);
 
   const [savedContacts, setSavedContacts] = useState(() => {
@@ -6595,28 +6609,60 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                     </span>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSaveTwilioCreds}
-                  disabled={saveStatus?.saving}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                    background: C.cobalt,
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 6,
-                    padding: "5px 12px",
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    cursor: "pointer"
-                  }}
-                >
-                  <Save size={12} />
-                  {saveStatus?.saving ? "Saving..." : "Save Credentials"}
-                </button>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  {(accountSid || authToken) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountSid("");
+                        setAuthToken("");
+                        try {
+                          localStorage.removeItem("aivhub_twilio_sid");
+                          localStorage.removeItem("aivhub_twilio_token");
+                        } catch (_) {}
+                      }}
+                      style={{
+                        background: "transparent",
+                        color: "#94A3B8",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        borderRadius: 6,
+                        padding: "5px 10px",
+                        fontSize: 11,
+                        cursor: "pointer"
+                      }}
+                    >
+                      Clear & Use Server Vault
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSaveTwilioCreds}
+                    disabled={saveStatus?.saving}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      background: C.cobalt,
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 6,
+                      padding: "5px 12px",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                  >
+                    <Save size={12} />
+                    {saveStatus?.saving ? "Saving..." : "Save Credentials"}
+                  </button>
+                </div>
               </div>
+              {!accountSid && !authToken && (
+                <div style={{ fontSize: 11, color: "#34D399", background: "rgba(52,211,153,0.1)", padding: "6px 10px", borderRadius: 6, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>🛡️</span>
+                  <span><strong>Active:</strong> Using verified Twilio credentials stored securely in the server vault (+447307216767). You do not need to enter credentials manually.</span>
+                </div>
+              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
