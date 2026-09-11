@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Search,
   Sparkles,
@@ -158,7 +158,40 @@ export default function LeadGenerationPlugin({
   profile,
   commonAi,
 }) {
-  const [view, setView] = useState("copilot"); // "copilot" | "scout" | "accounts" | "contacts" | "dossiers" | "import_export"
+  const [view, setView] = useState(() => {
+    try {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      const parts = hash.split("/");
+      if (parts[0] === "leadgen" && parts[1]) return parts[1];
+      return localStorage.getItem("aivhub_leadgen_view") || "copilot";
+    } catch (_) {
+      return "copilot";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("aivhub_leadgen_view", view);
+      const target = `#/leadgen/${view}`;
+      if (window.location.hash !== target) {
+        window.history.replaceState(null, "", target);
+      }
+    } catch (_) {}
+  }, [view]);
+
+  useEffect(() => {
+    const onHash = () => {
+      try {
+        const hash = window.location.hash.replace(/^#\/?/, "");
+        const parts = hash.split("/");
+        if (parts[0] === "leadgen" && parts[1] && parts[1] !== view) {
+          setView(parts[1]);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [view]);
   const [leads, setLeads] = useState(INITIAL_DUMMY_LEADS);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndustry, setSelectedIndustry] = useState("all");

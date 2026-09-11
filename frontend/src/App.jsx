@@ -15853,7 +15853,42 @@ function PinToSlotModal({
 
 function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, commonAi, setCommonAi, onOpenCommonAi }) {
   const company = companyFromProfile(profile, knowledgeSources);
-  const [view, setView] = useState("plan");
+  const [view, setView] = useState(() => {
+    try {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      const parts = hash.split("/");
+      if (parts[0] === "scheduler" && parts[1]) {
+        return parts[1];
+      }
+      return localStorage.getItem("aivhub_scheduler_view") || "plan";
+    } catch (_) {
+      return "plan";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("aivhub_scheduler_view", view);
+      const target = `#/scheduler/${view}`;
+      if (window.location.hash !== target) {
+        window.history.replaceState(null, "", target);
+      }
+    } catch (_) {}
+  }, [view]);
+
+  useEffect(() => {
+    const onHash = () => {
+      try {
+        const hash = window.location.hash.replace(/^#\/?/, "");
+        const parts = hash.split("/");
+        if (parts[0] === "scheduler" && parts[1] && parts[1] !== view) {
+          setView(parts[1]);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [view]);
   const [schHistory, setSchHistory] = useState([]);
   const [imageStudioTargetPostId, setImageStudioTargetPostId] = useState(null);
 
@@ -16177,7 +16212,19 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const [editCopy, setEditCopy] = useState("");
   const [panel, setPanel] = useState(null);
   const [form, setForm] = useState(null);
-  const [kbTab, setKbTab] = useState("identity");
+  const [kbTab, setKbTab] = useState(() => {
+    try {
+      return localStorage.getItem("aivhub_scheduler_kbtab") || "identity";
+    } catch (_) {
+      return "identity";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("aivhub_scheduler_kbtab", kbTab);
+    } catch (_) {}
+  }, [kbTab]);
   const [addingSource, setAddingSource] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", type: "Website URL", value: "" });
   const chatEnd = useRef(null);
@@ -19021,7 +19068,42 @@ function SchSolid({ children, onClick }) {
 /* ---------------------------------- app shell ---------------------------------- */
 
 function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, faq, setFaq, commonAi, setCommonAi, onOpenCommonAi }) {
-  const [view, setView] = useState("tasks");
+  const [view, setView] = useState(() => {
+    try {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      const parts = hash.split("/");
+      if (parts[0] === "voice" && parts[1]) {
+        return parts[1];
+      }
+      return localStorage.getItem("aivhub_voice_view") || "tasks";
+    } catch (_) {
+      return "tasks";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("aivhub_voice_view", view);
+      const target = `#/voice/${view}`;
+      if (window.location.hash !== target) {
+        window.history.replaceState(null, "", target);
+      }
+    } catch (_) {}
+  }, [view]);
+
+  useEffect(() => {
+    const onHash = () => {
+      try {
+        const hash = window.location.hash.replace(/^#\/?/, "");
+        const parts = hash.split("/");
+        if (parts[0] === "voice" && parts[1] && parts[1] !== view) {
+          setView(parts[1]);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [view]);
   const [selectedMissionId, setSelectedMissionId] = useState(null);
   const [liveFocus, setLiveFocus] = useState(null);
   const [showNew, setShowNew] = useState(false);
@@ -19895,7 +19977,69 @@ export default function App() {
       return null;
     }
   });
-  const [plugin, setPlugin] = useState(null);
+
+  const parseRoute = () => {
+    try {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      if (!hash) return { plugin: null, subView: null };
+      const parts = hash.split("/");
+      const p = parts[0];
+      const valid = ["voice", "scheduler", "leadgen", "emailoutreach"];
+      if (valid.includes(p)) {
+        return { plugin: p, subView: parts.slice(1).join("/") || null };
+      }
+      return { plugin: null, subView: null };
+    } catch (_) {
+      return { plugin: null, subView: null };
+    }
+  };
+
+  const [plugin, setPlugin] = useState(() => {
+    const route = parseRoute();
+    if (route.plugin) return route.plugin;
+    try {
+      return localStorage.getItem("aivhub_active_plugin") || null;
+    } catch (_) {
+      return null;
+    }
+  });
+
+  // Keep plugin state, localStorage, and URL in sync
+  useEffect(() => {
+    try {
+      if (plugin) {
+        localStorage.setItem("aivhub_active_plugin", plugin);
+        const route = parseRoute();
+        if (route.plugin !== plugin) {
+          const sub = (
+            plugin === "voice" ? localStorage.getItem("aivhub_voice_view") :
+            plugin === "scheduler" ? localStorage.getItem("aivhub_scheduler_view") :
+            plugin === "leadgen" ? localStorage.getItem("aivhub_leadgen_view") :
+            plugin === "emailoutreach" ? localStorage.getItem("aivhub_email_view") : null
+          );
+          const target = sub ? `#/${plugin}/${sub}` : `#/${plugin}`;
+          window.location.hash = target;
+        }
+      } else {
+        localStorage.removeItem("aivhub_active_plugin");
+        if (window.location.hash && window.location.hash !== "#/" && window.location.hash !== "#") {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+      }
+    } catch (_) {}
+  }, [plugin]);
+
+  // Handle browser back and forward buttons
+  useEffect(() => {
+    const onHashChange = () => {
+      const route = parseRoute();
+      if (route.plugin !== plugin) {
+        setPlugin(route.plugin);
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [plugin]);
   const [profile, setProfile] = useState(() => {
     try {
       const saved = localStorage.getItem("aivhub_company_profile");
@@ -20005,8 +20149,18 @@ export default function App() {
   const handleLogout = () => {
     try {
       sessionStorage.removeItem("aivhub_operator");
+      localStorage.removeItem("aivhub_active_plugin");
+      window.history.replaceState(null, "", window.location.pathname);
     } catch (_) {}
     setOperator(null);
+    setPlugin(null);
+  };
+
+  const handleBackToHub = () => {
+    try {
+      localStorage.removeItem("aivhub_active_plugin");
+      window.history.pushState(null, "", window.location.pathname);
+    } catch (_) {}
     setPlugin(null);
   };
 
@@ -20043,7 +20197,7 @@ export default function App() {
       {plugin === "leadgen" && (
         <LeadGenerationPlugin
           operator={operator}
-          onBackToHub={() => setPlugin(null)}
+          onBackToHub={handleBackToHub}
           onLogout={handleLogout}
           profile={profile}
           commonAi={commonAi}
@@ -20053,7 +20207,7 @@ export default function App() {
       {plugin === "scheduler" && (
         <PostSchedulerPlugin
           operator={operator}
-          onBackToHub={() => setPlugin(null)}
+          onBackToHub={handleBackToHub}
           onLogout={handleLogout}
           profile={profile}
           setProfile={setProfile}
@@ -20070,7 +20224,7 @@ export default function App() {
       {plugin === "emailoutreach" && (
         <EmailOutreachPlugin
           operator={operator}
-          onBackToHub={() => setPlugin(null)}
+          onBackToHub={handleBackToHub}
           onLogout={handleLogout}
           profile={profile}
           commonAi={commonAi}
@@ -20080,7 +20234,7 @@ export default function App() {
       {plugin === "voice" && (
         <VoiceOperatorApp
           operator={operator}
-          onBackToHub={() => setPlugin(null)}
+          onBackToHub={handleBackToHub}
           onLogout={handleLogout}
           profile={profile}
           setProfile={setProfile}

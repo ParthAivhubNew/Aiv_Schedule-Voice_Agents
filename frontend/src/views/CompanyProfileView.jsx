@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Users, FileText, Package, HelpCircle, ShieldCheck, Plus, Globe, Upload, Save, Check } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { TopBar } from "../components/TopBar";
@@ -13,7 +13,19 @@ export function CompanyProfileView({
   faq = [],
   onSaveProfile,
 }) {
-  const [tab, setTab] = useState("identity");
+  const [tab, setTab] = useState(() => {
+    try {
+      return localStorage.getItem("aivhub_company_tab") || "identity";
+    } catch (_) {
+      return "identity";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("aivhub_company_tab", tab);
+    } catch (_) {}
+  }, [tab]);
   const [localProfile, setLocalProfile] = useState(profile);
   const [saved, setSaved] = useState(false);
 

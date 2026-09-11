@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   LayoutGrid,
   Wand2,
@@ -166,7 +166,40 @@ export default function EmailOutreachPlugin({
   profile,
   commonAi,
 }) {
-  const [view, setView] = useState("campaigns"); // "campaigns" | "drafter" | "inbox" | "templates" | "analytics"
+  const [view, setView] = useState(() => {
+    try {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      const parts = hash.split("/");
+      if (parts[0] === "emailoutreach" && parts[1]) return parts[1];
+      return localStorage.getItem("aivhub_email_view") || "campaigns";
+    } catch (_) {
+      return "campaigns";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("aivhub_email_view", view);
+      const target = `#/emailoutreach/${view}`;
+      if (window.location.hash !== target) {
+        window.history.replaceState(null, "", target);
+      }
+    } catch (_) {}
+  }, [view]);
+
+  useEffect(() => {
+    const onHash = () => {
+      try {
+        const hash = window.location.hash.replace(/^#\/?/, "");
+        const parts = hash.split("/");
+        if (parts[0] === "emailoutreach" && parts[1] && parts[1] !== view) {
+          setView(parts[1]);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [view]);
   const [campaigns, setCampaigns] = useState(INITIAL_CAMPAIGN_SEQUENCES);
   const [inboxThreads, setInboxThreads] = useState(INITIAL_INBOX_THREADS);
   const [selectedThread, setSelectedThread] = useState(INITIAL_INBOX_THREADS[0]);
