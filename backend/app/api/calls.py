@@ -383,18 +383,35 @@ async def dial_outbound_call(
             (Connection.group_name == "Telephony") | (Connection.name.ilike("%twilio%"))
         )
     )
-    tele_conn = conn_res.scalars().first()
+    tele_conns = conn_res.scalars().all()
+    tele_conn = None
+    for c in tele_conns:
+        if c.name and "twilio" in c.name.lower():
+            tele_conn = c
+            break
+    if not tele_conn and tele_conns:
+        tele_conn = tele_conns[0]
 
     if not carrier_choice:
         if tele_conn:
-            carrier_choice = tele_conn.name.lower()
+            carrier_choice = "twilio" if "twilio" in tele_conn.name.lower() else tele_conn.name.lower()
         else:
             carrier_choice = "twilio"
 
     # 3. Resolve credentials
     stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
-    sid = req.account_sid or stored_cfg.get("account_sid") or settings.TWILIO_ACCOUNT_SID
-    token = req.api_key or stored_cfg.get("api_key") or stored_cfg.get("auth_token") or settings.TWILIO_AUTH_TOKEN
+    sid = req.account_sid or stored_cfg.get("account_sid")
+    token = req.api_key or stored_cfg.get("auth_token") or stored_cfg.get("api_key")
+
+    # If the stored token was erroneously set to an xAI key, ignore it
+    if token and token.startswith("xai-"):
+        token = None
+
+    # Fallback to server env settings if not provided
+    if not sid:
+        sid = settings.TWILIO_ACCOUNT_SID
+    if not token:
+        token = settings.TWILIO_AUTH_TOKEN
 
     # Auto-save credentials permanently to database if newly provided
     if req.account_sid and (req.api_key or req.account_sid):
@@ -426,11 +443,11 @@ async def dial_outbound_call(
 
     # If twilio requested but credentials missing and not explicitly simulation,
     # prompt user clearly with the exact resolution
-    if "twilio" in carrier_choice and (not sid or not token):
+    if "twilio" in carrier_choice and (not sid or not token or not sid.startswith("AC")):
         if not req.carrier or carrier_choice == "twilio":
             raise HTTPException(
                 status_code=400,
-                detail="Twilio Account SID & Auth Token are not yet configured. Please enter them or select 'Local Testing Simulator' to test the flow immediately."
+                detail="Twilio Account SID (starts with AC...) & Auth Token are required to make real phone calls. Please save your Twilio credentials above."
             )
 
     # 4. Resolve bridge SIP URI
