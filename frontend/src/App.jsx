@@ -12781,11 +12781,11 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
 
 /* ---------------------------------- Dedicated Post Scheduler AI Image Studio View ---------------------------------- */
 
-function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts, commonAi, company, onNavigate }) {
-  const [sourceMode, setSourceMode] = useState("topic"); // "topic" | "post" | "custom"
+function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts, commonAi, company, onNavigate, initialTargetPostId }) {
+  const [sourceMode, setSourceMode] = useState(() => (initialTargetPostId ? "post" : "topic")); // "topic" | "post" | "custom"
   const [selectedTopicId, setSelectedTopicId] = useState(topics[0]?.id || "");
-  const [selectedPostId, setSelectedPostId] = useState(posts[0]?.id || "");
-  const [targetPostId, setTargetPostId] = useState(posts[0]?.id || "");
+  const [selectedPostId, setSelectedPostId] = useState(() => initialTargetPostId || posts[0]?.id || "");
+  const [targetPostId, setTargetPostId] = useState(() => initialTargetPostId || posts[0]?.id || "");
   const [targetTopicId, setTargetTopicId] = useState(topics[0]?.id || "");
 
   // Read active Scheduler AI configuration (credentials, provider, model)
@@ -12807,6 +12807,17 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
 
   // Initial visual
   const [currentVisual, setCurrentVisual] = useState(() => {
+    const targetP = initialTargetPostId ? posts.find((p) => p.id === initialTargetPostId) : null;
+    if (targetP && targetP.imageUrl) {
+      return {
+        imageUrl: targetP.imageUrl,
+        prompt: targetP.imagePrompt || targetP.title || "Social graphic visual",
+        style: defaultStyle,
+        ratio: "16:9",
+        width: 1200,
+        height: 675,
+      };
+    }
     const existingPost = posts.find((p) => p.imageUrl);
     const existingTopic = topics.find((t) => t.imageUrl);
     if (existingPost) {
@@ -12852,6 +12863,26 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
   });
 
   useEffect(() => {
+    if (initialTargetPostId) {
+      setSourceMode("post");
+      setSelectedPostId(initialTargetPostId);
+      setTargetPostId(initialTargetPostId);
+      const pst = posts.find((p) => p.id === initialTargetPostId);
+      if (pst) {
+        setPrompt(`${pst.title || pst.topicHeadline || pst.theme || "Operations dashboard analytics"}. Clean composition, modern SaaS visual, high detail, no text.`);
+        if (pst.imageUrl) {
+          setCurrentVisual({
+            imageUrl: pst.imageUrl,
+            prompt: pst.imagePrompt || pst.title || "Social graphic visual",
+            style: defaultStyle,
+            ratio: "16:9",
+            width: 1200,
+            height: 675,
+          });
+        }
+        return;
+      }
+    }
     if (sourceMode === "topic") {
       const top = topics.find((t) => t.id === selectedTopicId) || topics[0];
       if (top) {
@@ -12867,7 +12898,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
     } else if (sourceMode === "custom" && !prompt) {
       setPrompt("Automated operations intelligence dashboard with real-time streaming analytics metrics and glowing charts, 4k");
     }
-  }, [sourceMode, selectedTopicId, selectedPostId]);
+  }, [sourceMode, selectedTopicId, selectedPostId, initialTargetPostId]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -13189,6 +13220,71 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
           </span>
         </div>
 
+        {/* Active Post Ribbon when designing for a specific post */}
+        {sourceMode === "post" && (() => {
+          const activePost = posts.find((p) => p.id === (targetPostId || selectedPostId));
+          if (!activePost) return null;
+          return (
+            <div style={{ background: "#fff", border: `1px solid ${C.teal}`, borderRadius: 14, padding: "14px 18px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, boxShadow: "0 2px 10px rgba(12,140,125,0.08)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(12,140,125,0.12)", color: C.teal, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Sparkles size={18} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.teal }}>
+                      Designing Visual For Post
+                    </span>
+                    <span style={{ fontSize: 10.5, padding: "2px 6px", borderRadius: 4, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.slate }}>
+                      {activePost.dateLabel || activePost.weekday || "Scheduled Draft"}
+                    </span>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      {(activePost.channels || ["linkedin"]).map((c) => (
+                        <span key={c} style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#f1f5f9", color: C.textInk, textTransform: "capitalize" }}>
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.ink, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {activePost.topicHeadline || activePost.title || activePost.theme}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => onNavigate && onNavigate("approval")}
+                  style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: HUB_PAPER, color: C.slate, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                >
+                  ← Back to Approvals
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAttachToPost}
+                  disabled={!currentVisual?.imageUrl}
+                  style={{
+                    padding: "7px 15px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: C.teal,
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: !currentVisual?.imageUrl ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                    boxShadow: "0 2px 6px rgba(12,140,125,0.25)"
+                  }}
+                >
+                  <Check size={14} strokeWidth={2.6} /> Attach to Post & Review
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* 2-Column Main Workspace */}
         <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 24, alignItems: "start", marginBottom: 32 }}>
           
@@ -13290,6 +13386,22 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
                       </option>
                     ))}
                   </select>
+                  {(() => {
+                    const activePost = posts.find((p) => p.id === (targetPostId || selectedPostId));
+                    if (!activePost) return null;
+                    return (
+                      <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(12,140,125,0.04)", border: `1px solid rgba(12,140,125,0.18)`, borderRadius: 9 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.teal }}>
+                            Post Content Preview
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12.5, color: C.textInk, lineHeight: 1.45, maxHeight: 85, overflowY: "auto", whiteSpace: "pre-wrap", fontFamily: FONT_BODY }}>
+                          {activePost.copy || activePost.title || "No copy text yet."}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -15701,6 +15813,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const company = companyFromProfile(profile, knowledgeSources);
   const [view, setView] = useState("plan");
   const [schHistory, setSchHistory] = useState([]);
+  const [imageStudioTargetPostId, setImageStudioTargetPostId] = useState(null);
 
   // Stretchable Plan AI chat rail state
   const [chatWidth, setChatWidth] = useState(420);
@@ -15731,6 +15844,11 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const navigateSch = (nextView) => {
     setSchHistory((prev) => [...prev, view]);
     setView(nextView);
+  };
+
+  const openImageStudioForPost = (postId) => {
+    setImageStudioTargetPostId(postId);
+    navigateSch("images");
   };
 
   const goBackSch = () => {
@@ -16809,26 +16927,52 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                   </span>
                 ))}
               </div>
-              <button
-                type="button"
-                onClick={() => handleOpenPinModal(t)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  padding: "5px 10px",
-                  borderRadius: 7,
-                  border: `1px solid ${C.teal}`,
-                  background: "#fff",
-                  color: C.teal,
-                  fontFamily: FONT_BODY,
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  cursor: "pointer"
-                }}
-              >
-                <Clock size={12} /> Reschedule
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {usedBy.postId && (
+                  <button
+                    type="button"
+                    onClick={() => openImageStudioForPost(usedBy.postId)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "5px 10px",
+                      borderRadius: 7,
+                      border: "none",
+                      background: "linear-gradient(135deg, #0D9488 0%, #0891b2 100%)",
+                      color: "#fff",
+                      fontFamily: FONT_BODY,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      boxShadow: "0 1px 4px rgba(13,148,136,0.3)"
+                    }}
+                    title="Design or customize visual for this post in AI Image Studio"
+                  >
+                    <Sparkles size={12} color="#fff" /> Image Studio
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleOpenPinModal(t)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "5px 10px",
+                    borderRadius: 7,
+                    border: `1px solid ${C.teal}`,
+                    background: "#fff",
+                    color: C.teal,
+                    fontFamily: FONT_BODY,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: "pointer"
+                  }}
+                >
+                  <Clock size={12} /> Reschedule
+                </button>
+              </div>
             </div>
           </div>
         ) : (
@@ -17543,6 +17687,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                 onCancel={() => setEditingId(null)}
                 onRegenerate={() => regenerate(p)}
                 onRegenerateImage={handleRegeneratePostImage}
+                onOpenImageStudio={() => openImageStudioForPost(p.id)}
                 onApprove={() => approvePost(p.id)}
                 onReject={() => rejectPost(p.id)}
                 onConfirm={() => confirmPublish(p.id)}
@@ -17561,6 +17706,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                 onCancel={() => setEditingId(null)}
                 onRegenerate={() => regenerate(p)}
                 onRegenerateImage={handleRegeneratePostImage}
+                onOpenImageStudio={() => openImageStudioForPost(p.id)}
                 onApprove={() => approvePost(p.id)}
                 onReject={() => rejectPost(p.id)}
                 onConfirm={() => confirmPublish(p.id)}
@@ -17903,6 +18049,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
             commonAi={commonAi}
             company={company}
             onNavigate={navigateSch}
+            initialTargetPostId={imageStudioTargetPostId}
           />
         )}
         {view === "ai" && (
@@ -18538,7 +18685,7 @@ function ChannelPill({ id }) {
   );
 }
 
-function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdit, onSave, onCancel, onRegenerate, onRegenerateImage, onApprove, onReject, onConfirm }) {
+function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdit, onSave, onCancel, onRegenerate, onRegenerateImage, onOpenImageStudio, onApprove, onReject, onConfirm }) {
   const editing = editingId === post.id;
   const [regenPrompt, setRegenPrompt] = useState(post.imagePrompt || post.topicHeadline || post.theme || "");
 
@@ -18561,7 +18708,7 @@ function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdi
       </div>
 
       {/* Generated Topic Image Banner */}
-      {post.imageUrl && (
+      {post.imageUrl ? (
         <div style={{ position: "relative", marginBottom: 16, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.borderLight}`, maxHeight: 280, background: "#0d0f17" }}>
           <img
             src={post.imageUrl}
@@ -18573,15 +18720,44 @@ function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdi
             <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "rgba(0,0,0,0.72)", color: "#fff", backdropFilter: "blur(6px)" }}>
               🎨 AI Topic Visual
             </span>
-            <button
-              type="button"
-              onClick={() => onRegenerateImage && onRegenerateImage(post, regenPrompt)}
-              style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 6, border: "none", background: "rgba(0,0,0,0.8)", color: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer", backdropFilter: "blur(6px)" }}
-              title="Generate a fresh visual for this post"
-            >
-              <Sparkles size={13} color={C.teal} /> Regenerate Image
-            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => onOpenImageStudio && onOpenImageStudio(post.id)}
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 6, border: "none", background: C.teal, color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", backdropFilter: "blur(6px)", boxShadow: "0 2px 6px rgba(12,140,125,0.35)" }}
+                title="Open and craft image in AI Image Studio"
+              >
+                <Sparkles size={13} color="#fff" /> Open in Image Studio
+              </button>
+              <button
+                type="button"
+                onClick={() => onRegenerateImage && onRegenerateImage(post, regenPrompt)}
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 6, border: "none", background: "rgba(0,0,0,0.8)", color: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer", backdropFilter: "blur(6px)" }}
+                title="Generate a quick fresh visual for this post"
+              >
+                <RefreshCw size={11} /> Re-roll
+              </button>
+            </div>
           </div>
+        </div>
+      ) : (
+        <div style={{ marginBottom: 14, padding: "12px 16px", borderRadius: 12, border: `1px dashed ${C.teal}`, background: "rgba(12,140,125,0.04)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(12,140,125,0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: C.teal }}>
+              <Sparkles size={15} />
+            </div>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>No visual attached yet</div>
+              <div style={{ fontSize: 11.5, color: C.slate }}>Craft a custom branded visual concept in Image Studio</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenImageStudio && onOpenImageStudio(post.id)}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: C.teal, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 6px rgba(12,140,125,0.25)" }}
+          >
+            <Sparkles size={13} /> Design in Image Studio
+          </button>
         </div>
       )}
 
@@ -18625,12 +18801,13 @@ function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdi
         ) : tone === "confirm" ? (
           <>
             <SchGhost onClick={onEdit} icon={PenLine}>Edit</SchGhost>
+            <SchGhost onClick={() => onOpenImageStudio && onOpenImageStudio(post.id)} icon={Sparkles}>Image Studio</SchGhost>
             <SchSolid onClick={onConfirm}>Confirm & post</SchSolid>
           </>
         ) : (
           <>
             <SchGhost onClick={onEdit} icon={PenLine}>Edit</SchGhost>
-            <SchGhost onClick={() => onRegenerateImage && onRegenerateImage(post)} icon={Sparkles}>New Image</SchGhost>
+            <SchGhost onClick={() => onOpenImageStudio && onOpenImageStudio(post.id)} icon={Sparkles}>Image Studio</SchGhost>
             <SchGhost onClick={onRegenerate} icon={RefreshCw}>Regenerate Copy</SchGhost>
             <SchGhost onClick={onReject} danger>Reject</SchGhost>
             <SchSolid onClick={onApprove}>Approve</SchSolid>
