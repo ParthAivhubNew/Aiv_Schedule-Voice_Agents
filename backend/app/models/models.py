@@ -227,12 +227,53 @@ class Meeting(Base):
     dial_in = Column(String, nullable=True)
     address = Column(String, nullable=True)
     host = Column(String, default="Jitendra S.")
+    host_email = Column(String, default="admin@aivhub.io")
     attendee = Column(String, default="")
+    attendee_email = Column(String, nullable=True)
+    calcom_booking_id = Column(String, nullable=True)
+    event_type_slug = Column(String, default="15-min-discovery")
+    cancellation_reason = Column(Text, nullable=True)
     prep = Column(Text, default="")
     outcome = Column(String, nullable=True)
     call_transcript = Column(JSON, default=list)
     meeting_transcript = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class MeetingEventType(Base):
+    __tablename__ = "meeting_event_types"
+    
+    id = Column(String, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True, nullable=False)
+    length = Column(Integer, default=15)  # minutes
+    description = Column(Text, default="")
+    location_type = Column(String, default="google_meet")  # google_meet, cal_video, zoom, phone, in_person
+    location_value = Column(String, nullable=True)
+    calcom_event_type_id = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    color = Column(String, default="#10B981")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class CalcomSetting(Base):
+    __tablename__ = "calcom_settings"
+    
+    id = Column(String, primary_key=True, default="default")
+    host_email = Column(String, default="admin@aivhub.io")
+    host_name = Column(String, default="Jitendra S.")
+    api_key = Column(String, nullable=True)
+    base_url = Column(String, default="https://api.cal.com/v1")
+    default_event_type_slug = Column(String, default="15-min-discovery")
+    default_duration = Column(Integer, default=15)
+    default_platform = Column(String, default="google_meet")
+    timezone = Column(String, default="Europe/London")
+    working_hours_start = Column(String, default="09:00")
+    working_hours_end = Column(String, default="17:30")
+    working_days = Column(JSON, default=lambda: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+    buffer_before = Column(Integer, default=5)
+    buffer_after = Column(Integer, default=5)
+    auto_email_attendee = Column(Boolean, default=True)
+    auto_email_host = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class ScheduleItem(Base):
     __tablename__ = "schedule_items"

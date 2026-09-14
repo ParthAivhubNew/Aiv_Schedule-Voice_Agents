@@ -386,23 +386,33 @@ async def dial_outbound_call(
         carrier_choice = (req.carrier or "").strip().lower()
         conn_res = await db.execute(
             select(Connection).where(
-                (Connection.group_name == "Telephony") | (Connection.name.ilike("%twilio%"))
+                (Connection.group_name == "Telephony") | (Connection.name.ilike("%twilio%")) | (Connection.name.ilike("%sipgate%"))
             )
         )
         tele_conns = conn_res.scalars().all()
         tele_conn = None
         for c in tele_conns:
-            if c.name and "twilio" in c.name.lower():
+            if carrier_choice and carrier_choice in (c.name or "").lower():
                 tele_conn = c
                 break
+        if not tele_conn:
+            for c in tele_conns:
+                if c.status == "connected":
+                    tele_conn = c
+                    break
         if not tele_conn and tele_conns:
             tele_conn = tele_conns[0]
 
         if not carrier_choice:
             if tele_conn:
-                carrier_choice = "twilio" if "twilio" in tele_conn.name.lower() else tele_conn.name.lower()
+                if "sipgate" in (tele_conn.name or "").lower():
+                    carrier_choice = "sipgate"
+                elif "twilio" in (tele_conn.name or "").lower():
+                    carrier_choice = "twilio"
+                else:
+                    carrier_choice = tele_conn.name.lower()
             else:
-                carrier_choice = "twilio"
+                carrier_choice = "sipgate" if settings.SIPGATE_SIP_ID else "twilio"
 
         # 3. Resolve credentials with smart fallback to saved DB vault
         stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}

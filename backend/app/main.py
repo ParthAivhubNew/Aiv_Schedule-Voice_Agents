@@ -22,6 +22,7 @@ from app.api.scheduler import router as scheduler_router
 from app.api.logs import router as logs_router
 from app.api.sip_webhook import router as sip_webhook_router
 from app.api.enrichment import router as enrichment_router
+from app.api.calcom import router as calcom_router
 from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +77,22 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text("ALTER TABLE knowledge_sources ADD COLUMN crawled_at TIMESTAMP;"))
             except Exception:
                 pass
+
+        # Safe migration for meetings table Cal.com columns
+        for col, col_type in [
+            ("host_email", "VARCHAR DEFAULT 'admin@aivhub.io'"),
+            ("attendee_email", "VARCHAR"),
+            ("calcom_booking_id", "VARCHAR"),
+            ("event_type_slug", "VARCHAR DEFAULT '15-min-discovery'"),
+            ("cancellation_reason", "TEXT")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE meetings ADD COLUMN IF NOT EXISTS {col} {col_type};"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE meetings ADD COLUMN {col} {col_type};"))
+                except Exception:
+                    pass
     await seed_database()
     try:
         from app.services.process_logger import log_process_event
@@ -123,6 +140,7 @@ app.include_router(logs_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router)  # Direct /sip-webhook compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
+app.include_router(calcom_router, prefix=settings.API_PREFIX)
 app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
 
 # Universal Direct Fallback Webhooks for Twilio Inbound Voice

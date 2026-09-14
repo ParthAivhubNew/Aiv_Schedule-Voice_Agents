@@ -145,5 +145,32 @@ export const api = {
   getSubsystemsStats: () => apiRequest('/logs/subsystems'),
   getRawFileLogs: (subsystem, lines = 100) => apiRequest(`/logs/raw/${subsystem}?lines=${lines}`),
   clearLogs: (subsystem) => apiRequest(`/logs${subsystem ? `?subsystem=${subsystem}` : ''}`, { method: 'DELETE' }),
+
+  // Cal.com & Meeting Scheduler
+  getCalcomOverview: () => apiRequest('/calcom/overview'),
+  getCalcomEventTypes: () => apiRequest('/calcom/event-types'),
+  createCalcomEventType: (payload) => apiRequest('/calcom/event-types', { method: 'POST', body: payload }),
+  deleteCalcomEventType: (id) => apiRequest(`/calcom/event-types/${id}`, { method: 'DELETE' }),
+  getCalcomSlots: (date, eventTypeSlug = '15-min-discovery') => apiRequest(`/calcom/slots?date=${encodeURIComponent(date)}&event_type_slug=${encodeURIComponent(eventTypeSlug)}`),
+  getCalcomBookings: () => apiRequest('/calcom/bookings'),
+  bookCalcomMeeting: (payload) => apiRequest('/calcom/book', { method: 'POST', body: payload }),
+  cancelCalcomBooking: (bookingId, reason = 'Cancelled by user') => apiRequest(`/calcom/bookings/${bookingId}/cancel`, { method: 'POST', body: { reason } }),
+  getCalcomSettings: () => apiRequest('/calcom/settings'),
+  saveCalcomSettings: (payload) => apiRequest('/calcom/settings', { method: 'POST', body: payload }),
+  testCalcomConnection: () => apiRequest('/calcom/test-connection', { method: 'POST' }),
+
+  calcom: {
+    getOverview: () => apiRequest('/calcom/overview'),
+    getEventTypes: () => apiRequest('/calcom/event-types'),
+    createEventType: (payload) => apiRequest('/calcom/event-types', { method: 'POST', body: payload }),
+    deleteEventType: (id) => apiRequest(`/calcom/event-types/${id}`, { method: 'DELETE' }),
+    getSlots: (date, eventTypeSlug = '15-min-discovery') => apiRequest(`/calcom/slots?date=${encodeURIComponent(date)}&event_type_slug=${encodeURIComponent(eventTypeSlug)}`),
+    getBookings: () => apiRequest('/calcom/bookings'),
+    bookMeeting: (payload) => apiRequest('/calcom/book', { method: 'POST', body: payload }),
+    cancelBooking: (bookingId, reason = 'Cancelled by user') => apiRequest(`/calcom/bookings/${bookingId}/cancel`, { method: 'POST', body: { reason } }),
+    getSettings: () => apiRequest('/calcom/settings'),
+    saveSettings: (payload) => apiRequest('/calcom/settings', { method: 'POST', body: payload }),
+    testConnection: () => apiRequest('/calcom/test-connection', { method: 'POST' })
+  }
 };
 

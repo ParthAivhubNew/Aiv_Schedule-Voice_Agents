@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { CalendarDays, PhoneCall, ArrowRight, LogOut } from "lucide-react";
+import { CalendarDays, PhoneCall, ArrowRight, LogOut, CalendarCheck } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER, initialsFromName } from "../tokens";
 import { BrandMark } from "../components/Badges";
 
@@ -138,6 +138,14 @@ export function PluginHub({ operator = { name: "Jitendra S.", role: "Admin" }, o
             accent={C.cobalt}
             ready={true}
             onClick={() => onPick("voice")}
+          />
+          <PluginCard
+            icon={CalendarCheck}
+            title="Meeting Scheduler (Cal.com)"
+            blurb="Synchronized calendar & booking engine: manage 15/30/45m event types, live slot availability, direct 1-click booking, and instant Google Meet video links."
+            accent="#10B981"
+            ready={true}
+            onClick={() => onPick("calcom")}
           />
         </div>
       </div>

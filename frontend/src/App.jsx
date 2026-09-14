@@ -117,6 +117,7 @@ import { WebSocketClient } from "./api/wsClient";
 import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
+import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
 import { getActiveAiCredentials } from "./tokens";
 
 
@@ -10023,6 +10024,71 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [isSavingCustom, setIsSavingCustom] = useState(false);
   const [customNotice, setCustomNotice] = useState(null);
 
+  // Cal.com & Meeting Scheduler State
+  const [calSettings, setCalSettings] = useState({
+    host_email: "admin@aivhub.io",
+    host_name: "Jitendra S.",
+    api_key: "",
+    base_url: "https://api.cal.com/v1",
+    default_event_type_slug: "15-min-discovery",
+    default_duration: 15,
+    default_platform: "google_meet",
+    timezone: "Europe/London",
+    working_hours_start: "09:00",
+    working_hours_end: "17:30",
+    working_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+    buffer_before: 5,
+    buffer_after: 5,
+    auto_email_attendee: true,
+    auto_email_host: true,
+  });
+  const [calStatus, setCalStatus] = useState(null);
+  const [calTesting, setCalTesting] = useState(false);
+  const [calSaving, setCalSaving] = useState(false);
+  const [calSavedNotice, setCalSavedNotice] = useState(null);
+  const [showCalApiKey, setShowCalApiKey] = useState(false);
+
+  useEffect(() => {
+    if (tab === "calcom" && isOpen) {
+      api.getCalcomSettings()
+        .then((res) => {
+          if (res) setCalSettings((prev) => ({ ...prev, ...res }));
+        })
+        .catch(() => {});
+      api.testCalcomConnection()
+        .then((res) => setCalStatus(res))
+        .catch(() => {});
+    }
+  }, [tab, isOpen]);
+
+  const handleTestCalcom = async () => {
+    setCalTesting(true);
+    try {
+      const res = await api.testCalcomConnection();
+      setCalStatus(res);
+    } catch (err) {
+      setCalStatus({ connected: false, message: `Error: ${err.message}` });
+    } finally {
+      setCalTesting(false);
+    }
+  };
+
+  const handleSaveCalcom = async () => {
+    setCalSaving(true);
+    try {
+      await api.saveCalcomSettings(calSettings);
+      setCalSavedNotice("Calendar settings saved successfully!");
+      setDirty(true);
+      setTimeout(() => setCalSavedNotice(null), 3000);
+      handleTestCalcom();
+    } catch (err) {
+      setCalSavedNotice(`Failed to save: ${err.message}`);
+    } finally {
+      setCalSaving(false);
+    }
+  };
+
+
   // Mouse handlers for dragging modal by its header
   const handleMouseDownHeader = (e) => {
     if (e.target.closest("button") || e.target.closest("input") || e.target.closest("select") || e.target.closest("a") || e.target.closest("textarea")) return;
@@ -10892,6 +10958,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
             { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
             { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
+            { id: "calcom", label: "Meeting Scheduler (Cal.com)", icon: CalendarCheck, color: "#10B981" },
             { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
           ].map((t) => {
             const Icon = t.icon;
@@ -11356,6 +11423,311 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               {renderPluginAiFeaturesList("voice", VOICE_LAYERS, safeCommonAi.voiceLayers, updateVoiceLayer)}
               {renderCustomConnectionsSection("voice", VOICE_LAYERS)}
               {renderProviderKeyCard(voiceLlmProviderId, "Voice Dialogue Reasoning")}
+            </div>
+          )}
+
+          {/* TAB: MEETING SCHEDULER & CAL.COM */}
+          {tab === "calcom" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Banner */}
+              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <CalendarCheck size={18} color="#059669" />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      Meeting Scheduler & Cal.com Universal Configuration
+                    </div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Manage Host Mail ID, Cal.com API keys, default booking duration, and email notifications across all workspace plugins.
+                    </div>
+                  </div>
+                </div>
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("calcom"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Scheduler Plugin <ChevronRight size={13} />
+                  </button>
+                )}
+              </div>
+
+              {/* Status Card */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
+                    Active Scheduling Engine
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginTop: 2, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span>{calStatus?.type === "calcom_api" ? "Cal.com Cloud/Self-Hosted API" : "Native Calendar Engine"}</span>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "2px 8px",
+                      borderRadius: 6,
+                      background: calStatus?.connected ? "#ECFDF5" : "#EFF6FF",
+                      color: calStatus?.connected ? "#059669" : "#1E40AF",
+                      border: `1px solid ${calStatus?.connected ? "#A7F3D0" : "#BFDBFE"}`
+                    }}>
+                      {calStatus?.connected ? "Connected" : "Operational"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                    {calStatus?.message || "Fully supports slot calculation, direct booking, and instant Google Meet link generation."}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTestCalcom}
+                  disabled={calTesting}
+                  style={{
+                    padding: "7px 14px",
+                    borderRadius: 7,
+                    border: `1px solid ${C.border}`,
+                    background: "#fff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: C.ink,
+                    cursor: calTesting ? "not-allowed" : "pointer"
+                  }}
+                >
+                  {calTesting ? "Testing..." : "Test Connection"}
+                </button>
+              </div>
+
+              {/* Host Mail ID Card */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 4 }}>
+                  Host Organizer Mail ID & Identity
+                </div>
+                <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>
+                  This mail ID is attached as the organizer on all Google Meet invites and receives automated booking notifications.
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 4 }}>
+                      Host Mail ID (Email Address) *
+                    </label>
+                    <input
+                      type="email"
+                      value={calSettings.host_email || ""}
+                      onChange={(e) => setCalSettings({ ...calSettings, host_email: e.target.value })}
+                      placeholder="e.g. admin@aivhub.io"
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "8px 10px",
+                        borderRadius: 7,
+                        border: `1px solid ${C.border}`,
+                        fontSize: 12.5,
+                        fontFamily: FONT_MONO
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 4 }}>
+                      Host Display Name
+                    </label>
+                    <input
+                      type="text"
+                      value={calSettings.host_name || ""}
+                      onChange={(e) => setCalSettings({ ...calSettings, host_name: e.target.value })}
+                      placeholder="e.g. Jitendra S."
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "8px 10px",
+                        borderRadius: 7,
+                        border: `1px solid ${C.border}`,
+                        fontSize: 12.5
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Cal.com API Configuration */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 4 }}>
+                  Cal.com API Settings (Optional)
+                </div>
+                <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>
+                  Connect your Cal.com Cloud or Self-Hosted instance API key. If left blank, the Native Calendar Engine handles all scheduling without external credentials.
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14, marginBottom: 12 }}>
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>
+                        Cal.com API Key
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowCalApiKey(!showCalApiKey)}
+                        style={{ border: "none", background: "transparent", fontSize: 11, color: C.cobalt, cursor: "pointer", fontWeight: 600 }}
+                      >
+                        {showCalApiKey ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                    <input
+                      type={showCalApiKey ? "text" : "password"}
+                      value={calSettings.api_key || ""}
+                      onChange={(e) => setCalSettings({ ...calSettings, api_key: e.target.value })}
+                      placeholder="cal_live_xxxxxxxx or cal_test_xxxxxxxx"
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "8px 10px",
+                        borderRadius: 7,
+                        border: `1px solid ${C.border}`,
+                        fontSize: 12,
+                        fontFamily: FONT_MONO
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 4 }}>
+                      Cal.com Base URL
+                    </label>
+                    <input
+                      type="text"
+                      value={calSettings.base_url || ""}
+                      onChange={(e) => setCalSettings({ ...calSettings, base_url: e.target.value })}
+                      placeholder="https://api.cal.com/v1"
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "8px 10px",
+                        borderRadius: 7,
+                        border: `1px solid ${C.border}`,
+                        fontSize: 12,
+                        fontFamily: FONT_MONO
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Default Durations & Working Hours */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 12 }}>
+                  Booking Defaults & Availability Guardrails
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
+                  <div>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: C.slate, display: "block", marginBottom: 4 }}>
+                      Default Duration
+                    </label>
+                    <select
+                      value={calSettings.default_duration || 15}
+                      onChange={(e) => setCalSettings({ ...calSettings, default_duration: parseInt(e.target.value, 10) })}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "7px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                    >
+                      <option value={15}>15 Minutes</option>
+                      <option value={20}>20 Minutes</option>
+                      <option value={30}>30 Minutes</option>
+                      <option value={45}>45 Minutes</option>
+                      <option value={60}>60 Minutes</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: C.slate, display: "block", marginBottom: 4 }}>
+                      Meeting Platform
+                    </label>
+                    <select
+                      value={calSettings.default_platform || "google_meet"}
+                      onChange={(e) => setCalSettings({ ...calSettings, default_platform: e.target.value })}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "7px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                    >
+                      <option value="google_meet">Google Meet (Auto URL)</option>
+                      <option value="cal_video">Cal.com Video</option>
+                      <option value="zoom">Zoom</option>
+                      <option value="phone">Phone Call</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: C.slate, display: "block", marginBottom: 4 }}>
+                      Hours: Start
+                    </label>
+                    <input
+                      type="text"
+                      value={calSettings.working_hours_start || "09:00"}
+                      onChange={(e) => setCalSettings({ ...calSettings, working_hours_start: e.target.value })}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "7px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "center" }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: C.slate, display: "block", marginBottom: 4 }}>
+                      Hours: End
+                    </label>
+                    <input
+                      type="text"
+                      value={calSettings.working_hours_end || "17:30"}
+                      onChange={(e) => setCalSettings({ ...calSettings, working_hours_end: e.target.value })}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "7px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "center" }}
+                    />
+                  </div>
+                </div>
+
+                {/* Email Notification Toggles */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.ink, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={calSettings.auto_email_attendee ?? true}
+                      onChange={(e) => setCalSettings({ ...calSettings, auto_email_attendee: e.target.checked })}
+                      style={{ accentColor: "#10B981" }}
+                    />
+                    <span>Auto-send calendar confirmation & Google Meet invite to <strong>Attendee Email</strong></span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.ink, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={calSettings.auto_email_host ?? true}
+                      onChange={(e) => setCalSettings({ ...calSettings, auto_email_host: e.target.checked })}
+                      style={{ accentColor: "#10B981" }}
+                    />
+                    <span>Auto-send notification & calendar invite to <strong>Host Mail ID</strong></span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  {calSavedNotice && (
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: "#059669" }}>
+                      ✓ {calSavedNotice}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveCalcom}
+                  disabled={calSaving}
+                  style={{
+                    padding: "9px 20px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: "#10B981",
+                    color: "#fff",
+                    fontFamily: FONT_BODY,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: calSaving ? "not-allowed" : "pointer"
+                  }}
+                >
+                  {calSaving ? "Saving..." : "Save Calendar & Cal.com Settings"}
+                </button>
+              </div>
             </div>
           )}
 
@@ -14746,6 +15118,15 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
             ready={true}
             onClick={() => onPick("voice")}
           />
+          <PluginCard
+            icon={CalendarCheck}
+            title="Meeting Scheduler (Cal.com)"
+            blurb="Synchronized calendar & booking engine: manage 15/30/45m event types, live slot availability, direct 1-click booking, and instant Google Meet video links."
+            accent="#10B981"
+            ready={true}
+            onClick={() => onPick("calcom")}
+          />
+
         </div>
       </div>
     </div>
@@ -20184,7 +20565,7 @@ export default function App() {
       if (!hash) return { plugin: null, subView: null };
       const parts = hash.split("/");
       const p = parts[0];
-      const valid = ["voice", "scheduler", "leadgen", "emailoutreach"];
+      const valid = ["voice", "scheduler", "leadgen", "emailoutreach", "calcom"];
       if (valid.includes(p)) {
         return { plugin: p, subView: parts.slice(1).join("/") || null };
       }
@@ -20204,6 +20585,12 @@ export default function App() {
     }
   });
 
+  // Global helper to switch plugins from any modal
+  useEffect(() => {
+    window.__aivhub_switch_plugin = (p) => setPlugin(p);
+    return () => { delete window.__aivhub_switch_plugin; };
+  }, []);
+
   // Keep plugin state, localStorage, and URL in sync
   useEffect(() => {
     try {
@@ -20215,7 +20602,8 @@ export default function App() {
             plugin === "voice" ? localStorage.getItem("aivhub_voice_view") :
             plugin === "scheduler" ? localStorage.getItem("aivhub_scheduler_view") :
             plugin === "leadgen" ? localStorage.getItem("aivhub_leadgen_view") :
-            plugin === "emailoutreach" ? localStorage.getItem("aivhub_email_view") : null
+            plugin === "emailoutreach" ? localStorage.getItem("aivhub_email_view") :
+            plugin === "calcom" ? localStorage.getItem("aivhub_calcom_view") : null
           );
           const target = sub ? `#/${plugin}/${sub}` : `#/${plugin}`;
           window.location.hash = target;
@@ -20449,6 +20837,18 @@ export default function App() {
           onOpenCommonAi={() => { setCommonAiTab("voice"); setShowCommonAiModal(true); }}
         />
       )}
+
+      {plugin === "calcom" && (
+        <CalcomSchedulerPlugin
+          operator={operator}
+          onBackToHub={handleBackToHub}
+          onLogout={handleLogout}
+          profile={profile}
+          commonAi={commonAi}
+          onOpenCommonAi={() => { setCommonAiTab("calcom"); setShowCommonAiModal(true); }}
+        />
+      )}
+
 
       <CommonAiConfigModal
         isOpen={showCommonAiModal}

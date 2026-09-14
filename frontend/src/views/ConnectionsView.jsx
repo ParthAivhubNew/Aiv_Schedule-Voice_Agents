@@ -7,7 +7,7 @@ export function ConnectionsView({ notifications, setNotifications, connections =
   { group: "LLM (Reasoning & Orchestration)", desc: "Conversational intelligence and dynamic objection handling models", items: [{ name: "Anthropic Claude 3.5 Sonnet", status: "connected" }, { name: "OpenAI GPT-4o", status: "connected" }, { name: "DeepSeek-V3", status: "not_configured" }] },
   { group: "Speech-to-Text (STT)", desc: "Low-latency streaming transcription and speaker diarization", items: [{ name: "Deepgram Nova-2 (en-GB)", status: "connected" }, { name: "Faster-Whisper (Self-Hosted)", status: "not_configured" }] },
   { group: "Text-to-Speech (TTS)", desc: "Realistic conversational voices with British accents", items: [{ name: "ElevenLabs Turbo v2.5", status: "connected" }, { name: "Cartesia Sonic", status: "connected" }, { name: "Kokoro-82M (Self-Hosted)", status: "not_configured" }] },
-  { group: "Telephony & Carrier", desc: "Outbound PSTN dialing, SIP trunks, and caller ID verification", items: [{ name: "Twilio Voice UK (+44 20 7946 0912)", status: "connected" }, { name: "Telnyx Elastic SIP Trunk", status: "not_configured" }] },
+  { group: "Telephony & Carrier", desc: "Outbound PSTN dialing, SIP trunks, and caller ID verification", items: [{ name: "Sipgate UK Trunk (+44 56 0002 2627)", status: "connected" }, { name: "Twilio Voice UK (+44 20 7946 0912)", status: "connected" }, { name: "Telnyx Elastic SIP Trunk", status: "not_configured" }] },
   { group: "Calendar & Discovery", desc: "Automated real-time slot checking and calendar booking links", items: [{ name: "Cal.com Cloud API", status: "connected" }, { name: "Google Calendar & Meet", status: "connected" }] },
 ], onAddConnection }) {
   const [showAdd, setShowAdd] = useState(false);

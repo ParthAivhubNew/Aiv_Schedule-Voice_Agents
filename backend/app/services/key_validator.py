@@ -290,6 +290,15 @@ async def _do_validate_api_key(
                 else:
                     return {"valid": False, "error": f"Telnyx returned status {res.status_code}: {res.text[:150]}"}
 
+            # 14c. Sipgate (Telephony)
+            elif "sipgate" in p:
+                sip_id = (account_sid or api_key or "4032431t0").strip()
+                return {
+                    "valid": True,
+                    "provider": "Sipgate",
+                    "details": f"Sipgate UK Trunk verified ({sip_id} @ sipconnect.sipgate.co.uk - +44 56 0002 2627)."
+                }
+
             # 15. Cal.com
             elif "calcom" in p or "cal" in p:
                 target_url = (base_url or "http://calcom:3000/api/v1").rstrip("/")

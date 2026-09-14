@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     TELNYX_API_KEY: Optional[str] = os.getenv("TELNYX_API_KEY", None)
     TELNYX_PHONE_NUMBER: Optional[str] = os.getenv("TELNYX_PHONE_NUMBER", "+19096866918")
 
+    # Sipgate Telephony Configuration
+    SIPGATE_SIP_ID: Optional[str] = os.getenv("SIPGATE_SIP_ID", "4032431t0")
+    SIPGATE_PASSWORD: Optional[str] = os.getenv("SIPGATE_PASSWORD", "qURd1qn99mBV")
+    SIPGATE_SERVER: Optional[str] = os.getenv("SIPGATE_SERVER", "sipconnect.sipgate.co.uk")
+    SIPGATE_PHONE_NUMBER: Optional[str] = os.getenv("SIPGATE_PHONE_NUMBER", "+445600022627")
     
     # System mode: "simulation" or "live"
     VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "simulation")
