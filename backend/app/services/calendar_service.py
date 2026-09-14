@@ -564,6 +564,118 @@ class CalendarService:
         }
 
 
+
+    async def reschedule_booking(self, db: AsyncSession, booking_id: str, new_date: str, new_time: str, reason: str = "") -> Dict[str, Any]:
+        """Reschedules an existing booking to a new date and time."""
+        result = await db.execute(select(Meeting).where(Meeting.id == booking_id))
+        meeting = result.scalars().first()
+        if not meeting:
+            res2 = await db.execute(select(Meeting).where(Meeting.calcom_booking_id == booking_id))
+            meeting = res2.scalars().first()
+
+        if not meeting:
+            return {"success": False, "error": "Meeting not found"}
+
+        old_date = meeting.date
+        old_time = meeting.time
+        meeting.date = new_date
+        meeting.time = new_time
+        meeting.status = "upcoming"
+        if reason:
+            prior_prep = meeting.prep or ""
+            meeting.prep = f"{prior_prep}\n[Rescheduled from {old_date} {old_time} to {new_date} {new_time}. Reason: {reason}]".strip()
+
+        # If Cal.com API key is configured and calcom booking exists
+        setting = await self.get_or_create_settings(db)
+        if setting.api_key and meeting.calcom_booking_id and not meeting.calcom_booking_id.startswith("cal_"):
+            try:
+                headers = {"Authorization": f"Bearer {setting.api_key}", "Content-Type": "application/json"}
+                start_iso = f"{new_date}T{new_time}:00Z"
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    await client.patch(
+                        f"{setting.base_url.rstrip('/')}/bookings/{meeting.calcom_booking_id}",
+                        headers=headers,
+                        json={"start": start_iso, "reschedulingReason": reason}
+                    )
+            except Exception as e:
+                logger.debug(f"Cal.com reschedule API fallback: {e}")
+
+        # Add notification
+        notif = Notification(
+            id=f"notif_{uuid.uuid4().hex[:8]}",
+            text=f"Meeting with {meeting.prospect} rescheduled to {new_date} at {new_time}.",
+            type="info",
+            time="Just now"
+        )
+        db.add(notif)
+        await db.commit()
+        await db.refresh(meeting)
+
+        try:
+            from app.services.process_logger import log_process_event
+            await log_process_event(
+                subsystem="calendar",
+                process_name="meeting_rescheduled",
+                message=f"Meeting {booking_id} for {meeting.prospect} rescheduled to {new_date} {new_time}",
+                level="INFO",
+                details={"meeting_id": booking_id, "old_date": old_date, "old_time": old_time, "new_date": new_date, "new_time": new_time, "reason": reason}
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "bookingId": meeting.id,
+            "newDate": new_date,
+            "newTime": new_time,
+            "status": "upcoming"
+        }
+
+    def generate_ics(self, meeting: Meeting) -> str:
+        """Generates standard iCalendar (.ics) format string for the meeting."""
+        try:
+            start_dt = datetime.strptime(f"{meeting.date} {meeting.time}", "%Y-%m-%d %H:%M")
+            dur = 15
+            if meeting.duration:
+                dur_str = "".join([c for c in meeting.duration if c.isdigit()])
+                if dur_str:
+                    dur = int(dur_str)
+            end_dt = start_dt + timedelta(minutes=dur)
+            dtstart = start_dt.strftime("%Y%m%dT%H%M00Z")
+            dtend = end_dt.strftime("%Y%m%dT%H%M00Z")
+            dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M00Z")
+        except Exception:
+            dtstart = datetime.utcnow().strftime("%Y%m%dT%H%M00Z")
+            dtend = (datetime.utcnow() + timedelta(minutes=15)).strftime("%Y%m%dT%H%M00Z")
+            dtstamp = dtstart
+
+        summary = f"Meeting: {meeting.prospect} & {meeting.host}"
+        description = f"Video Link: {meeting.video_link or 'https://meet.google.com'}\nPlatform: {meeting.platform}\nHost: {meeting.host} ({meeting.host_email})\nAttendee: {meeting.attendee or meeting.prospect} ({meeting.attendee_email or ''})\nNotes: {meeting.prep or ''}"
+        uid = f"{meeting.id}@aivhub.io"
+
+        ics_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//AIVHub Cal.com Engine//EN",
+            "CALSCALE:GREGORIAN",
+            "METHOD:REQUEST",
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART:{dtstart}",
+            f"DTEND:{dtend}",
+            f"SUMMARY:{summary}",
+            f"DESCRIPTION:{description}",
+            f"LOCATION:{meeting.video_link or 'Google Meet'}",
+            f"ORGANIZER;CN={meeting.host}:mailto:{meeting.host_email or 'admin@aivhub.io'}",
+            f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN={meeting.prospect}:mailto:{meeting.attendee_email or 'attendee@example.com'}",
+            "STATUS:CONFIRMED",
+            "END:VEVENT",
+            "END:VCALENDAR"
+        ]
+        return "\r\n".join(ics_lines)
+
+
 calendar_service = CalendarService()
 
 

@@ -118,6 +118,7 @@ import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
+import { CalcomAdminModal } from "./admin/CalcomAdminModal";
 import { getActiveAiCredentials } from "./tokens";
 
 
@@ -10000,7 +10001,7 @@ function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick }) {
 
 /* ---------------------------------- Common AI Configuration Modal & Views ---------------------------------- */
 
-function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin, operator }) {
+function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin, operator, onOpenCalcomAdmin }) {
   const [tab, setTab] = useState(initialTab || "leadgen");
   const [dirty, setDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -11430,6 +11431,32 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {/* TAB: MEETING SCHEDULER & CAL.COM (AUTOMATED & MANAGED) */}
           {tab === "calcom" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onOpenCalcomAdmin) onOpenCalcomAdmin();
+                }}
+                style={{
+                  width: "100%",
+                  padding: "12px 18px",
+                  borderRadius: 12,
+                  background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                  color: "#FFFFFF",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  boxShadow: "0 4px 14px rgba(16, 185, 129, 0.25)"
+                }}
+              >
+                <CalendarCheck size={18} />
+                Open Full Cal.com Command Center (Live Bookings, Event Types, Slots & Embeds)
+              </button>
               
               {/* Engine Status Banner: 100% Pre-Configured & Automated */}
               <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -14856,7 +14883,7 @@ function ProfileSettingsModal({ isOpen, onClose, operator, setOperator }) {
   );
 }
 
-function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings }) {
+function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -15077,7 +15104,7 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
 
               {/* Calendar & Cal.com Scheduling (Admin Control) */}
               <button
-                onClick={() => { setOpen(false); onOpenCommonAi("calcom"); }}
+                onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin(); else onOpenCommonAi("calcom"); }}
                 style={{
                   width: "100%",
                   display: "flex",
@@ -15178,7 +15205,7 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
   );
 }
 
-function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings }) {
+function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin }) {
   return (
     <div style={{ minHeight: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, display: "flex", flexDirection: "column" }}>
       <AppChrome />
@@ -15197,6 +15224,7 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
             onOpenCommonAi={onOpenCommonAi}
             onOpenTeamUsers={onOpenTeamUsers}
             onOpenProfileSettings={onOpenProfileSettings}
+            onOpenCalcomAdmin={onOpenCalcomAdmin}
           />
         </div>
       </div>
@@ -20806,6 +20834,7 @@ export default function App() {
   });
   const [showCommonAiModal, setShowCommonAiModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showCalcomAdminModal, setShowCalcomAdminModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [commonAiTab, setCommonAiTab] = useState("leadgen");
 
@@ -20899,6 +20928,7 @@ export default function App() {
           onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setShowCommonAiModal(true); }}
           onOpenTeamUsers={() => setShowTeamModal(true)}
           onOpenProfileSettings={() => setShowProfileModal(true)}
+          onOpenCalcomAdmin={() => setShowCalcomAdminModal(true)}
         />
       )}
 
@@ -20977,10 +21007,17 @@ export default function App() {
         setCommonAi={setCommonAi}
         initialTab={commonAiTab}
         operator={operator}
+        onOpenCalcomAdmin={() => setShowCalcomAdminModal(true)}
         onNavigateToPlugin={(pId) => {
           setShowCommonAiModal(false);
           setPlugin(pId);
         }}
+      />
+
+      <CalcomAdminModal
+        isOpen={showCalcomAdminModal}
+        onClose={() => setShowCalcomAdminModal(false)}
+        operator={operator}
       />
 
       <TeamUsersModal

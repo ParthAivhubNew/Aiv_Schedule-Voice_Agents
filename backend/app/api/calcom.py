@@ -186,3 +186,35 @@ async def update_settings(payload: SettingsPayload, db: AsyncSession = Depends(g
 @router.post("/test-connection")
 async def test_calcom_connection(db: AsyncSession = Depends(get_db)):
     return await calendar_service.check_calcom_status(db)
+
+
+from fastapi.responses import Response
+
+class RescheduleBookingPayload(BaseModel):
+    date: str
+    time: str
+    reason: Optional[str] = ""
+
+@router.post("/bookings/{booking_id}/reschedule")
+async def reschedule_booking(booking_id: str, payload: RescheduleBookingPayload, db: AsyncSession = Depends(get_db)):
+    res = await calendar_service.reschedule_booking(db, booking_id, new_date=payload.date, new_time=payload.time, reason=payload.reason or "")
+    if not res.get("success"):
+        raise HTTPException(status_code=404, detail=res.get("error", "Booking not found"))
+    return res
+
+@router.get("/bookings/{booking_id}/ics")
+async def download_booking_ics(booking_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Meeting).where(Meeting.id == booking_id))
+    meeting = result.scalars().first()
+    if not meeting:
+        res2 = await db.execute(select(Meeting).where(Meeting.calcom_booking_id == booking_id))
+        meeting = res2.scalars().first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+        
+    ics_text = calendar_service.generate_ics(meeting)
+    return Response(
+        content=ics_text,
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="meeting-{meeting.id}.ics"'}
+    )
