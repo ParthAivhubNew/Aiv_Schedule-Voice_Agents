@@ -348,7 +348,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
     }
   };
 
-  // Communication Accounts Handlers
+  // Communication Accounts Handlers (Supports multiple accounts per provider)
   const handleOpenAccountModal = (provider = "google", existingAcc = null) => {
     setEditingAccount(existingAcc);
     setAccountTestResult(null);
@@ -357,11 +357,11 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
       setAccountForm({
         id: existingAcc.id,
         provider: cfg.provider || provider,
-        name: existingAcc.name,
+        name: existingAcc.name || `${provider === "google" ? "Google / Gmail" : (provider === "outlook" ? "Microsoft Outlook" : "Custom SMTP")} Account`,
         email: cfg.email || "",
         senderName: cfg.sender_name || "",
         password: "",
-        smtpHost: cfg.host || (provider === "google" ? "smtp.gmail.com" : "smtp.office365.com"),
+        smtpHost: cfg.host || (provider === "google" ? "smtp.gmail.com" : (provider === "outlook" ? "smtp.office365.com" : "mail.company.com")),
         smtpPort: cfg.port || 587,
         useTls: cfg.use_tls ?? true,
         syncCalendar: cfg.sync_calendar ?? true,
@@ -369,11 +369,19 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
         isPrimary: cfg.is_primary ?? false
       });
     } else {
+      const providerMatches = accounts.filter(a => (a.config?.provider || "").toLowerCase() === provider.toLowerCase());
+      const count = providerMatches.length;
+      const defaultLabel = provider === "google"
+        ? (count > 0 ? `Google Account #${count + 1}` : "Google / Gmail & Calendar")
+        : (provider === "outlook"
+          ? (count > 0 ? `Outlook Account #${count + 1}` : "Microsoft Outlook / 365")
+          : (count > 0 ? `Custom SMTP #${count + 1}` : "Custom SMTP Server"));
+
       setAccountForm({
         id: "",
         provider: provider,
-        name: provider === "google" ? "Google / Gmail & Calendar" : (provider === "outlook" ? "Microsoft Outlook / 365" : "Custom SMTP Server"),
-        email: operator?.email || "admin@aivhub.io",
+        name: defaultLabel,
+        email: count === 0 ? (operator?.email || "admin@aivhub.io") : "",
         senderName: operator?.name || "Admin Operator",
         password: "",
         smtpHost: provider === "google" ? "smtp.gmail.com" : (provider === "outlook" ? "smtp.office365.com" : "mail.company.com"),
@@ -385,6 +393,27 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
       });
     }
     setShowAccountModal(true);
+  };
+
+  const handleSetPrimaryAccount = async (acc) => {
+    try {
+      await api.saveCalcomAccount({
+        id: acc.id,
+        provider: acc.config?.provider || "google",
+        name: acc.name,
+        status: acc.status || "connected",
+        email: acc.config?.email,
+        senderName: acc.config?.sender_name,
+        config: {
+          ...acc.config,
+          is_primary: true
+        }
+      });
+      if (acc.config?.email) setHostEmail(acc.config.email);
+      await loadData();
+    } catch (err) {
+      alert("Failed to set primary account.");
+    }
   };
 
   const handleTestAccount = async () => {
@@ -843,17 +872,20 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
             </div>
           )}
 
-          {/* TAB 2: COMMUNICATION ACCOUNTS (GMAIL, OUTLOOK, SMTP) */}
+          {/* TAB 2: COMMUNICATION ACCOUNTS (GMAIL, OUTLOOK, SMTP - MULTIPLE ACCOUNTS SUPPORTED) */}
           {activeTab === "accounts" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              {/* Top Header & Provider Action Buttons */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>Communication & Calendar Accounts</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>
+                    Communication & Calendar Accounts ({accounts.filter(a => a.status === "connected" || a.config?.email).length} Active)
+                  </div>
                   <div style={{ fontSize: 12, color: "#64748B" }}>
-                    Connect your real Google / Gmail, Microsoft Outlook, or corporate SMTP accounts to send invitations and sync calendars.
+                    Connect multiple accounts across Gmail, Google Workspace, Outlook, or custom SMTP. Each account can have its own sender email, calendar sync, and meeting links.
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
                     onClick={() => handleOpenAccountModal("google")}
                     style={{
@@ -871,7 +903,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                     }}
                   >
                     <Plus size={14} />
-                    Connect Google / Gmail
+                    + Add Gmail / Google Account
                   </button>
                   <button
                     onClick={() => handleOpenAccountModal("outlook")}
@@ -890,7 +922,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                     }}
                   >
                     <Plus size={14} />
-                    Connect Outlook / 365
+                    + Add Outlook / 365 Account
                   </button>
                   <button
                     onClick={() => handleOpenAccountModal("smtp")}
@@ -909,82 +941,154 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                     }}
                   >
                     <Server size={14} />
-                    Custom SMTP
+                    + Add Custom SMTP
                   </button>
                 </div>
               </div>
 
-              {/* Accounts Cards Grid */}
+              {/* Dynamic Connected Accounts Grid */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
-                {/* 1. Google Account Card */}
-                {(() => {
-                  const gAcc = accounts.find(a => a.config?.provider === "google") || {
-                    id: "comm_google_default",
-                    name: "Google / Gmail & Calendar",
-                    status: "connected",
-                    config: { email: hostEmail || "admin@aivhub.io", is_primary: true, sync_calendar: true, send_invites: true }
-                  };
-                  const isConnected = gAcc.status === "connected";
+                {accounts.filter(a => a.status === "connected" || a.config?.email).map((acc) => {
+                  const cfg = acc.config || {};
+                  const provider = (cfg.provider || "google").toLowerCase();
+                  const isPrimary = cfg.is_primary ?? false;
+                  const isGoogle = provider === "google";
+                  const isOutlook = provider === "outlook";
+                  const isSmtp = provider === "smtp";
+
+                  const themeColor = isGoogle ? "#EA4335" : (isOutlook ? "#0078D4" : "#7C3AED");
+                  const themeBg = isGoogle ? "#FEF2F2" : (isOutlook ? "#EFF6FF" : "#F5F3FF");
+                  const themeBorder = isGoogle ? "#FECACA" : (isOutlook ? "#BFDBFE" : "#DDD6FE");
+
                   return (
-                    <div style={{
-                      background: "#FFFFFF",
-                      borderRadius: 16,
-                      border: isConnected ? "1px solid #A7F3D0" : "1px solid #E2E8F0",
-                      padding: 22,
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.02)"
-                    }}>
+                    <div
+                      key={acc.id}
+                      style={{
+                        background: "#FFFFFF",
+                        borderRadius: 16,
+                        border: isPrimary ? `2px solid ${themeColor}` : "1px solid #E2E8F0",
+                        padding: 20,
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "space-between",
+                        boxShadow: isPrimary ? "0 4px 14px rgba(0,0,0,0.06)" : "0 2px 6px rgba(0,0,0,0.02)",
+                        position: "relative"
+                      }}
+                    >
                       <div>
+                        {/* Card Header */}
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <div style={{ width: 38, height: 38, borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", display: "flex", alignItems: "center", justifyContent: "center", color: "#EA4335", fontWeight: 800, fontSize: 16 }}>
-                              G
+                            <div style={{
+                              width: 38,
+                              height: 38,
+                              borderRadius: 10,
+                              background: themeBg,
+                              border: `1px solid ${themeBorder}`,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: themeColor,
+                              fontWeight: 800,
+                              fontSize: 16
+                            }}>
+                              {isGoogle ? "G" : (isOutlook ? "O" : <Server size={18} />)}
                             </div>
                             <div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Google / Gmail & Calendar</div>
-                              <div style={{ fontSize: 11, color: "#64748B" }}>Google Workspace, Gmail, Google Meet</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>
+                                  {acc.name || (isGoogle ? "Google Workspace" : (isOutlook ? "Microsoft Outlook" : "Custom SMTP"))}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: 11, color: "#64748B" }}>
+                                {isGoogle ? "Google Calendar & Meet" : (isOutlook ? "Outlook Calendar & Teams" : "Corporate Mail Server")}
+                              </div>
                             </div>
                           </div>
-                          <span style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            padding: "3px 8px",
-                            borderRadius: 6,
-                            background: isConnected ? "#ECFDF5" : "#F1F5F9",
-                            color: isConnected ? "#059669" : "#64748B"
-                          }}>
-                            {isConnected ? "● Connected & Active" : "Not Connected"}
-                          </span>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            {isPrimary ? (
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: "3px 8px",
+                                borderRadius: 6,
+                                background: "#FEF3C7",
+                                color: "#B45309",
+                                border: "1px solid #FDE68A",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4
+                              }}>
+                                ★ Primary Host
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleSetPrimaryAccount(acc)}
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  padding: "3px 8px",
+                                  borderRadius: 6,
+                                  background: "#F1F5F9",
+                                  color: "#475569",
+                                  border: "1px solid #CBD5E1",
+                                  cursor: "pointer"
+                                }}
+                              >
+                                Set as Primary
+                              </button>
+                            )}
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              padding: "3px 8px",
+                              borderRadius: 6,
+                              background: "#ECFDF5",
+                              color: "#059669"
+                            }}>
+                              ● Connected
+                            </span>
+                          </div>
                         </div>
 
-                        <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 12, marginBottom: 14, border: "1px solid #E2E8F0" }}>
-                          <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>CONNECTED MAIL ID:</div>
+                        {/* Connected Mail Address */}
+                        <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 12, marginBottom: 12, border: "1px solid #E2E8F0" }}>
+                          <div style={{ fontSize: 11, color: "#64748B", marginBottom: 3 }}>CONNECTED EMAIL ADDRESS:</div>
                           <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", fontFamily: FONT_MONO }}>
-                            {gAcc.config?.email || "admin@aivhub.io"}
+                            {cfg.email || "No email specified"}
                           </div>
+                          {cfg.sender_name && (
+                            <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>
+                              Sender Name: <strong>{cfg.sender_name}</strong>
+                            </div>
+                          )}
                         </div>
 
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+                        {/* Capabilities checkmarks */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 14 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#334155" }}>
-                            <Check size={14} color="#10B981" /> <strong>Send Calendar Invites:</strong> Automated from this Gmail
+                            <Check size={14} color="#10B981" />
+                            <span><strong>Outgoing Invites:</strong> {cfg.send_invites !== false ? "Active (Sends from this address)" : "Disabled"}</span>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#334155" }}>
-                            <Check size={14} color="#10B981" /> <strong>Google Calendar Sync:</strong> Real-time conflict avoidance
+                            <Check size={14} color="#10B981" />
+                            <span><strong>Calendar Sync:</strong> {cfg.sync_calendar !== false ? "Active (Avoids Conflicts)" : "Disabled"}</span>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#334155" }}>
-                            <Check size={14} color="#10B981" /> <strong>Google Meet Rooms:</strong> Automated link generation
+                            <Check size={14} color="#10B981" />
+                            <span><strong>Video Conferencing:</strong> {isGoogle ? "Google Meet Rooms" : (isOutlook ? "Microsoft Teams" : "Direct Video Link")}</span>
                           </div>
                         </div>
                       </div>
 
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #F1F5F9", paddingTop: 14 }}>
+                      {/* Card Footer Actions */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #F1F5F9", paddingTop: 12 }}>
                         <button
-                          onClick={() => handleOpenAccountModal("google", gAcc)}
+                          onClick={() => handleOpenAccountModal(provider, acc)}
                           style={{
                             flex: 1,
-                            padding: "8px 12px",
+                            padding: "7px 12px",
                             borderRadius: 8,
                             border: "1px solid #CBD5E1",
                             background: "#FFF",
@@ -1000,7 +1104,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                           onClick={handleTestAccount}
                           disabled={accountTesting}
                           style={{
-                            padding: "8px 14px",
+                            padding: "7px 14px",
                             borderRadius: 8,
                             border: "1px solid #A7F3D0",
                             background: "#ECFDF5",
@@ -1012,236 +1116,66 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                         >
                           {accountTesting ? "Testing..." : "Test Sync"}
                         </button>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* 2. Microsoft Outlook Card */}
-                {(() => {
-                  const oAcc = accounts.find(a => a.config?.provider === "outlook") || {
-                    id: "comm_outlook_default",
-                    name: "Microsoft Outlook / 365",
-                    status: "not_configured",
-                    config: { email: "", is_primary: false }
-                  };
-                  const isConnected = oAcc.status === "connected" && oAcc.config?.email;
-                  return (
-                    <div style={{
-                      background: "#FFFFFF",
-                      borderRadius: 16,
-                      border: isConnected ? "1px solid #BFDBFE" : "1px solid #E2E8F0",
-                      padding: 22,
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.02)"
-                    }}>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <div style={{ width: 38, height: 38, borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE", display: "flex", alignItems: "center", justifyContent: "center", color: "#0078D4", fontWeight: 800, fontSize: 16 }}>
-                              O
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Microsoft Outlook & 365</div>
-                              <div style={{ fontSize: 11, color: "#64748B" }}>Exchange, Office 365, MS Teams</div>
-                            </div>
-                          </div>
-                          <span style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            padding: "3px 8px",
-                            borderRadius: 6,
-                            background: isConnected ? "#EFF6FF" : "#F1F5F9",
-                            color: isConnected ? "#2563EB" : "#64748B"
-                          }}>
-                            {isConnected ? "● Connected & Active" : "Not Configured"}
-                          </span>
-                        </div>
-
-                        <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 12, marginBottom: 14, border: "1px solid #E2E8F0" }}>
-                          <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>CONNECTED MAIL ID:</div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: isConnected ? "#0F172A" : "#94A3B8", fontFamily: FONT_MONO }}>
-                            {oAcc.config?.email || "Not connected (Click Connect below)"}
-                          </div>
-                        </div>
-
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#334155" }}>
-                            <Check size={14} color="#0078D4" /> <strong>Outlook Mail:</strong> Send invites from @outlook/@company.com
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#334155" }}>
-                            <Check size={14} color="#0078D4" /> <strong>Outlook Calendar:</strong> Read & write confirmed meetings
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#334155" }}>
-                            <Check size={14} color="#0078D4" /> <strong>Microsoft Teams:</strong> Generate Teams video conference links
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #F1F5F9", paddingTop: 14 }}>
                         <button
-                          onClick={() => handleOpenAccountModal("outlook", isConnected ? oAcc : null)}
+                          onClick={() => handleDeleteAccount(acc.id)}
                           style={{
-                            flex: 1,
-                            padding: "8px 12px",
+                            padding: "7px 12px",
                             borderRadius: 8,
-                            border: "none",
-                            background: "#0078D4",
-                            color: "#FFF",
-                            fontSize: 12,
-                            fontWeight: 700,
-                            cursor: "pointer"
-                          }}
-                        >
-                          {isConnected ? "Configure / Change" : "Connect Outlook Account"}
-                        </button>
-                        {isConnected && (
-                          <button
-                            onClick={() => handleDeleteAccount(oAcc.id)}
-                            style={{
-                              padding: "8px 12px",
-                              borderRadius: 8,
-                              border: "1px solid #FECDD3",
-                              background: "#FFF1F2",
-                              color: "#E11D48",
-                              fontSize: 12,
-                              fontWeight: 600,
-                              cursor: "pointer"
-                            }}
-                          >
-                            Disconnect
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* 3. Custom SMTP Card */}
-                {(() => {
-                  const sAcc = accounts.find(a => a.config?.provider === "smtp") || {
-                    id: "comm_smtp_default",
-                    name: "Custom SMTP / Corporate Domain",
-                    status: "not_configured",
-                    config: { host: "smtp.gmail.com", port: 587 }
-                  };
-                  const isConnected = sAcc.status === "connected" && sAcc.config?.email;
-                  return (
-                    <div style={{
-                      background: "#FFFFFF",
-                      borderRadius: 16,
-                      border: "1px solid #E2E8F0",
-                      padding: 22,
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between"
-                    }}>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <div style={{ width: 38, height: 38, borderRadius: 10, background: "#F5F3FF", border: "1px solid #DDD6FE", display: "flex", alignItems: "center", justifyContent: "center", color: "#7C3AED", fontWeight: 800 }}>
-                              <Server size={18} />
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Custom SMTP / Domain Mail</div>
-                              <div style={{ fontSize: 11, color: "#64748B" }}>SendGrid, Postfix, Amazon SES, Zoho</div>
-                            </div>
-                          </div>
-                          <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: isConnected ? "#ECFDF5" : "#F1F5F9", color: isConnected ? "#059669" : "#64748B" }}>
-                            {isConnected ? "● Verified" : "Not Configured"}
-                          </span>
-                        </div>
-
-                        <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 12, marginBottom: 14, border: "1px solid #E2E8F0" }}>
-                          <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>SMTP SERVER HOST:</div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", fontFamily: FONT_MONO }}>
-                            {sAcc.config?.host || "smtp.yourcompany.com"}:{sAcc.config?.port || 587}
-                          </div>
-                        </div>
-
-                        <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.5, marginBottom: 16 }}>
-                          Send outbound calendar booking emails and automated reminders from your custom company domain with full SPF/DKIM verification.
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #F1F5F9", paddingTop: 14 }}>
-                        <button
-                          onClick={() => handleOpenAccountModal("smtp", isConnected ? sAcc : null)}
-                          style={{
-                            flex: 1,
-                            padding: "8px 12px",
-                            borderRadius: 8,
-                            border: "1px solid #CBD5E1",
-                            background: "#FFF",
+                            border: "1px solid #FECDD3",
+                            background: "#FFF1F2",
+                            color: "#E11D48",
                             fontSize: 12,
                             fontWeight: 600,
-                            color: "#334155",
                             cursor: "pointer"
                           }}
                         >
-                          Configure SMTP Credentials
+                          Disconnect
                         </button>
                       </div>
                     </div>
                   );
-                })()}
+                })}
 
-                {/* 4. Zoom Integration Card */}
+                {/* Quick Add Another Account Card */}
                 <div style={{
-                  background: "#FFFFFF",
+                  border: "2px dashed #CBD5E1",
                   borderRadius: 16,
-                  border: "1px solid #E2E8F0",
-                  padding: 22,
+                  padding: 24,
                   display: "flex",
                   flexDirection: "column",
-                  justifyContent: "space-between"
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textAlign: "center",
+                  background: "#FAFAFA",
+                  minHeight: 220
                 }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ width: 38, height: 38, borderRadius: 10, background: "#F0F9FF", border: "1px solid #BAE6FD", display: "flex", alignItems: "center", justifyContent: "center", color: "#0284C7", fontWeight: 800 }}>
-                          <Video size={18} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Zoom Meetings</div>
-                          <div style={{ fontSize: 11, color: "#64748B" }}>Video conferencing integration</div>
-                        </div>
-                      </div>
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: "#F1F5F9", color: "#64748B" }}>
-                        Optional
-                      </span>
-                    </div>
-
-                    <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 12, marginBottom: 14, border: "1px solid #E2E8F0" }}>
-                      <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>DEFAULT VIDEO PLATFORM:</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>
-                        Google Meet (Active & Automated)
-                      </div>
-                    </div>
-
-                    <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.5, marginBottom: 16 }}>
-                      Generate Zoom meeting links instead of Google Meet when clients schedule calls.
-                    </div>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563EB", marginBottom: 10 }}>
+                    <Plus size={22} />
                   </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #F1F5F9", paddingTop: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
+                    Add Another Communication Account
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748B", marginBottom: 14, maxWidth: 280 }}>
+                    You can connect multiple Gmail, Outlook, or SMTP accounts for different team members or departments.
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
                     <button
-                      onClick={() => alert("Zoom integration is ready for API configuration in Event Types.")}
-                      style={{
-                        flex: 1,
-                        padding: "8px 12px",
-                        borderRadius: 8,
-                        border: "1px solid #CBD5E1",
-                        background: "#FFF",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "#334155",
-                        cursor: "pointer"
-                      }}
+                      onClick={() => handleOpenAccountModal("google")}
+                      style={{ padding: "6px 12px", borderRadius: 6, background: "#EA4335", color: "#FFF", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
                     >
-                      Connect Zoom Account
+                      + Google
+                    </button>
+                    <button
+                      onClick={() => handleOpenAccountModal("outlook")}
+                      style={{ padding: "6px 12px", borderRadius: 6, background: "#0078D4", color: "#FFF", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
+                    >
+                      + Outlook
+                    </button>
+                    <button
+                      onClick={() => handleOpenAccountModal("smtp")}
+                      style={{ padding: "6px 12px", borderRadius: 6, background: "#7C3AED", color: "#FFF", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
+                    >
+                      + SMTP
                     </button>
                   </div>
                 </div>
@@ -1651,22 +1585,37 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                   <div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
                       <label style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
-                        Host Email (Calendar Organizer)
+                        Host & Calendar Organizer Account
                       </label>
                       <button
                         type="button"
-                        onClick={() => setHostEmail(primaryAccount?.config?.email || operator?.email || "admin@aivhub.io")}
-                        style={{ background: "none", border: "none", color: "#10B981", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                        onClick={() => setActiveTab("accounts")}
+                        style={{ background: "none", border: "none", color: "#2563EB", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                       >
-                        Use Primary Account ({primaryAccount?.config?.email || "admin@aivhub.io"})
+                        + Manage Accounts ({accounts.filter(a => a.status === "connected" || a.config?.email).length})
                       </button>
                     </div>
-                    <input
-                      type="email"
-                      value={hostEmail}
-                      onChange={(e) => setHostEmail(e.target.value)}
-                      style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13, outline: "none" }}
-                    />
+                    {accounts.filter(a => a.status === "connected" && a.config?.email).length > 0 ? (
+                      <select
+                        value={hostEmail}
+                        onChange={(e) => setHostEmail(e.target.value)}
+                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13, outline: "none", background: "#FFF" }}
+                      >
+                        {accounts.filter(a => a.status === "connected" && a.config?.email).map(acc => (
+                          <option key={acc.id} value={acc.config.email}>
+                            {acc.name || acc.config.provider} — {acc.config.email} {acc.config.is_primary ? "★ (Primary Host)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="email"
+                        value={hostEmail}
+                        onChange={(e) => setHostEmail(e.target.value)}
+                        placeholder="admin@aivhub.io"
+                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13, outline: "none" }}
+                      />
+                    )}
                   </div>
 
                   <div>
@@ -2403,6 +2352,19 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
             </div>
 
             <form onSubmit={handleSaveAccount} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                  Account Label / Nickname *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={accountForm.name}
+                  onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
+                  placeholder="e.g. Sales Outreach, Support Desk, Personal VIP"
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13 }}
+                />
+              </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
                   Email Address *
