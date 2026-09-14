@@ -10958,7 +10958,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
             { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
             { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
-            { id: "calcom", label: "Meeting Scheduler (Cal.com)", icon: CalendarCheck, color: "#10B981" },
+            { id: "calcom", label: "Calendar & Cal.com", icon: CalendarCheck, color: "#10B981" },
             { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
           ].map((t) => {
             const Icon = t.icon;
@@ -11435,21 +11435,14 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   <CalendarCheck size={18} color="#059669" />
                   <div>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      Meeting Scheduler & Cal.com Universal Configuration
+                      Calendar & Cal.com Admin Controls
                     </div>
                     <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Manage Host Mail ID, Cal.com API keys, default booking duration, and email notifications across all workspace plugins.
+                      Admin control center for Host Mail ID, Cal.com API connection, booking slot availability, and automated meeting invitations.
                     </div>
                   </div>
                 </div>
-                {onNavigateToPlugin && (
-                  <button
-                    onClick={() => { onNavigateToPlugin("calcom"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    Open Scheduler Plugin <ChevronRight size={13} />
-                  </button>
-                )}
+
               </div>
 
               {/* Status Card */}
@@ -14991,6 +14984,50 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                 </div>
               </button>
 
+              {/* Calendar & Cal.com Scheduling (Admin Control) */}
+              <button
+                onClick={() => { setOpen(false); onOpenCommonAi("calcom"); }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "9px 12px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 7, background: "#ECFDF5", display: "flex", alignItems: "center", justifyContent: "center", color: "#059669" }}>
+                    <CalendarCheck size={15} />
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Calendar & Cal.com</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Host mail, keys & slots</div>
+                  </div>
+                </div>
+                <span style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  background: "#ECFDF5",
+                  color: "#059669",
+                  border: "1px solid #A7F3D0"
+                }}>
+                  <span style={{ width: 5, height: 5, borderRadius: 999, background: "#059669" }} />
+                  Admin
+                </span>
+              </button>
+
               <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
             </>
           )}
@@ -15117,14 +15154,6 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
             accent={C.cobalt}
             ready={true}
             onClick={() => onPick("voice")}
-          />
-          <PluginCard
-            icon={CalendarCheck}
-            title="Meeting Scheduler (Cal.com)"
-            blurb="Synchronized calendar & booking engine: manage 15/30/45m event types, live slot availability, direct 1-click booking, and instant Google Meet video links."
-            accent="#10B981"
-            ready={true}
-            onClick={() => onPick("calcom")}
           />
 
         </div>

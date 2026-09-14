@@ -139,14 +139,6 @@ export function PluginHub({ operator = { name: "Jitendra S.", role: "Admin" }, o
             ready={true}
             onClick={() => onPick("voice")}
           />
-          <PluginCard
-            icon={CalendarCheck}
-            title="Meeting Scheduler (Cal.com)"
-            blurb="Synchronized calendar & booking engine: manage 15/30/45m event types, live slot availability, direct 1-click booking, and instant Google Meet video links."
-            accent="#10B981"
-            ready={true}
-            onClick={() => onPick("calcom")}
-          />
         </div>
       </div>
     </div>
