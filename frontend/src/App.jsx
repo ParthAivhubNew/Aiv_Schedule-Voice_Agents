@@ -1240,7 +1240,7 @@ const NAV_GROUPS = [
   ]},
 ];
 
-function Sidebar({ view, setView, companyName, callerName, timezone, operatorName, operatorRole, onBackToHub, onLogout }) {
+function Sidebar({ view, setView, companyName, callerName, timezone, operatorName, operatorRole, onBackToHub, onLogout, activeCallCount = 0 }) {
   const who = operatorName || "Jitendra S.";
   const role = operatorRole || "Admin";
   return (
@@ -1315,7 +1315,7 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
+                    justifyContent: "space-between",
                     padding: "9px 10px",
                     borderRadius: 8,
                     border: "none",
@@ -1331,8 +1331,15 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
                   onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
                   onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
                 >
-                  <Icon size={16} strokeWidth={2} />
-                  {n.label}
+                  <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Icon size={16} strokeWidth={2} />
+                    {n.label}
+                  </span>
+                  {n.id === "live" && activeCallCount > 0 && (
+                    <span style={{ background: "#10B981", color: "#fff", fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 999 }}>
+                      {activeCallCount} LIVE
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -20027,6 +20034,19 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         (msg) => {
           if (msg && msg.type) {
             refreshLiveCalls();
+            if (msg.type === "call_created" || msg.type === "call_started") {
+              const callerLabel = (msg.data && (msg.data.prospect || msg.data.caller)) || "Incoming caller";
+              setNotifications((ns) => [
+                {
+                  id: "n_" + Date.now(),
+                  text: `📞 Inbound call received: ${callerLabel}. AI is conversing live now!`,
+                  time: "just now",
+                  unread: true,
+                  type: "alert"
+                },
+                ...ns
+              ]);
+            }
             if (["call_ended", "booking_confirmed", "call_updated"].includes(msg.type)) {
               refreshWorkspaceLogs();
             }
@@ -20658,6 +20678,8 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     navigateTo("calllog", { prefillLogQuery: name });
   };
 
+  const activeCalls = liveCalls.filter((c) => !c.ended && c.state !== "ended" && c.state !== "failed" && c.state !== "canceled");
+
   return (
     <div style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
       <AppChrome />
@@ -20672,9 +20694,55 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         operatorRole={operator && operator.role}
         onBackToHub={onBackToHub}
         onLogout={onLogout}
+        activeCallCount={activeCalls.length}
       />
 
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        {/* Floating Active Call Banner across all views */}
+        {activeCalls.length > 0 && view !== "live" && (
+          <div
+            style={{
+              background: "linear-gradient(90deg, #0F172A 0%, #1E1B4B 100%)",
+              color: "#fff",
+              padding: "12px 24px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderBottom: "2px solid #6366F1",
+              boxShadow: "0 4px 14px rgba(99, 102, 241, 0.25)",
+              zIndex: 999,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#10B981", display: "inline-block", boxShadow: "0 0 8px #10B981" }} />
+              <span style={{ fontWeight: 700, fontSize: 13.5, color: "#fff" }}>
+                📞 Live Call in Progress ({activeCalls.length}): {activeCalls[0].prospect} ({activeCalls[0].duration || "00:01"})
+              </span>
+              <span style={{ fontSize: 12, color: "#C7D2FE" }}>
+                AI is actively speaking with caller.
+              </span>
+            </div>
+            <button
+              onClick={() => setView("live")}
+              style={{
+                background: "#4F46E5",
+                color: "#fff",
+                border: "none",
+                borderRadius: 8,
+                padding: "6px 14px",
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              Watch Live / Listen &rarr;
+            </button>
+          </div>
+        )}
+
         {(view === "tasks" || view === "missions") && !selectedMission && (
           <TasksView
             tasks={missions}
