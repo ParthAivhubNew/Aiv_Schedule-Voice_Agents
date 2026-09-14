@@ -103,22 +103,37 @@ export class AudioStreamPlayer {
         this.audioCtx.resume();
       }
       this.masterGain = this.audioCtx.createGain();
-      this.masterGain.gain.value = 0.95;
+      this.masterGain.gain.value = 1.0;
 
-      // Telephony bandpass lowpass filter (removes aliasing grit and digital hiss above 3800Hz)
+      // 1. Vocal Warmth: Low-shelf filter at 260Hz (+2.0dB) injects natural chest body and resonance
+      this.warmthFilter = this.audioCtx.createBiquadFilter();
+      this.warmthFilter.type = 'lowshelf';
+      this.warmthFilter.frequency.value = 260;
+      this.warmthFilter.gain.value = 2.0;
+
+      // 2. Vocal Intelligibility & Clarity: Peaking filter at 2900Hz (+2.5dB, Q: 1.2) clarifies consonants and natural diction
+      this.presenceFilter = this.audioCtx.createBiquadFilter();
+      this.presenceFilter.type = 'peaking';
+      this.presenceFilter.frequency.value = 2900;
+      this.presenceFilter.Q.value = 1.2;
+      this.presenceFilter.gain.value = 2.5;
+
+      // 3. Smooth anti-aliasing filter at 4000Hz (removes digital ringing without muffling speech)
       this.filterNode = this.audioCtx.createBiquadFilter();
       this.filterNode.type = 'lowpass';
-      this.filterNode.frequency.value = 3800;
+      this.filterNode.frequency.value = 4000;
 
-      // Dynamics compressor: prevents clipping or distortion when caller & AI speak concurrently
+      // 4. Dynamics compressor: smooths audio peaks, prevents clipping and delivers broadcast-grade vocal consistency
       this.compressor = this.audioCtx.createDynamicsCompressor();
-      this.compressor.threshold.value = -12;
-      this.compressor.knee.value = 10;
-      this.compressor.ratio.value = 4;
-      this.compressor.attack.value = 0.005;
+      this.compressor.threshold.value = -14;
+      this.compressor.knee.value = 12;
+      this.compressor.ratio.value = 3.5;
+      this.compressor.attack.value = 0.003;
       this.compressor.release.value = 0.050;
 
-      this.masterGain.connect(this.filterNode);
+      this.masterGain.connect(this.warmthFilter);
+      this.warmthFilter.connect(this.presenceFilter);
+      this.presenceFilter.connect(this.filterNode);
       this.filterNode.connect(this.compressor);
       this.compressor.connect(this.audioCtx.destination);
     } catch (err) {
@@ -213,16 +228,15 @@ export class AudioStreamPlayer {
       const trackKey = track === 'outbound' ? 'outbound' : 'inbound';
       let trackStart = this.trackTimelines[trackKey] || 0;
 
-      // If starting fresh or recovering from a silence gap (> 100ms):
-      if (trackStart === 0 || (now - trackStart) > 0.100) {
-        trackStart = now + 0.050; // 50ms initial safety cushion
+      // If starting fresh or recovering from a silence gap (> 80ms):
+      if (trackStart === 0 || (now - trackStart) > 0.080) {
+        trackStart = now + 0.035; // 35ms initial safety cushion (immediate start without stutter)
       } else if (trackStart < now) {
-        // Minor network packet jitter (1-50ms late): start IMMEDIATELY at 'now'
-        // NEVER inject 40ms of dead silence which causes shaky / robotic stutter!
+        // Minor network packet jitter: start IMMEDIATELY at 'now'
         trackStart = now;
-      } else if (trackStart > now + 0.250) {
-        // Excess latency drift (> 250ms behind real-time): gently resync
-        trackStart = now + 0.050;
+      } else if (trackStart > now + 0.200) {
+        // Excess latency drift (> 200ms behind real-time): gently resync
+        trackStart = now + 0.035;
       }
 
       source.start(trackStart);
@@ -243,6 +257,14 @@ export class AudioStreamPlayer {
     if (this.masterGain) {
       try { this.masterGain.disconnect(); } catch (_) {}
       this.masterGain = null;
+    }
+    if (this.warmthFilter) {
+      try { this.warmthFilter.disconnect(); } catch (_) {}
+      this.warmthFilter = null;
+    }
+    if (this.presenceFilter) {
+      try { this.presenceFilter.disconnect(); } catch (_) {}
+      this.presenceFilter = null;
     }
     if (this.filterNode) {
       try { this.filterNode.disconnect(); } catch (_) {}

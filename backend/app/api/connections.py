@@ -206,7 +206,9 @@ class TelephonyHubProvisionRequest(BaseModel):
     api_key: Optional[str] = None
     account_sid: Optional[str] = None
     agent_id: Optional[str] = None
-    voice_name: Optional[str] = "rex"
+    voice_name: Optional[str] = "ara"  # Default to ara (ultra-natural human voice)
+    silence_duration_ms: Optional[int] = 380  # Snappy human turn-taking
+    temperature: Optional[float] = 0.80  # Natural vocal inflection and warmth
     webhook_url: Optional[str] = None
     signing_secret: Optional[str] = None
 
@@ -257,12 +259,22 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     default_webhook = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
 
     clean_secret = active_secret if (active_secret and not active_secret.startswith("whsec_••••")) else ""
+    configured_voice = settings.XAI_VOICE_NAME
+    configured_silence = 380
+    configured_temp = 0.80
+    if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
+        configured_voice = engine_conn.config.get("voice_name") or engine_conn.config.get("voice") or configured_voice
+        configured_silence = engine_conn.config.get("silence_duration_ms", 380)
+        configured_temp = engine_conn.config.get("temperature", 0.80)
+
     return {
         "activeCarrier": active_carrier,
         "activeEngine": active_engine,
         "phoneNumber": active_phone,
         "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
-        "voiceName": settings.XAI_VOICE_NAME,
+        "voiceName": configured_voice,
+        "silenceDurationMs": configured_silence,
+        "temperature": configured_temp,
         "status": "connected" if is_connected else "configured",
         "webhookUrl": default_webhook,
         "xaiFqdn": settings.XAI_SIP_FQDN,
@@ -501,7 +513,10 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                     "api_key": key_clean,
                     "signing_secret": signing_secret,
                     "phoneNumber": phone_clean,
-                    "engine": engine_name
+                    "engine": engine_name,
+                    "voice_name": req.voice_name or "ara",
+                    "silence_duration_ms": req.silence_duration_ms or 380,
+                    "temperature": req.temperature or 0.80
                 }
             ))
             await db.commit()

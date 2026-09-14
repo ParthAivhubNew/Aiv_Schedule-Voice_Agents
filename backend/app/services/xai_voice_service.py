@@ -221,37 +221,58 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     if target_first_name.lower() in ["prospect", "caller"]:
         target_first_name = "there"
 
-    instructions = f"""You are {caller_name}, a highly articulate, warm, and charismatic executive representative calling on behalf of {company_name}.
-Tone & Personality: {tone}. You sound like an experienced, personable enterprise partner having a relaxed, confident conversation — NEVER like a rigid telemarketer or robot reading a script.
+    instructions = f"""You are {caller_name}, an exceptionally warm, articulate, and personable executive representative calling on behalf of {company_name}.
+Tone & Personality: {tone}. You sound like an energetic, thoughtful human colleague having a relaxed, confident conversation over the phone. You NEVER sound like a rigid telemarketer, monotonous computer, or scripted bot.
 
-CRITICAL OUTBOUND CALL OPENING RULE (SPEAK FIRST):
-- You are placing an OUTBOUND BUSINESS CALL to {target_name}. The person on the other end has just answered their phone.
-- You MUST speak FIRST immediately! Do NOT stay silent waiting for the other party to ask who is calling.
-- Your opening greeting MUST introduce yourself and your company clearly and warmly:
-  "Hi {target_first_name}, this is {caller_name} calling from {company_name}. How are you doing today?"
-- Once they reply, state the reason for your call naturally:
-  "I'm reaching out from {company_name} because we help businesses turn their scattered business data into real-time dashboards and AI-powered insights. I wanted to see if we could set up a quick 15-minute demo to show you how our BI platform works."
+HUMAN CONVERSATIONAL FLOW & NATURAL CADENCE RULES (MANDATORY):
+1. BREATHE & KEEP TURNS SHORT: Speak ONLY 1 to 2 short sentences per turn (12 to 25 words maximum). Monologuing sounds robotic. Keep the ping-pong dialogue flowing naturally.
+2. SPOKEN CONTRACTIONS: ALWAYS use natural spoken contractions ("I'm", "we're", "don't", "that's", "you'd", "won't"). NEVER say formal robotic phrases like "I am", "we do not", "facilitate", or "in accordance with".
+3. VERBAL NODDING & LISTENING CUES: Before answering, validate the prospect naturally like a real human would:
+   - "Gotcha, makes total sense."
+   - "Right, absolutely."
+   - "Brilliant!"
+   - "Fair enough, I hear you."
+   - "Totally understand."
+4. NATURAL MICRO-PAUSES: Use commas and em-dashes (—) in your output to give your voice natural human pauses, breath, and micro-cadence.
+5. ADAPTABLE & UNHURRIED: If interrupted, instantly pivot to what they just said. Do not repeat previous sentences or stick rigidly to a script.
+
+CRITICAL OUTBOUND CALL OPENING (SPEAK FIRST & ENGAGE):
+- You are placing an OUTBOUND CALL to {target_name}. The person has just picked up.
+- You MUST speak FIRST immediately! Do NOT wait in awkward silence.
+- Opening Greeting (Warm & Human):
+  "Hi {target_first_name}, this is {caller_name} from {company_name}. How's your day going?"
+- When they reply:
+  "The reason for my call—we help businesses connect scattered operational data into live dashboards and AI insights. Just wanted to see if you'd be open to a quick 15-minute walkthrough sometime this week?"
 
 CRITICAL MEETING BOOKING & CONTACT DETAILS CAPTURE (MANDATORY):
-1. The PRIMARY OBJECTIVE of this call is to schedule a 15-minute discovery demo AND CAPTURE THEIR DIRECT CONTACT DETAILS (Email address and Phone number).
-2. When the prospect agrees to a day or time (e.g. tomorrow afternoon, Friday, etc.):
-   - You MUST ask for their email address before confirming the meeting:
-     "Brilliant! What is the best email address to send the calendar invite and meeting link to?"
-3. Listen carefully to their email address (e.g. name@company.com). Acknowledge and repeat it back naturally to confirm:
+1. PRIMARY OBJECTIVE: Schedule a 15-minute discovery demo AND capture direct contact details (Email and Phone).
+2. When the prospect agrees to a day or time (e.g., "Tomorrow works", "Friday at 2"):
+   - Ask for their email warmly: "Brilliant! What's the best email address to send the calendar invite and direct link to?"
+3. When they provide their email: Repeat it back naturally to verify:
    - "Got it, that's [email]. I'll make sure the invite goes straight there."
-4. Also confirm their direct phone number:
+4. Confirm their direct phone number:
    - "And is this the best number to reach you on, or do you have a direct mobile you prefer?"
-5. ONLY invoke the `book_calendar_meeting` tool AFTER you have collected their confirmed email address, date, and time! Always provide the email in the `email` argument of `book_calendar_meeting`.
+5. ONLY call `book_calendar_meeting` AFTER you have collected confirmed email, date, and time.
 
-TEMPORAL GROUND TRUTH & UK CLOCK (MANDATORY & EXACT):
+OBJECTION & HESITATION HANDLING (EMPATHETIC & HUMAN):
+- If they say "I'm busy" / "In a meeting":
+  "Totally understand, won't keep you! What's the best email address to drop a quick 1-page overview to?"
+- If they say "Send an email first":
+  "Happy to do that! What email should I ping it over to, and who should I mark it for?"
+- If they ask "Are you an AI?":
+  "I am an AI assistant working directly with our executive team at {company_name}! I can answer questions and get you booked directly with our specialists—how does that sound?"
+- If they ask about detailed pricing:
+  "Pricing scales with your data sources and team size. We tailor everything in a quick 15-minute walkthrough. Would tomorrow or Friday suit you better?"
+
+TEMPORAL GROUND TRUTH & UK CLOCK (EXACT):
 - Location & Timezone: London, United Kingdom (BST / Europe/London). Both you and the prospect are in the UK.
 - EXACT CURRENT UK TIME: {current_time_str} ({day_part})
 - EXACT TODAY'S DATE: {current_date_str}
 - TOMORROW: {tomorrow_str}
 - CURRENT YEAR: {now.year}
-- IF ASKED WHAT TIME OR DAY IT IS: State the exact current UK time immediately: "It is currently {current_time_str} on {current_date_str} here in the UK."
-- WHEN PROPOSING SLOTS FOR "TODAY": Only propose times later than {current_time_str}.
-- NEVER schedule, suggest, or accept past dates (e.g. 2024, 2025, or any past day or hour). If the prospect mentions a month without a year or a date in the past, clarify naturally: "Just to confirm, are you thinking later this year or next week? For this week, I've got tomorrow or Friday open."
+- IF ASKED WHAT TIME OR DAY IT IS: "It's currently {current_time_str} on {current_date_str} here in the UK."
+- ONLY propose future time slots (later than {current_time_str}).
+- NEVER schedule past dates.
 
 Company Pitch:
 {pitch}
@@ -264,13 +285,6 @@ Verified Knowledge & FAQs (Ground Truth):
 
 Call Disclosure:
 "{disclosure}"
-
-CONVERSATION STYLE & VOICE GUIDELINES:
-1. Speak in natural, fluid spoken English (1-2 sentences per turn). Keep turns punchy and conversational.
-2. Use conversational bridges naturally ("Brilliant", "That makes total sense", "Spot on", "Fair enough", "I completely understand").
-3. Be adaptable: If the person interrupts, changes topic, or asks a tough question, answer directly with confidence.
-4. If they ask about detailed pricing, technical architecture, or onboarding, run `query_knowledge_base` to retrieve accurate facts.
-5. If they are busy or in a meeting, say: "No problem at all, I know your time is valuable. What is the best email address to ping you a quick calendar invite for tomorrow?"
 """
     return instructions.strip()
 
@@ -589,25 +603,39 @@ async def join_xai_call_session(
     # Adding agent_id alongside call_id can conflict with the SIP call context on xAI's side.
     ws_url = f"{settings.XAI_REALTIME_WS_URL}?call_id={call_id}"
     api_key = settings.XAI_API_KEY
-    if not api_key:
-        try:
-            from app.models.models import Connection
-            async with AsyncSessionLocal() as db:
-                c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
-                c = c_res.scalars().first()
-                if c and c.config and isinstance(c.config, dict):
-                    stored_key = c.config.get("api_key")
-                    if stored_key:
-                        api_key = stored_key
-                        settings.XAI_API_KEY = stored_key
-                        settings.VOICE_ENGINE_MODE = "live"
-        except Exception as k_err:
-            logger.warning(f"Could not load xAI key from DB config: {k_err}")
+    active_voice = settings.XAI_VOICE_NAME
+    silence_ms = getattr(settings, "XAI_VAD_SILENCE_MS", 380)
+    prefix_ms = getattr(settings, "XAI_VAD_PREFIX_PADDING_MS", 180)
+    temp_val = getattr(settings, "XAI_TEMPERATURE", 0.80)
+
+    try:
+        from app.models.models import Connection
+        async with AsyncSessionLocal() as db:
+            c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            c = c_res.scalars().first()
+            if c and c.config and isinstance(c.config, dict):
+                stored_key = c.config.get("api_key")
+                if stored_key:
+                    api_key = stored_key
+                    settings.XAI_API_KEY = stored_key
+                    settings.VOICE_ENGINE_MODE = "live"
+                if c.config.get("voice_name"):
+                    active_voice = c.config.get("voice_name")
+                elif c.config.get("voice"):
+                    active_voice = c.config.get("voice")
+                if c.config.get("silence_duration_ms"):
+                    silence_ms = int(c.config.get("silence_duration_ms"))
+                if c.config.get("prefix_padding_ms"):
+                    prefix_ms = int(c.config.get("prefix_padding_ms"))
+                if c.config.get("temperature"):
+                    temp_val = float(c.config.get("temperature"))
+    except Exception as k_err:
+        logger.warning(f"Could not load xAI config from DB: {k_err}")
 
     await log_process_event(
         subsystem="telephony",
         process_name="xai_ws_connecting",
-        message=f"Connecting WebSocket to xAI Realtime API for sip_call_id={call_id} from caller={caller_number}",
+        message=f"Connecting WebSocket to xAI Realtime API for sip_call_id={call_id} (Voice: {active_voice}, VAD silence: {silence_ms}ms, Temp: {temp_val})",
         level="INFO",
         details={
             "callId": call_id,
@@ -739,7 +767,7 @@ async def join_xai_call_session(
                 process_name="xai_ws_session_connected",
                 message=f"xAI Realtime WebSocket connected successfully for call {call_id}.",
                 level="SUCCESS",
-                details={"callId": call_id, "voice": settings.XAI_VOICE_NAME}
+                details={"callId": call_id, "voice": active_voice, "silenceMs": silence_ms, "temperature": temp_val}
             )
 
             # 2. Send session.update to configure voice, VAD, prompt & tools
@@ -747,13 +775,14 @@ async def join_xai_call_session(
                 "type": "session.update",
                 "session": {
                     "modalities": ["audio", "text"],
-                    "voice": settings.XAI_VOICE_NAME,
+                    "voice": active_voice,
                     "instructions": system_instructions,
+                    "temperature": temp_val,
                     "turn_detection": {
                         "type": "server_vad",
-                        "threshold": 0.5,
-                        "prefix_padding_ms": 300,
-                        "silence_duration_ms": 600
+                        "threshold": 0.48,
+                        "prefix_padding_ms": prefix_ms,
+                        "silence_duration_ms": silence_ms
                     },
                     "tools": tools_list,
                     "tool_choice": "auto",
@@ -778,7 +807,7 @@ async def join_xai_call_session(
                 if greeting_dispatched:
                     return
                 greeting_dispatched = True
-                logger.info(f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source}...")
+                logger.info(f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source} (voice={active_voice})...")
 
                 try:
                     london_tz = zoneinfo.ZoneInfo("Europe/London")
@@ -799,19 +828,25 @@ async def join_xai_call_session(
                 else:
                     is_inbound = False
 
+                profile_rep = _knowledge_cache.get("profile") if "_knowledge_cache" in globals() else None
+                rep_name = profile_rep.caller_name if profile_rep and profile_rep.caller_name else "Sam"
+                comp_name = profile_rep.name if profile_rep and profile_rep.name else "AIVHub"
+
                 if is_inbound:
                     greeting_instruction = (
-                        f"You are Sam, the AI executive representative at AIVHub, answering an INCOMING phone call. "
+                        f"You are {rep_name}, the AI representative at {comp_name}, answering an incoming phone call. "
                         f"The current time in London is {current_time_str} on {current_date_str}. "
-                        f"Speak FIRST immediately! Say warmly: 'Hello, thanks for calling AIVHub! This is Sam. How can I help you today?' "
-                        f"Do not wait for the caller to speak first."
+                        f"Speak FIRST immediately! Say warmly, naturally, with conversational human tone: "
+                        f"'Hello, thanks for calling {comp_name}! This is {rep_name}. How can I help you today?' "
+                        f"Do not wait for the caller to speak first. Keep it relaxed and friendly."
                     )
                 else:
                     greeting_line = f"Hi {target_first_name}" if target_first_name != "there" else "Hi there"
                     greeting_instruction = (
-                        f"You are calling {target_first_name} as Sam from AIVHub on an outbound business call. "
+                        f"You are calling {target_first_name} as {rep_name} from {comp_name} on an outbound business call. "
                         f"The current time in London is {current_time_str} on {current_date_str}. "
-                        f"Speak FIRST immediately! Say warmly and clearly: '{greeting_line}, this is Sam calling from AIVHub. How are you doing today?' "
+                        f"Speak FIRST immediately! Say warmly and naturally with upbeat conversational energy: "
+                        f"'{greeting_line}, this is {rep_name} calling from {comp_name}. How's your day going?' "
                         f"Do not wait for the other person to speak."
                     )
 
@@ -1129,20 +1164,22 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
 
 
 async def _run_simulated_xai_session(call_id: str, caller_number: str):
-    """Simulation fallback when real xAI keys are not provided."""
+    """Simulation fallback with ultra-natural human dialogue and contact capture."""
     sample_dialogue = [
-        ("ai", "Hello! This is Sam calling from AIVHub. How are you doing today?"),
-        ("them", "Hi Sam. I'm doing well, what is this regarding?"),
-        ("ai", "I'm calling regarding our AI-powered operational dashboards for enterprise workflows. Do you currently have unified visibility over your cross-system operations?"),
-        ("them", "We use several tools but consolidating them has been a pain. How does your pricing work?"),
-        ("ai", "Let me check our knowledge base for exact enterprise tier details."),
-        ("ai", "Our enterprise tier includes custom data connectors, private deployment, and dedicated SLA support. Would you be open to a 15-minute walkthrough tomorrow at 2 PM?"),
-        ("them", "Tomorrow at 2 PM works fine for me."),
-        ("ai", "Fantastic! I've booked that slot on our calendar. We look forward to speaking with you then. Have a wonderful day!")
+        ("ai", "Hi there, this is Sam calling from AIVHub. How's your day going?"),
+        ("them", "Hi Sam. Good thanks, what's this regarding?"),
+        ("ai", "The reason for my call—we help ops teams connect scattered systems into live dashboards and AI insights. Just wanted to see if you'd be open to a quick 15-minute walkthrough sometime this week?"),
+        ("them", "We use several tools and reporting has been quite painful. How does your pricing work?"),
+        ("ai", "Gotcha, that makes total sense. Let me check our verified knowledge base for exact enterprise tier details."),
+        ("ai", "Our enterprise tier includes custom live connectors, private deployment, and dedicated SLA onboarding. Would you be open to a quick 15-minute walkthrough tomorrow at 2 PM?"),
+        ("them", "Tomorrow at 2 PM works nicely for me."),
+        ("ai", "Brilliant! What's the best email address to send the calendar invite and direct demo link to?"),
+        ("them", "Send it over to ops@company.co.uk please."),
+        ("ai", "Got it, ops@company.co.uk. I've locked in tomorrow at 2 PM and sent the invite straight over. Have a wonderful rest of your day!")
     ]
 
     for who, text in sample_dialogue:
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(1.8)
         line = f"AI: {text}" if who == "ai" else f"Prospect: {text}"
         await _update_call_transcript(call_id, line)
         await call_hub.broadcast("call_transcript_delta", {
@@ -1150,7 +1187,7 @@ async def _run_simulated_xai_session(call_id: str, caller_number: str):
             "who": who,
             "delta": text
         })
-        if "booked that slot" in text:
-            await execute_xai_tool("book_calendar_meeting", {"date": "Tomorrow", "time": "14:00", "notes": "Demo from simulated call"}, call_id)
+        if "locked in tomorrow" in text:
+            await execute_xai_tool("book_calendar_meeting", {"date": "Tomorrow", "time": "14:00", "email": "ops@company.co.uk", "notes": "Demo from simulated call"}, call_id)
 
     await _finalize_call(call_id, "00:45", [f"{w.upper()}: {t}" for w, t in sample_dialogue])

@@ -6850,7 +6850,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
     activeCarrier: "Telnyx",
     activeEngine: "xAI Realtime",
     phoneNumber: profile?.callerId || "+19096866918",
-    voiceName: "rex",
+    voiceName: "ara",
+    silenceDurationMs: 380,
+    temperature: 0.80,
     status: "connected",
     webhookUrl: "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook",
     xaiFqdn: "sip.voice.x.ai",
@@ -6865,7 +6867,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [showKey, setShowKey] = useState(false);
   const [accountSid, setAccountSid] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
-  const [voiceName, setVoiceName] = useState("rex");
+  const [voiceName, setVoiceName] = useState("ara");
+  const [silenceDurationMs, setSilenceDurationMs] = useState(380);
+  const [temperature, setTemperature] = useState(0.80);
   const [webhookUrl, setWebhookUrl] = useState("https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook");
 
   const [provisioning, setProvisioning] = useState(false);
@@ -6887,6 +6891,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         if (data.phoneNumber) setPhoneNumber(data.phoneNumber);
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
         if (data.voiceName) setVoiceName(data.voiceName);
+        if (data.silenceDurationMs) setSilenceDurationMs(data.silenceDurationMs);
+        if (data.temperature) setTemperature(data.temperature);
         if (data.signingSecret) setSigningSecret(data.signingSecret);
         if (data.activeCarrier) {
           const cLower = data.activeCarrier.toLowerCase();
@@ -6939,6 +6945,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         api_key: apiKey,
         account_sid: accountSid,
         voice_name: voiceName,
+        silence_duration_ms: Number(silenceDurationMs),
+        temperature: Number(temperature),
         webhook_url: webhookUrl,
         signing_secret: signingSecret
       });
@@ -7316,7 +7324,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
 
             <div>
               <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                AI Voice Persona
+                AI Voice Persona (Human Realism)
               </label>
               <select
                 value={voiceName}
@@ -7325,9 +7333,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               >
                 {engineChoice === "xai" ? (
                   <>
-                    <option value="rex">Rex (Male — Warm, Confident, Executive)</option>
-                    <option value="eve">Eve (Female — Articulate, Engaging, Professional)</option>
-                    <option value="ara">Ara (Neutral — Crisp, Modern, Direct)</option>
+                    <option value="ara">Ara (Warm, Expressive & Ultra-Natural Human — Recommended)</option>
+                    <option value="eve">Eve (Dynamic, Engaging & Energetic Female)</option>
+                    <option value="rex">Rex (Structured, Deep Executive Male)</option>
                   </>
                 ) : engineChoice === "openai" ? (
                   <>
@@ -7343,6 +7351,39 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                     <option value="sonic">Cartesia Sonic (90ms Ultra-Fast)</option>
                   </>
                 )}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                Turn-Taking Latency & Responsiveness
+              </label>
+              <select
+                value={silenceDurationMs}
+                onChange={(e) => setSilenceDurationMs(Number(e.target.value))}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+              >
+                <option value={320}>Ultra-Snappy (320ms — Instant back-and-forth flow, zero awkward pause)</option>
+                <option value={380}>Balanced Natural (380ms — Recommended human conversational rhythm)</option>
+                <option value={500}>Relaxed Pacing (500ms — Thoughtful, deliberate)</option>
+              </select>
+              <div style={{ fontSize: 11, color: "#059669", marginTop: 4 }}>
+                ⚡ Eliminates slow robotic silence: voice replies immediately after caller finishes speaking.
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                Vocal Warmth & Natural Inflection
+              </label>
+              <select
+                value={temperature}
+                onChange={(e) => setTemperature(Number(e.target.value))}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+              >
+                <option value={0.85}>High Warmth & Dynamic Cadence (0.85 — Melodic human pitch & breathing)</option>
+                <option value={0.80}>Balanced Consultative (0.80 — Warm, confident, articulate)</option>
+                <option value={0.70}>Focused Neutral (0.70 — Structured executive)</option>
               </select>
             </div>
           </div>
