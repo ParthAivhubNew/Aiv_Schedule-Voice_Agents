@@ -15102,7 +15102,51 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                 </div>
               </button>
 
-              {/* Calendar & Cal.com Scheduling (Admin Control) */}
+                            {/* Communication Accounts (Admin Control) */}
+              <button
+                onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin("accounts"); else onOpenCommonAi("calcom"); }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "9px 12px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 7, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563EB" }}>
+                    <Mail size={15} />
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Communication Accounts</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Connect Gmail, Outlook & SMTP</div>
+                  </div>
+                </div>
+                <span style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  background: "#EFF6FF",
+                  color: "#2563EB",
+                  border: "1px solid #BFDBFE"
+                }}>
+                  <span style={{ width: 5, height: 5, borderRadius: 999, background: "#2563EB" }} />
+                  Admin
+                </span>
+              </button>
+
+{/* Calendar & Cal.com Scheduling (Admin Control) */}
               <button
                 onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin(); else onOpenCommonAi("calcom"); }}
                 style={{
@@ -20835,6 +20879,7 @@ export default function App() {
   const [showCommonAiModal, setShowCommonAiModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showCalcomAdminModal, setShowCalcomAdminModal] = useState(false);
+  const [calcomInitialTab, setCalcomInitialTab] = useState("overview");
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [commonAiTab, setCommonAiTab] = useState("leadgen");
 
@@ -20928,7 +20973,7 @@ export default function App() {
           onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setShowCommonAiModal(true); }}
           onOpenTeamUsers={() => setShowTeamModal(true)}
           onOpenProfileSettings={() => setShowProfileModal(true)}
-          onOpenCalcomAdmin={() => setShowCalcomAdminModal(true)}
+          onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "overview"); setShowCalcomAdminModal(true); }}
         />
       )}
 
@@ -21007,7 +21052,7 @@ export default function App() {
         setCommonAi={setCommonAi}
         initialTab={commonAiTab}
         operator={operator}
-        onOpenCalcomAdmin={() => setShowCalcomAdminModal(true)}
+        onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "overview"); setShowCalcomAdminModal(true); }}
         onNavigateToPlugin={(pId) => {
           setShowCommonAiModal(false);
           setPlugin(pId);
@@ -21018,6 +21063,7 @@ export default function App() {
         isOpen={showCalcomAdminModal}
         onClose={() => setShowCalcomAdminModal(false)}
         operator={operator}
+        initialTab={calcomInitialTab}
       />
 
       <TeamUsersModal

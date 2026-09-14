@@ -218,3 +218,40 @@ async def download_booking_ics(booking_id: str, db: AsyncSession = Depends(get_d
         media_type="text/calendar",
         headers={"Content-Disposition": f'attachment; filename="meeting-{meeting.id}.ics"'}
     )
+
+
+class CommunicationAccountPayload(BaseModel):
+    id: Optional[str] = None
+    provider: str = "google"  # google, outlook, smtp, zoom
+    name: Optional[str] = None
+    status: Optional[str] = "connected"
+    email: Optional[str] = None
+    senderName: Optional[str] = None
+    apiKey: Optional[str] = None
+    password: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+
+@router.get("/accounts")
+async def list_communication_accounts(db: AsyncSession = Depends(get_db)):
+    return await calendar_service.get_communication_accounts(db)
+
+@router.post("/accounts")
+async def save_communication_account(payload: CommunicationAccountPayload, db: AsyncSession = Depends(get_db)):
+    data = payload.dict()
+    cfg = data.get("config") or {}
+    if payload.email:
+        cfg["email"] = payload.email
+    if payload.senderName:
+        cfg["sender_name"] = payload.senderName
+    cfg["provider"] = payload.provider
+    data["config"] = cfg
+    return await calendar_service.save_communication_account(db, data)
+
+@router.delete("/accounts/{account_id}")
+async def delete_communication_account(account_id: str, db: AsyncSession = Depends(get_db)):
+    success = await calendar_service.delete_communication_account(db, account_id)
+    return {"success": success, "accountId": account_id}
+
+@router.post("/accounts/{account_id}/test")
+async def test_communication_account(account_id: str, db: AsyncSession = Depends(get_db)):
+    return await calendar_service.test_communication_account(db, account_id)

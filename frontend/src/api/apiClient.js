@@ -160,6 +160,10 @@ export const api = {
   getCalcomSettings: () => apiRequest('/calcom/settings'),
   saveCalcomSettings: (payload) => apiRequest('/calcom/settings', { method: 'POST', body: payload }),
   testCalcomConnection: () => apiRequest('/calcom/test-connection', { method: 'POST' }),
+  getCalcomAccounts: () => apiRequest('/calcom/accounts'),
+  saveCalcomAccount: (payload) => apiRequest('/calcom/accounts', { method: 'POST', body: payload }),
+  deleteCalcomAccount: (id) => apiRequest(`/calcom/accounts/${id}`, { method: 'DELETE' }),
+  testCalcomAccount: (id) => apiRequest(`/calcom/accounts/${id}/test`, { method: 'POST' }),
 
   calcom: {
     getOverview: () => apiRequest('/calcom/overview'),
