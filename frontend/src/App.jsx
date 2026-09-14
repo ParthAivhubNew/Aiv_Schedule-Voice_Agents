@@ -19888,7 +19888,7 @@ function SchSolid({ children, onClick }) {
 
 /* ---------------------------------- app shell ---------------------------------- */
 
-function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, faq, setFaq, commonAi, setCommonAi, onOpenCommonAi }) {
+function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, faq, setFaq, commonAi, setCommonAi, onOpenCommonAi, returnPlugin, onReturnToPlugin }) {
   const [view, setView] = useState(() => {
     try {
       const hash = window.location.hash.replace(/^#\/?/, "");
@@ -19925,6 +19925,14 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, [view]);
+
+  useEffect(() => {
+    const onSwitchView = (e) => {
+      if (e && e.detail) setView(e.detail);
+    };
+    window.addEventListener("aivhub_set_voice_view", onSwitchView);
+    return () => window.removeEventListener("aivhub_set_voice_view", onSwitchView);
+  }, []);
   const [selectedMissionId, setSelectedMissionId] = useState(null);
   const [liveFocus, setLiveFocus] = useState(null);
   const [showNew, setShowNew] = useState(false);
@@ -20698,6 +20706,66 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
       />
 
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        {/* Return to Previous Plugin Banner with preserved state */}
+        {returnPlugin && (
+          <div
+            style={{
+              background: "linear-gradient(90deg, #1E1B4B 0%, #0F172A 100%)",
+              borderBottom: "1px solid #4F46E5",
+              color: "#EEF2FF",
+              padding: "10px 24px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              zIndex: 1000,
+              boxShadow: "0 2px 10px rgba(79, 70, 229, 0.25)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+              <span style={{ fontSize: 16 }}>💾</span>
+              <span>
+                You jumped from <strong>{PLUGIN_DISPLAY_NAMES[returnPlugin] || returnPlugin}</strong> to handle this call.
+                Your previous workspace and unsaved drafts are safely preserved.
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                onClick={() => onReturnToPlugin && onReturnToPlugin(returnPlugin)}
+                style={{
+                  background: "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 7,
+                  padding: "6px 14px",
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  boxShadow: "0 2px 8px rgba(99, 102, 241, 0.4)",
+                }}
+              >
+                &larr; Return to {PLUGIN_DISPLAY_NAMES[returnPlugin] || returnPlugin}
+              </button>
+              <button
+                onClick={() => onReturnToPlugin && onReturnToPlugin(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94A3B8",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  padding: "4px 8px",
+                }}
+                title="Dismiss return banner"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Floating Active Call Banner across all views */}
         {activeCalls.length > 0 && view !== "live" && (
           <div
@@ -20850,6 +20918,152 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
   );
 }
 
+const PLUGIN_DISPLAY_NAMES = {
+  scheduler: "Post Scheduler & Social Media",
+  leadgen: "B2B Lead Generation",
+  emailoutreach: "Cold Email Sequencer",
+  calcom: "Cal.com Booking Hub",
+  voice: "Voice AI Operator",
+};
+
+function UniversalCallNotificationBanner({ activeCalls, currentPlugin, onJumpToVoice, onDismissCall }) {
+  if (!activeCalls || activeCalls.length === 0) return null;
+
+  const isAlreadyOnLiveView = currentPlugin === "voice" && (window.location.hash || "").includes("/live");
+  if (isAlreadyOnLiveView) return null;
+
+  const primaryCall = activeCalls[0];
+  const callerLabel = primaryCall.prospect || primaryCall.caller || primaryCall.phone || "Inbound Caller";
+  const duration = primaryCall.duration || "00:01";
+  const isOtherPlugin = currentPlugin !== "voice";
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 20,
+        right: 24,
+        zIndex: 999999,
+        maxWidth: 420,
+        minWidth: 340,
+        background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 100%)",
+        border: "2px solid #6366F1",
+        borderRadius: 14,
+        boxShadow: "0 14px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(99, 102, 241, 0.4)",
+        color: "#fff",
+        padding: "16px 18px",
+        fontFamily: "Inter, system-ui, sans-serif",
+      }}
+    >
+      {/* Top Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: "#10B981",
+              display: "inline-block",
+              boxShadow: "0 0 10px #10B981",
+            }}
+          />
+          <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A5B4FC" }}>
+            {isOtherPlugin ? "Live Call in Progress" : "Inbound Call Ringing"}
+          </span>
+          <span
+            style={{
+              background: "rgba(16, 185, 129, 0.18)",
+              border: "1px solid rgba(16, 185, 129, 0.4)",
+              color: "#34D399",
+              padding: "2px 7px",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            ⏱ {duration}
+          </span>
+        </div>
+        <button
+          onClick={() => onDismissCall(primaryCall.id || primaryCall.call_sid)}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "#94A3B8",
+            cursor: "pointer",
+            fontSize: 16,
+            lineHeight: 1,
+            padding: 4,
+          }}
+          title="Dismiss notification"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Caller Info */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
+          <span>📞</span>
+          <span>{callerLabel}</span>
+        </div>
+        <div style={{ fontSize: 12, color: "#CBD5E1", lineHeight: 1.4 }}>
+          {isOtherPlugin
+            ? "AI Operator is speaking live with caller. Take over or listen now!"
+            : "Caller is connected live. Switch to the live monitor to take over or listen."}
+        </div>
+        {isOtherPlugin && (
+          <div style={{ fontSize: 11, color: "#A5B4FC", marginTop: 5, display: "flex", alignItems: "center", gap: 5 }}>
+            <span>💾</span>
+            <span>Your ongoing work in this plugin is automatically preserved.</span>
+          </div>
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button
+          onClick={() => onJumpToVoice(primaryCall)}
+          style={{
+            flex: 1,
+            background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            padding: "8px 14px",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            boxShadow: "0 4px 12px rgba(16, 185, 129, 0.35)",
+          }}
+        >
+          ⚡ {isOtherPlugin ? "Jump to Call & Take Over" : "Switch to Live Monitor"} &rarr;
+        </button>
+        <button
+          onClick={() => onDismissCall(primaryCall.id || primaryCall.call_sid)}
+          style={{
+            background: "rgba(255, 255, 255, 0.08)",
+            color: "#CBD5E1",
+            border: "1px solid rgba(255, 255, 255, 0.15)",
+            borderRadius: 8,
+            padding: "8px 12px",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [operator, setOperator] = useState(() => {
     try {
@@ -20885,6 +21099,176 @@ export default function App() {
       return null;
     }
   });
+
+  const [visitedPlugins, setVisitedPlugins] = useState(() => {
+    const r = parseRoute();
+    const init = r.plugin || (function() {
+      try { return localStorage.getItem("aivhub_active_plugin"); } catch (_) { return null; }
+    })();
+    return init ? [init] : [];
+  });
+
+  const [returnPlugin, setReturnPlugin] = useState(() => {
+    try {
+      return sessionStorage.getItem("aivhub_return_plugin") || null;
+    } catch (_) {
+      return null;
+    }
+  });
+
+  const [globalLiveCalls, setGlobalLiveCalls] = useState([]);
+  const [dismissedCallIds, setDismissedCallIds] = useState([]);
+  const prevLiveCallIdsRef = useRef(new Set());
+
+  // Track visited plugins so DOM and state are preserved across switches
+  useEffect(() => {
+    if (plugin && !visitedPlugins.includes(plugin)) {
+      setVisitedPlugins((prev) => [...prev, plugin]);
+    }
+  }, [plugin, visitedPlugins]);
+
+  const playIncomingChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(587.33, now); // D5
+      osc.frequency.setValueAtTime(880, now + 0.15); // A5
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    } catch (_) {}
+  };
+
+  const triggerCallNotification = (call) => {
+    try {
+      playIncomingChime();
+      if ("Notification" in window) {
+        const callerName = call.prospect || call.caller || call.phone || "Inbound caller";
+        if (Notification.permission === "granted") {
+          new Notification("📞 Inbound Call in Progress", {
+            body: `${callerName} is on call with AI Operator. Click to jump to call.`,
+            icon: "/favicon.ico",
+          });
+        } else if (Notification.permission !== "denied") {
+          Notification.requestPermission().then((p) => {
+            if (p === "granted") {
+              new Notification("📞 Inbound Call in Progress", {
+                body: `${callerName} is on call with AI Operator. Click to jump to call.`,
+                icon: "/favicon.ico",
+              });
+            }
+          });
+        }
+      }
+    } catch (_) {}
+  };
+
+  const refreshGlobalLiveCalls = async () => {
+    try {
+      const lc = await api.getLiveCalls();
+      if (Array.isArray(lc)) {
+        setGlobalLiveCalls(lc);
+        const active = lc.filter((c) => !c.ended && c.state !== "ended" && c.state !== "failed" && c.state !== "canceled");
+        active.forEach((c) => {
+          const cid = c.id || c.call_sid;
+          if (cid && !prevLiveCallIdsRef.current.has(cid)) {
+            prevLiveCallIdsRef.current.add(cid);
+            triggerCallNotification(c);
+          }
+        });
+      }
+    } catch (_) {}
+  };
+
+  // Global real-time listener for incoming/live calls across ALL plugins
+  useEffect(() => {
+    let ws = null;
+    try {
+      ws = new WebSocketClient(
+        null,
+        (msg) => {
+          if (msg && msg.type) {
+            refreshGlobalLiveCalls();
+          }
+        },
+        () => console.log("[RootLiveCalls] WS connected"),
+        () => console.log("[RootLiveCalls] WS closed")
+      );
+    } catch (_) {}
+
+    refreshGlobalLiveCalls();
+    const interval = setInterval(refreshGlobalLiveCalls, 2500);
+
+    const ticker = setInterval(() => {
+      setGlobalLiveCalls((prev) =>
+        prev.map((c) => {
+          if (c.ended || c.state === "ended" || c.state === "failed" || c.state === "canceled") return c;
+          const currentDur = c.duration || "00:00";
+          if (!currentDur.includes(":")) return c;
+          const [mm, ss] = currentDur.split(":").map((n) => parseInt(n, 10) || 0);
+          const totalSecs = mm * 60 + ss + 1;
+          const nextMin = Math.floor(totalSecs / 60);
+          const nextSec = totalSecs % 60;
+          return {
+            ...c,
+            duration: `${String(nextMin).padStart(2, "0")}:${String(nextSec).padStart(2, "0")}`
+          };
+        })
+      );
+    }, 1000);
+
+    return () => {
+      if (ws) ws.close();
+      clearInterval(interval);
+      clearInterval(ticker);
+    };
+  }, []);
+
+  const handleJumpToVoice = (call) => {
+    // 1. Dispatch save draft event so active forms in any plugin flush
+    try {
+      window.dispatchEvent(new CustomEvent("aivhub_save_draft", { detail: { plugin } }));
+    } catch (_) {}
+
+    // 2. Remember current plugin for seamless one-click return with preserved state
+    if (plugin && plugin !== "voice") {
+      setReturnPlugin(plugin);
+      try { sessionStorage.setItem("aivhub_return_plugin", plugin); } catch (_) {}
+    }
+
+    // 3. Set target voice view to live
+    try {
+      localStorage.setItem("aivhub_voice_view", "live");
+      window.location.hash = "#/voice/live";
+    } catch (_) {}
+
+    // 4. Switch to voice plugin
+    setPlugin("voice");
+
+    // 5. Fire view override event in case VoiceOperatorApp is already mounted
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent("aivhub_set_voice_view", { detail: "live" }));
+      } catch (_) {}
+    }, 50);
+  };
+
+  const handleReturnToPlugin = (targetPlugin) => {
+    const dest = targetPlugin || returnPlugin;
+    if (dest) {
+      setPlugin(dest);
+      setReturnPlugin(null);
+      try { sessionStorage.removeItem("aivhub_return_plugin"); } catch (_) {}
+    }
+  };
 
   // Global helper to switch plugins from any modal
   useEffect(() => {
@@ -21040,9 +21424,12 @@ export default function App() {
   const handleLogout = () => {
     try {
       sessionStorage.removeItem("aivhub_operator");
+      sessionStorage.removeItem("aivhub_return_plugin");
       localStorage.removeItem("aivhub_active_plugin");
       window.history.replaceState(null, "", window.location.pathname);
     } catch (_) {}
+    setVisitedPlugins([]);
+    setReturnPlugin(null);
     setOperator(null);
     setPlugin(null);
   };
@@ -21086,72 +21473,96 @@ export default function App() {
         />
       )}
 
-      {plugin === "leadgen" && (
-        <LeadGenerationPlugin
-          operator={operator}
-          onBackToHub={handleBackToHub}
-          onLogout={handleLogout}
-          profile={profile}
-          commonAi={commonAi}
-        />
-      )}
+      {visitedPlugins.map((p) => (
+        <div
+          key={p}
+          style={{
+            display: plugin === p ? "block" : "none",
+            height: "100vh",
+            width: "100vw",
+            overflow: "hidden",
+          }}
+        >
+          {p === "leadgen" && (
+            <LeadGenerationPlugin
+              operator={operator}
+              onBackToHub={handleBackToHub}
+              onLogout={handleLogout}
+              profile={profile}
+              commonAi={commonAi}
+            />
+          )}
 
-      {plugin === "scheduler" && (
-        <PostSchedulerPlugin
-          operator={operator}
-          onBackToHub={handleBackToHub}
-          onLogout={handleLogout}
-          profile={profile}
-          setProfile={setProfile}
-          knowledgeSources={knowledgeSources}
-          setKnowledgeSources={setKnowledgeSources}
-          services={services}
-          setServices={setServices}
-          commonAi={commonAi}
-          setCommonAi={setCommonAi}
-          onOpenCommonAi={() => { setCommonAiTab("scheduler"); setShowCommonAiModal(true); }}
-        />
-      )}
+          {p === "scheduler" && (
+            <PostSchedulerPlugin
+              operator={operator}
+              onBackToHub={handleBackToHub}
+              onLogout={handleLogout}
+              profile={profile}
+              setProfile={setProfile}
+              knowledgeSources={knowledgeSources}
+              setKnowledgeSources={setKnowledgeSources}
+              services={services}
+              setServices={setServices}
+              commonAi={commonAi}
+              setCommonAi={setCommonAi}
+              onOpenCommonAi={() => { setCommonAiTab("scheduler"); setShowCommonAiModal(true); }}
+            />
+          )}
 
-      {plugin === "emailoutreach" && (
-        <EmailOutreachPlugin
-          operator={operator}
-          onBackToHub={handleBackToHub}
-          onLogout={handleLogout}
-          profile={profile}
-          commonAi={commonAi}
-        />
-      )}
+          {p === "emailoutreach" && (
+            <EmailOutreachPlugin
+              operator={operator}
+              onBackToHub={handleBackToHub}
+              onLogout={handleLogout}
+              profile={profile}
+              commonAi={commonAi}
+            />
+          )}
 
-      {plugin === "voice" && (
-        <VoiceOperatorApp
-          operator={operator}
-          onBackToHub={handleBackToHub}
-          onLogout={handleLogout}
-          profile={profile}
-          setProfile={setProfile}
-          knowledgeSources={knowledgeSources}
-          setKnowledgeSources={setKnowledgeSources}
-          services={services}
-          setServices={setServices}
-          faq={faq}
-          setFaq={setFaq}
-          commonAi={commonAi}
-          setCommonAi={setCommonAi}
-          onOpenCommonAi={() => { setCommonAiTab("voice"); setShowCommonAiModal(true); }}
-        />
-      )}
+          {p === "voice" && (
+            <VoiceOperatorApp
+              operator={operator}
+              onBackToHub={handleBackToHub}
+              onLogout={handleLogout}
+              profile={profile}
+              setProfile={setProfile}
+              knowledgeSources={knowledgeSources}
+              setKnowledgeSources={setKnowledgeSources}
+              services={services}
+              setServices={setServices}
+              faq={faq}
+              setFaq={setFaq}
+              commonAi={commonAi}
+              setCommonAi={setCommonAi}
+              onOpenCommonAi={() => { setCommonAiTab("voice"); setShowCommonAiModal(true); }}
+              returnPlugin={returnPlugin}
+              onReturnToPlugin={handleReturnToPlugin}
+            />
+          )}
 
-      {plugin === "calcom" && (
-        <CalcomSchedulerPlugin
-          operator={operator}
-          onBackToHub={handleBackToHub}
-          onLogout={handleLogout}
-          profile={profile}
-          commonAi={commonAi}
-          onOpenCommonAi={() => { setCommonAiTab("calcom"); setShowCommonAiModal(true); }}
-        />
-      )}
+          {p === "calcom" && (
+            <CalcomSchedulerPlugin
+              operator={operator}
+              onBackToHub={handleBackToHub}
+              onLogout={handleLogout}
+              profile={profile}
+              commonAi={commonAi}
+              onOpenCommonAi={() => { setCommonAiTab("calcom"); setShowCommonAiModal(true); }}
+            />
+          )}
+        </div>
+      ))}
+
+      {/* Universal Floating Incoming Call Banner across ALL Plugins */}
+      <UniversalCallNotificationBanner
+        activeCalls={globalLiveCalls.filter(
+          (c) => !c.ended && c.state !== "ended" && c.state !== "failed" && c.state !== "canceled" && !dismissedCallIds.includes(c.id || c.call_sid)
+        )}
+        currentPlugin={plugin}
+        onJumpToVoice={handleJumpToVoice}
+        onDismissCall={(cid) => setDismissedCallIds((prev) => [...prev, cid])}
+      />
 
 
       <CommonAiConfigModal
