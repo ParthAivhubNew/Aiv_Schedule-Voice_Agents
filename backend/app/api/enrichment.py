@@ -47,7 +47,7 @@ class CopilotChatRequest(BaseModel):
 
 class FillGapsRequest(BaseModel):
     contacts: List[Dict[str, Any]]
-    max_rows: Optional[int] = 8
+    max_rows: Optional[int] = 50
 
 @router.post("/enrich-prospect")
 async def enrich_prospect(req: EnrichRequest, db: AsyncSession = Depends(get_db)):
@@ -100,7 +100,7 @@ async def discover_accounts(req: DiscoverAccountsRequest):
 async def fill_gaps(req: FillGapsRequest):
     """Fill missing phone/email/person on an uploaded contact list. Does not invent numbers."""
     try:
-        fills = await fill_contact_gaps(req.contacts or [], max_rows=req.max_rows or 8)
+        fills = await fill_contact_gaps(req.contacts or [], max_rows=min(req.max_rows or 50, 50))
         proposed = [f for f in fills if f.get("status") == "proposed"]
         empty = [f for f in fills if f.get("status") == "unenrichable"]
         return {
@@ -173,7 +173,7 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             )
             if should_fill or fill_intent:
                 try:
-                    fills = await fill_contact_gaps(incomplete, max_rows=8)
+                    fills = await fill_contact_gaps(incomplete, max_rows=50)
                 except Exception:
                     fills = []
 

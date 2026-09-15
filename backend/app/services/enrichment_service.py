@@ -44,6 +44,96 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, 
         logger.warning(f"DuckDuckGo search error for '{query}': {err}")
     return results
 
+EMAIL_JUNK = (
+    "noreply", "no-reply", "donotreply", "sentry.io", "wixpress", "example.com",
+    "wordpress", "cloudflare", "schema.org", "png", "jpg", "svg", "css", "js",
+    "wix.com", "squarespace", "cookiebot",
+)
+
+SOCIAL_HOSTS = {
+    "linkedin": ("linkedin.com/company", "linkedin.com/in/"),
+    "twitter": ("twitter.com/", "x.com/"),
+    "facebook": ("facebook.com/", "fb.com/"),
+    "instagram": ("instagram.com/",),
+    "youtube": ("youtube.com/", "youtu.be/"),
+    "reddit": ("reddit.com/r/", "reddit.com/user/"),
+    "tiktok": ("tiktok.com/@",),
+    "github": ("github.com/",),
+    "crunchbase": ("crunchbase.com/organization",),
+}
+
+
+def _clean_href(href: str) -> str:
+    href = (href or "").strip()
+    if href.startswith("//"):
+        return "https:" + href
+    return href
+
+
+def _is_real_phone(raw: str) -> bool:
+    if not raw:
+        return False
+    if "555-0" in raw or "inferred" in raw.lower():
+        return False
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) < 8 or len(digits) > 15:
+        return False
+    if digits.startswith("202") or digits.startswith("000"):
+        return False
+    if digits.startswith("20") and len(digits) == 4:
+        return False
+    return True
+
+
+def _is_public_email(raw: str) -> bool:
+    em = (raw or "").strip().lower()
+    if "@" not in em or em.endswith((".png", ".jpg", ".svg", ".css", ".js", ".webp")):
+        return False
+    return not any(j in em for j in EMAIL_JUNK)
+
+
+def _social_key_from_url(url: str) -> Optional[str]:
+    low = (url or "").lower()
+    for key, needles in SOCIAL_HOSTS.items():
+        if any(n in low for n in needles):
+            if key == "github" and any(x in low for x in ("github.com/login", "github.com/features", "github.com/about")):
+                return None
+            if key == "facebook" and any(x in low for x in ("facebook.com/sharer", "facebook.com/dialog", "facebook.com/privacy")):
+                return None
+            return key
+    return None
+
+
+def _harvest_soup(soup: BeautifulSoup, phones: set, emails: set, socials: dict) -> List[str]:
+    extra_pages = []
+    text = soup.get_text(separator=" ")
+    for pm in re.findall(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', text):
+        if _is_real_phone(pm):
+            phones.add(pm.strip())
+    for em in re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', text):
+        if _is_public_email(em):
+            emails.add(em.lower())
+    for a in soup.find_all("a", href=True):
+        href = _clean_href(a["href"])
+        low = href.lower()
+        if low.startswith("tel:"):
+            cand = href.split(":", 1)[-1]
+            if _is_real_phone(cand):
+                phones.add(cand.strip())
+            continue
+        if low.startswith("mailto:"):
+            cand = href.split(":", 1)[-1].split("?")[0]
+            if _is_public_email(cand):
+                emails.add(cand.lower())
+            continue
+        key = _social_key_from_url(href)
+        if key and key not in socials:
+            socials[key] = href if href.startswith("http") else href
+        if any(p in low for p in ("/contact", "/about", "/impressum", "/support")):
+            extra_pages.append(href)
+    return extra_pages
+
+
 async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
     clean_url = domain_url.strip()
     if not clean_url.startswith("http"):
@@ -61,38 +151,34 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
                 title = soup.title.get_text(strip=True) if soup.title else ""
-                
                 meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
                 if meta_desc and meta_desc.get("content"):
                     description = meta_desc["content"].strip()
-
-                text = soup.get_text(separator=" ")
-                phone_matches = re.findall(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', text)
-                for pm in phone_matches:
-                    clean_p = re.sub(r'[^\d+]', '', pm)
-                    if 9 <= len(clean_p) <= 15 and not clean_p.startswith("202") and not clean_p.startswith("000"):
-                        phones.add(pm.strip())
-
-                email_matches = re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', text)
-                for em in email_matches:
-                    lower_em = em.lower()
-                    if not any(lower_em.endswith(ext) for ext in [".png", ".jpg", ".svg", ".css", ".js"]):
-                        emails.add(em)
-
-                for a in soup.find_all("a", href=True):
-                    href = a["href"]
-                    if "linkedin.com/company/" in href:
-                        socials["linkedin"] = href
-                    elif "twitter.com/" in href or "x.com/" in href:
-                        socials["twitter"] = href
+                extra = _harvest_soup(soup, phones, emails, socials)
+                parsed = urllib.parse.urlparse(str(resp.url))
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+                followed = 0
+                for href in extra:
+                    if followed >= 1:
+                        break
+                    abs_url = urllib.parse.urljoin(origin + "/", href)
+                    if urllib.parse.urlparse(abs_url).netloc != parsed.netloc:
+                        continue
+                    try:
+                        extra_resp = await client.get(abs_url)
+                        if extra_resp.status_code == 200:
+                            _harvest_soup(BeautifulSoup(extra_resp.text, "html.parser"), phones, emails, socials)
+                            followed += 1
+                    except Exception:
+                        continue
     except Exception as e:
         logger.warning(f"Could not crawl domain {clean_url}: {e}")
 
     return {
         "title": title,
         "description": description,
-        "phones": list(phones)[:5],
-        "emails": list(emails)[:5],
+        "phones": list(phones)[:8],
+        "emails": list(emails)[:8],
         "socials": socials
     }
 
@@ -106,8 +192,9 @@ async def enrich_prospect_intelligence(
     target_company = company or name
     if domain:
         search_terms.append(f"site:{domain} contact phone email")
-    search_terms.append(f'"{target_company}" phone headquarters contact address')
-    search_terms.append(f'"{target_company}" leadership CEO founders LinkedIn')
+    search_terms.append(f'"{target_company}" site:linkedin.com/company')
+    search_terms.append(f'"{target_company}" contact email phone')
+    search_terms.append(f'site:reddit.com "{target_company}"')
 
     snippets = []
     for q in search_terms:
@@ -119,27 +206,46 @@ async def enrich_prospect_intelligence(
         scraped_info = await crawl_homepage_contacts(domain)
     elif snippets:
         for s in snippets:
-            if s.get("url") and not any(skip in s["url"] for skip in ["duckduckgo", "wikipedia", "youtube"]):
-                parsed = urllib.parse.urlparse(s["url"])
+            url = s.get("url") or ""
+            if url and not any(skip in url for skip in ["duckduckgo", "wikipedia", "youtube", "linkedin.com", "reddit.com", "facebook.com", "twitter.com", "x.com"]):
+                parsed = urllib.parse.urlparse(url)
                 if parsed.netloc:
                     scraped_info = await crawl_homepage_contacts(parsed.netloc)
                     break
 
-    discovered_phones = scraped_info.get("phones", [])
-    discovered_emails = scraped_info.get("emails", [])
+    socials = dict(scraped_info.get("socials") or {})
+    reddit_mentions = []
+    for s in snippets:
+        url = s.get("url") or ""
+        key = _social_key_from_url(url)
+        if key and key not in socials:
+            socials[key] = url
+        if "reddit.com" in url.lower():
+            reddit_mentions.append({"title": s.get("title") or "", "url": url, "snippet": (s.get("snippet") or "")[:180]})
+
+    discovered_phones = [p for p in (scraped_info.get("phones") or []) if _is_real_phone(p)]
+    discovered_emails = [e for e in (scraped_info.get("emails") or []) if _is_public_email(e)]
+    host = ""
+    if domain:
+        host = urllib.parse.urlparse(domain if domain.startswith("http") else "https://" + domain).netloc.replace("www.", "")
+    if host:
+        ranked = [e for e in discovered_emails if host.split(":")[0] in e] + [e for e in discovered_emails if host.split(":")[0] not in e]
+        discovered_emails = ranked
     company_pitch = scraped_info.get("description", "")
-    
+
     people = []
+    name_re = re.compile(r"\b([A-Z][a-z]+ [A-Z][a-z]+)\b.{0,40}\b(CEO|Founder|Managing Director|COO|CTO|CMO)\b")
     for s in snippets:
         snippet_text = s.get("snippet", "")
-        roles = ["CEO", "Founder", "Managing Director", "VP", "Director of Operations", "Chief Technology Officer", "Head of Sales"]
-        for role in roles:
-            if role.lower() in snippet_text.lower():
-                people.append({
-                    "snippet": snippet_text[:140],
-                    "roleHint": role,
-                    "source": s.get("url")
-                })
+        match = name_re.search(snippet_text)
+        if match:
+            people.append({
+                "name": match.group(1),
+                "roleHint": match.group(2),
+                "snippet": snippet_text[:140],
+                "source": s.get("url"),
+            })
+            if len(people) >= 3:
                 break
 
     hook = ""
@@ -150,20 +256,22 @@ async def enrich_prospect_intelligence(
     else:
         hook = f"Hi, reaching out to {target_company} directly regarding voice AI scheduling workflows."
 
-    confidence = 85 if (discovered_phones or discovered_emails) else 60 if snippets else 35
+    confidence = 85 if (discovered_phones or discovered_emails) else 70 if socials else 60 if snippets else 35
 
     summary_result = {
         "company": target_company,
-        "domain": domain or (scraped_info.get("socials", {}).get("linkedin") or "Public Web Search"),
-        "phones": discovered_phones or ["+1-800-555-0199 (Inferred Main Line)"],
+        "domain": domain or (socials.get("linkedin") or "Public Web Search"),
+        "phones": discovered_phones,
         "primaryPhone": discovered_phones[0] if discovered_phones else "",
         "emails": discovered_emails,
         "primaryEmail": discovered_emails[0] if discovered_emails else "",
         "overview": company_pitch or (snippets[0]["snippet"] if snippets else "No detailed summary found."),
         "openingHook": hook,
         "keyPeople": people[:3],
+        "socials": socials,
+        "redditMentions": reddit_mentions[:3],
         "confidenceScore": confidence,
-        "citations": [s.get("url") for s in snippets if s.get("url")][:4]
+        "citations": [s.get("url") for s in snippets if s.get("url")][:6]
     }
 
     try:
@@ -229,11 +337,11 @@ def _row_missing_fields(row: Dict[str, Any]) -> List[str]:
 
 async def fill_contact_gaps(
     rows: List[Dict[str, Any]],
-    max_rows: int = 8,
+    max_rows: int = 50,
 ) -> List[Dict[str, Any]]:
     """
-    Enrich incomplete contact rows. Only returns fields that were actually found.
-    Never invents placeholder phones.
+    Enrich incomplete contact rows from public web pages and search.
+    Never invents placeholder phones. Does not log into Gmail or LinkedIn.
     """
     targets = []
     for row in rows:
@@ -245,65 +353,71 @@ async def fill_contact_gaps(
             continue
         targets.append((row, name, missing))
 
-    fills: List[Dict[str, Any]] = []
-    for row, name, missing in targets[:max_rows]:
+    sem = asyncio.Semaphore(4)
+
+    async def enrich_one(row, name, missing):
         domain = str(row.get("source") or row.get("site") or row.get("domain") or "").strip()
         if domain and " " in domain and not domain.startswith("http"):
             domain = ""
-        try:
-            data = await enrich_prospect_intelligence(
-                name=name,
-                company=name,
-                domain=domain or None,
-            )
-        except Exception as err:
-            logger.warning(f"Gap fill failed for '{name}': {err}")
-            fills.append({
-                "rowId": row.get("id"),
-                "company": name,
-                "status": "unenrichable",
-                "gaps": missing,
-                "note": f"Lookup failed for {name}.",
-            })
-            continue
+        async with sem:
+            try:
+                data = await enrich_prospect_intelligence(
+                    name=name,
+                    company=name,
+                    domain=domain or None,
+                )
+            except Exception as err:
+                logger.warning(f"Gap fill failed for '{name}': {err}")
+                return {
+                    "rowId": row.get("id"),
+                    "company": name,
+                    "status": "unenrichable",
+                    "gaps": missing,
+                    "note": f"Lookup failed for {name}.",
+                }
 
         phone = (data.get("primaryPhone") or "").strip()
-        if phone and ("555-0" in phone or "Inferred" in phone.lower()):
+        if not _is_real_phone(phone):
             phone = ""
         email = (data.get("primaryEmail") or "").strip()
+        if not _is_public_email(email):
+            email = ""
         people = data.get("keyPeople") or []
         person = ""
-        if people:
-            hint = people[0].get("roleHint") or ""
-            person = hint
+        if people and people[0].get("name"):
+            person = people[0]["name"]
         if not phone:
             for candidate in data.get("phones") or []:
-                cand = str(candidate).strip()
-                if cand and "555-0" not in cand and "Inferred" not in cand.lower():
-                    digits = re.sub(r"\D", "", cand)
-                    if 8 <= len(digits) <= 15:
-                        phone = cand
-                        break
+                if _is_real_phone(str(candidate)):
+                    phone = str(candidate).strip()
+                    break
         overview = data.get("overview") or ""
         if not phone:
             snippet_match = re.search(
                 r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}",
                 overview,
             )
-            if snippet_match:
-                cand = snippet_match.group(0).strip()
-                digits = re.sub(r"\D", "", cand)
-                if 8 <= len(digits) <= 15 and "5550" not in digits:
-                    phone = cand
+            if snippet_match and _is_real_phone(snippet_match.group(0)):
+                phone = snippet_match.group(0).strip()
+
+        socials = data.get("socials") or {}
+        reddit = data.get("redditMentions") or []
         proposal = {
             "rowId": row.get("id"),
             "company": name,
             "status": "proposed",
             "gaps": missing,
             "confidence": data.get("confidenceScore") or 0,
-            "source": (data.get("citations") or [None])[0] or data.get("domain") or "",
+            "source": socials.get("linkedin") or (data.get("citations") or [None])[0] or data.get("domain") or "",
             "openingHook": data.get("openingHook") or "",
             "overview": data.get("overview") or "",
+            "linkedin": socials.get("linkedin") or "",
+            "twitter": socials.get("twitter") or "",
+            "facebook": socials.get("facebook") or "",
+            "instagram": socials.get("instagram") or "",
+            "youtube": socials.get("youtube") or "",
+            "reddit": (reddit[0].get("url") if reddit else "") or socials.get("reddit") or "",
+            "socials": socials,
         }
         found = []
         if "phone" in missing and phone:
@@ -315,19 +429,21 @@ async def fill_contact_gaps(
         if "person" in missing and person:
             proposal["contact"] = person
             found.append("person")
+        if socials:
+            found.append("socials")
 
         if found:
             proposal["gapsFilled"] = found
-            fills.append(proposal)
-        else:
-            fills.append({
-                "rowId": row.get("id"),
-                "company": name,
-                "status": "unenrichable",
-                "gaps": missing,
-                "note": f"No public phone/email/person found for {name}.",
-                "confidence": data.get("confidenceScore") or 0,
-                "source": proposal["source"],
-            })
+            return proposal
+        return {
+            "rowId": row.get("id"),
+            "company": name,
+            "status": "unenrichable",
+            "gaps": missing,
+            "note": f"No public phone/email/person/socials found for {name}.",
+            "confidence": data.get("confidenceScore") or 0,
+            "source": proposal["source"],
+        }
 
-    return fills
+    tasks = [enrich_one(row, name, missing) for row, name, missing in targets[:max_rows]]
+    return list(await asyncio.gather(*tasks)) if tasks else []

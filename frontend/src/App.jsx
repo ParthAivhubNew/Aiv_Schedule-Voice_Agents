@@ -9094,7 +9094,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           phone: fill.phone || r.phone,
           email: fill.email || r.email,
           contact: fill.contact || r.contact,
-          source: fill.source || r.source,
+          source: r.source || fill.source,
+          linkedin: fill.linkedin || r.linkedin,
           openingHook: fill.openingHook || r.openingHook,
         };
       })
@@ -9118,7 +9119,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           phone: fill.phone || r.phone,
           email: fill.email || r.email,
           contact: fill.contact || r.contact,
-          source: fill.source || r.source,
+          source: r.source || fill.source,
+          linkedin: fill.linkedin || r.linkedin,
           openingHook: fill.openingHook || r.openingHook,
         };
       })
@@ -9215,7 +9217,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     try {
       const res = await api.fillContactGaps({
         contacts: serializeMissionContacts(target),
-        max_rows: 8,
+        max_rows: 50,
       });
       const fills = (res && res.fills) || [];
       mergeFillsIntoPending(fills);
@@ -9227,7 +9229,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
         {
           sender: "ai",
           text: proposed
-            ? `Found public details for ${proposed} contact(s). Accept a card to write it onto the list. ${empty ? `${empty} row(s) had nothing reliable online.` : ""}`
+            ? `Found public details for ${proposed} contact(s). Accept a card to write it onto the list. ${empty ? `${empty} row(s) had nothing reliable online.` : ""} Cards can include phone, email, person, LinkedIn, and other public social links — not a Gmail inbox.`
             : hadSource
             ? `No public phone/email found for these ${target.length} row(s). Leave them off the dialer or type the number by hand — I will not invent one.`
             : `No public phone/email found for these ${target.length} row(s). Add a website URL on the list and try again, or fill by hand.`,
@@ -9521,6 +9523,15 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                         {fill.email ? `✉ ${fill.email}  ` : ""}
                         {fill.contact ? `👤 ${fill.contact}` : ""}
                       </div>
+                      {(fill.linkedin || fill.twitter || fill.reddit || fill.instagram || fill.facebook) && (
+                        <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {fill.linkedin ? "LinkedIn  " : ""}
+                          {fill.twitter ? "X  " : ""}
+                          {fill.facebook ? "Facebook  " : ""}
+                          {fill.instagram ? "Instagram  " : ""}
+                          {fill.reddit ? "Reddit" : ""}
+                        </div>
+                      )}
                     </div>
                     <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                       <button type="button" onClick={() => acceptFill(fill)} style={{ background: "#2563EB", color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Accept</button>
