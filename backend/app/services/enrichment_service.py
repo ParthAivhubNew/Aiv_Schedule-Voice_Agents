@@ -214,3 +214,120 @@ async def discover_new_target_accounts(
         })
 
     return discovered_accounts
+
+
+def _row_missing_fields(row: Dict[str, Any]) -> List[str]:
+    missing = []
+    if not str(row.get("phone") or "").strip():
+        missing.append("phone")
+    if not str(row.get("email") or "").strip():
+        missing.append("email")
+    if not str(row.get("contact") or row.get("contactPerson") or "").strip():
+        missing.append("person")
+    return missing
+
+
+async def fill_contact_gaps(
+    rows: List[Dict[str, Any]],
+    max_rows: int = 8,
+) -> List[Dict[str, Any]]:
+    """
+    Enrich incomplete contact rows. Only returns fields that were actually found.
+    Never invents placeholder phones.
+    """
+    targets = []
+    for row in rows:
+        name = str(row.get("name") or row.get("company") or "").strip()
+        if not name:
+            continue
+        missing = _row_missing_fields(row)
+        if not missing:
+            continue
+        targets.append((row, name, missing))
+
+    fills: List[Dict[str, Any]] = []
+    for row, name, missing in targets[:max_rows]:
+        domain = str(row.get("source") or row.get("site") or row.get("domain") or "").strip()
+        if domain and " " in domain and not domain.startswith("http"):
+            domain = ""
+        try:
+            data = await enrich_prospect_intelligence(
+                name=name,
+                company=name,
+                domain=domain or None,
+            )
+        except Exception as err:
+            logger.warning(f"Gap fill failed for '{name}': {err}")
+            fills.append({
+                "rowId": row.get("id"),
+                "company": name,
+                "status": "unenrichable",
+                "gaps": missing,
+                "note": f"Lookup failed for {name}.",
+            })
+            continue
+
+        phone = (data.get("primaryPhone") or "").strip()
+        if phone and ("555-0" in phone or "Inferred" in phone.lower()):
+            phone = ""
+        email = (data.get("primaryEmail") or "").strip()
+        people = data.get("keyPeople") or []
+        person = ""
+        if people:
+            hint = people[0].get("roleHint") or ""
+            person = hint
+        if not phone:
+            for candidate in data.get("phones") or []:
+                cand = str(candidate).strip()
+                if cand and "555-0" not in cand and "Inferred" not in cand.lower():
+                    digits = re.sub(r"\D", "", cand)
+                    if 8 <= len(digits) <= 15:
+                        phone = cand
+                        break
+        overview = data.get("overview") or ""
+        if not phone:
+            snippet_match = re.search(
+                r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}",
+                overview,
+            )
+            if snippet_match:
+                cand = snippet_match.group(0).strip()
+                digits = re.sub(r"\D", "", cand)
+                if 8 <= len(digits) <= 15 and "5550" not in digits:
+                    phone = cand
+        proposal = {
+            "rowId": row.get("id"),
+            "company": name,
+            "status": "proposed",
+            "gaps": missing,
+            "confidence": data.get("confidenceScore") or 0,
+            "source": (data.get("citations") or [None])[0] or data.get("domain") or "",
+            "openingHook": data.get("openingHook") or "",
+            "overview": data.get("overview") or "",
+        }
+        found = []
+        if "phone" in missing and phone:
+            proposal["phone"] = phone
+            found.append("phone")
+        if "email" in missing and email:
+            proposal["email"] = email
+            found.append("email")
+        if "person" in missing and person:
+            proposal["contact"] = person
+            found.append("person")
+
+        if found:
+            proposal["gapsFilled"] = found
+            fills.append(proposal)
+        else:
+            fills.append({
+                "rowId": row.get("id"),
+                "company": name,
+                "status": "unenrichable",
+                "gaps": missing,
+                "note": f"No public phone/email/person found for {name}.",
+                "confidence": data.get("confidenceScore") or 0,
+                "source": proposal["source"],
+            })
+
+    return fills

@@ -108,6 +108,7 @@ export const api = {
   // AI Lead Radar & Enrichment
   enrichProspect: (payload) => apiRequest('/enrichment/enrich-prospect', { method: 'POST', body: payload }),
   discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload }),
+  fillContactGaps: (payload) => apiRequest('/enrichment/fill-gaps', { method: 'POST', body: payload }),
   copilotChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
   openChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
 

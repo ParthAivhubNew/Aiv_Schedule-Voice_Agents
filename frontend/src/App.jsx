@@ -115,6 +115,7 @@ import {
 import { api } from "./api/apiClient";
 import { WebSocketClient } from "./api/wsClient";
 import { AudioStreamPlayer } from "./api/audioStreamPlayer";
+import { TelephonyDocsView } from "./views/TelephonyDocsView";
 import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
@@ -1237,6 +1238,9 @@ const NAV_GROUPS = [
   ]},
   { label: "Insights", items: [
     { id: "analytics", label: "Analytics", icon: BarChart3 },
+  ]},
+  { label: "Resources", items: [
+    { id: "docs", label: "Setup Guide & Docs", icon: BookOpen },
   ]},
 ];
 
@@ -8100,6 +8104,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             { id: "telephony-hub", label: "⚡ Voice & Telephony Trunking Hub" },
             { id: "routing", label: "⚙️ Layer Routing & Models" },
             { id: "credentials", label: "🔑 API Credentials" },
+            { id: "docs", label: "📖 Step-by-Step Setup Guide" },
           ].map((t) => (
             <button
               key={t.id}
@@ -8116,6 +8121,18 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             </button>
           ))}
         </div>
+
+        {/* TAB: Setup Guide & Docs */}
+        {activeTab === "docs" && (
+          <TelephonyDocsView
+            notifications={notifications}
+            setNotifications={setNotifications}
+            onNavigate={(dest) => {
+              if (dest === "provider") setActiveTab("telephony-hub");
+              else if (window.__aivhub_switch_voice_view) window.__aivhub_switch_voice_view(dest);
+            }}
+          />
+        )}
 
         {/* TAB 0: Voice & Telephony Trunking Hub */}
         {activeTab === "telephony-hub" && (
@@ -8476,6 +8493,8 @@ function validateRows(list, registry, callLog) {
     const digits = normalizePhoneDigits(r.phone);
     if (!r.phone) issues.push("missing_phone");
     else if (digits.length < 8 || digits.length > 13) issues.push("bad_phone");
+    if (!r.email) issues.push("missing_email");
+    if (!r.contact) issues.push("missing_person");
 
     let duplicateOf = null;
     if (digits.length >= 8) {
@@ -8494,9 +8513,40 @@ function validateRows(list, registry, callLog) {
   });
 }
 
+function rowMissingFields(r) {
+  const missing = [];
+  if (!(r?.name || "").trim()) missing.push("company");
+  if (!(r?.phone || "").trim()) missing.push("phone");
+  if (!(r?.email || "").trim()) missing.push("email");
+  if (!(r?.contact || "").trim()) missing.push("person");
+  return missing;
+}
+
+function rowDialable(r, missionChannel = "voice") {
+  if (!(r?.name || "").trim()) return false;
+  const ch = r.channel || missionChannel || "voice";
+  if (ch === "email") return Boolean((r.email || "").trim());
+  return Boolean((r.phone || "").trim());
+}
+
+function serializeMissionContacts(list) {
+  return (list || [])
+    .filter((r) => (r.name || "").trim())
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      phone: r.phone || "",
+      email: r.email || "",
+      contact: r.contact || "",
+      source: r.source || r.site || "",
+    }));
+}
+
 const ISSUE_META = {
   missing_name: { label: "No company name", color: "#C2410C" },
   missing_phone: { label: "No phone number", color: "#C2410C" },
+  missing_email: { label: "No email", color: "#B8760A" },
+  missing_person: { label: "No contact person", color: "#B8760A" },
   bad_phone: { label: "Phone looks invalid", color: "#B8760A" },
   duplicate: { label: "Duplicate number", color: "#B8760A" },
   already_contacted: { label: "Already contacted", color: "#C2410C" },
@@ -8732,6 +8782,7 @@ function ImportReviewScreen({
   onDifferentFile,
   onClose,
   onConfirm,
+  onAskAi,
 }) {
   const inputStyle = (bad) => ({
     width: "100%",
@@ -8770,10 +8821,11 @@ function ImportReviewScreen({
             <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 10 }}>
               Match columns from the spreadsheet
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(120px, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(110px, 1fr))", gap: 10 }}>
               {[
                 ["name", "Company name*"],
-                ["phone", "Phone number*"],
+                ["phone", "Phone number"],
+                ["email", "Email"],
                 ["website", "Website / link"],
                 ["contact", "Contact person"],
                 ["channel", "Preferred channel"],
@@ -8859,10 +8911,11 @@ function ImportReviewScreen({
 
           <div style={{ flex: 1, overflow: "auto", padding: "0 28px 24px" }}>
             <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", minWidth: 920 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "44px 1.6fr 1.1fr 1.2fr 1.3fr 140px 1.4fr 40px", padding: "10px 14px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "44px 1.5fr 1.1fr 1.2fr 1.1fr 1.2fr 130px 1.3fr 40px", padding: "10px 14px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
                 <div />
                 <div>Company</div>
                 <div>Phone</div>
+                <div>Email</div>
                 <div>Contact</div>
                 <div>Website</div>
                 <div>Channel</div>
@@ -8877,7 +8930,7 @@ function ImportReviewScreen({
                   key={r.id}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "44px 1.6fr 1.1fr 1.2fr 1.3fr 140px 1.4fr 40px",
+                    gridTemplateColumns: "44px 1.5fr 1.1fr 1.2fr 1.1fr 1.2fr 130px 1.3fr 40px",
                     gap: 8,
                     padding: "12px 14px",
                     borderTop: `1px solid ${C.border}`,
@@ -8889,7 +8942,8 @@ function ImportReviewScreen({
                   <input type="checkbox" checked={r.included} onChange={() => onToggle(r.id)} style={{ cursor: "pointer", marginTop: 10 }} />
                   <input value={r.name} onChange={(e) => onUpdate(r.id, "name", e.target.value)} placeholder="Company name" style={inputStyle(r.issues.includes("missing_name"))} />
                   <input value={r.phone} onChange={(e) => onUpdate(r.id, "phone", e.target.value)} placeholder="Phone" style={inputStyle(r.issues.includes("missing_phone") || r.issues.includes("bad_phone"))} />
-                  <input value={r.contact || ""} onChange={(e) => onUpdate(r.id, "contact", e.target.value)} placeholder="Person" style={inputStyle(false)} />
+                  <input value={r.email || ""} onChange={(e) => onUpdate(r.id, "email", e.target.value)} placeholder="Email" style={inputStyle(r.issues.includes("missing_email"))} />
+                  <input value={r.contact || ""} onChange={(e) => onUpdate(r.id, "contact", e.target.value)} placeholder="Person" style={inputStyle(r.issues.includes("missing_person"))} />
                   <input value={r.source} onChange={(e) => onUpdate(r.id, "source", e.target.value)} placeholder="Website" style={inputStyle(false)} />
                   <select value={r.channel} onChange={(e) => onUpdate(r.id, "channel", e.target.value)} style={{ ...inputStyle(false), padding: "9px 8px" }}>
                     <option value="">Default</option>
@@ -8938,13 +8992,28 @@ function ImportReviewScreen({
             </div>
           ))}
           <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.5, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-            Tick the companies you want. Unticked rows stay off the dialer. After you continue, you set channel, timezone, lunch, and start the outreach.
+            Tick companies to keep. Missing phone or email is OK — next you can ask AI Chat to look those up. Unticked rows stay off the dialer.
           </div>
+          {onAskAi && (
+            <button
+              onClick={onAskAi}
+              disabled={!includedCount}
+              style={{
+                width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.ink}`,
+                background: "#fff", color: C.ink,
+                fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5,
+                cursor: includedCount ? "pointer" : "default",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}
+            >
+              <Sparkles size={14} /> Continue & find missing details in AI Chat
+            </button>
+          )}
           <button
             onClick={onConfirm}
             disabled={!includedCount}
             style={{
-              marginTop: "auto", width: "100%", padding: "12px", borderRadius: 9, border: "none",
+              width: "100%", padding: "12px", borderRadius: 9, border: "none",
               background: includedCount ? C.ink : C.paperSoft, color: includedCount ? "#fff" : C.slateLight,
               fontFamily: FONT_BODY, fontWeight: 600, fontSize: 14, cursor: includedCount ? "pointer" : "default",
             }}
@@ -8960,7 +9029,7 @@ function ImportReviewScreen({
 function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, commonAi }) {
   const [tab, setTab] = useState("discover");
   const [prompt, setPrompt] = useState("");
-  const [rows, setRows] = useState([{ id: 1, name: "", phone: "", sourceType: "Website URL", source: "", channel: "auto", fallback: "none", contact: "" }]);
+  const [rows, setRows] = useState([{ id: 1, name: "", phone: "", email: "", sourceType: "Website URL", source: "", channel: "auto", fallback: "none", contact: "" }]);
   const [manualMode, setManualMode] = useState("upload"); // "upload" | "form"
   const [windowStart, setWindowStart] = useState((workingHours && workingHours.weekdayStart) || "09:00");
   const [windowEnd, setWindowEnd] = useState((workingHours && workingHours.weekdayEnd) || "17:30");
@@ -8976,7 +9045,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
   const [importError, setImportError] = useState("");
   const [importFileName, setImportFileName] = useState("");
   const [importHeaders, setImportHeaders] = useState([]);
-  const [columnMap, setColumnMap] = useState({ name: "", phone: "", website: "", contact: "", channel: "" });
+  const [columnMap, setColumnMap] = useState({ name: "", phone: "", website: "", contact: "", email: "", channel: "" });
   const [importRecords, setImportRecords] = useState([]); // raw records from file
   const [importRows, setImportRows] = useState([]); // mapped preview rows, editable
   const [importFilter, setImportFilter] = useState("all"); // all | issues | duplicates
@@ -8989,81 +9058,191 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
   const [copilotMessages, setCopilotMessages] = useState([
     {
       sender: "ai",
-      text: "👋 Hi! I'm your AI Chat. Who would you like to reach? Tell me your company offer, target industry, region, or specific companies (e.g. 'Find 5 logistics dispatchers in Texas to pitch our voice AI'). I'll search the web for verified switchboard numbers, decision-makers, and personalized hooks."
+      text: "👋 I'm the Voice SDR chat. Load a list (even if phones or emails are missing), then tell me what to find — e.g. 'Get UK phone numbers and ops directors for these companies.' I'll propose fills; you Accept before they hit the dialer. You can also ask me to find new companies from scratch."
     }
   ]);
   const [chatInput, setChatInput] = useState("");
   const [chatSearching, setChatSearching] = useState(false);
   const [chatDiscoveredLeads, setChatDiscoveredLeads] = useState([]);
+  const [pendingFills, setPendingFills] = useState([]);
   const chatBottomRef = useRef(null);
+
+  const namedRows = rows.filter((r) => (r.name || "").trim());
+  const incompleteRows = namedRows.filter((r) => rowMissingFields(r).length > 0);
+  const dialableRows = namedRows.filter((r) => rowDialable(r, channel));
+
+  const mergeFillsIntoPending = (incoming) => {
+    const list = (incoming || []).filter((f) => f && f.rowId);
+    if (!list.length) return;
+    setPendingFills((prev) => {
+      const next = [...prev];
+      list.forEach((fill) => {
+        const idx = next.findIndex((p) => String(p.rowId) === String(fill.rowId));
+        if (idx >= 0) next[idx] = { ...next[idx], ...fill };
+        else next.push(fill);
+      });
+      return next;
+    });
+  };
+
+  const acceptFill = (fill) => {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (String(r.id) !== String(fill.rowId)) return r;
+        return {
+          ...r,
+          phone: fill.phone || r.phone,
+          email: fill.email || r.email,
+          contact: fill.contact || r.contact,
+          source: fill.source || r.source,
+          openingHook: fill.openingHook || r.openingHook,
+        };
+      })
+    );
+    setPendingFills((prev) => prev.filter((p) => String(p.rowId) !== String(fill.rowId)));
+  };
+
+  const dismissFill = (fill) => {
+    setPendingFills((prev) => prev.filter((p) => String(p.rowId) !== String(fill.rowId)));
+  };
+
+  const acceptAllFills = () => {
+    const proposed = pendingFills.filter((f) => f.status === "proposed");
+    if (!proposed.length) return;
+    setRows((prev) =>
+      prev.map((r) => {
+        const fill = proposed.find((f) => String(f.rowId) === String(r.id));
+        if (!fill) return r;
+        return {
+          ...r,
+          phone: fill.phone || r.phone,
+          email: fill.email || r.email,
+          contact: fill.contact || r.contact,
+          source: fill.source || r.source,
+          openingHook: fill.openingHook || r.openingHook,
+        };
+      })
+    );
+    setPendingFills((prev) => prev.filter((p) => p.status !== "proposed"));
+  };
+
+  const resolveChatCredentials = () => {
+    const leadgenModel = commonAi?.leadgenLayers?.researchLlm || "DeepSeek-V3";
+    const customConn = (commonAi?.customConnections || []).find(
+      (c) => c.modelId && c.modelId.toLowerCase() === leadgenModel.toLowerCase()
+    );
+    let key = customConn?.apiKey || "";
+    let burl = customConn?.baseUrl || "";
+    let prov = customConn?.providerName || "";
+    let mod = customConn?.modelId || leadgenModel;
+
+    if (!key) {
+      const m = String(leadgenModel || "").toLowerCase();
+      let provId = "deepseek";
+      if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet")) provId = "anthropic";
+      else if (m.includes("gpt") || m.includes("openai")) provId = "openai";
+      else if (m.includes("groq") || m.includes("llama")) provId = "groq";
+      else if (m.includes("grok") || m.includes("xai")) provId = "xai";
+      else if (m.includes("gemini")) provId = "gemini";
+      else if (m.includes("ollama")) provId = "ollama";
+      const pObj = (commonAi?.providers || []).find((p) => p.id === provId);
+      if (pObj) {
+        key = pObj.apiKey || "";
+        burl = pObj.baseUrl || "";
+        prov = pObj.name || provId;
+      }
+    }
+    return { key, burl, prov, mod };
+  };
+
+  const runCopilotTurn = async (userMsg) => {
+    if (!userMsg || chatSearching) return;
+    setCopilotMessages((prev) => [...prev, { sender: "user", text: userMsg }]);
+    setChatSearching(true);
+    try {
+      const creds = resolveChatCredentials();
+      const res = await api.copilotChat({
+        message: userMsg,
+        history: copilotMessages,
+        plugin: "voice",
+        apiKey: creds.key,
+        provider: creds.prov,
+        model: creds.mod,
+        baseUrl: creds.burl,
+        contacts: serializeMissionContacts(namedRows),
+        channel,
+      });
+      if (res && res.fills && res.fills.length) mergeFillsIntoPending(res.fills);
+      if (res && res.leads && res.leads.length > 0) setChatDiscoveredLeads(res.leads);
+      setCopilotMessages((prev) => [
+        ...prev,
+        {
+          sender: "ai",
+          text: (res && res.reply) || "Looked at the list.",
+          leads: (res && res.leads) || [],
+          fills: (res && res.fills) || [],
+        },
+      ]);
+    } catch (err) {
+      setCopilotMessages((prev) => [
+        ...prev,
+        { sender: "ai", text: `⚠️ AI Chat error: ${err.message || "Failed to reach AI copilot."}` },
+      ]);
+    } finally {
+      setChatSearching(false);
+      setTimeout(() => {
+        if (chatBottomRef.current) chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    }
+  };
 
   const handleCopilotSend = async (e) => {
     e.preventDefault();
     const userMsg = chatInput.trim();
     if (!userMsg || chatSearching) return;
-
     setChatInput("");
-    setCopilotMessages((prev) => [...prev, { sender: "user", text: userMsg }]);
+    await runCopilotTurn(userMsg);
+  };
+
+  const handleFindMissing = async (listOverride) => {
+    const target = (listOverride && listOverride.length ? listOverride : incompleteRows).filter((r) => (r.name || "").trim() && rowMissingFields(r).length);
+    if (!target.length || chatSearching) return;
     setChatSearching(true);
-
+    setCopilotMessages((prev) => [
+      ...prev,
+      { sender: "user", text: `Find missing phones, emails, and decision-makers for ${target.length} incomplete contact(s).` },
+    ]);
     try {
-      // Resolve active Lead Gen credentials from commonAi
-      const leadgenModel = commonAi?.leadgenLayers?.researchLlm || "DeepSeek-V3";
-      const customConn = (commonAi?.customConnections || []).find(
-        (c) => c.modelId && c.modelId.toLowerCase() === leadgenModel.toLowerCase()
-      );
-      let key = customConn?.apiKey || "";
-      let burl = customConn?.baseUrl || "";
-      let prov = customConn?.providerName || "";
-      let mod = customConn?.modelId || leadgenModel;
-
-      if (!key) {
-        const m = String(leadgenModel || "").toLowerCase();
-        let provId = "deepseek";
-        if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet")) provId = "anthropic";
-        else if (m.includes("gpt") || m.includes("openai")) provId = "openai";
-        else if (m.includes("groq") || m.includes("llama")) provId = "groq";
-        else if (m.includes("grok") || m.includes("xai")) provId = "xai";
-        else if (m.includes("gemini")) provId = "gemini";
-        else if (m.includes("ollama")) provId = "ollama";
-        const pObj = (commonAi?.providers || []).find((p) => p.id === provId);
-        if (pObj) {
-          key = pObj.apiKey || "";
-          burl = pObj.baseUrl || "";
-          prov = pObj.name || provId;
-        }
-      }
-
-      const res = await api.copilotChat({
-        message: userMsg,
-        history: copilotMessages,
-        plugin: "leadgen",
-        apiKey: key,
-        provider: prov,
-        model: mod,
-        baseUrl: burl
+      const res = await api.fillContactGaps({
+        contacts: serializeMissionContacts(target),
+        max_rows: 8,
       });
-
-      if (res && res.reply) {
-        if (res.leads && res.leads.length > 0) {
-          setChatDiscoveredLeads(res.leads);
-        }
-        setCopilotMessages((prev) => [
-          ...prev,
-          { sender: "ai", text: res.reply, leads: res.leads || [] }
-        ]);
-      }
+      const fills = (res && res.fills) || [];
+      mergeFillsIntoPending(fills);
+      const proposed = fills.filter((f) => f.status === "proposed").length;
+      const empty = fills.filter((f) => f.status === "unenrichable").length;
+      const hadSource = fills.some((f) => f.source) || target.some((r) => r.source);
+      setCopilotMessages((prev) => [
+        ...prev,
+        {
+          sender: "ai",
+          text: proposed
+            ? `Found public details for ${proposed} contact(s). Accept a card to write it onto the list. ${empty ? `${empty} row(s) had nothing reliable online.` : ""}`
+            : hadSource
+            ? `No public phone/email found for these ${target.length} row(s). Leave them off the dialer or type the number by hand — I will not invent one.`
+            : `No public phone/email found for these ${target.length} row(s). Add a website URL on the list and try again, or fill by hand.`,
+          fills,
+        },
+      ]);
     } catch (err) {
       setCopilotMessages((prev) => [
         ...prev,
-        { sender: "ai", text: `⚠️ AI Chat error: ${err.message || "Failed to reach AI copilot."}` }
+        { sender: "ai", text: `⚠️ Lookup error: ${err.message || "Could not enrich contacts."}` },
       ]);
     } finally {
       setChatSearching(false);
       setTimeout(() => {
-        if (chatBottomRef.current) {
-          chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
-        }
+        if (chatBottomRef.current) chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
       }, 100);
     }
   };
@@ -9075,7 +9254,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
       list.map((l, idx) => ({
         id: Date.now() + idx,
         name: l.name,
-        phone: l.phone,
+        phone: l.phone && !String(l.phone).includes("555-0") && !/inferred/i.test(l.phone) ? l.phone : "",
+        email: l.email || "",
         contact: l.contactPerson || "",
         sourceType: "Website URL",
         source: l.site || "",
@@ -9088,7 +9268,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     setManualMode("form");
   };
 
-  const addRow = () => setRows((r) => [...r, { id: Date.now(), name: "", phone: "", sourceType: "Website URL", source: "", channel: "", fallback: "none", contact: "" }]);
+  const addRow = () => setRows((r) => [...r, { id: Date.now(), name: "", phone: "", email: "", sourceType: "Website URL", source: "", channel: "", fallback: "none", contact: "" }]);
   const removeRow = (id) => setRows((r) => r.filter((x) => x.id !== id));
   const updateRow = (id, k, v) => setRows((r) => r.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
 
@@ -9097,6 +9277,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
       id: "imp_" + i,
       name: (map.name ? rec[map.name] : "") || "",
       phone: (map.phone ? rec[map.phone] : "") || "",
+      email: (map.email ? rec[map.email] : "") || "",
       contact: (map.contact ? rec[map.contact] : "") || "",
       sourceType: "Website URL",
       source: (map.website ? rec[map.website] : "") || "",
@@ -9105,7 +9286,10 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     }));
     // flag missing/invalid/duplicate rows, then only auto-include the clean ones —
     // stops bad data from silently reaching the dialer on a big import
-    return validateRows(mapped, registry, callLog).map((r) => ({ ...r, included: r.issues.length === 0 }));
+    return validateRows(mapped, registry, callLog).map((r) => ({
+      ...r,
+      included: Boolean(r.name) && !r.issues.includes("duplicate") && !r.issues.includes("already_dnc"),
+    }));
   };
 
   const handleFileSelected = (file) => {
@@ -9125,6 +9309,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           phone: guessColumn(headers, "phone"),
           website: guessColumn(headers, "website"),
           contact: guessColumn(headers, "contact"),
+          email: guessColumn(headers, "email"),
           channel: guessColumn(headers, "channel"),
         };
         setImportHeaders(headers);
@@ -9167,20 +9352,24 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     importFilter === "known" ? importRows.filter((r) => r.identityMatch) :
     importRows;
 
-  const useImportedRows = () => {
-    setRows(
-      includedImportRows.map((r, i) => ({
-        id: Date.now() + i,
-        name: r.name,
-        phone: r.phone,
-        contact: r.contact || "",
-        sourceType: r.source ? "Website URL" : "Notes only",
-        source: r.source || r.contact || "",
-        channel: r.channel || "", // "" = falls back to mission default at submit time
-        fallback: r.fallback || "none",
-      }))
-    );
+  const useImportedRows = (thenChat) => {
+    const kept = includedImportRows.map((r, i) => ({
+      id: Date.now() + i,
+      name: r.name,
+      phone: r.phone,
+      email: r.email || "",
+      contact: r.contact || "",
+      sourceType: r.source ? "Website URL" : "Notes only",
+      source: r.source || r.contact || "",
+      channel: r.channel || "",
+      fallback: r.fallback || "none",
+    }));
+    setRows(kept);
     setManualMode("form");
+    if (thenChat) {
+      setTab("discover");
+      setTimeout(() => handleFindMissing(kept), 50);
+    }
   };
 
   const resetImport = () => {
@@ -9192,8 +9381,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     setImportRows([]);
   };
 
-  const canSubmit = tab === "discover" ? (chatDiscoveredLeads.length > 0 || parsed) : rows.some((r) => r.name && r.phone);
-  const readyToCallCount = tab === "manual" ? rows.filter((r) => r.name && r.phone).length : chatDiscoveredLeads.length;
+  const canSubmit = dialableRows.length > 0 || chatDiscoveredLeads.some((l) => l.name && (l.phone || l.email));
+  const readyToCallCount = dialableRows.length || chatDiscoveredLeads.filter((l) => l.name && (l.phone || l.email)).length;
   const queueEstimate = computeQueueEstimate(readyToCallCount, concurrency, windowStart, windowEnd, lunchStart, lunchEnd);
   const noAnswerFallbacks = ["whatsapp", "sms", "email"].filter((k) => noAnswer[k]);
 
@@ -9223,14 +9412,15 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
         onDiscardFlagged={removeFlaggedRows}
         onDifferentFile={resetImport}
         onClose={onClose}
-        onConfirm={useImportedRows}
+        onConfirm={() => useImportedRows(false)}
+        onAskAi={() => useImportedRows(true)}
       />
     );
   }
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: tab === "discover" ? 720 : 640, maxHeight: "88vh", overflowY: "auto", padding: 26, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+      <div style={{ background: "#fff", borderRadius: 16, width: namedRows.length || tab === "discover" ? 780 : 640, maxHeight: "88vh", overflowY: "auto", padding: 26, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk }}>New Outreach</div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
@@ -9255,6 +9445,92 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
 
         {tab === "discover" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {namedRows.length > 0 && (
+              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.textInk }}>
+                      Loaded list · {namedRows.length} companies
+                    </div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, marginTop: 2 }}>
+                      {dialableRows.length} ready to dial · {incompleteRows.length} missing phone/email/person
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleFindMissing()}
+                    disabled={chatSearching || !incompleteRows.length}
+                    style={{
+                      background: incompleteRows.length ? C.ink : C.paperSoft,
+                      color: incompleteRows.length ? "#fff" : C.slateLight,
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "7px 12px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: incompleteRows.length && !chatSearching ? "pointer" : "default",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {chatSearching ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    Find missing details
+                  </button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto" }}>
+                  {namedRows.slice(0, 8).map((r) => {
+                    const miss = rowMissingFields(r);
+                    return (
+                      <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontFamily: FONT_BODY, fontSize: 12, color: C.textInk }}>
+                        <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                        <span style={{ color: miss.length ? "#C2410C" : C.green, fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {miss.length ? `Missing ${miss.join(", ")}` : "Ready"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {namedRows.length > 8 && (
+                    <div style={{ fontSize: 11, color: C.slate }}>+{namedRows.length - 8} more</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {pendingFills.filter((f) => f.status === "proposed").length > 0 && (
+              <div style={{ border: `1px solid ${C.teal}`, background: C.tealSoft, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
+                    Proposed fills ({pendingFills.filter((f) => f.status === "proposed").length}) — accept before dialing
+                  </span>
+                  <button
+                    type="button"
+                    onClick={acceptAllFills}
+                    style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Accept all
+                  </button>
+                </div>
+                {pendingFills.filter((f) => f.status === "proposed").map((fill) => (
+                  <div key={fill.rowId} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 12.5 }}>{fill.company}</div>
+                      <div style={{ fontSize: 11, color: C.slate }}>
+                        {fill.phone ? `📞 ${fill.phone}  ` : ""}
+                        {fill.email ? `✉ ${fill.email}  ` : ""}
+                        {fill.contact ? `👤 ${fill.contact}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button type="button" onClick={() => acceptFill(fill)} style={{ background: "#2563EB", color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Accept</button>
+                      <button type="button" onClick={() => dismissFill(fill)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Skip</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Standalone Chat Messages Container */}
             <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px", height: 480, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
               {copilotMessages.map((m, idx) => (
@@ -9330,7 +9606,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                 type="text"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="e.g. Find 5 trucking dispatchers in Dallas to pitch voice AI..."
+                placeholder={namedRows.length ? "e.g. Get UK phones and ops directors for the missing rows…" : "e.g. Find 5 trucking dispatchers in Dallas to pitch voice AI..."}
                 disabled={chatSearching}
                 style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
               />
@@ -9340,7 +9616,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                 style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "0 18px", fontSize: 13, fontWeight: 600, cursor: chatSearching ? "wait" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
               >
                 {chatSearching ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
-                Search
+                {namedRows.length ? "Send" : "Search"}
               </button>
             </form>
           </div>
@@ -9409,9 +9685,18 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
             )}
             <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginBottom: 10 }}>
               {importState === "parsed"
-                ? "Channel, timezone and lunch are next. Open Review list if you need to tick or edit companies."
-                : "Add businesses to contact directly — include a link so the AI can research them before calling."}
+                ? "Channel, timezone and lunch are next. Missing phones? Open AI Chat and ask it to find them."
+                : "Add businesses even with holes — then use AI Chat to find remaining phones, emails, and people."}
             </div>
+            {incompleteRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { setTab("discover"); setTimeout(() => handleFindMissing(), 40); }}
+                style={{ marginBottom: 10, width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              >
+                <Sparkles size={14} /> Find missing details in AI Chat ({incompleteRows.length})
+              </button>
+            )}
             {importState === "parsed" ? (
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflowX: "hidden", overflowY: "auto", maxHeight: 200, marginBottom: 4 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.1fr 1fr", gap: 8, padding: "8px 12px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
@@ -9443,6 +9728,12 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                       value={r.phone}
                       onChange={(e) => updateRow(r.id, "phone", e.target.value)}
                       placeholder="Phone number"
+                      style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }}
+                    />
+                    <input
+                      value={r.email || ""}
+                      onChange={(e) => updateRow(r.id, "email", e.target.value)}
+                      placeholder="Email"
                       style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none" }}
                     />
                     <button onClick={() => removeRow(r.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>
@@ -9563,6 +9854,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           </div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginBottom: 8 }}>
             After a missed voice call, reach them on the channels you allow — in this order.
+            These fallbacks use your telephony/email connections (Twilio / SMTP), not Cal.com.
+            Cal.com only sends the calendar invite after a meeting is booked.
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {[
@@ -9674,26 +9967,30 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           )}
         </div>
 
+        {!canSubmit && namedRows.length > 0 && (
+          <div style={{ marginTop: 14, fontFamily: FONT_BODY, fontSize: 12, color: "#C2410C", lineHeight: 1.45 }}>
+            Start stays locked until at least one company has a phone (or an email if the default channel is email). Accept fills in AI Chat, or type them by hand.
+          </div>
+        )}
         <button
           onClick={() =>
             canSubmit &&
             onCreate({
               tab: (tab === "discover" && chatDiscoveredLeads.length > 0) ? "manual" : tab,
               prompt,
-              rows: tab === "manual"
-                ? rows.filter((r) => r.name && r.phone)
-                : chatDiscoveredLeads.length > 0
-                  ? chatDiscoveredLeads.map((l) => ({
+              rows: dialableRows.length
+                ? dialableRows
+                : chatDiscoveredLeads.filter((l) => l.name && (l.phone || l.email)).map((l) => ({
                       name: l.name,
                       phone: l.phone,
+                      email: l.email || "",
                       contact: l.contactPerson || "",
                       sourceType: "Website URL",
                       source: l.site || "",
                       channel: "voice",
                       fallback: "whatsapp",
                       openingHook: l.openingHook
-                    }))
-                  : [],
+                    })),
               channel,
               windowStart,
               windowEnd,
@@ -20911,6 +21208,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         {view === "company" && <CompanyProfileView profile={profile} setProfile={setProfile} notifications={notifications} setNotifications={setNotifications} sources={knowledgeSources} setSources={setKnowledgeSources} services={services} setServices={setServices} faq={faq} setFaq={setFaq} />}
         {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} profile={profile} setProfile={setProfile} />}
         {view === "analytics" && <AnalyticsView notifications={notifications} setNotifications={setNotifications} />}
+        {view === "docs" && <TelephonyDocsView notifications={notifications} setNotifications={setNotifications} onNavigate={setView} />}
       </div>
 
       {showNew && <NewMissionModal onClose={() => setShowNew(false)} onCreate={createMission} registry={registry} callLog={callLog} workingHours={{ timezone: profile.timezone, lunchStart: profile.lunchStart, lunchEnd: profile.lunchEnd, weekdayStart: profile.weekdayStart, weekdayEnd: profile.weekdayEnd, callHoursPolicy: profile.callHoursPolicy }} commonAi={commonAi} />}

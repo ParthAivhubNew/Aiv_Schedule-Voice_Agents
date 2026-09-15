@@ -1,14 +1,19 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+logger = logging.getLogger(__name__)
+
 from app.database import get_db
 from app.models.models import Prospect, ContactRegistry
 from app.services.enrichment_service import (
     enrich_prospect_intelligence,
-    discover_new_target_accounts
+    discover_new_target_accounts,
+    fill_contact_gaps,
+    _row_missing_fields,
 )
 from app.services.llm_gateway import call_open_chat_llm
 
@@ -36,6 +41,13 @@ class CopilotChatRequest(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
     baseUrl: Optional[str] = None
+    contacts: Optional[List[Dict[str, Any]]] = None
+    channel: Optional[str] = "voice"
+
+
+class FillGapsRequest(BaseModel):
+    contacts: List[Dict[str, Any]]
+    max_rows: Optional[int] = 8
 
 @router.post("/enrich-prospect")
 async def enrich_prospect(req: EnrichRequest, db: AsyncSession = Depends(get_db)):
@@ -83,6 +95,24 @@ async def discover_accounts(req: DiscoverAccountsRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/fill-gaps")
+async def fill_gaps(req: FillGapsRequest):
+    """Fill missing phone/email/person on an uploaded contact list. Does not invent numbers."""
+    try:
+        fills = await fill_contact_gaps(req.contacts or [], max_rows=req.max_rows or 8)
+        proposed = [f for f in fills if f.get("status") == "proposed"]
+        empty = [f for f in fills if f.get("status") == "unenrichable"]
+        return {
+            "success": True,
+            "fills": fills,
+            "proposedCount": len(proposed),
+            "unenrichableCount": len(empty),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/copilot-chat")
 @router.post("/open-chat")
 async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_db)):
@@ -117,10 +147,38 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
         burl = req.base_url or req.baseUrl
         prov = req.provider
         mod = req.model
+        plugin_type = (req.plugin or "leadgen").lower()
+        lower_t = user_text.lower()
+        contacts = req.contacts or []
+
+        incomplete = []
+        for row in contacts:
+            name = str(row.get("name") or row.get("company") or "").strip()
+            if name and _row_missing_fields(row):
+                incomplete.append(row)
+
+        fill_intent = any(k in lower_t for k in [
+            "missing", "fill", "enrich", "complete", "remaining", "look up",
+            "lookup", "find the", "find phone", "find email", "get phone",
+            "get email", "research", "gap", "don't have", "dont have",
+            "no phone", "no email", "who is", "number for"
+        ]) or lower_t in ("yes", "yes please", "do it", "go ahead", "ok", "okay", "please")
+
+        fills: List[Dict[str, Any]] = []
+        if plugin_type in ("voice", "leadgen") and incomplete and (fill_intent or plugin_type == "voice"):
+            # Voice chat with an incomplete list always tries gap-fill when asked,
+            # or when the user is clearly talking about the loaded rows.
+            should_fill = fill_intent or any(
+                str(r.get("name") or "").lower() in lower_t for r in incomplete if r.get("name")
+            )
+            if should_fill or fill_intent:
+                try:
+                    fills = await fill_contact_gaps(incomplete, max_rows=8)
+                except Exception:
+                    fills = []
 
         # Check if query requests lead discovery or company prospecting
-        lower_t = user_text.lower()
-        is_lead_search = any(k in lower_t for k in [
+        is_lead_search = (not fills) and any(k in lower_t for k in [
             "find", "search", "discover", "get me", "look up", "locate", "companies", "leads", "prospects"
         ]) and any(k in lower_t for k in [
             "companies", "leads", "fleet", "logistics", "freight", "saas", "agency", "hospital",
@@ -134,11 +192,9 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                     query_or_domain=user_text,
                     target_role=req.target_role or "VP of Operations, CEO, Decision-Maker"
                 )
-            except Exception as search_err:
+            except Exception:
                 pass
 
-        # Prepare system prompt tailored to plugin context, but fully open
-        plugin_type = (req.plugin or "leadgen").lower()
         if plugin_type == "email":
             system_prompt = (
                 "You are an elite B2B Email Outreach Strategist & AI Copilot in AIVHub. "
@@ -153,6 +209,15 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 "develop creative concepts, and write engaging hooks. You are also an unrestricted AI "
                 "assistant ready to discuss any topic, concept, or strategy in detail."
             )
+        elif plugin_type == "voice":
+            system_prompt = (
+                "You are AIVHub Voice SDR copilot. The operator loaded a contact list that may be incomplete. "
+                "Your job is to help fill missing phone numbers, emails, and decision-maker names from public web research. "
+                "Never invent a phone number or email. If a field was not found, say so. "
+                "After proposing fills, tell the operator to Accept each suggestion before dialing. "
+                "WhatsApp/SMS/email in this mission are no-answer fallbacks after voice, not Cal.com. "
+                "Cal.com is only used after a meeting is booked."
+            )
         else:
             system_prompt = (
                 "You are an elite Autonomous AI Copilot & Lead Engineering Strategist for AIVHub. "
@@ -160,6 +225,30 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 "account research, and conversational sales intelligence. You are also a completely open, "
                 "unrestricted AI assistant ready to discuss any topic, answer questions, provide coding "
                 "or architectural advice, and help the user succeed."
+            )
+
+        if contacts:
+            gap_lines = []
+            for row in contacts[:20]:
+                name = str(row.get("name") or "").strip() or "(unnamed)"
+                miss = _row_missing_fields(row)
+                gap_lines.append(
+                    f"- id={row.get('id')} {name} | phone={row.get('phone') or 'MISSING'} | "
+                    f"email={row.get('email') or 'MISSING'} | person={row.get('contact') or 'MISSING'}"
+                    + (f" | gaps={','.join(miss)}" if miss else " | complete")
+                )
+            system_prompt += (
+                f"\n\nLoaded contact list ({len(contacts)} rows, {len(incomplete)} incomplete):\n"
+                + "\n".join(gap_lines)
+            )
+
+        if fills:
+            proposed = [f for f in fills if f.get("status") == "proposed"]
+            empty = [f for f in fills if f.get("status") == "unenrichable"]
+            system_prompt += (
+                f"\n\nWeb research just ran. {len(proposed)} rows have proposed fills "
+                f"(operator must Accept). {len(empty)} rows had nothing public. "
+                "Summarize clearly. Do not dump raw JSON."
             )
 
         if discovered_leads:
@@ -170,28 +259,43 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 f"and invite the user to refine criteria or ask any follow-up questions."
             )
 
-        # Call the real LLM gateway with user's credentials
-        llm_response = await call_open_chat_llm(
-            messages=chat_msgs,
-            system_prompt=system_prompt,
-            api_key=key,
-            provider=prov,
-            model=mod,
-            base_url=burl,
-            temperature=0.7,
-            db=db
-        )
+        llm_response = {}
+        try:
+            llm_response = await call_open_chat_llm(
+                messages=chat_msgs,
+                system_prompt=system_prompt,
+                api_key=key,
+                provider=prov,
+                model=mod,
+                base_url=burl,
+                temperature=0.7,
+                db=db
+            )
+        except Exception as llm_err:
+            logger.warning(f"Voice copilot LLM unavailable: {llm_err}")
 
-        reply_text = llm_response.get("reply", "")
+        reply_text = llm_response.get("reply", "") if isinstance(llm_response, dict) else ""
         if not reply_text:
-            reply_text = "I received your message. How can I further assist your outreach or strategy?"
+            if fills:
+                proposed = [f for f in fills if f.get("status") == "proposed"]
+                empty = [f for f in fills if f.get("status") == "unenrichable"]
+                bits = []
+                if proposed:
+                    bits.append(f"Found public details for {len(proposed)} contact(s). Accept each card before they go on the list.")
+                if empty:
+                    bits.append(f"Could not verify {len(empty)} row(s) from public sources — leave them out of the dialer or add details by hand.")
+                reply_text = " ".join(bits) or "Looked up the list. No new public details to apply."
+            else:
+                reply_text = "I received your message. How can I further assist your outreach or strategy?"
 
         return {
             "success": True,
             "reply": reply_text,
             "leads": discovered_leads,
-            "model": llm_response.get("model", mod),
-            "provider": llm_response.get("provider", prov)
+            "fills": fills,
+            "incompleteCount": len(incomplete),
+            "model": llm_response.get("model", mod) if isinstance(llm_response, dict) else mod,
+            "provider": llm_response.get("provider", prov) if isinstance(llm_response, dict) else prov
         }
 
     except Exception as e:
