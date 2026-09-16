@@ -17279,8 +17279,15 @@ const SOCIAL_ACCOUNT_GUIDES = {
 
 function SocialAccountsView({ accounts = [], onChanged }) {
   const [oauthApps, setOauthApps] = useState([]);
-  const [setupPlat, setSetupPlat] = useState("x");
+  const [setupPlat, setSetupPlat] = useState("linkedin");
   const [setupForm, setSetupForm] = useState({ clientId: "", clientSecret: "" });
+  const [publicBaseUrl, setPublicBaseUrl] = useState(() => {
+    try {
+      const o = window.location.origin || "";
+      if (o && !o.includes("localhost") && !o.includes("127.0.0.1")) return o.replace(/\/$/, "");
+    } catch (_) {}
+    return "";
+  });
   const [savingApp, setSavingApp] = useState(false);
   const [connecting, setConnecting] = useState("");
   const [testingId, setTestingId] = useState(null);
@@ -17328,9 +17335,38 @@ function SocialAccountsView({ accounts = [], onChanged }) {
 
   const appFor = (plat) => oauthApps.find((a) => a.platform === plat) || {};
 
+  const resolvedPublicBase = () => {
+    const typed = (publicBaseUrl || "").trim().replace(/\/$/, "");
+    if (typed) return typed;
+    const savedCb = (appFor(setupPlat).callbackUrl || "");
+    const saved = String(savedCb).replace(/\/api\/scheduler\/oauth\/[^/]+\/callback.*$/, "");
+    if (saved && !saved.includes("127.0.0.1") && !saved.includes("localhost")) return saved;
+    try {
+      const o = (window.location.origin || "").replace(/\/$/, "");
+      if (o && !o.includes("localhost") && !o.includes("127.0.0.1")) return o;
+    } catch (_) {}
+    return "http://127.0.0.1:8000";
+  };
+
+  const callbackFor = (plat) => `${resolvedPublicBase()}/api/scheduler/oauth/${plat}/callback`;
+
+  useEffect(() => {
+    const app = oauthApps.find((a) => a.platform === setupPlat);
+    if (!app?.callbackUrl) return;
+    const base = String(app.callbackUrl).replace(/\/api\/scheduler\/oauth\/[^/]+\/callback.*$/, "");
+    if (base && !base.includes("127.0.0.1") && !base.includes("localhost")) {
+      setPublicBaseUrl((cur) => cur || base);
+    }
+  }, [oauthApps, setupPlat]);
+
   const saveApp = async () => {
     if (!setupForm.clientId.trim() || !setupForm.clientSecret.trim()) {
       notify("Client ID and Client Secret required for Connect with …");
+      return;
+    }
+    const base = resolvedPublicBase();
+    if (!/^https?:\/\//i.test(base)) {
+      notify("Public API URL must start with https:// (production) or http:// (local).");
       return;
     }
     setSavingApp(true);
@@ -17339,10 +17375,12 @@ function SocialAccountsView({ accounts = [], onChanged }) {
         platform: setupPlat,
         clientId: setupForm.clientId.trim(),
         clientSecret: setupForm.clientSecret.trim(),
+        redirectUri: `${base}/api/scheduler/oauth/${setupPlat}/callback`,
       });
       setSetupForm({ clientId: "", clientSecret: "" });
+      setPublicBaseUrl(base);
       loadApps();
-      notify(`AIVHub ${SOCIAL_ACCOUNT_GUIDES[setupPlat].title} app saved. Users can click Connect now.`);
+      notify(`AIVHub ${SOCIAL_ACCOUNT_GUIDES[setupPlat].title} app saved. Register this callback on the platform, then users click Connect.`);
     } catch (e) {
       notify(e.message || "Could not save app");
     } finally {
@@ -17488,7 +17526,19 @@ function SocialAccountsView({ accounts = [], onChanged }) {
         <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22, boxShadow: C.shadowCard }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>One-time AIVHub app (admin)</div>
           <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 12 }}>
-            Create a developer app on the platform for AIVHub. Paste Client ID + Secret once. Then every operator clicks Connect with X / LinkedIn and logs in as themselves. Callback URL must match exactly.
+            Admin only: set public API URL + Client ID/Secret once. Operators never edit files — they only click Connect and log in. Use your stable production domain (not a temporary Lightning URL) when you go live.
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Public API URL (no path)</label>
+            <input
+              value={publicBaseUrl}
+              onChange={(e) => setPublicBaseUrl(e.target.value)}
+              placeholder="https://app.aivhub.com"
+              style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}
+            />
+            <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>
+              Production: fixed HTTPS domain. Demo/Lightning: paste current space origin. Saved with the app — no .env needed for operators.
+            </div>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
             {["x", "linkedin", "facebook", "instagram", "threads"].map((id) => (
@@ -17509,14 +17559,11 @@ function SocialAccountsView({ accounts = [], onChanged }) {
             {(setupPlat === "facebook" || setupPlat === "instagram"
               ? ["facebook", "instagram"]
               : [setupPlat]
-            ).map((p) => {
-              const one = (setupApp.callbackUrl || `http://127.0.0.1:8000/api/scheduler/oauth/${setupPlat}/callback`).replace(/\/oauth\/[^/]+\/callback/, `/oauth/${p}/callback`);
-              return (
-                <code key={p} style={{ display: "block", marginTop: 4, padding: "8px 10px", background: HUB_PAPER, borderRadius: 8, color: C.ink, wordBreak: "break-all" }}>
-                  {one}
-                </code>
-              );
-            })}
+            ).map((p) => (
+              <code key={p} style={{ display: "block", marginTop: 4, padding: "8px 10px", background: HUB_PAPER, borderRadius: 8, color: C.ink, wordBreak: "break-all" }}>
+                {callbackFor(p)}
+              </code>
+            ))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
             <div>

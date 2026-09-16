@@ -91,14 +91,16 @@ async def get_oauth_app(db: AsyncSession, platform: str) -> Dict[str, Any]:
 
     if not redirect_uri:
         redirect_uri = default_redirect_uri(plat)
+    redirect_uri = redirect_uri.strip()
 
     return {
         "platform": plat,
         "clientId": client_id.strip(),
         "clientSecret": client_secret.strip(),
-        "redirectUri": redirect_uri.strip(),
+        "redirectUri": redirect_uri,
         "configured": bool(client_id.strip() and client_secret.strip()),
-        "callbackUrl": default_redirect_uri(plat),
+        # Prefer saved redirect (set from Accounts UI) over env PUBLIC_BASE_URL
+        "callbackUrl": redirect_uri or default_redirect_uri(plat),
     }
 
 
@@ -107,13 +109,14 @@ def public_app_dict(app: Dict[str, Any]) -> Dict[str, Any]:
     hint = ""
     if cid:
         hint = cid[:6] + "…" + cid[-4:] if len(cid) > 12 else cid[:4] + "…"
+    callback = (app.get("redirectUri") or app.get("callbackUrl") or default_redirect_uri(app["platform"])).strip()
     return {
         "platform": app["platform"],
         "configured": app.get("configured", False),
         "clientIdHint": hint,
         "hasSecret": bool(app.get("clientSecret")),
-        "redirectUri": app.get("redirectUri") or app.get("callbackUrl"),
-        "callbackUrl": app.get("callbackUrl") or default_redirect_uri(app["platform"]),
+        "redirectUri": callback,
+        "callbackUrl": callback,
     }
 
 
