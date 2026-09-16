@@ -8797,15 +8797,16 @@ function applyFillToRow(r, fill) {
   if (!fill || fill.status !== "proposed") return r;
   const aiFields = { ...(r.aiFields || {}) };
   const next = { ...r, aiFields };
-  const take = (key, mark) => {
-    if (fill[key] && !String(r[key] || "").trim()) {
-      next[key] = fill[key];
-      if (mark) aiFields[key] = true;
-    }
+  const take = (key, mark, ok) => {
+    const val = fill[key];
+    if (!val || String(r[key] || "").trim()) return;
+    if (ok && !ok(val)) return;
+    next[key] = val;
+    if (mark) aiFields[key] = true;
   };
-  take("phone", true);
+  take("phone", true, isProposedPhone);
   take("email", true);
-  take("contact", true);
+  take("contact", true, isPersonName);
   take("linkedin", true);
   take("twitter", true);
   take("facebook", true);
@@ -9451,18 +9452,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
 
   const acceptFill = (fill) => {
     setRows((prev) =>
-      prev.map((r) => {
-        if (String(r.id) !== String(fill.rowId)) return r;
-        return {
-          ...r,
-          phone: (fill.phone && isProposedPhone(fill.phone)) ? fill.phone : r.phone,
-          email: fill.email || r.email,
-          contact: (fill.contact && isPersonName(fill.contact)) ? fill.contact : r.contact,
-          source: r.source || fill.source,
-          linkedin: fill.linkedin || r.linkedin,
-          openingHook: fill.openingHook || r.openingHook,
-        };
-      })
+      prev.map((r) => (String(r.id) === String(fill.rowId) ? applyFillToRow(r, fill) : r))
     );
     setPendingFills((prev) => prev.filter((p) => String(p.rowId) !== String(fill.rowId)));
   };
@@ -9477,16 +9467,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     setRows((prev) =>
       prev.map((r) => {
         const fill = proposed.find((f) => String(f.rowId) === String(r.id));
-        if (!fill) return r;
-        return {
-          ...r,
-          phone: (fill.phone && isProposedPhone(fill.phone)) ? fill.phone : r.phone,
-          email: fill.email || r.email,
-          contact: (fill.contact && isPersonName(fill.contact)) ? fill.contact : r.contact,
-          source: r.source || fill.source,
-          linkedin: fill.linkedin || r.linkedin,
-          openingHook: fill.openingHook || r.openingHook,
-        };
+        return fill ? applyFillToRow(r, fill) : r;
       })
     );
     setPendingFills((prev) => prev.filter((p) => p.status !== "proposed"));

@@ -61,7 +61,10 @@ def _assistant_offered_fill(chat_msgs: List[Dict[str, str]]) -> bool:
         role = (m.get("role") or "").lower()
         content = (m.get("content") or m.get("text") or "").lower()
         if role in ("assistant", "ai", "bot"):
-            return any(k in content for k in _ASSISTANT_FILL_HINTS)
+            return any(
+                re.search(r"(?<![a-z])" + re.escape(k) + r"(?![a-z])", content)
+                for k in _ASSISTANT_FILL_HINTS
+            )
         if role in ("user", "human"):
             return False
     return False

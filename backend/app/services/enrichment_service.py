@@ -128,13 +128,17 @@ def _is_real_phone(raw: str) -> bool:
         return False
     if digits.startswith("20") and len(digits) == 4:
         return False
-    # Dates, year ranges, and employee counts are not phones.
+    # Dates / year-year / year+headcount (8–9 digits). Do not treat 10+ digit
+    # NANP numbers whose area code is 201–209 as years (e.g. 2015551234).
     if re.fullmatch(r"(?:19|20)\d{2}(?:19|20)\d{2}", digits):
         return False
-    if re.match(r"^(?:19|20)\d{2}", digits) and "+" not in raw:
-        has_phone_punct = bool(re.search(r"[()+\-]", raw))
-        if not has_phone_punct:
-            return False
+    if (
+        len(digits) <= 9
+        and re.match(r"^(?:19|20)\d{2}", digits)
+        and "+" not in raw
+        and not re.search(r"[()+\-]", raw)
+    ):
+        return False
     if len(set(digits)) == 1:
         return False
     if digits in {"1234567890", "0123456789", "9876543210"}:
