@@ -341,7 +341,60 @@ class SocialPost(Base):
     tone = Column(String, default="Professional")
     image_url = Column(Text, nullable=True)
     image_prompt = Column(Text, nullable=True)
+    hook = Column(Text, nullable=True)
+    linkedin_copy = Column(Text, nullable=True)
+    x_copy = Column(Text, nullable=True)
+    facebook_copy = Column(Text, nullable=True)
+    instagram_copy = Column(Text, nullable=True)
+    threads_copy = Column(Text, nullable=True)
+    hashtags = Column(JSON, default=list)
+    cta = Column(Text, nullable=True)
+    first_comment = Column(Text, nullable=True)
+    alt_text = Column(Text, nullable=True)
+    publish_results = Column(JSON, default=list)
+    published_at = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialAccount(Base):
+    __tablename__ = "social_accounts"
+
+    id = Column(String, primary_key=True, index=True)
+    platform = Column(String, nullable=False, index=True)  # linkedin, x, facebook, instagram, threads
+    label = Column(String, default="")
+    handle = Column(String, default="")
+    account_id = Column(String, default="")  # person/org/page/ig/user id
+    access_token = Column(Text, default="")
+    refresh_token = Column(Text, default="")
+    token_secret = Column(Text, default="")  # X OAuth 1.0a
+    extra = Column(JSON, default=dict)  # apiKey, apiSecret, pageId, authorType
+    is_default = Column(Boolean, default=True)
+    status = Column(String, default="disconnected")  # connected, error, disconnected
+    last_error = Column(Text, default="")
+    last_tested_at = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialOAuthApp(Base):
+    """One-time AIVHub developer-app credentials so operators can click Connect."""
+    __tablename__ = "social_oauth_apps"
+
+    platform = Column(String, primary_key=True)
+    client_id = Column(String, default="")
+    client_secret = Column(Text, default="")
+    redirect_uri = Column(String, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SocialOAuthState(Base):
+    __tablename__ = "social_oauth_states"
+
+    id = Column(String, primary_key=True)
+    platform = Column(String, nullable=False)
+    code_verifier = Column(String, default="")
+    frontend_url = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class SocialEmail(Base):
     __tablename__ = "social_emails"

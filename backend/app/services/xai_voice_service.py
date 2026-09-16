@@ -35,6 +35,193 @@ logger = logging.getLogger("xai_voice_service")
 # Global registry of live xAI WebSocket sessions for supervisor takeover and handoff
 active_xai_sessions: Dict[str, Any] = {}
 
+# SIP-first outbound: xAI is hot while the prospect still rings. Greeting waits for pickup.
+_sip_first_calls: Dict[str, Dict[str, Any]] = {}
+
+
+def mark_sip_first_call(custom_call_id: str) -> None:
+    if not custom_call_id:
+        return
+    _sip_first_calls[str(custom_call_id)] = {
+        "session_ready": asyncio.Event(),
+        "answered": asyncio.Event(),
+        "dispatch": None,
+        "aliases": {str(custom_call_id)},
+    }
+
+
+def _sip_first_record(*ids: Optional[str]) -> Optional[Dict[str, Any]]:
+    for raw in ids:
+        if not raw:
+            continue
+        key = str(raw)
+        if key in _sip_first_calls:
+            return _sip_first_calls[key]
+        for rec in _sip_first_calls.values():
+            if key in (rec.get("aliases") or set()):
+                return rec
+    return None
+
+
+def alias_sip_first_call(custom_call_id: str, *extra_ids: Optional[str]) -> None:
+    rec = _sip_first_record(custom_call_id)
+    if not rec:
+        return
+    for extra in extra_ids:
+        if extra:
+            rec["aliases"].add(str(extra))
+            _sip_first_calls[str(extra)] = rec
+
+
+async def notify_prospect_answered(call_id: str) -> bool:
+    """PSTN callee picked up. Fire opening greeting if xAI session is already ready."""
+    rec = _sip_first_record(call_id)
+    if not rec:
+        return False
+    rec["answered"].set()
+    dispatch = rec.get("dispatch")
+    if dispatch and rec["session_ready"].is_set():
+        await dispatch("prospect_answered")
+        return True
+    logger.info(f"[XAI-WS] Prospect answered {call_id}; waiting for session.updated before greeting")
+    return True
+
+
+class BridgedVoiceSession:
+    """xAI audio over WebSocket (G.711 μ-law) so the carrier never waits on SIP after the human is on the line."""
+
+    def __init__(self, call_id: str, is_inbound: bool = False):
+        self.call_id = str(call_id)
+        self.is_inbound = is_inbound
+        self.ready = asyncio.Event()
+        self._buf: List[str] = []
+        self._live = False
+        self.ws = None
+        self.on_caller_audio = None
+        self.engine = "xai"
+
+    async def attach_stream(self, stream_sid: Optional[str] = None) -> None:
+        self._live = True
+        chunks = self._buf
+        self._buf = []
+        if chunks:
+            logger.info(f"[XAI-BRIDGE] Flushing {len(chunks)} pre-buffered greeting frames for {self.call_id}")
+        for chunk in chunks:
+            await self._send_to_twilio(chunk)
+
+    async def push_caller_audio(self, b64: str) -> None:
+        if not b64:
+            return
+        try:
+            from app.websockets.media_stream import media_stream_hub
+            if self.call_id in media_stream_hub.active_takeovers:
+                return
+            if self.on_caller_audio:
+                await self.on_caller_audio(b64)
+                return
+            if not self.ws:
+                return
+            await self.ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": b64}))
+        except Exception as err:
+            logger.warning(f"[XAI-BRIDGE] Failed to append caller audio: {err}")
+
+    async def emit_ai_audio(self, b64: str) -> None:
+        if not b64:
+            return
+        if self._live:
+            await self._send_to_twilio(b64)
+        else:
+            self._buf.append(b64)
+            if not self.ready.is_set():
+                self.ready.set()
+
+    async def wait_ready(self, timeout: float = 2.5) -> bool:
+        try:
+            await asyncio.wait_for(self.ready.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"[XAI-BRIDGE] Ready wait timed out for {self.call_id} after {timeout}s")
+            return False
+
+    async def _send_to_twilio(self, b64: str) -> None:
+        try:
+            from app.websockets.media_stream import media_stream_hub
+            await media_stream_hub.inject_operator_audio_to_twilio(self.call_id, b64)
+        except Exception as err:
+            logger.warning(f"[XAI-BRIDGE] Twilio inject failed: {err}")
+
+
+bridged_sessions: Dict[str, BridgedVoiceSession] = {}
+
+
+async def start_bridged_voice_session(
+    call_id: str,
+    caller_number: str,
+    prospect_name: Optional[str] = None,
+    is_inbound: bool = False,
+    carrier_sid: Optional[str] = None,
+) -> BridgedVoiceSession:
+    from app.services.voice_plugin_plan import resolve_voice_plan
+
+    plan = await resolve_voice_plan()
+    sess = BridgedVoiceSession(call_id, is_inbound=is_inbound)
+    sess.engine = plan.engine
+    bridged_sessions[str(call_id)] = sess
+    if carrier_sid:
+        bridged_sessions[str(carrier_sid)] = sess
+    mission = "Inbound Customer Call" if is_inbound else "Direct Outbound Outreach"
+    logger.info(f"[VOICE-ROUTER] {call_id} engine={plan.engine} {plan.note}")
+
+    if plan.engine == "openai":
+        from app.services.voice_openai import run_openai_realtime
+        asyncio.create_task(
+            run_openai_realtime(
+                sess,
+                call_id=call_id,
+                caller_number=caller_number,
+                prospect_name=prospect_name,
+                plan=plan,
+                is_inbound=is_inbound,
+                carrier_sid=carrier_sid,
+            )
+        )
+    elif plan.engine == "modular":
+        from app.services.voice_modular import run_modular_pipeline
+        asyncio.create_task(
+            run_modular_pipeline(
+                sess,
+                call_id=call_id,
+                caller_number=caller_number,
+                prospect_name=prospect_name,
+                plan=plan,
+                is_inbound=is_inbound,
+                carrier_sid=carrier_sid,
+            )
+        )
+    elif plan.engine == "simulation":
+        sess.ready.set()
+        asyncio.create_task(_run_simulated_xai_session(call_id, caller_number))
+    else:
+        asyncio.create_task(
+            join_xai_call_session(
+                call_id=call_id,
+                caller_number=caller_number,
+                prospect_name=prospect_name,
+                custom_call_id=call_id,
+                carrier_sid=carrier_sid,
+                mission_name=mission,
+                audio_bridge=sess,
+            )
+        )
+    return sess
+
+
+def get_bridged_session(*ids: Optional[str]) -> Optional[BridgedVoiceSession]:
+    for raw in ids:
+        if raw and str(raw) in bridged_sessions:
+            return bridged_sessions[str(raw)]
+    return None
+
 async def notify_xai_takeover_state(call_id: str, taken: bool, recent_transcript: List[str] = None):
     """
     Informs xAI Realtime session when a human supervisor takes over or hands back.
@@ -159,7 +346,11 @@ def verify_xai_webhook_signature(
 # ----------------------------------------------------------------------
 # 2. DYNAMIC SYSTEM PROMPT & TOOL DEFINITIONS
 # ----------------------------------------------------------------------
-async def build_xai_system_instructions(caller_number: str, prospect_name: Optional[str] = None) -> str:
+async def build_xai_system_instructions(
+    caller_number: str,
+    prospect_name: Optional[str] = None,
+    hold_opening: bool = False,
+) -> str:
     """
     Constructs real-time system prompt customized with Company Profile,
     Service Catalog, caller context, real-world temporal ground truth,
@@ -221,6 +412,19 @@ async def build_xai_system_instructions(caller_number: str, prospect_name: Optio
     if target_first_name.lower() in ["prospect", "caller"]:
         target_first_name = "there"
 
+    opening_block = f"""HOLD THE LINE — DO NOT SPEAK YET:
+- This is an outbound call to {target_name}. The phone is still ringing.
+- Stay completely silent until you receive an explicit response.create with greeting instructions.
+- Do not greet, do not fill silence, do not react to ringback or dead air.
+- When the greeting command arrives, the person has just picked up. Then speak immediately:
+  "Hi {target_first_name}, this is {caller_name} from {company_name}. How's your day going?"
+""" if hold_opening else f"""CRITICAL OUTBOUND CALL OPENING (SPEAK FIRST & ENGAGE):
+- You are placing an OUTBOUND CALL to {target_name}. The person has just picked up.
+- You MUST speak FIRST immediately! Do NOT wait in awkward silence.
+- Opening Greeting (Warm & Human):
+  "Hi {target_first_name}, this is {caller_name} from {company_name}. How's your day going?"
+"""
+
     instructions = f"""You are {caller_name}, an exceptionally warm, articulate, and personable executive representative calling on behalf of {company_name}.
 Tone & Personality: {tone}. You sound like an energetic, thoughtful human colleague having a relaxed, confident conversation over the phone. You NEVER sound like a rigid telemarketer, monotonous computer, or scripted bot.
 
@@ -236,11 +440,7 @@ HUMAN CONVERSATIONAL FLOW & NATURAL CADENCE RULES (MANDATORY):
 4. NATURAL MICRO-PAUSES: Use commas and em-dashes (—) in your output to give your voice natural human pauses, breath, and micro-cadence.
 5. ADAPTABLE & UNHURRIED: If interrupted, instantly pivot to what they just said. Do not repeat previous sentences or stick rigidly to a script.
 
-CRITICAL OUTBOUND CALL OPENING (SPEAK FIRST & ENGAGE):
-- You are placing an OUTBOUND CALL to {target_name}. The person has just picked up.
-- You MUST speak FIRST immediately! Do NOT wait in awkward silence.
-- Opening Greeting (Warm & Human):
-  "Hi {target_first_name}, this is {caller_name} from {company_name}. How's your day going?"
+{opening_block}
 - When they reply:
   "The reason for my call—we help businesses connect scattered operational data into live dashboards and AI insights. Just wanted to see if you'd be open to a quick 15-minute walkthrough sometime this week?"
 
@@ -591,17 +791,20 @@ async def join_xai_call_session(
     prospect_name: Optional[str] = None,
     mission_name: Optional[str] = None,
     carrier_sid: Optional[str] = None,
-    custom_call_id: Optional[str] = None
+    custom_call_id: Optional[str] = None,
+    audio_bridge: Optional[BridgedVoiceSession] = None,
 ):
     """
-    Connects an outbound WebSocket session to xAI Realtime Voice API
-    (wss://api.x.ai/v1/realtime?call_id=...) for an incoming/outgoing call.
+    Connects an outbound WebSocket session to xAI Realtime Voice API.
+    SIP mode: wss://...?call_id= (audio on SIP). Bridge mode: μ-law over WS, no SIP wait.
     """
     start_ts = time.time()
     agent_id = getattr(settings, "XAI_AGENT_ID", None) or "agent_QDoRHfWcKMybf197"
-    # CRITICAL: For xAI SIP-bridged calls, use call_id ONLY in the WS URL.
-    # Adding agent_id alongside call_id can conflict with the SIP call context on xAI's side.
-    ws_url = f"{settings.XAI_REALTIME_WS_URL}?call_id={call_id}"
+    base_ws = (settings.XAI_REALTIME_WS_URL or "wss://api.x.ai/v1/realtime").split("?")[0]
+    if audio_bridge:
+        ws_url = f"{base_ws}?model=grok-voice-latest"
+    else:
+        ws_url = f"{base_ws}?call_id={call_id}"
     api_key = settings.XAI_API_KEY
     active_voice = settings.XAI_VOICE_NAME
     silence_ms = getattr(settings, "XAI_VAD_SILENCE_MS", 380)
@@ -731,9 +934,29 @@ async def join_xai_call_session(
         await _run_simulated_xai_session(call_id, caller_number)
         return
 
+    sip_first_rec = None if audio_bridge else _sip_first_record(custom_call_id, local_call_id, call_id)
+    sip_first = bool(sip_first_rec)
+    if sip_first_rec:
+        alias_sip_first_call(custom_call_id or local_call_id, local_call_id, call_id, carrier_sid)
+
+    if audio_bridge:
+        is_inbound_call = bool(audio_bridge.is_inbound)
+    elif sip_first or custom_call_id:
+        is_inbound_call = False
+    elif call_obj and call_obj.mission and not ("inbound" in call_obj.mission.lower() or "inbound" in (call_obj.mission_id or "").lower()):
+        is_inbound_call = False
+    elif mission_name and "inbound" in str(mission_name).lower():
+        is_inbound_call = True
+    elif not call_obj:
+        is_inbound_call = True
+    else:
+        is_inbound_call = False
+
     # Real WebSocket Connection to xAI
     headers = {"Authorization": f"Bearer {api_key}"}
-    system_instructions = await build_xai_system_instructions(caller_number, prospect_name)
+    system_instructions = await build_xai_system_instructions(
+        caller_number, prospect_name, hold_opening=sip_first and not is_inbound_call and not audio_bridge
+    )
     tools_list = get_xai_tool_definitions()
 
     transcript_history = []
@@ -761,6 +984,8 @@ async def join_xai_call_session(
         ) as ws:
             active_xai_sessions[local_call_id] = ws
             active_xai_sessions[call_id] = ws
+            if audio_bridge:
+                audio_bridge.ws = ws
             logger.info(f"[XAI-WS] ✓ WebSocket CONNECTED for call_id={call_id}")
             await log_process_event(
                 subsystem="voice",
@@ -771,9 +996,7 @@ async def join_xai_call_session(
             )
 
             # 2. Send session.update to configure voice, VAD, prompt & tools
-            session_config = {
-                "type": "session.update",
-                "session": {
+            session_body = {
                     "modalities": ["audio", "text"],
                     "voice": active_voice,
                     "instructions": system_instructions,
@@ -786,9 +1009,16 @@ async def join_xai_call_session(
                     },
                     "tools": tools_list,
                     "tool_choice": "auto",
-                    # Note: xAI uses its own transcription model; do not specify whisper-1
                     "input_audio_transcription": {}
+            }
+            if audio_bridge:
+                session_body["audio"] = {
+                    "input": {"format": {"type": "audio/pcmu"}},
+                    "output": {"format": {"type": "audio/pcmu"}},
                 }
+            session_config = {
+                "type": "session.update",
+                "session": session_body,
             }
             # 1. Update session with complete AIVHub configuration
             await ws.send(json.dumps(session_config))
@@ -801,12 +1031,20 @@ async def join_xai_call_session(
                 target_first_name = "there"
 
             greeting_dispatched = False
+            greeting_audio_started = False
+            session_ready = False
 
-            async def dispatch_opening_greeting(trigger_source: str):
-                nonlocal greeting_dispatched
-                if greeting_dispatched:
+            async def dispatch_opening_greeting(trigger_source: str, force: bool = False):
+                nonlocal greeting_dispatched, greeting_audio_started
+                if sip_first and not is_inbound_call and not audio_bridge:
+                    rec = _sip_first_record(custom_call_id, local_call_id, call_id)
+                    if rec and not rec["answered"].is_set() and trigger_source != "prospect_answered":
+                        logger.info(f"[XAI-WS] Defer greeting ({trigger_source}) — prospect still ringing")
+                        return
+                if greeting_dispatched and not force:
                     return
                 greeting_dispatched = True
+                greeting_audio_started = False
                 logger.info(f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source} (voice={active_voice})...")
 
                 try:
@@ -817,16 +1055,7 @@ async def join_xai_call_session(
                 current_time_str = now_greeting.strftime("%I:%M %p")
                 current_date_str = now_greeting.strftime("%A, %d %B %Y")
 
-                # Strictly determine inbound vs outbound:
-                # If call_obj was linked from an outbound dial (e.g. mission is "Direct Client Outreach"), it is OUTBOUND.
-                if call_obj and call_obj.mission and not ("inbound" in call_obj.mission.lower() or "inbound" in (call_obj.mission_id or "").lower()):
-                    is_inbound = False
-                elif mission_name and "inbound" in mission_name.lower():
-                    is_inbound = True
-                elif not call_obj:
-                    is_inbound = True
-                else:
-                    is_inbound = False
+                is_inbound = is_inbound_call
 
                 profile_rep = _knowledge_cache.get("profile") if "_knowledge_cache" in globals() else None
                 rep_name = profile_rep.caller_name if profile_rep and profile_rep.caller_name else "Sam"
@@ -845,9 +1074,9 @@ async def join_xai_call_session(
                     greeting_instruction = (
                         f"You are calling {target_first_name} as {rep_name} from {comp_name} on an outbound business call. "
                         f"The current time in London is {current_time_str} on {current_date_str}. "
-                        f"Speak FIRST immediately! Say warmly and naturally with upbeat conversational energy: "
+                        f"The person just picked up. Speak FIRST immediately! Say warmly and naturally: "
                         f"'{greeting_line}, this is {rep_name} calling from {comp_name}. How's your day going?' "
-                        f"Do not wait for the other person to speak."
+                        f"Do not wait for the other person to speak. Do not repeat if you already started this line."
                     )
 
                 greeting_cmd = {
@@ -867,16 +1096,26 @@ async def join_xai_call_session(
                         level="INFO",
                         details={"callId": call_id, "triggerSource": trigger_source, "prospect": target_first_name, "isInbound": is_inbound}
                     ))
+
+                    async def retry_if_silent():
+                        await asyncio.sleep(1.2)
+                        if greeting_dispatched and not greeting_audio_started and call_active:
+                            logger.warning(f"[XAI-WS] No greeting audio within 1.2s for {call_id} — retrying response.create")
+                            await dispatch_opening_greeting("audio_watchdog", force=True)
+
+                    if not force:
+                        asyncio.create_task(retry_if_silent())
                 except Exception as g_err:
+                    greeting_dispatched = False
                     logger.warning(f"[XAI-WS] Failed to dispatch opening greeting: {g_err}")
 
-            # Trigger opening greeting immediately upon connecting so audio begins generating instantly
-            await dispatch_opening_greeting("immediate_on_connect")
+            rec = _sip_first_record(custom_call_id, local_call_id, call_id)
+            if rec:
+                rec["dispatch"] = dispatch_opening_greeting
 
-            # Fallback timer: if not yet dispatched within 0.8s, trigger fallback
             async def fallback_greeting_timer():
-                await asyncio.sleep(0.8)
-                if not greeting_dispatched:
+                await asyncio.sleep(1.0)
+                if not greeting_dispatched and session_ready and (not sip_first or is_inbound_call):
                     await dispatch_opening_greeting("fallback_timer")
 
             asyncio.create_task(fallback_greeting_timer())
@@ -888,9 +1127,25 @@ async def join_xai_call_session(
                 event_type = event.get("type", "")
                 event_count += 1
 
-                # Trigger greeting on session readiness events
                 if event_type in ["session.created", "session.updated"]:
+                    session_ready = True
+                    rec_ready = _sip_first_record(custom_call_id, local_call_id, call_id)
+                    if rec_ready:
+                        rec_ready["session_ready"].set()
+                    if audio_bridge and not audio_bridge.is_inbound:
+                        audio_bridge.ready.set()
                     await dispatch_opening_greeting(event_type)
+
+                if event_type in (
+                    "response.audio.started",
+                    "output_audio_buffer.started",
+                    "response.output_audio.delta",
+                    "response.audio.delta",
+                ):
+                    greeting_audio_started = True
+                    delta_audio = event.get("delta") or event.get("audio")
+                    if audio_bridge and delta_audio:
+                        await audio_bridge.emit_ai_audio(delta_audio)
 
                 if event_type == "error":
                     err_detail = event.get("error", {})
@@ -1053,6 +1308,9 @@ async def join_xai_call_session(
     finally:
         active_xai_sessions.pop(local_call_id, None)
         active_xai_sessions.pop(call_id, None)
+        for key in list(bridged_sessions.keys()):
+            if bridged_sessions[key].call_id == str(local_call_id) or key in (str(call_id), str(local_call_id)):
+                bridged_sessions.pop(key, None)
         duration_sec = int(time.time() - start_ts)
         duration_str = f"{duration_sec // 60:02d}:{duration_sec % 60:02d}"
         await _finalize_call(local_call_id, duration_str, transcript_history)

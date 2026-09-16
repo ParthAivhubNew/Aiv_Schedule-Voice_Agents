@@ -1,8 +1,9 @@
 import asyncio
+import json
 import logging
 import re
 import urllib.parse
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import httpx
 from bs4 import BeautifulSoup
 
@@ -20,7 +21,7 @@ SEARCH_HEADERS = {
 async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     results = []
     try:
-        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=10.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=6.0, follow_redirects=True) as client:
             resp = await client.post("https://html.duckduckgo.com/html/", data={"q": query})
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
@@ -51,23 +52,68 @@ EMAIL_JUNK = (
 )
 
 SOCIAL_HOSTS = {
-    "linkedin": ("linkedin.com/company", "linkedin.com/in/"),
-    "twitter": ("twitter.com/", "x.com/"),
-    "facebook": ("facebook.com/", "fb.com/"),
-    "instagram": ("instagram.com/",),
-    "youtube": ("youtube.com/", "youtu.be/"),
-    "reddit": ("reddit.com/r/", "reddit.com/user/"),
+    "linkedin": ("linkedin.com", "lnkd.in"),
+    "twitter": ("twitter.com", "x.com"),
+    "facebook": ("facebook.com", "fb.com", "fb.me"),
+    "instagram": ("instagram.com",),
+    "youtube": ("youtube.com", "youtu.be"),
+    "reddit": ("reddit.com/r/", "reddit.com/user/", "reddit.com/u/"),
     "tiktok": ("tiktok.com/@",),
     "github": ("github.com/",),
     "crunchbase": ("crunchbase.com/organization",),
 }
 
+SOCIAL_JUNK = (
+    "/sharer", "/share.php", "/share?", "/intent/", "/dialog/", "/plugins/",
+    "/privacy", "/policy", "/login", "/signup", "/register", "/help", "/legal",
+    "/watch", "/embed/", "/reel/", "/reels/", "/stories/", "/hashtag/",
+    "/search", "/home", "/feed", "/i/web", "/i/flow", "/addthis",
+    "/tr?", "/checkpoint", "/recover", "/oauth", "/jobs/", "/pulse/",
+    "/posts/", "/sharing", "/company/login",
+    "github.com/login", "github.com/features", "github.com/about", "github.com/pricing",
+    "youtube.com/watch", "youtu.be/",
+)
+
+SOCIAL_FIND_RE = re.compile(
+    r"https?://(?:(?:www|[a-z]{2})\.)?(?:"
+    r"linkedin\.com/(?:company|in|school)/[A-Za-z0-9_\-%]+"
+    r"|lnkd\.in/[A-Za-z0-9_\-]+"
+    r"|(?:twitter|x)\.com/@?[A-Za-z0-9_]{1,30}"
+    r"|facebook\.com/[A-Za-z0-9.\-]+"
+    r"|fb\.com/[A-Za-z0-9.\-]+"
+    r"|instagram\.com/[A-Za-z0-9_.]+"
+    r"|youtube\.com/(?:@|channel/|c/|user/)[A-Za-z0-9_\-]+"
+    r"|tiktok\.com/@[A-Za-z0-9._]+"
+    r"|reddit\.com/r/[A-Za-z0-9_]+"
+    r"|crunchbase\.com/organization/[A-Za-z0-9_\-]+"
+    r")",
+    re.I,
+)
+
 
 def _clean_href(href: str) -> str:
-    href = (href or "").strip()
+    href = (href or "").strip().strip("'\"")
     if href.startswith("//"):
         return "https:" + href
     return href
+
+
+_ROLE_WORDS = {
+    "ceo", "cfo", "coo", "cto", "cmo", "cio", "founder", "co-founder", "cofounder",
+    "director", "managing", "president", "vp", "svp", "evp", "head", "officer",
+    "manager", "lead", "owner", "partner", "chairman", "chair", "executive",
+}
+_ROLE_PHRASES = {
+    "managing director", "chief executive", "chief executive officer",
+    "decision maker", "decision-maker", "operations lead", "vp of operations",
+    "general manager", "managing partner",
+}
+_NON_NAME_WORDS = {
+    "new", "york", "los", "angeles", "san", "francisco", "hong", "kong",
+    "united", "states", "kingdom", "north", "south", "east", "west",
+    "inc", "ltd", "corp", "llc", "group", "company", "plc", "gmbh",
+    "limited", "international", "america", "europe", "asia", "city",
+}
 
 
 def _is_real_phone(raw: str) -> bool:
@@ -82,6 +128,41 @@ def _is_real_phone(raw: str) -> bool:
         return False
     if digits.startswith("20") and len(digits) == 4:
         return False
+    # Dates, year ranges, and employee counts are not phones.
+    if re.fullmatch(r"(?:19|20)\d{2}(?:19|20)\d{2}", digits):
+        return False
+    if re.match(r"^(?:19|20)\d{2}", digits) and "+" not in raw:
+        has_phone_punct = bool(re.search(r"[()+\-]", raw))
+        if not has_phone_punct:
+            return False
+    if len(set(digits)) == 1:
+        return False
+    if digits in {"1234567890", "0123456789", "9876543210"}:
+        return False
+    return True
+
+
+def _is_person_name(raw: str) -> bool:
+    """Accept a real person name. Reject job titles and role hints."""
+    name = (raw or "").strip()
+    if not name:
+        return False
+    compact = re.sub(r"[^a-z]+", " ", name.lower()).strip()
+    if compact in _ROLE_WORDS or compact in _ROLE_PHRASES:
+        return False
+    parts = [p for p in re.split(r"\s+", name) if p]
+    if len(parts) < 2 or len(parts) > 5:
+        return False
+    if any(p.lower().rstrip(".") in _ROLE_WORDS for p in parts):
+        return False
+    if any(p.lower().rstrip(".") in _NON_NAME_WORDS for p in parts):
+        return False
+    particles = {"de", "da", "van", "von", "der", "la", "le", "di", "du"}
+    for p in parts:
+        if p.lower() in particles:
+            continue
+        if not re.match(r"^[A-Z][a-zA-Z'-]+$", p):
+            return False
     return True
 
 
@@ -92,16 +173,161 @@ def _is_public_email(raw: str) -> bool:
     return not any(j in em for j in EMAIL_JUNK)
 
 
+def _html_for_parse(html: str, cap: int = 280000) -> str:
+    if not html:
+        return ""
+    if len(html) <= cap:
+        return html
+    head = html[: int(cap * 0.62)]
+    tail = html[-int(cap * 0.38) :]
+    return head + "\n<!--trim-->\n" + tail
+
+
+def _normalize_social_url(url: str) -> str:
+    href = _clean_href(url)
+    if not href or href.startswith(("javascript:", "mailto:", "tel:", "#")):
+        return ""
+    low = href.lower()
+    if not href.startswith("http"):
+        if any(h in low for h in (
+            "linkedin.com", "lnkd.in", "twitter.com", "x.com", "facebook.com",
+            "fb.com", "instagram.com", "youtube.com", "tiktok.com", "reddit.com",
+            "github.com", "crunchbase.com",
+        )):
+            href = "https://" + href.lstrip("/")
+        else:
+            return ""
+    parsed = urllib.parse.urlparse(href)
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    path = (parsed.path or "").rstrip("/")
+    scheme = "https"
+    return urllib.parse.urlunparse((scheme, host, path, "", "", ""))
+
+
 def _social_key_from_url(url: str) -> Optional[str]:
     low = (url or "").lower()
+    if not low:
+        return None
+    if any(j in low for j in SOCIAL_JUNK):
+        return None
+    parsed = urllib.parse.urlparse(low if "://" in low else "https://" + low)
+    host = (parsed.netloc or "").lower()
+    path = parsed.path or ""
+    if host.startswith("www."):
+        host = host[4:]
+    if host.endswith(".linkedin.com") or host == "linkedin.com" or host == "lnkd.in":
+        if "/company/" in path or "/in/" in path or "/school/" in path or host == "lnkd.in":
+            return "linkedin"
+        return None
+    if host in ("twitter.com", "x.com", "mobile.twitter.com"):
+        handle = path.strip("/").split("/")[0].lstrip("@")
+        if handle and handle not in ("intent", "share", "i", "home", "search", "explore", "settings", "privacy"):
+            return "twitter"
+        return None
+    if host in ("facebook.com", "fb.com", "m.facebook.com", "fb.me"):
+        slug = path.strip("/").split("/")[0]
+        if slug and slug not in ("sharer", "share", "dialog", "plugins", "tr", "watch", "photo", "permalink.php", "groups"):
+            return "facebook"
+        return None
+    if host in ("instagram.com", "www.instagram.com"):
+        slug = path.strip("/").split("/")[0]
+        if slug and slug not in ("p", "reel", "reels", "stories", "share", "accounts", "explore", "instagram"):
+            return "instagram"
+        return None
+    if host in ("youtube.com", "m.youtube.com", "youtu.be"):
+        if host == "youtu.be":
+            return None
+        if any(path.startswith(p) for p in ("/@", "/channel/", "/c/", "/user/")):
+            return "youtube"
+        return None
     for key, needles in SOCIAL_HOSTS.items():
         if any(n in low for n in needles):
-            if key == "github" and any(x in low for x in ("github.com/login", "github.com/features", "github.com/about")):
-                return None
-            if key == "facebook" and any(x in low for x in ("facebook.com/sharer", "facebook.com/dialog", "facebook.com/privacy")):
-                return None
+            if key in ("linkedin", "twitter", "facebook", "instagram", "youtube"):
+                continue
             return key
     return None
+
+
+def _social_quality(key: str, url: str) -> int:
+    low = (url or "").lower()
+    if not url or any(j in low for j in SOCIAL_JUNK):
+        return 0
+    if key == "linkedin":
+        if "/company/" in low:
+            return 12
+        if "/school/" in low:
+            return 8
+        if "lnkd.in/" in low:
+            return 6
+        if "/in/" in low:
+            return 3
+        return 1
+    if key == "youtube":
+        if "/@" in low or "/channel/" in low:
+            return 8
+        return 4
+    if key == "twitter":
+        return 7
+    if key == "facebook":
+        return 6
+    if key == "instagram":
+        return 6
+    return 5
+
+
+def _remember_social(socials: dict, url: str) -> None:
+    cleaned = _normalize_social_url(url)
+    if not cleaned:
+        return
+    key = _social_key_from_url(cleaned)
+    if not key:
+        return
+    score = _social_quality(key, cleaned)
+    if score <= 0:
+        return
+    prev = socials.get(key) or ""
+    if not prev or score > _social_quality(key, prev):
+        socials[key] = cleaned
+
+
+def _harvest_jsonld(soup: BeautifulSoup, socials: dict) -> None:
+    for script in soup.find_all("script"):
+        stype = " ".join(script.get("type") or "").lower()
+        if "ld+json" not in stype:
+            continue
+        raw = (script.string or script.get_text() or "").strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        nodes: List[Any] = data if isinstance(data, list) else [data]
+        expanded: List[Any] = []
+        for node in nodes:
+            if isinstance(node, dict) and isinstance(node.get("@graph"), list):
+                expanded.extend(node["@graph"])
+            else:
+                expanded.append(node)
+        for node in expanded:
+            if not isinstance(node, dict):
+                continue
+            same = node.get("sameAs") or []
+            if isinstance(same, str):
+                same = [same]
+            for item in same:
+                if isinstance(item, str):
+                    _remember_social(socials, item)
+
+
+def _harvest_regex_urls(html: str, socials: dict) -> None:
+    if not html:
+        return
+    sample = html if len(html) <= 500000 else html[:280000] + html[-160000:]
+    for match in SOCIAL_FIND_RE.finditer(sample):
+        _remember_social(socials, match.group(0).rstrip(").,;\"'<>\\"))
 
 
 def _harvest_soup(soup: BeautifulSoup, phones: set, emails: set, socials: dict) -> List[str]:
@@ -113,8 +339,9 @@ def _harvest_soup(soup: BeautifulSoup, phones: set, emails: set, socials: dict) 
     for em in re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', text):
         if _is_public_email(em):
             emails.add(em.lower())
-    for a in soup.find_all("a", href=True):
-        href = _clean_href(a["href"])
+    _harvest_jsonld(soup, socials)
+    for tag in soup.find_all(["a", "link"]):
+        href = _clean_href(tag.get("href") or tag.get("data-href") or tag.get("data-url") or "")
         low = href.lower()
         if low.startswith("tel:"):
             cand = href.split(":", 1)[-1]
@@ -126,12 +353,67 @@ def _harvest_soup(soup: BeautifulSoup, phones: set, emails: set, socials: dict) 
             if _is_public_email(cand):
                 emails.add(cand.lower())
             continue
-        key = _social_key_from_url(href)
-        if key and key not in socials:
-            socials[key] = href if href.startswith("http") else href
-        if any(p in low for p in ("/contact", "/about", "/impressum", "/support")):
+        rel = " ".join(tag.get("rel") or []).lower()
+        if href:
+            _remember_social(socials, href)
+        if href and (
+            any(p in low for p in ("/contact", "/about", "/impressum", "/support", "/connect"))
+            or "me" in rel.split()
+        ):
             extra_pages.append(href)
+        label = " ".join(
+            filter(None, [tag.get("aria-label"), tag.get("title"), tag.get("class") and " ".join(tag.get("class"))])
+        ).lower()
+        if href and any(w in label for w in ("linkedin", "facebook", "instagram", "twitter", "youtube", "tiktok")):
+            _remember_social(socials, href)
     return extra_pages
+
+
+def _pick_follow_pages(extra: List[str], origin: str, netloc: str) -> List[str]:
+    ranked: List[Tuple[int, str]] = []
+    for href in extra:
+        abs_url = urllib.parse.urljoin(origin + "/", href)
+        parsed = urllib.parse.urlparse(abs_url)
+        if parsed.netloc != netloc:
+            continue
+        low = abs_url.lower()
+        if any(skip in low for skip in ("linkedin.com", "facebook.com", "instagram.com", "twitter.com", "x.com")):
+            continue
+        score = 0
+        if "/contact" in low:
+            score = 4
+        elif "/about-us" in low or "/aboutus" in low:
+            score = 3
+        elif "/about" in low:
+            score = 2
+        elif "/support" in low or "/impressum" in low:
+            score = 1
+        if score:
+            ranked.append((score, abs_url.split("#")[0]))
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    seen = set()
+    out = []
+    for _, url in ranked:
+        if url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+        if len(out) >= 1:
+            break
+    return out
+
+
+async def _ingest_html(html: str, phones: set, emails: set, socials: dict) -> List[str]:
+    clipped = _html_for_parse(html)
+    _harvest_regex_urls(html, socials)
+    soup = BeautifulSoup(clipped, "html.parser")
+    extra = _harvest_soup(soup, phones, emails, socials)
+    title = soup.title.get_text(strip=True) if soup.title else ""
+    meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+    description = ""
+    if meta_desc and meta_desc.get("content"):
+        description = meta_desc["content"].strip()
+    return extra, title, description
 
 
 async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
@@ -146,31 +428,27 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
     description = ""
 
     try:
-        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=8.0, follow_redirects=True) as client:
+        limits = httpx.Limits(max_keepalive_connections=5, max_connections=8)
+        timeout = httpx.Timeout(6.0, connect=3.0)
+        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=timeout, follow_redirects=True, limits=limits) as client:
             resp = await client.get(clean_url)
             if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                title = soup.title.get_text(strip=True) if soup.title else ""
-                meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
-                if meta_desc and meta_desc.get("content"):
-                    description = meta_desc["content"].strip()
-                extra = _harvest_soup(soup, phones, emails, socials)
+                extra, title, description = await _ingest_html(resp.text, phones, emails, socials)
                 parsed = urllib.parse.urlparse(str(resp.url))
                 origin = f"{parsed.scheme}://{parsed.netloc}"
-                followed = 0
-                for href in extra:
-                    if followed >= 1:
+                need_more_socials = "linkedin" not in socials or len(socials) < 2
+                follow = _pick_follow_pages(extra, origin, parsed.netloc) if need_more_socials else []
+                if need_more_socials and not follow:
+                    for guess in ("/contact", "/contact-us", "/about"):
+                        follow = [urllib.parse.urljoin(origin + "/", guess)]
                         break
-                    abs_url = urllib.parse.urljoin(origin + "/", href)
-                    if urllib.parse.urlparse(abs_url).netloc != parsed.netloc:
-                        continue
+                for abs_url in follow[:1]:
                     try:
                         extra_resp = await client.get(abs_url)
                         if extra_resp.status_code == 200:
-                            _harvest_soup(BeautifulSoup(extra_resp.text, "html.parser"), phones, emails, socials)
-                            followed += 1
+                            await _ingest_html(extra_resp.text, phones, emails, socials)
                     except Exception:
-                        continue
+                        pass
     except Exception as e:
         logger.warning(f"Could not crawl domain {clean_url}: {e}")
 
@@ -186,40 +464,44 @@ async def enrich_prospect_intelligence(
     name: str,
     company: Optional[str] = None,
     domain: Optional[str] = None,
-    existing_notes: Optional[str] = None
+    existing_notes: Optional[str] = None,
+    deep: bool = True,
 ) -> Dict[str, Any]:
-    search_terms = []
     target_company = company or name
-    if domain:
-        search_terms.append(f"site:{domain} contact phone email")
-    search_terms.append(f'"{target_company}" site:linkedin.com/company')
-    search_terms.append(f'"{target_company}" contact email phone')
-    search_terms.append(f'site:reddit.com "{target_company}"')
+    snippets: List[Dict[str, str]] = []
+    scraped_info: Dict[str, Any] = {}
 
-    snippets = []
-    for q in search_terms:
-        res = await search_duckduckgo(q, max_results=3)
-        snippets.extend(res)
-
-    scraped_info = {}
-    if domain:
+    if not deep and domain:
         scraped_info = await crawl_homepage_contacts(domain)
-    elif snippets:
-        for s in snippets:
-            url = s.get("url") or ""
-            if url and not any(skip in url for skip in ["duckduckgo", "wikipedia", "youtube", "linkedin.com", "reddit.com", "facebook.com", "twitter.com", "x.com"]):
-                parsed = urllib.parse.urlparse(url)
-                if parsed.netloc:
-                    scraped_info = await crawl_homepage_contacts(parsed.netloc)
-                    break
+    elif not deep:
+        scraped_info = {}
+    else:
+        search_terms = []
+        if domain:
+            search_terms.append(f"site:{domain} contact phone email")
+        search_terms.append(f'"{target_company}" site:linkedin.com/company')
+        if deep:
+            search_terms.append(f'"{target_company}" contact email phone')
+            search_terms.append(f'site:reddit.com "{target_company}"')
+        search_results = await asyncio.gather(*[search_duckduckgo(q, max_results=3) for q in search_terms])
+        for res in search_results:
+            snippets.extend(res)
+        if domain:
+            scraped_info = await crawl_homepage_contacts(domain)
+        elif snippets:
+            for s in snippets:
+                url = s.get("url") or ""
+                if url and not any(skip in url for skip in ["duckduckgo", "wikipedia", "youtube", "linkedin.com", "reddit.com", "facebook.com", "twitter.com", "x.com"]):
+                    parsed = urllib.parse.urlparse(url)
+                    if parsed.netloc:
+                        scraped_info = await crawl_homepage_contacts(parsed.netloc)
+                        break
 
     socials = dict(scraped_info.get("socials") or {})
     reddit_mentions = []
     for s in snippets:
         url = s.get("url") or ""
-        key = _social_key_from_url(url)
-        if key and key not in socials:
-            socials[key] = url
+        _remember_social(socials, url)
         if "reddit.com" in url.lower():
             reddit_mentions.append({"title": s.get("title") or "", "url": url, "snippet": (s.get("snippet") or "")[:180]})
 
@@ -238,7 +520,7 @@ async def enrich_prospect_intelligence(
     for s in snippets:
         snippet_text = s.get("snippet", "")
         match = name_re.search(snippet_text)
-        if match:
+        if match and _is_person_name(match.group(1)):
             people.append({
                 "name": match.group(1),
                 "roleHint": match.group(2),
@@ -274,16 +556,17 @@ async def enrich_prospect_intelligence(
         "citations": [s.get("url") for s in snippets if s.get("url")][:6]
     }
 
-    try:
-        await log_process_event(
-            subsystem="crawler_rag",
-            process_name="prospect_web_enrichment",
-            message=f"Enriched dossier for '{target_company}': Found {len(discovered_phones)} phones, {len(discovered_emails)} emails, confidence={confidence}%.",
-            level="SUCCESS" if confidence > 50 else "INFO",
-            details=summary_result
-        )
-    except Exception:
-        pass
+    if deep:
+        try:
+            await log_process_event(
+                subsystem="crawler_rag",
+                process_name="prospect_web_enrichment",
+                message=f"Enriched dossier for '{target_company}': Found {len(discovered_phones)} phones, {len(discovered_emails)} emails, confidence={confidence}%.",
+                level="SUCCESS" if confidence > 50 else "INFO",
+                details={"company": target_company, "confidence": confidence},
+            )
+        except Exception:
+            pass
 
     return summary_result
 
@@ -353,97 +636,126 @@ async def fill_contact_gaps(
             continue
         targets.append((row, name, missing))
 
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(2)
 
     async def enrich_one(row, name, missing):
         domain = str(row.get("source") or row.get("site") or row.get("domain") or "").strip()
         if domain and " " in domain and not domain.startswith("http"):
             domain = ""
-        async with sem:
-            try:
-                data = await enrich_prospect_intelligence(
-                    name=name,
-                    company=name,
-                    domain=domain or None,
+        try:
+            async with sem:
+                data = await asyncio.wait_for(
+                    enrich_prospect_intelligence(
+                        name=name,
+                        company=name,
+                        domain=domain or None,
+                        deep=False,
+                    ),
+                    timeout=12,
                 )
-            except Exception as err:
-                logger.warning(f"Gap fill failed for '{name}': {err}")
-                return {
-                    "rowId": row.get("id"),
-                    "company": name,
-                    "status": "unenrichable",
-                    "gaps": missing,
-                    "note": f"Lookup failed for {name}.",
-                }
+        except Exception as err:
+            logger.warning(f"Gap fill failed for '{name}': {err}")
+            return {
+                "rowId": row.get("id"),
+                "company": name,
+                "status": "unenrichable",
+                "gaps": missing,
+                "note": f"Lookup failed for {name}.",
+            }
 
-        phone = (data.get("primaryPhone") or "").strip()
-        if not _is_real_phone(phone):
-            phone = ""
-        email = (data.get("primaryEmail") or "").strip()
-        if not _is_public_email(email):
-            email = ""
-        people = data.get("keyPeople") or []
-        person = ""
-        if people and people[0].get("name"):
-            person = people[0]["name"]
-        if not phone:
-            for candidate in data.get("phones") or []:
-                if _is_real_phone(str(candidate)):
-                    phone = str(candidate).strip()
+        try:
+            phone = (data.get("primaryPhone") or "").strip()
+            if not _is_real_phone(phone):
+                phone = ""
+            email = (data.get("primaryEmail") or "").strip()
+            if not _is_public_email(email):
+                email = ""
+            people = data.get("keyPeople") or []
+            person = ""
+            for candidate in people:
+                cand_name = str(candidate.get("name") or "").strip()
+                # Never fall back to roleHint (CEO, Founder, …) as the contact.
+                if _is_person_name(cand_name):
+                    person = cand_name
                     break
-        overview = data.get("overview") or ""
-        if not phone:
-            snippet_match = re.search(
-                r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}",
-                overview,
-            )
-            if snippet_match and _is_real_phone(snippet_match.group(0)):
-                phone = snippet_match.group(0).strip()
+            if not phone:
+                for candidate in data.get("phones") or []:
+                    if _is_real_phone(str(candidate)):
+                        phone = str(candidate).strip()
+                        break
 
-        socials = data.get("socials") or {}
-        reddit = data.get("redditMentions") or []
-        proposal = {
-            "rowId": row.get("id"),
-            "company": name,
-            "status": "proposed",
-            "gaps": missing,
-            "confidence": data.get("confidenceScore") or 0,
-            "source": socials.get("linkedin") or (data.get("citations") or [None])[0] or data.get("domain") or "",
-            "openingHook": data.get("openingHook") or "",
-            "overview": data.get("overview") or "",
-            "linkedin": socials.get("linkedin") or "",
-            "twitter": socials.get("twitter") or "",
-            "facebook": socials.get("facebook") or "",
-            "instagram": socials.get("instagram") or "",
-            "youtube": socials.get("youtube") or "",
-            "reddit": (reddit[0].get("url") if reddit else "") or socials.get("reddit") or "",
-            "socials": socials,
-        }
-        found = []
-        if "phone" in missing and phone:
-            proposal["phone"] = phone
-            found.append("phone")
-        if "email" in missing and email:
-            proposal["email"] = email
-            found.append("email")
-        if "person" in missing and person:
-            proposal["contact"] = person
-            found.append("person")
-        if socials:
-            found.append("socials")
+            socials = data.get("socials") or {}
+            reddit = data.get("redditMentions") or []
+            linkedin = socials.get("linkedin") or ""
+            if "/company/" in linkedin:
+                slug = linkedin.split("/company/")[-1].split("/")[0]
+                if slug:
+                    linkedin = f"https://www.linkedin.com/company/{slug}"
+            proposal = {
+                "rowId": row.get("id"),
+                "company": name,
+                "status": "proposed",
+                "gaps": missing,
+                "confidence": data.get("confidenceScore") or 0,
+                "source": linkedin or (data.get("citations") or [None])[0] or data.get("domain") or "",
+                "openingHook": data.get("openingHook") or "",
+                "overview": data.get("overview") or "",
+                "linkedin": linkedin,
+                "twitter": socials.get("twitter") or "",
+                "facebook": socials.get("facebook") or "",
+                "instagram": socials.get("instagram") or "",
+                "youtube": socials.get("youtube") or "",
+                "reddit": (reddit[0].get("url") if reddit else "") or socials.get("reddit") or "",
+                "socials": socials,
+            }
+            found = []
+            if "phone" in missing and phone:
+                proposal["phone"] = phone
+                found.append("phone")
+            if "email" in missing and email:
+                proposal["email"] = email
+                found.append("email")
+            if "person" in missing and person:
+                proposal["contact"] = person
+                found.append("person")
+            if socials:
+                found.append("socials")
 
-        if found:
-            proposal["gapsFilled"] = found
-            return proposal
-        return {
-            "rowId": row.get("id"),
-            "company": name,
-            "status": "unenrichable",
-            "gaps": missing,
-            "note": f"No public phone/email/person/socials found for {name}.",
-            "confidence": data.get("confidenceScore") or 0,
-            "source": proposal["source"],
-        }
+            if found:
+                proposal["gapsFilled"] = found
+                return proposal
+            return {
+                "rowId": row.get("id"),
+                "company": name,
+                "status": "unenrichable",
+                "gaps": missing,
+                "note": f"No public phone/email/person/socials found for {name}.",
+                "confidence": data.get("confidenceScore") or 0,
+                "source": proposal["source"],
+            }
+        except Exception as err:
+            logger.warning(f"Gap fill parse failed for '{name}': {err}")
+            return {
+                "rowId": row.get("id"),
+                "company": name,
+                "status": "unenrichable",
+                "gaps": missing,
+                "note": f"Lookup failed for {name}.",
+            }
 
     tasks = [enrich_one(row, name, missing) for row, name, missing in targets[:max_rows]]
-    return list(await asyncio.gather(*tasks)) if tasks else []
+    raw = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
+    fills = []
+    for item, target in zip(raw, targets[:max_rows]):
+        row, name, missing = target
+        if isinstance(item, Exception):
+            fills.append({
+                "rowId": row.get("id"),
+                "company": name,
+                "status": "unenrichable",
+                "gaps": missing,
+                "note": f"Lookup failed for {name}.",
+            })
+        else:
+            fills.append(item)
+    return fills

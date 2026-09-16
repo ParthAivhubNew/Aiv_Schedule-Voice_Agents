@@ -8,16 +8,23 @@ from app.services.call_simulator import extract_requested_time
 from app.services.identity import find_identity_match
 from app.websockets.call_hub import call_hub
 from app.services.telephony_provider import carrier_registry, normalize_phone_number
-from app.services.xai_voice_service import _run_simulated_xai_session
+from app.services.xai_voice_service import (
+    _run_simulated_xai_session,
+    notify_prospect_answered,
+    alias_sip_first_call,
+    start_bridged_voice_session,
+)
 from app.services.process_logger import log_process_event
 from app.config import settings
 from datetime import datetime, timedelta
+import logging
 import uuid
 import asyncio
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
+logger = logging.getLogger("calls_api")
 
 @router.get("/live", response_model=list[dict])
 async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends(get_db)):
@@ -492,7 +499,8 @@ async def dial_outbound_call(
             "account_sid": sid,
             "api_key": token,
             "auth_token": token,
-            "carrier": carrier_choice
+            "carrier": carrier_choice,
+            "connection_id": stored_cfg.get("connection_id") or stored_cfg.get("telnyx_connection_id"),
         }
 
         # 4. Resolve bridge SIP URI
@@ -562,6 +570,17 @@ async def dial_outbound_call(
             "duration": "00:01"
         })
 
+        # Warm xAI before the prospect answers so greeting audio is already buffered at pickup.
+        try:
+            await start_bridged_voice_session(
+                call_id=call_id,
+                caller_number=from_clean,
+                prospect_name=prospect_label,
+                is_inbound=False,
+            )
+        except Exception as bridge_err:
+            logger.warning(f"Could not pre-warm xAI bridge: {bridge_err}")
+
         # 6. Execute Dial via Carrier Plugin
         adapter = carrier_registry.get_adapter(carrier_choice)
         try:
@@ -576,8 +595,12 @@ async def dial_outbound_call(
             carrier_sid = dial_res.get("call_id")
             if carrier_sid:
                 try:
+                    alias_sip_first_call(call_id, carrier_sid)
                     live_call.carrier_sid = carrier_sid
-                    live_call.transcript = (live_call.transcript or []) + [f"System: Provider Call SID: {carrier_sid}"]
+                    live_call.transcript = (live_call.transcript or []) + [
+                        f"System: Provider Call SID: {carrier_sid}",
+                        "System: AI voice pre-warmed. Greeting will start the instant they pick up.",
+                    ]
                     await db.commit()
                 except Exception as c_err:
                     try:
@@ -685,9 +708,15 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
                     break
 
     if matched:
+        from app.services.xai_voice_service import _sip_first_record
+        sip_first = bool(_sip_first_record(matched.id, call_sid, matched.carrier_sid))
         if call_status in ["in-progress", "answered"]:
-            matched.state = "pitching"
-            matched.transcript = (matched.transcript or []) + ["System: Call answered by recipient. AI voice representative active."]
+            if sip_first:
+                matched.state = "ringing"
+                matched.transcript = (matched.transcript or []) + ["System: AI voice engine connected. Ringing the prospect now."]
+            else:
+                matched.state = "pitching"
+                matched.transcript = (matched.transcript or []) + ["System: Call answered by recipient. AI voice representative active."]
         elif call_status in ["completed", "canceled", "failed", "no-answer", "busy"]:
             matched.state = "ended"
             matched.ended = True
@@ -704,6 +733,59 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
             "duration": matched.duration,
             "ended": matched.ended
         })
+
+    return {"status": "ok"}
+
+
+@router.post("/twilio/pstn-status")
+async def twilio_pstn_leg_status(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Child-leg callbacks for SIP-first outbound: the PSTN prospect ringing/answered.
+    This is when we fire the AI greeting — xAI is already hot.
+    """
+    form = await request.form()
+    call_sid = form.get("CallSid", "")
+    parent_sid = form.get("ParentCallSid", "")
+    call_status = (form.get("CallStatus") or "").lower()
+    to_number = form.get("To") or form.get("Called") or ""
+
+    await log_process_event(
+        subsystem="telephony",
+        process_name="twilio_pstn_leg_status",
+        message=f"PSTN leg {call_sid} parent={parent_sid} -> {call_status} (to {to_number})",
+        level="INFO",
+        details={"callSid": call_sid, "parentSid": parent_sid, "status": call_status, "to": to_number},
+    )
+
+    res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == parent_sid))
+    matched = res.scalars().first()
+    if not matched:
+        res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == call_sid))
+        matched = res.scalars().first()
+    if not matched:
+        res2 = await db.execute(select(LiveCall).where(LiveCall.ended == False).order_by(LiveCall.created_at.desc()))
+        matched = res2.scalars().first()
+
+    if matched and call_status in ["in-progress", "answered"]:
+        matched.state = "pitching"
+        matched.transcript = (matched.transcript or []) + ["System: Prospect picked up. AI speaking now."]
+        await db.commit()
+        await call_hub.broadcast("call_updated", {
+            "callId": matched.id,
+            "state": matched.state,
+            "duration": matched.duration,
+            "ended": matched.ended,
+        })
+        try:
+            await notify_prospect_answered(matched.id)
+            if parent_sid:
+                await notify_prospect_answered(parent_sid)
+            await notify_prospect_answered(call_sid)
+        except Exception as greet_err:
+            logger.warning(f"Failed to trigger pickup greeting: {greet_err}")
+    elif matched and call_status in ["busy", "no-answer", "failed", "canceled"]:
+        matched.transcript = (matched.transcript or []) + [f"System: Prospect {call_status}."]
+        await db.commit()
 
     return {"status": "ok"}
 
@@ -951,21 +1033,32 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         }
     )
 
-    # Generate TwiML: fork media stream for supervisor + bridge to xAI SIP trunk
-    media_stream_url = "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
-    action_url = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/calls/twilio/dial-action"
-    sip_target = f"sip:{to_number}@{settings.XAI_SIP_FQDN};transport=tls?x-custom-callid={internal_call_id}&amp;x-twilio-callsid={call_sid}"
+    # Keep the caller ringing until greeting audio is buffered, then answer with a live stream.
+    # They hear ring (normal), never post-answer dead air.
+    try:
+        sess = await start_bridged_voice_session(
+            call_id=internal_call_id,
+            caller_number=from_number,
+            prospect_name=prospect_label,
+            is_inbound=True,
+            carrier_sid=call_sid,
+        )
+        got_audio = await sess.wait_ready(timeout=2.8)
+        live_call.transcript = (live_call.transcript or []) + [
+            "System: AI greeting ready — answering now." if got_audio else "System: Answering now (greeting still spinning up)."
+        ]
+        await db.commit()
+    except Exception as bridge_err:
+        logger.warning(f"Inbound xAI pre-warm failed: {bridge_err}")
 
+    media_stream_url = "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
     twiml = (
         f"<Response>"
-        f"<Start>"
-        f"<Stream track=\"both_tracks\" url=\"{media_stream_url}\">"
+        f"<Connect>"
+        f"<Stream url=\"{media_stream_url}\">"
         f"<Parameter name=\"internalCallId\" value=\"{internal_call_id}\" />"
         f"</Stream>"
-        f"</Start>"
-        f"<Dial callerId=\"{to_number}\" timeout=\"30\" action=\"{action_url}\" method=\"POST\">"
-        f"<Sip>{sip_target}</Sip>"
-        f"</Dial>"
+        f"</Connect>"
         f"</Response>"
     )
     return Response(content=twiml, media_type="application/xml")

@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -18,6 +20,63 @@ from app.services.enrichment_service import (
 from app.services.llm_gateway import call_open_chat_llm
 
 router = APIRouter(prefix="/enrichment", tags=["AI Lead Radar & Enrichment"])
+
+# Explicit gap-fill phrases only. Bare words like "research" / "missing" / "ok"
+# must not kick off enrichment during strategy chat.
+_FILL_PHRASES = (
+    "fill the gap", "fill gaps", "fill missing", "fill in missing",
+    "fill contact", "enrich contact", "enrich the list", "enrich these",
+    "enrich this list", "enrich the contact", "look up phone", "lookup phone",
+    "look up email", "lookup email", "find the phone", "find phone",
+    "find email", "find the email", "find their phone", "find their email",
+    "get phone", "get the phone", "get email", "get the number",
+    "get their number", "missing phone", "missing email", "missing contact",
+    "missing number", "no phone", "no email", "don't have a phone",
+    "dont have a phone", "don't have phone", "dont have phone",
+    "don't have an email", "dont have an email", "number for",
+    "who is the contact", "who is the decision", "complete the list",
+    "remaining contacts", "remaining rows", "find missing", "get missing",
+    "research the contact", "research these companies", "research this list",
+    "research the list", "look up these", "lookup these", "find numbers",
+    "find contact", "get the missing", "fill the missing",
+)
+_FILL_CONFIRM = {"yes", "yes please", "do it", "go ahead", "ok", "okay", "please"}
+_ASSISTANT_FILL_HINTS = (
+    "fill", "enrich", "look up", "lookup", "missing phone", "missing email",
+    "want me to", "shall i", "should i find", "accept each", "proposed fill",
+    "gap-fill", "gap fill",
+)
+
+
+def _detect_fill_intent(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    return any(p in t for p in _FILL_PHRASES)
+
+
+def _assistant_offered_fill(chat_msgs: List[Dict[str, str]]) -> bool:
+    prior = chat_msgs[:-1] if chat_msgs else []
+    for m in reversed(prior):
+        role = (m.get("role") or "").lower()
+        content = (m.get("content") or m.get("text") or "").lower()
+        if role in ("assistant", "ai", "bot"):
+            return any(k in content for k in _ASSISTANT_FILL_HINTS)
+        if role in ("user", "human"):
+            return False
+    return False
+
+
+def _mentioned_incomplete_rows(text: str, incomplete: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    t = (text or "").lower()
+    hits = []
+    for row in incomplete:
+        name = str(row.get("name") or row.get("company") or "").strip()
+        if len(name) < 3:
+            continue
+        if re.search(r"(?<![a-z0-9])" + re.escape(name.lower()) + r"(?![a-z0-9])", t):
+            hits.append(row)
+    return hits
 
 class EnrichRequest(BaseModel):
     name: str
@@ -100,7 +159,10 @@ async def discover_accounts(req: DiscoverAccountsRequest):
 async def fill_gaps(req: FillGapsRequest):
     """Fill missing phone/email/person on an uploaded contact list. Does not invent numbers."""
     try:
-        fills = await fill_contact_gaps(req.contacts or [], max_rows=min(req.max_rows or 50, 50))
+        fills = await asyncio.wait_for(
+            fill_contact_gaps(req.contacts or [], max_rows=min(req.max_rows or 50, 50)),
+            timeout=25,
+        )
         proposed = [f for f in fills if f.get("status") == "proposed"]
         empty = [f for f in fills if f.get("status") == "unenrichable"]
         return {
@@ -108,6 +170,14 @@ async def fill_gaps(req: FillGapsRequest):
             "fills": fills,
             "proposedCount": len(proposed),
             "unenrichableCount": len(empty),
+        }
+    except asyncio.TimeoutError:
+        return {
+            "success": True,
+            "fills": [],
+            "proposedCount": 0,
+            "unenrichableCount": 0,
+            "timedOut": True,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -157,25 +227,20 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             if name and _row_missing_fields(row):
                 incomplete.append(row)
 
-        fill_intent = any(k in lower_t for k in [
-            "missing", "fill", "enrich", "complete", "remaining", "look up",
-            "lookup", "find the", "find phone", "find email", "get phone",
-            "get email", "research", "gap", "don't have", "dont have",
-            "no phone", "no email", "who is", "number for"
-        ]) or lower_t in ("yes", "yes please", "do it", "go ahead", "ok", "okay", "please")
+        fill_intent = _detect_fill_intent(user_text) or (
+            lower_t.strip() in _FILL_CONFIRM and _assistant_offered_fill(chat_msgs)
+        )
+        mentioned_rows = _mentioned_incomplete_rows(user_text, incomplete)
 
         fills: List[Dict[str, Any]] = []
-        if plugin_type in ("voice", "leadgen") and incomplete and (fill_intent or plugin_type == "voice"):
-            # Voice chat with an incomplete list always tries gap-fill when asked,
-            # or when the user is clearly talking about the loaded rows.
-            should_fill = fill_intent or any(
-                str(r.get("name") or "").lower() in lower_t for r in incomplete if r.get("name")
-            )
-            if should_fill or fill_intent:
-                try:
-                    fills = await fill_contact_gaps(incomplete, max_rows=50)
-                except Exception:
-                    fills = []
+        # Only run gap-fill on explicit intent. A company name in chat is not enough.
+        # If the user named companies, enrich those rows only — not the whole list.
+        if plugin_type in ("voice", "leadgen") and incomplete and fill_intent:
+            targets = mentioned_rows if mentioned_rows else incomplete
+            try:
+                fills = await fill_contact_gaps(targets, max_rows=min(8, len(targets)))
+            except Exception:
+                fills = []
 
         # Check if query requests lead discovery or company prospecting
         is_lead_search = (not fills) and any(k in lower_t for k in [

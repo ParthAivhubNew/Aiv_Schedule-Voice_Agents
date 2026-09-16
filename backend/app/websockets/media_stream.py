@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 from typing import Dict, List, Set, Optional
@@ -27,6 +28,7 @@ class MediaStreamHub:
         # Active takeover state for calls
         self.active_takeovers: Set[str] = set()
         self._injection_counter: int = 0
+        self.stream_protocol: Dict[str, str] = {}
 
     def register_alias(self, alias: str, canonical_id: str):
         """Links an alias ID (e.g. xAI SIP call id or Twilio SID) to the canonical call ID."""
@@ -114,6 +116,8 @@ class MediaStreamHub:
             logger.warning(f"[AudioHub] No active Twilio stream found for call {call_id} (canonical: {canonical}). Active streams: {list(self.twilio_streams.keys())}")
             return
 
+        protocol = self.stream_protocol.get(canonical) or self.stream_protocol.get(call_id) or "twilio"
+
         # Find matching streamSid
         stream_sid = None
         for s_sid, c_id in self.stream_to_call.items():
@@ -122,21 +126,20 @@ class MediaStreamHub:
                 break
 
         if not stream_sid and self.stream_to_call:
-            # Fallback to the latest active streamSid
             stream_sid = next(iter(self.stream_to_call.keys()))
 
-        if not stream_sid:
+        if protocol != "telnyx" and not stream_sid:
             logger.warning(f"[AudioHub] No streamSid found for Twilio stream on call {call_id}")
             return
-
         try:
-            packet = {
-                "event": "media",
-                "streamSid": stream_sid,
-                "media": {
-                    "payload": base64_payload
+            if protocol == "telnyx":
+                packet = {"event": "media", "media": {"payload": base64_payload}}
+            else:
+                packet = {
+                    "event": "media",
+                    "streamSid": stream_sid,
+                    "media": {"payload": base64_payload},
                 }
-            }
             await twilio_ws.send_text(json.dumps(packet))
             self._injection_counter += 1
             if self._injection_counter % 50 == 1:
@@ -167,19 +170,44 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
             data = json.loads(raw_text)
             event_type = data.get("event")
 
-            if event_type == "start":
-                start_info = data.get("start", {})
-                stream_sid = start_info.get("streamSid")
-                call_sid = start_info.get("callSid")
-                custom_params = start_info.get("customParameters", {})
+            if event_type in ("connected", "start", "stream.started"):
+                if event_type == "connected":
+                    continue
+                start_info = data.get("start", {}) or {}
+                stream_sid = (
+                    start_info.get("streamSid")
+                    or data.get("streamSid")
+                    or data.get("stream_id")
+                    or start_info.get("stream_id")
+                )
+                call_sid = start_info.get("callSid") or start_info.get("call_control_id")
+                custom_params = start_info.get("customParameters") or {}
+                if not isinstance(custom_params, dict):
+                    custom_params = {}
+                client_state = start_info.get("client_state") or data.get("client_state")
+                if client_state and not custom_params.get("internalCallId"):
+                    try:
+                        custom_params["internalCallId"] = base64.b64decode(client_state).decode("utf-8")
+                    except Exception:
+                        custom_params["internalCallId"] = str(client_state)
                 call_id = custom_params.get("internalCallId") or call_sid
-
-                media_stream_hub.stream_to_call[stream_sid] = call_id
+                protocol = "telnyx" if (start_info.get("call_control_id") or data.get("stream_id")) and not start_info.get("streamSid") else "twilio"
+                if stream_sid:
+                    media_stream_hub.stream_to_call[stream_sid] = call_id
                 if call_sid:
                     media_stream_hub.call_sid_to_call[call_sid] = call_id
                     media_stream_hub.register_alias(call_sid, call_id)
-                media_stream_hub.twilio_streams[call_id] = websocket
-                logger.info(f"[TwilioStream] Stream started: streamSid={stream_sid}, callSid={call_sid} -> call_id={call_id}")
+                if call_id:
+                    media_stream_hub.twilio_streams[call_id] = websocket
+                    media_stream_hub.stream_protocol[call_id] = protocol
+                logger.info(f"[MediaStream] Stream started ({protocol}): streamSid={stream_sid}, callSid={call_sid} -> call_id={call_id}")
+                try:
+                    from app.services.xai_voice_service import get_bridged_session
+                    sess = get_bridged_session(call_id, call_sid)
+                    if sess:
+                        await sess.attach_stream(stream_sid)
+                except Exception as bridge_err:
+                    logger.warning(f"[TwilioStream] Bridge attach failed: {bridge_err}")
 
             elif event_type == "media":
                 media_info = data.get("media", {})
@@ -188,6 +216,14 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                 chunk_call_id = call_id or media_stream_hub.stream_to_call.get(stream_sid)
 
                 if chunk_call_id and payload:
+                    if track != "outbound":
+                        try:
+                            from app.services.xai_voice_service import get_bridged_session
+                            sess = get_bridged_session(chunk_call_id)
+                            if sess:
+                                await sess.push_caller_audio(payload)
+                        except Exception:
+                            pass
                     await media_stream_hub.broadcast_to_listeners(chunk_call_id, {
                         "type": "audio_chunk",
                         "callId": chunk_call_id,
@@ -206,6 +242,8 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
     finally:
         if call_id and call_id in media_stream_hub.twilio_streams:
             del media_stream_hub.twilio_streams[call_id]
+        if call_id and call_id in media_stream_hub.stream_protocol:
+            del media_stream_hub.stream_protocol[call_id]
         if stream_sid and stream_sid in media_stream_hub.stream_to_call:
             del media_stream_hub.stream_to_call[stream_sid]
 

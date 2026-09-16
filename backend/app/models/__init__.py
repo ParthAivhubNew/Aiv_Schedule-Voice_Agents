@@ -17,6 +17,9 @@ from app.models.models import (
     SocialTopic,
     SocialPost,
     SocialEmail,
+    SocialAccount,
+    SocialOAuthApp,
+    SocialOAuthState,
 )
 
 __all__ = [
@@ -38,4 +41,7 @@ __all__ = [
     "SocialTopic",
     "SocialPost",
     "SocialEmail",
+    "SocialAccount",
+    "SocialOAuthApp",
+    "SocialOAuthState",
 ]

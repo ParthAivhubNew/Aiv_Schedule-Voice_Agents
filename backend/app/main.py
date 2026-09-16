@@ -78,6 +78,28 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
 
+        for col, col_type in [
+            ("hook", "TEXT"),
+            ("linkedin_copy", "TEXT"),
+            ("x_copy", "TEXT"),
+            ("facebook_copy", "TEXT"),
+            ("instagram_copy", "TEXT"),
+            ("threads_copy", "TEXT"),
+            ("hashtags", "JSON"),
+            ("cta", "TEXT"),
+            ("first_comment", "TEXT"),
+            ("alt_text", "TEXT"),
+            ("publish_results", "JSON"),
+            ("published_at", "VARCHAR"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE social_posts ADD COLUMN IF NOT EXISTS {col} {col_type};"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE social_posts ADD COLUMN {col} {col_type};"))
+                except Exception:
+                    pass
+
         # Safe migration for meetings table Cal.com columns
         for col, col_type in [
             ("host_email", "VARCHAR DEFAULT 'admin@aivhub.io'"),

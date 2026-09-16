@@ -219,6 +219,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     webhook routing diagnostics, and signing secret status.
     """
     active_secret = settings.XAI_WEBHOOK_SECRET or os.getenv("XAI_WEBHOOK_SECRET")
+    engine_conn = None
     try:
         # 1. Fetch Company Profile for caller ID
         prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
@@ -267,9 +268,30 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         configured_silence = engine_conn.config.get("silence_duration_ms", 380)
         configured_temp = engine_conn.config.get("temperature", 0.80)
 
+    live_engine = "xai"
+    live_note = ""
+    stt_provider = None
+    tts_provider = None
+    llm_provider = None
+    try:
+        from app.services.voice_plugin_plan import resolve_voice_plan
+        plan = await resolve_voice_plan()
+        live_engine = plan.engine
+        live_note = plan.note
+        stt_provider = plan.stt.provider if plan.stt else None
+        tts_provider = plan.tts.provider if plan.tts else None
+        llm_provider = plan.llm.provider if plan.llm else None
+    except Exception as plan_err:
+        logger.warning(f"Could not resolve live voice plan: {plan_err}")
+
     return {
         "activeCarrier": active_carrier,
         "activeEngine": active_engine,
+        "liveEngine": live_engine,
+        "liveNote": live_note,
+        "sttProvider": stt_provider,
+        "ttsProvider": tts_provider,
+        "llmProvider": llm_provider,
         "phoneNumber": active_phone,
         "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
         "voiceName": configured_voice,
@@ -284,7 +306,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "hasSigningSecret": bool(clean_secret),
         "signingSecret": clean_secret,
         "signingSecretMasked": (clean_secret[:8] + "••••••••" + clean_secret[-4:]) if clean_secret and len(clean_secret) > 12 else ("whsec_••••••••" if clean_secret else "Not configured"),
-        "isLive": settings.VOICE_ENGINE_MODE == "live" or is_connected
+        "isLive": is_connected or os.getenv("VOICE_ENGINE_MODE") == "live"
     }
 
 
@@ -471,6 +493,13 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
             import os
             os.environ["XAI_API_KEY"] = key_clean
             os.environ["VOICE_ENGINE_MODE"] = "live"
+        elif "openai" in engine or "modular" in engine:
+            settings.VOICE_ENGINE_MODE = "live"
+            import os
+            os.environ["VOICE_ENGINE_MODE"] = "live"
+            if "openai" in engine and key_clean:
+                settings.OPENAI_API_KEY = key_clean
+                os.environ["OPENAI_API_KEY"] = key_clean
 
         carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
         engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
@@ -513,7 +542,8 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                     "api_key": key_clean,
                     "signing_secret": signing_secret,
                     "phoneNumber": phone_clean,
-                    "engine": engine_name,
+                    "engine": engine,
+                    "engine_label": engine_name,
                     "voice_name": req.voice_name or "ara",
                     "silence_duration_ms": req.silence_duration_ms or 380,
                     "temperature": req.temperature or 0.80

@@ -90,6 +90,7 @@ import {
   Bot,
   Plus,
   Play,
+  Pause,
   Wand2,
   Image as ImageIcon,
   Smartphone,
@@ -257,6 +258,9 @@ const C = {
   slate: "#6B7280",
   slateLight: "#9CA3AF",
   textInk: "#1B1D24",
+  gradientTeal: "linear-gradient(135deg, #0C8C7D 0%, #15803D 100%)",
+  glowTeal: "0 8px 24px rgba(12,140,125,0.25)",
+  shadowCard: "0 2px 8px rgba(0,0,0,0.04)",
 };
 
 const FONT_DISPLAY = "'Space Grotesk', sans-serif";
@@ -6860,6 +6864,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [hubData, setHubData] = useState({
     activeCarrier: "Telnyx",
     activeEngine: "xAI Realtime",
+    liveEngine: "xai",
+    liveNote: "",
     phoneNumber: profile?.callerId || "+19096866918",
     voiceName: "ara",
     silenceDurationMs: 380,
@@ -6909,7 +6915,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           const cLower = data.activeCarrier.toLowerCase();
           setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : cLower.includes("sim") ? "simulation" : "telnyx");
         }
-        if (data.activeEngine) {
+        if (data.liveEngine) {
+          setEngineChoice(["xai", "openai", "modular", "simulation"].includes(data.liveEngine) ? data.liveEngine : "xai");
+        } else if (data.activeEngine) {
           const eLower = data.activeEngine.toLowerCase();
           setEngineChoice(eLower.includes("openai") ? "openai" : eLower.includes("modular") ? "modular" : eLower.includes("sim") ? "simulation" : "xai");
         }
@@ -7248,6 +7256,16 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               );
             })}
           </div>
+          <div style={{ marginTop: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: "#5B21B6", background: "#F5F3FF", border: "1px solid #DDD6FE", borderRadius: 8, padding: "8px 12px" }}>
+            {engineChoice === "modular"
+              ? "Live path uses Connections keys: Speech-to-Text → LLM → Text-to-Speech. Hub engine key unused."
+              : engineChoice === "openai"
+                ? "Live path is OpenAI speech-to-speech. STT/TTS plugins unused until you switch to Modular."
+                : engineChoice === "simulation"
+                  ? "Scripted demo engine. No live carrier audio plugins."
+                  : "Live path is xAI speech-to-speech. STT/TTS plugins unused until you switch to Modular."}
+            {hubData.liveNote ? ` Current: ${hubData.liveNote}` : ""}
+          </div>
         </div>
 
         {/* Step 3: Credentials & Dynamic Form */}
@@ -7275,7 +7293,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             {engineChoice !== "simulation" && (
               <div>
                 <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                  {engineChoice === "xai" ? "xAI API Key" : engineChoice === "openai" ? "OpenAI API Key" : "Engine Primary API Key"}
+                  {engineChoice === "xai" ? "xAI API Key" : engineChoice === "openai" ? "OpenAI API Key" : engineChoice === "modular" ? "Optional engine key (modular uses Connections STT/TTS/LLM)" : "Engine Primary API Key"}
                 </label>
                 <div style={{ position: "relative" }}>
                   <input
@@ -7938,7 +7956,7 @@ function LeadRadarView({ notifications, setNotifications, onLaunchMission }) {
 
 const LAYERS = VOICE_LAYERS;
 
-function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile }) {
+function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile, onNavigateView }) {
   const [activeTab, setActiveTab] = useState("telephony-hub");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -8129,7 +8147,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             setNotifications={setNotifications}
             onNavigate={(dest) => {
               if (dest === "provider") setActiveTab("telephony-hub");
-              else if (window.__aivhub_switch_voice_view) window.__aivhub_switch_voice_view(dest);
+              else if (onNavigateView) onNavigateView(dest);
+              else if (typeof window.__aivhub_switch_voice_view === "function") window.__aivhub_switch_voice_view(dest);
             }}
           />
         )}
@@ -8482,6 +8501,28 @@ function normalizePhoneDigits(raw) {
   return d;
 }
 
+const ROLE_NAME_RE = /^(ceo|cfo|coo|cto|cmo|cio|founder|co-?founder|president|director|managing director|vp|svp|evp|head|officer|manager|lead|owner|partner|chairman|chair|executive|decision[- ]?maker|operations lead)$/i;
+
+function isPersonName(raw) {
+  const name = (raw || "").trim();
+  if (!name || ROLE_NAME_RE.test(name)) return false;
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length < 2 || parts.length > 5) return false;
+  if (parts.some((p) => ROLE_NAME_RE.test(p.replace(/\.$/, "")))) return false;
+  if (parts.some((p) => /^(new|york|los|angeles|san|francisco|inc|ltd|corp|llc|group|company|plc)$/i.test(p))) return false;
+  return parts.every((p) => /^[A-Z][a-zA-Z'-]+$/.test(p) || /^(de|da|van|von|der|la|le|di|du)$/i.test(p));
+}
+
+function isProposedPhone(raw) {
+  if (!raw || /555-0/i.test(raw) || /inferred/i.test(raw)) return false;
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return false;
+  if (digits.startsWith("202") || digits.startsWith("000")) return false;
+  if (/^(?:19|20)\d{2}(?:19|20)\d{2}$/.test(digits)) return false;
+  if (new Set(digits).size === 1) return false;
+  return true;
+}
+
 // adds `issues` (array of problem codes) and `duplicateOf` (name of the row
 // it duplicates, if any) to each row. Does NOT touch `included` — that's
 // decided once at import time and left alone after, so user overrides stick.
@@ -8540,6 +8581,102 @@ function serializeMissionContacts(list) {
       contact: r.contact || "",
       source: r.source || r.site || "",
     }));
+}
+
+function applyFillToRow(r, fill) {
+  if (!fill || fill.status !== "proposed") return r;
+  const aiFields = { ...(r.aiFields || {}) };
+  const next = { ...r, aiFields };
+  const take = (key, mark) => {
+    if (fill[key] && !String(r[key] || "").trim()) {
+      next[key] = fill[key];
+      if (mark) aiFields[key] = true;
+    }
+  };
+  take("phone", true);
+  take("email", true);
+  take("contact", true);
+  take("linkedin", true);
+  take("twitter", true);
+  take("facebook", true);
+  take("instagram", true);
+  take("youtube", false);
+  if (fill.openingHook) next.openingHook = fill.openingHook;
+  next.aiFields = aiFields;
+  return next;
+}
+
+function socialHref(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  return raw.startsWith("http") ? raw : `https://${raw}`;
+}
+
+function socialHandle(url, kind) {
+  const href = socialHref(url);
+  if (!href) return "";
+  try {
+    const u = new URL(href);
+    const parts = u.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
+    if (kind === "linkedin") {
+      if (parts[0] === "company" && parts[1]) return parts[1];
+      if (parts[0] === "in" && parts[1]) return `in/${parts[1]}`;
+      if (parts[0] === "school" && parts[1]) return parts[1];
+    }
+    const last = (parts[parts.length - 1] || "").replace(/^@/, "");
+    return last || u.hostname.replace(/^www\./, "");
+  } catch {
+    return String(url);
+  }
+}
+
+function SocialChip({ href, label, color, title }) {
+  if (!href) return null;
+  return (
+    <a
+      href={socialHref(href)}
+      target="_blank"
+      rel="noreferrer"
+      title={title || href}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: 22,
+        minWidth: 22,
+        maxWidth: 110,
+        padding: "0 7px",
+        borderRadius: 6,
+        background: color,
+        color: "#fff",
+        fontSize: 10,
+        fontWeight: 800,
+        letterSpacing: "0.01em",
+        textDecoration: "none",
+        fontFamily: FONT_BODY,
+        flexShrink: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </a>
+  );
+}
+
+function aiInputStyle(isAi) {
+  return {
+    width: "100%",
+    padding: "8px 10px",
+    borderRadius: 8,
+    border: `1px solid ${isAi ? "#F5D565" : C.border}`,
+    background: isAi ? "#FFFBEB" : "#fff",
+    fontFamily: FONT_BODY,
+    fontSize: 12.5,
+    outline: "none",
+    boxSizing: "border-box",
+  };
 }
 
 const ISSUE_META = {
@@ -8992,7 +9129,7 @@ function ImportReviewScreen({
             </div>
           ))}
           <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.5, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-            Tick companies to keep. Missing phone or email is OK — next you can ask AI Chat to look those up. Unticked rows stay off the dialer.
+            Tick companies to keep. Missing phone or email is OK — next screen looks them up and writes them onto this list.
           </div>
           {onAskAi && (
             <button
@@ -9006,7 +9143,7 @@ function ImportReviewScreen({
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
               }}
             >
-              <Sparkles size={14} /> Continue & find missing details in AI Chat
+              <Sparkles size={14} /> Continue — find missing details
             </button>
           )}
           <button
@@ -9027,7 +9164,7 @@ function ImportReviewScreen({
 }
 
 function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, commonAi }) {
-  const [tab, setTab] = useState("discover");
+  const [tab, setTab] = useState("manual");
   const [prompt, setPrompt] = useState("");
   const [rows, setRows] = useState([{ id: 1, name: "", phone: "", email: "", sourceType: "Website URL", source: "", channel: "auto", fallback: "none", contact: "" }]);
   const [manualMode, setManualMode] = useState("upload"); // "upload" | "form"
@@ -9065,13 +9202,30 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
   const [chatSearching, setChatSearching] = useState(false);
   const [chatDiscoveredLeads, setChatDiscoveredLeads] = useState([]);
   const [pendingFills, setPendingFills] = useState([]);
+  const [lookingIds, setLookingIds] = useState([]);
   const chatBottomRef = useRef(null);
+  const findMissingLock = useRef(false);
+  const lookupStopRef = useRef(false);
+  const lookupAbortRef = useRef(null);
+  const [lookupRunning, setLookupRunning] = useState(false);
 
   const namedRows = rows.filter((r) => (r.name || "").trim());
   const incompleteRows = namedRows.filter((r) => rowMissingFields(r).length > 0);
   const dialableRows = namedRows.filter((r) => rowDialable(r, channel));
 
+  const applyFillsToRows = (incoming) => {
+    const list = (incoming || []).filter((f) => f && f.rowId && f.status === "proposed");
+    if (!list.length) return;
+    setRows((prev) =>
+      prev.map((r) => {
+        const fill = list.find((f) => String(f.rowId) === String(r.id));
+        return fill ? applyFillToRow(r, fill) : r;
+      })
+    );
+  };
+
   const mergeFillsIntoPending = (incoming) => {
+    applyFillsToRows(incoming);
     const list = (incoming || []).filter((f) => f && f.rowId);
     if (!list.length) return;
     setPendingFills((prev) => {
@@ -9091,9 +9245,9 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
         if (String(r.id) !== String(fill.rowId)) return r;
         return {
           ...r,
-          phone: fill.phone || r.phone,
+          phone: (fill.phone && isProposedPhone(fill.phone)) ? fill.phone : r.phone,
           email: fill.email || r.email,
-          contact: fill.contact || r.contact,
+          contact: (fill.contact && isPersonName(fill.contact)) ? fill.contact : r.contact,
           source: r.source || fill.source,
           linkedin: fill.linkedin || r.linkedin,
           openingHook: fill.openingHook || r.openingHook,
@@ -9116,9 +9270,9 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
         if (!fill) return r;
         return {
           ...r,
-          phone: fill.phone || r.phone,
+          phone: (fill.phone && isProposedPhone(fill.phone)) ? fill.phone : r.phone,
           email: fill.email || r.email,
-          contact: fill.contact || r.contact,
+          contact: (fill.contact && isPersonName(fill.contact)) ? fill.contact : r.contact,
           source: r.source || fill.source,
           linkedin: fill.linkedin || r.linkedin,
           openingHook: fill.openingHook || r.openingHook,
@@ -9206,35 +9360,105 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     await runCopilotTurn(userMsg);
   };
 
+  const pauseLookup = () => {
+    lookupStopRef.current = true;
+    if (lookupAbortRef.current) {
+      try {
+        lookupAbortRef.current.abort();
+      } catch (_) {}
+    }
+  };
+
+  const closeModal = () => {
+    pauseLookup();
+    onClose();
+  };
+
   const handleFindMissing = async (listOverride) => {
     const target = (listOverride && listOverride.length ? listOverride : incompleteRows).filter((r) => (r.name || "").trim() && rowMissingFields(r).length);
-    if (!target.length || chatSearching) return;
+    if (!target.length || lookupRunning || chatSearching || findMissingLock.current) return;
+    const CHUNK = 2;
+    lookupStopRef.current = false;
+    findMissingLock.current = true;
+    setLookupRunning(true);
     setChatSearching(true);
+    setLookingIds(target.map((r) => String(r.id)));
     setCopilotMessages((prev) => [
       ...prev,
-      { sender: "user", text: `Find missing phones, emails, and decision-makers for ${target.length} incomplete contact(s).` },
+      { sender: "user", text: `Find missing details for ${target.length} companies.` },
     ]);
+    const allFills = [];
+    let chunkErrors = 0;
+    let processed = 0;
+    let paused = false;
     try {
-      const res = await api.fillContactGaps({
-        contacts: serializeMissionContacts(target),
-        max_rows: 50,
-      });
-      const fills = (res && res.fills) || [];
-      mergeFillsIntoPending(fills);
-      const proposed = fills.filter((f) => f.status === "proposed").length;
-      const empty = fills.filter((f) => f.status === "unenrichable").length;
-      const hadSource = fills.some((f) => f.source) || target.some((r) => r.source);
+      for (let i = 0; i < target.length; i += CHUNK) {
+        if (lookupStopRef.current) {
+          paused = true;
+          break;
+        }
+        const slice = target.slice(i, i + CHUNK);
+        const done = Math.min(i + slice.length, target.length);
+        setCopilotMessages((prev) => [
+          ...prev,
+          { sender: "ai", text: `Looking up ${done}/${target.length}…` },
+        ]);
+        const controller = new AbortController();
+        lookupAbortRef.current = controller;
+        try {
+          const res = await api.fillContactGaps(
+            {
+              contacts: serializeMissionContacts(slice),
+              max_rows: CHUNK,
+            },
+            { signal: controller.signal }
+          );
+          const fills = (res && res.fills) || [];
+          allFills.push(...fills);
+          mergeFillsIntoPending(fills);
+          setLookingIds((prev) => prev.filter((id) => !slice.some((r) => String(r.id) === String(id))));
+          processed += slice.length;
+        } catch (err) {
+          const aborted =
+            lookupStopRef.current ||
+            (err && (err.name === "AbortError" || /aborted/i.test(String(err.message || ""))));
+          if (aborted) {
+            paused = true;
+            break;
+          }
+          chunkErrors += 1;
+          processed += slice.length;
+          const status = String(err.message || "");
+          const hint = /502|504|timeout/i.test(status)
+            ? " Proxy cut the request. Next batch will still run."
+            : "";
+          setCopilotMessages((prev) => [
+            ...prev,
+            { sender: "ai", text: `⚠️ Batch ${Math.floor(i / CHUNK) + 1} failed: ${err.message || "timeout"}.${hint}` },
+          ]);
+        }
+      }
+      const proposed = allFills.filter((f) => f.status === "proposed").length;
+      const empty = allFills.filter((f) => f.status === "unenrichable").length;
+      const hadSource = allFills.some((f) => f.source) || target.some((r) => r.source);
+      const leftover = Math.max(0, target.length - processed);
       setCopilotMessages((prev) => [
         ...prev,
-        {
-          sender: "ai",
-          text: proposed
-            ? `Found public details for ${proposed} contact(s). Accept a card to write it onto the list. ${empty ? `${empty} row(s) had nothing reliable online.` : ""} Cards can include phone, email, person, LinkedIn, and other public social links — not a Gmail inbox.`
-            : hadSource
-            ? `No public phone/email found for these ${target.length} row(s). Leave them off the dialer or type the number by hand — I will not invent one.`
-            : `No public phone/email found for these ${target.length} row(s). Add a website URL on the list and try again, or fill by hand.`,
-          fills,
-        },
+        paused
+          ? {
+              sender: "ai",
+              text: `Paused at ${processed}/${target.length}. Yellow cells already written stay on the list. Press Resume for the remaining ${leftover}.`,
+              fills: allFills,
+            }
+          : {
+              sender: "ai",
+              text: proposed
+                ? `Wrote public details onto the list for ${proposed} compan${proposed === 1 ? "y" : "ies"}. Yellow cells are AI-filled — edit any of them. ${empty ? `${empty} had nothing public.` : ""}${chunkErrors ? ` ${chunkErrors} batch(es) failed.` : ""}`
+                : hadSource
+                ? `No public phone/email found for these ${target.length} row(s). Leave them off the dialer or type the number by hand — I will not invent one.`
+                : `No public phone/email found for these ${target.length} row(s). Add a website URL on the list and try again, or fill by hand.`,
+              fills: allFills,
+            },
       ]);
     } catch (err) {
       setCopilotMessages((prev) => [
@@ -9242,7 +9466,11 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
         { sender: "ai", text: `⚠️ Lookup error: ${err.message || "Could not enrich contacts."}` },
       ]);
     } finally {
+      lookupAbortRef.current = null;
+      setLookupRunning(false);
       setChatSearching(false);
+      findMissingLock.current = false;
+      setLookingIds([]);
       setTimeout(() => {
         if (chatBottomRef.current) chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
       }, 100);
@@ -9368,8 +9596,9 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     }));
     setRows(kept);
     setManualMode("form");
+    setTab("manual");
+    setImportState("loaded");
     if (thenChat) {
-      setTab("discover");
       setTimeout(() => handleFindMissing(kept), 50);
     }
   };
@@ -9413,7 +9642,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
         onApplyChannel={applyBulkChannel}
         onDiscardFlagged={removeFlaggedRows}
         onDifferentFile={resetImport}
-        onClose={onClose}
+        onClose={closeModal}
         onConfirm={() => useImportedRows(false)}
         onAskAi={() => useImportedRows(true)}
       />
@@ -9422,128 +9651,67 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: namedRows.length || tab === "discover" ? 780 : 640, maxHeight: "88vh", overflowY: "auto", padding: 26, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+      <div style={{ background: "#fff", borderRadius: 16, width: namedRows.length ? "min(1080px, 96vw)" : tab === "discover" ? 780 : 640, maxHeight: "92vh", overflowY: "auto", padding: 26, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk }}>New Outreach</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
+          <div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk }}>New Outreach</div>
+            {namedRows.length > 0 && (
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginTop: 3 }}>
+                {dialableRows.length} ready to dial · {incompleteRows.length} still missing a phone
+                {lookupRunning ? " · looking up public details…" : ""}
+              </div>
+            )}
+          </div>
+          <button onClick={closeModal} style={{ background: "none", border: "none", cursor: "pointer" }}>
             <X size={18} color={C.slate} />
           </button>
         </div>
 
         <div style={{ display: "flex", gap: 6, marginBottom: 18, background: C.paperSoft, padding: 4, borderRadius: 9 }}>
           <button
-            onClick={() => setTab("discover")}
-            style={{ flex: 1, padding: "9px 12px", borderRadius: 7, border: "none", cursor: "pointer", background: tab === "discover" ? "#fff" : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: tab === "discover" ? C.textInk : C.slate, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: tab === "discover" ? "0 1px 3px rgba(0,0,0,0.06)" : "none" }}
-          >
-            <Sparkles size={14} /> AI Chat
-          </button>
-          <button
             onClick={() => setTab("manual")}
             style={{ flex: 1, padding: "9px 12px", borderRadius: 7, border: "none", cursor: "pointer", background: tab === "manual" ? "#fff" : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: tab === "manual" ? C.textInk : C.slate, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: tab === "manual" ? "0 1px 3px rgba(0,0,0,0.06)" : "none" }}
           >
-            <Users size={14} /> Provide Contact List / Setup
+            <Users size={14} /> Contact list
+          </button>
+          <button
+            onClick={() => setTab("discover")}
+            style={{ flex: 1, padding: "9px 12px", borderRadius: 7, border: "none", cursor: "pointer", background: tab === "discover" ? "#fff" : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: tab === "discover" ? C.textInk : C.slate, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: tab === "discover" ? "0 1px 3px rgba(0,0,0,0.06)" : "none" }}
+          >
+            <Sparkles size={14} /> Ask AI
           </button>
         </div>
 
         {tab === "discover" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {namedRows.length > 0 && (
-              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.textInk }}>
-                      Loaded list · {namedRows.length} companies
-                    </div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, marginTop: 2 }}>
-                      {dialableRows.length} ready to dial · {incompleteRows.length} missing phone/email/person
-                    </div>
+              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                <div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.textInk }}>
+                    {namedRows.length} companies on the list
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleFindMissing()}
-                    disabled={chatSearching || !incompleteRows.length}
-                    style={{
-                      background: incompleteRows.length ? C.ink : C.paperSoft,
-                      color: incompleteRows.length ? "#fff" : C.slateLight,
-                      border: "none",
-                      borderRadius: 8,
-                      padding: "7px 12px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: incompleteRows.length && !chatSearching ? "pointer" : "default",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {chatSearching ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                    Find missing details
-                  </button>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, marginTop: 2 }}>
+                    Found details write onto Contact list automatically. Yellow cells = AI.
+                  </div>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto" }}>
-                  {namedRows.slice(0, 8).map((r) => {
-                    const miss = rowMissingFields(r);
-                    return (
-                      <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontFamily: FONT_BODY, fontSize: 12, color: C.textInk }}>
-                        <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
-                        <span style={{ color: miss.length ? "#C2410C" : C.green, fontWeight: 600, whiteSpace: "nowrap" }}>
-                          {miss.length ? `Missing ${miss.join(", ")}` : "Ready"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {namedRows.length > 8 && (
-                    <div style={{ fontSize: 11, color: C.slate }}>+{namedRows.length - 8} more</div>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setTab("manual")}
+                  style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                >
+                  Open list
+                </button>
               </div>
             )}
 
             {pendingFills.filter((f) => f.status === "proposed").length > 0 && (
-              <div style={{ border: `1px solid ${C.teal}`, background: C.tealSoft, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>
-                    Proposed fills ({pendingFills.filter((f) => f.status === "proposed").length}) — accept before dialing
-                  </span>
-                  <button
-                    type="button"
-                    onClick={acceptAllFills}
-                    style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
-                  >
-                    Accept all
-                  </button>
-                </div>
-                {pendingFills.filter((f) => f.status === "proposed").map((fill) => (
-                  <div key={fill.rowId} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 12.5 }}>{fill.company}</div>
-                      <div style={{ fontSize: 11, color: C.slate }}>
-                        {fill.phone ? `📞 ${fill.phone}  ` : ""}
-                        {fill.email ? `✉ ${fill.email}  ` : ""}
-                        {fill.contact ? `👤 ${fill.contact}` : ""}
-                      </div>
-                      {(fill.linkedin || fill.twitter || fill.reddit || fill.instagram || fill.facebook) && (
-                        <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {fill.linkedin ? "LinkedIn  " : ""}
-                          {fill.twitter ? "X  " : ""}
-                          {fill.facebook ? "Facebook  " : ""}
-                          {fill.instagram ? "Instagram  " : ""}
-                          {fill.reddit ? "Reddit" : ""}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      <button type="button" onClick={() => acceptFill(fill)} style={{ background: "#2563EB", color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Accept</button>
-                      <button type="button" onClick={() => dismissFill(fill)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Skip</button>
-                    </div>
-                  </div>
-                ))}
+              <div style={{ fontSize: 12, color: C.slate, background: C.tealSoft, borderRadius: 8, padding: "8px 10px" }}>
+                {pendingFills.filter((f) => f.status === "proposed").length} AI fill(s) already written onto the list.
               </div>
             )}
 
             {/* Standalone Chat Messages Container */}
-            <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px", height: 480, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px", height: namedRows.length ? 220 : 480, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
               {copilotMessages.map((m, idx) => (
                 <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: m.sender === "user" ? "flex-end" : "flex-start" }}>
                   <div style={{
@@ -9603,9 +9771,19 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                   )}
                 </div>
               ))}
-              {chatSearching && (
+              {(chatSearching || lookupRunning) && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.slate, fontSize: 12.5, padding: "6px 10px" }}>
-                  <RefreshCw size={14} className="animate-spin" color="#2563EB" /> Searching and verifying contacts...
+                  <RefreshCw size={14} className="animate-spin" color="#2563EB" />
+                  {lookupRunning ? "Looking up public details…" : "Searching and verifying contacts..."}
+                  {lookupRunning && (
+                    <button
+                      type="button"
+                      onClick={pauseLookup}
+                      style={{ marginLeft: 4, background: "#fff", border: `1px solid ${C.redSolid}`, borderRadius: 7, padding: "4px 10px", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.redSolid, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}
+                    >
+                      <Pause size={12} /> Pause
+                    </button>
+                  )}
                 </div>
               )}
               <div ref={chatBottomRef} />
@@ -9681,47 +9859,107 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
 
             {manualMode === "form" && (
             <>
-            {importState === "parsed" && (
+            {importFileName && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: C.tealSoft, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk, lineHeight: 1.4 }}>
-                  <strong>{rows.filter((r) => r.name && r.phone).length}</strong> companies from {importFileName}
+                  <strong>{namedRows.length}</strong> from {importFileName} · <strong>{dialableRows.length}</strong> ready to dial
+                  {lookupRunning ? " · looking up…" : ""}
                 </div>
                 <button
-                  onClick={() => setManualMode("upload")}
+                  onClick={() => { pauseLookup(); resetImport(); setManualMode("upload"); }}
                   style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 11px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.textInk, cursor: "pointer", whiteSpace: "nowrap" }}
                 >
-                  Review list
+                  Replace file
                 </button>
               </div>
             )}
-            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginBottom: 10 }}>
-              {importState === "parsed"
-                ? "Channel, timezone and lunch are next. Missing phones? Open AI Chat and ask it to find them."
-                : "Add businesses even with holes — then use AI Chat to find remaining phones, emails, and people."}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.4 }}>
+                This table is the mission list. Yellow cells are AI-filled. Edit anything before you start.
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                {lookupRunning ? (
+                  <>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.slate, display: "flex", alignItems: "center", gap: 6 }}>
+                      <RefreshCw size={14} className="animate-spin" /> Looking up…
+                    </span>
+                    <button
+                      type="button"
+                      onClick={pauseLookup}
+                      style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.redSolid}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.redSolid, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      <Pause size={14} /> Pause
+                    </button>
+                  </>
+                ) : incompleteRows.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => handleFindMissing()}
+                    disabled={chatSearching}
+                    style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: "#fff", cursor: chatSearching ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    {namedRows.some((r) => r.aiFields && Object.keys(r.aiFields).length) ? <Play size={14} /> : <Sparkles size={14} />}
+                    {namedRows.some((r) => r.aiFields && Object.keys(r.aiFields).length)
+                      ? `Resume remaining (${incompleteRows.length})`
+                      : `Find missing (${incompleteRows.length})`}
+                  </button>
+                ) : null}
+              </div>
             </div>
-            {incompleteRows.length > 0 && (
-              <button
-                type="button"
-                onClick={() => { setTab("discover"); setTimeout(() => handleFindMissing(), 40); }}
-                style={{ marginBottom: 10, width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              >
-                <Sparkles size={14} /> Find missing details in AI Chat ({incompleteRows.length})
-              </button>
-            )}
-            {importState === "parsed" ? (
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflowX: "hidden", overflowY: "auto", maxHeight: 200, marginBottom: 4 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.1fr 1fr", gap: 8, padding: "8px 12px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+            {namedRows.length > 0 ? (
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: "auto", maxHeight: 360, marginBottom: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr 1.1fr 0.85fr 1.05fr minmax(170px,1.5fr) 90px 36px", gap: 6, padding: "8px 10px", background: C.paper, fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em", minWidth: 920 }}>
                   <div>Company</div>
                   <div>Phone</div>
-                  <div>Contact</div>
+                  <div>Email</div>
+                  <div>Person</div>
+                  <div>Website</div>
+                  <div>Socials</div>
+                  <div>Status</div>
+                  <div />
                 </div>
-                {rows.map((r) => (
-                  <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1.1fr 1fr", gap: 8, padding: "9px 12px", borderTop: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk }}>
-                    <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || "—"}</div>
-                    <div style={{ color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.phone || "—"}</div>
-                    <div style={{ color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.contact || "—"}</div>
-                  </div>
-                ))}
+                {rows.filter((r) => (r.name || "").trim()).map((r) => {
+                  const looking = lookingIds.includes(String(r.id));
+                  const miss = rowMissingFields(r);
+                  const ready = rowDialable(r, channel);
+                  const ai = r.aiFields || {};
+                  const hasSocial = r.linkedin || r.twitter || r.facebook || r.instagram || r.youtube;
+                  return (
+                    <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr 1.1fr 0.85fr 1.05fr minmax(170px,1.5fr) 90px 36px", gap: 6, padding: "8px 10px", borderTop: `1px solid ${C.border}`, alignItems: "center", minWidth: 920 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                        <input value={r.name} onChange={(e) => updateRow(r.id, "name", e.target.value)} style={aiInputStyle(false)} />
+                        {hasSocial ? (
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                            <SocialChip href={r.linkedin} label={socialHandle(r.linkedin, "linkedin") || "in"} color="#0A66C2" title={r.linkedin} />
+                            <SocialChip href={r.twitter} label="X" color="#111111" title={r.twitter} />
+                            <SocialChip href={r.facebook} label="f" color="#1877F2" title={r.facebook} />
+                            <SocialChip href={r.instagram} label="Ig" color="#E4405F" title={r.instagram} />
+                            <SocialChip href={r.youtube} label="YT" color="#FF0000" title={r.youtube} />
+                          </div>
+                        ) : looking ? (
+                          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.cobalt }}>Looking for profiles…</div>
+                        ) : null}
+                      </div>
+                      <input value={r.phone || ""} onChange={(e) => updateRow(r.id, "phone", e.target.value)} placeholder="Phone" style={aiInputStyle(ai.phone)} />
+                      <input value={r.email || ""} onChange={(e) => updateRow(r.id, "email", e.target.value)} placeholder="Email" style={aiInputStyle(ai.email)} />
+                      <input value={r.contact || ""} onChange={(e) => updateRow(r.id, "contact", e.target.value)} placeholder="Person" style={aiInputStyle(ai.contact)} />
+                      <input value={r.source || ""} onChange={(e) => updateRow(r.id, "source", e.target.value)} placeholder="Website" style={aiInputStyle(false)} />
+                      <input
+                        value={r.linkedin || ""}
+                        onChange={(e) => updateRow(r.id, "linkedin", e.target.value)}
+                        placeholder="linkedin.com/company/…"
+                        title={r.linkedin || "Company LinkedIn"}
+                        style={{ ...aiInputStyle(ai.linkedin), fontSize: 11 }}
+                      />
+                      <div style={{ fontSize: 11, fontWeight: 700, color: looking ? C.cobalt : ready ? C.green : "#C2410C" }}>
+                        {looking ? "Looking" : ready ? "Ready" : miss.includes("phone") ? "No phone" : "Incomplete"}
+                      </div>
+                      <button onClick={() => removeRow(r.id)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                        <Trash2 size={14} color={C.slateLight} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
             <>
@@ -9810,14 +10048,14 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                 </div>
               ))}
             </div>
+            </>
+            )}
             <button
               onClick={addRow}
               style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "8px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center" }}
             >
               <PlusCircle size={13} /> Add another business
             </button>
-            </>
-            )}
             </>
             )}
             </>
@@ -13860,7 +14098,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
 
 /* ---------------------------------- Dedicated Post Scheduler AI Image Studio View ---------------------------------- */
 
-function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts, commonAi, company, onNavigate, initialTargetPostId }) {
+function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts, commonAi, company, onNavigate, initialTargetPostId, generateRequest, onGenerateConsumed, onWorkingVisualChange }) {
   const [sourceMode, setSourceMode] = useState(() => (initialTargetPostId ? "post" : "topic")); // "topic" | "post" | "custom"
   const [selectedTopicId, setSelectedTopicId] = useState(topics[0]?.id || "");
   const [selectedPostId, setSelectedPostId] = useState(() => initialTargetPostId || posts[0]?.id || "");
@@ -13992,14 +14230,17 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
     return { width: 1200, height: 675 }; // 16:9
   };
 
-  const handleGenerate = async (forcedSeed) => {
-    const cleanPrompt = (prompt || "").trim() || "Operations intelligence dashboard analytics";
+  const handleGenerate = async (forcedSeed, promptOverride, styleOverride) => {
+    const cleanPrompt = (promptOverride || prompt || "").trim() || "Operations intelligence dashboard analytics";
+    if (promptOverride) setPrompt(promptOverride);
+    if (styleOverride) setStyle(styleOverride);
+    const activeStyle = styleOverride || style;
     setGenerating(true);
     const { width, height } = getDimensions(aspectRatio);
     try {
       const res = await api.generateImage({
         prompt: cleanPrompt,
-        style,
+        style: activeStyle,
         width,
         height,
         aspect_ratio: aspectRatio,
@@ -14021,13 +14262,14 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
         const newVisual = {
           imageUrl: finalUrl,
           prompt: cleanPrompt,
-          style,
+          style: activeStyle,
           ratio: aspectRatio,
           width: res.width || width,
           height: res.height || height,
           provider: res.provider || schedulerAi.imageProvider || "pollinations",
         };
         setCurrentVisual(newVisual);
+        if (onWorkingVisualChange) onWorkingVisualChange(newVisual);
         setHistory((prev) => [newVisual, ...prev.filter((h) => h.imageUrl !== finalUrl)].slice(0, 10));
         if (res.warning) {
           showToast(`⚠️ ${res.warning}`);
@@ -14038,23 +14280,34 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
       }
     } catch (err) {
       console.error("Error generating image:", err);
-      const encoded = encodeURIComponent(`${cleanPrompt}, ${style}`);
+      const encoded = encodeURIComponent(`${cleanPrompt}, ${activeStyle}`);
       const fallbackUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
       const fallbackVisual = {
         imageUrl: fallbackUrl,
         prompt: cleanPrompt,
-        style,
+        style: activeStyle,
         ratio: aspectRatio,
         width,
         height,
       };
       setCurrentVisual(fallbackVisual);
+      if (onWorkingVisualChange) onWorkingVisualChange(fallbackVisual);
       setHistory((prev) => [fallbackVisual, ...prev].slice(0, 10));
       showToast("✨ Generated AI visual via Pollinations!");
     } finally {
       setGenerating(false);
     }
   };
+
+  useEffect(() => {
+    if (!generateRequest || !generateRequest.id) return;
+    const run = async () => {
+      await handleGenerate(null, generateRequest.prompt, generateRequest.style);
+      if (onGenerateConsumed) onGenerateConsumed(generateRequest.id);
+    };
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generateRequest && generateRequest.id]);
 
   const handleAttachToPost = async () => {
     if (!currentVisual || !currentVisual.imageUrl) {
@@ -14203,7 +14456,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
-              onClick={() => onNavigate && onNavigate("ai_config")}
+              onClick={() => onNavigate && onNavigate("ai")}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -14273,7 +14526,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
             </div>
             <button
               type="button"
-              onClick={() => onNavigate && onNavigate("ai_config")}
+              onClick={() => onNavigate && onNavigate("ai")}
               style={{ fontSize: 12, fontWeight: 700, color: C.ink, background: "#fff", border: `1px solid ${C.border}`, padding: "4px 10px", borderRadius: 6, cursor: "pointer" }}
             >
               Add API Key →
@@ -14281,24 +14534,19 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
           </div>
         )}
 
-        {/* Visual Director AI Chat Rail Notification */}
-        <div style={{ background: C.tealSoft, border: `1px solid ${C.teal}33`, borderRadius: 12, padding: "12px 18px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {/* Working canvas + right-rail Visual Director chat is the intended layout. */}
+        <div style={{ background: C.tealSoft, border: `1px solid ${C.teal}33`, borderRadius: 12, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: C.teal, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Sparkles size={15} />
             </div>
             <div>
               <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
-                Visual Director AI is Active on Your Right Rail
+                Working canvas · chat on the right
               </span>
               <span style={{ fontSize: 12.5, color: C.slate, marginLeft: 8 }}>
-                Chat with AI to brainstorm visual concepts, refine prompt lighting, or request graphic styles for any topic!
+                Describe a visual in Visual Director AI — it renders here. Attach to a post when you like it.
               </span>
             </div>
-          </div>
-          <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: "#fff", color: C.teal, border: `1px solid ${C.teal}44` }}>
-            👉 Open Chat on Right
-          </span>
         </div>
 
         {/* Active Post Ribbon when designing for a specific post */}
@@ -15653,7 +15901,7 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
           <PluginCard
             icon={CalendarDays}
             title="Post Scheduler"
-            blurb="Social content planner & generator: multi-channel drafting from company knowledge, editorial calendar scheduling, and AI visual creative studio."
+            blurb="Plan, write, and publish to LinkedIn, X, Facebook, Instagram, and Threads. Canvas + Visual Director chat. Real account tokens."
             accent={C.teal}
             ready={true}
             onClick={() => onPick("scheduler")}
@@ -16980,16 +17228,411 @@ function PinToSlotModal({
   );
 }
 
+const SOCIAL_ACCOUNT_GUIDES = {
+  linkedin: {
+    title: "LinkedIn",
+    blurb: "Create a LinkedIn app → Products: Share on LinkedIn + Sign In with LinkedIn. Paste a Member access token with w_member_social. Author URN is auto-filled on Test.",
+    fields: [
+      { key: "accessToken", label: "Access token", placeholder: "AQV...", secret: true },
+      { key: "accountId", label: "Author URN or person/org ID (optional)", placeholder: "urn:li:person:… or organization id" },
+      { key: "authorType", label: "Author type", placeholder: "person or organization" },
+    ],
+  },
+  x: {
+    title: "X (Twitter)",
+    blurb: "User token with tweet.write. OAuth 2.0 Bearer works for text. For image upload also paste API key + secret + access token secret (OAuth 1.0a).",
+    fields: [
+      { key: "accessToken", label: "Access token / Bearer", placeholder: "AAAA…", secret: true },
+      { key: "apiKey", label: "API key (OAuth 1.0a, optional)", placeholder: "consumer key" },
+      { key: "apiSecret", label: "API secret (optional)", placeholder: "consumer secret", secret: true },
+      { key: "tokenSecret", label: "Access token secret (optional)", placeholder: "oauth token secret", secret: true },
+      { key: "handle", label: "Handle", placeholder: "@yourbrand" },
+    ],
+  },
+  facebook: {
+    title: "Facebook Page",
+    blurb: "Use a Page access token (not a user token). Test will list pages if you paste a user token with pages_show_list.",
+    fields: [
+      { key: "accessToken", label: "Page access token", placeholder: "EAAG…", secret: true },
+      { key: "accountId", label: "Page ID (optional if token can list pages)", placeholder: "1234567890" },
+    ],
+  },
+  instagram: {
+    title: "Instagram Business",
+    blurb: "Needs a Facebook Page linked to an Instagram professional account. Image URL must be public (Pollinations URLs work).",
+    fields: [
+      { key: "accessToken", label: "Access token", placeholder: "EAAG…", secret: true },
+      { key: "accountId", label: "Instagram business account ID", placeholder: "17841…" },
+      { key: "handle", label: "Handle", placeholder: "@brand" },
+    ],
+  },
+  threads: {
+    title: "Threads",
+    blurb: "Threads API token with threads_content_publish. Test fills user id.",
+    fields: [
+      { key: "accessToken", label: "Access token", placeholder: "THAA…", secret: true },
+      { key: "accountId", label: "Threads user ID (optional)", placeholder: "me" },
+      { key: "handle", label: "Handle", placeholder: "@brand" },
+    ],
+  },
+};
+
+function SocialAccountsView({ accounts = [], onChanged }) {
+  const [oauthApps, setOauthApps] = useState([]);
+  const [setupPlat, setSetupPlat] = useState("x");
+  const [setupForm, setSetupForm] = useState({ clientId: "", clientSecret: "" });
+  const [savingApp, setSavingApp] = useState(false);
+  const [connecting, setConnecting] = useState("");
+  const [testingId, setTestingId] = useState(null);
+  const [flash, setFlash] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [platform, setPlatform] = useState("x");
+  const [form, setForm] = useState({ label: "", handle: "", accessToken: "", accountId: "", apiKey: "", apiSecret: "", tokenSecret: "", authorType: "person" });
+  const [saving, setSaving] = useState(false);
+  const guide = SOCIAL_ACCOUNT_GUIDES[platform] || SOCIAL_ACCOUNT_GUIDES.x;
+
+  const notify = (msg) => {
+    setFlash(msg);
+    window.setTimeout(() => setFlash(""), 5000);
+  };
+
+  const loadApps = () => {
+    api.getSocialOauthApps()
+      .then((data) => setOauthApps(data.apps || []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadApps();
+    const onMsg = (e) => {
+      const d = e && e.data;
+      if (!d || d.type !== "aivhub-social-oauth") return;
+      if (d.ok) notify(`Connected ${d.platform}${d.handle ? " · " + d.handle : ""}`);
+      else notify(d.error || "OAuth failed");
+      if (onChanged) onChanged();
+      loadApps();
+    };
+    window.addEventListener("message", onMsg);
+    try {
+      const raw = localStorage.getItem("aivhub_oauth_result");
+      if (raw) {
+        localStorage.removeItem("aivhub_oauth_result");
+        const d = JSON.parse(raw);
+        if (d.ok) notify(`Connected ${d.platform}${d.handle ? " · " + d.handle : ""}`);
+        else if (d.error) notify(d.error);
+        if (onChanged) onChanged();
+      }
+    } catch (_) {}
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  const appFor = (plat) => oauthApps.find((a) => a.platform === plat) || {};
+
+  const saveApp = async () => {
+    if (!setupForm.clientId.trim() || !setupForm.clientSecret.trim()) {
+      notify("Client ID and Client Secret required for Connect with …");
+      return;
+    }
+    setSavingApp(true);
+    try {
+      await api.saveSocialOauthApp({
+        platform: setupPlat,
+        clientId: setupForm.clientId.trim(),
+        clientSecret: setupForm.clientSecret.trim(),
+      });
+      setSetupForm({ clientId: "", clientSecret: "" });
+      loadApps();
+      notify(`AIVHub ${SOCIAL_ACCOUNT_GUIDES[setupPlat].title} app saved. Users can click Connect now.`);
+    } catch (e) {
+      notify(e.message || "Could not save app");
+    } finally {
+      setSavingApp(false);
+    }
+  };
+
+  const connectOauth = async (plat) => {
+    const app = appFor(plat);
+    if (!app.configured) {
+      notify("Save Client ID + Secret once below, then click Connect. That is AIVHub’s developer app — users then log in as themselves.");
+      return;
+    }
+    setConnecting(plat);
+    try {
+      const res = await api.startSocialOauth(plat, window.location.origin);
+      if (!res?.authUrl) {
+        notify(res?.error || "Could not start connect");
+        return;
+      }
+      const popup = window.open(res.authUrl, "aivhub-oauth-" + plat, "width=620,height=780,menubar=no,toolbar=no");
+      if (!popup) {
+        window.location.href = res.authUrl;
+      }
+    } catch (e) {
+      notify(e.message || "Connect failed. Save Client ID + Secret first (once).");
+    } finally {
+      setConnecting("");
+    }
+  };
+
+  const saveAccount = async () => {
+    if (!form.accessToken.trim()) {
+      notify("Paste an access token first, or use Connect with … above.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await api.saveSocialAccount({
+        platform,
+        label: form.label || guide.title,
+        handle: form.handle,
+        accessToken: form.accessToken,
+        accountId: form.accountId,
+        apiKey: form.apiKey,
+        apiSecret: form.apiSecret,
+        tokenSecret: form.tokenSecret,
+        authorType: form.authorType,
+        isDefault: true,
+      });
+      if (res?.account) {
+        notify(res.test?.ok ? `Connected ${guide.title} ${res.account.handle || ""}`.trim() : `Saved, but test failed: ${res.test?.error || res.account.lastError}`);
+        setForm({ label: "", handle: "", accessToken: "", accountId: "", apiKey: "", apiSecret: "", tokenSecret: "", authorType: "person" });
+        if (onChanged) onChanged();
+      }
+    } catch (e) {
+      notify(e.message || "Could not save account");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const testOne = async (id) => {
+    setTestingId(id);
+    try {
+      const res = await api.testSocialAccount(id);
+      notify(res?.test?.ok ? `✓ ${res.account?.handle || "Connected"}` : (res?.test?.error || "Test failed"));
+      if (onChanged) onChanged();
+    } catch (e) {
+      notify(e.message || "Test failed");
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const removeOne = async (id) => {
+    try {
+      await api.deleteSocialAccount(id);
+      if (onChanged) onChanged();
+    } catch (e) {
+      notify(e.message || "Delete failed");
+    }
+  };
+
+  const setupGuide = SOCIAL_ACCOUNT_GUIDES[setupPlat] || SOCIAL_ACCOUNT_GUIDES.x;
+  const setupApp = appFor(setupPlat);
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px 36px 48px", background: HUB_PAPER }}>
+      <div style={{ maxWidth: 1040, width: "100%", margin: "0 auto" }}>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, letterSpacing: "-0.02em" }}>
+            Connect social accounts
+          </div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4, maxWidth: 760 }}>
+            Users connect their own X, LinkedIn, Facebook, Instagram, or Threads by logging in. After Connect, scheduled posts publish to that account. No token paste for the normal path.
+          </div>
+        </div>
+
+        {flash && (
+          <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: C.ink, color: "#fff", fontSize: 13, fontWeight: 600 }}>
+            {flash}
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 22 }}>
+          {["x", "linkedin", "facebook", "instagram", "threads"].map((id) => {
+            const ch = SOCIAL_CHANNELS[id] || { label: id, color: C.ink, soft: HUB_PAPER, mark: id.slice(0, 2) };
+            const app = appFor(id);
+            const linked = (accounts || []).find((a) => a.platform === id && a.status === "connected");
+            return (
+              <div key={id} style={{ background: "#fff", border: `1px solid ${linked ? C.teal : C.border}`, borderRadius: 14, padding: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: ch.soft, color: ch.color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>
+                    {ch.mark}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{ch.label}</div>
+                    <div style={{ fontSize: 11, color: linked ? C.teal : C.slate }}>
+                      {linked ? `Connected ${linked.handle || ""}` : app.configured ? "Ready to connect" : "App not set up"}
+                    </div>
+                  </div>
+                </div>
+                {linked ? (
+                  <button type="button" onClick={() => removeOne(linked.id)} style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => connectOauth(id)}
+                    disabled={connecting === id}
+                    style={{ width: "100%", height: 36, borderRadius: 8, border: "none", background: ch.color, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: connecting === id ? "wait" : "pointer" }}
+                  >
+                    {connecting === id ? "Opening…" : `Connect with ${ch.label}`}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22, boxShadow: C.shadowCard }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>One-time AIVHub app (admin)</div>
+          <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 12 }}>
+            Create a developer app on the platform for AIVHub. Paste Client ID + Secret once. Then every operator clicks Connect with X / LinkedIn and logs in as themselves. Callback URL must match exactly.
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+            {["x", "linkedin", "facebook", "instagram", "threads"].map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setSetupPlat(id)}
+                style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: setupPlat === id ? C.ink : HUB_PAPER, color: setupPlat === id ? "#fff" : C.ink, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+              >
+                {SOCIAL_ACCOUNT_GUIDES[id].title}
+                {appFor(id).configured ? " ✓" : ""}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
+            Callback URL to register on {setupGuide.title}
+            {(setupPlat === "facebook" || setupPlat === "instagram") ? " (Facebook Login — register both)" : ""}:
+            {(setupPlat === "facebook" || setupPlat === "instagram"
+              ? ["facebook", "instagram"]
+              : [setupPlat]
+            ).map((p) => {
+              const one = (setupApp.callbackUrl || `http://127.0.0.1:8000/api/scheduler/oauth/${setupPlat}/callback`).replace(/\/oauth\/[^/]+\/callback/, `/oauth/${p}/callback`);
+              return (
+                <code key={p} style={{ display: "block", marginTop: 4, padding: "8px 10px", background: HUB_PAPER, borderRadius: 8, color: C.ink, wordBreak: "break-all" }}>
+                  {one}
+                </code>
+              );
+            })}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Client ID</label>
+              <input value={setupForm.clientId} onChange={(e) => setSetupForm((f) => ({ ...f, clientId: e.target.value }))} placeholder={setupApp.clientIdHint || "client id"} style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Client secret</label>
+              <input type="password" value={setupForm.clientSecret} onChange={(e) => setSetupForm((f) => ({ ...f, clientSecret: e.target.value }))} placeholder={setupApp.hasSecret ? "•••• saved" : "secret"} style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }} />
+            </div>
+            <button type="button" onClick={saveApp} disabled={savingApp} style={{ height: 38, padding: "0 16px", border: "none", borderRadius: 8, background: C.teal, color: "#fff", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+              {savingApp ? "Saving…" : "Save app"}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Connected user accounts</div>
+          {accounts.length === 0 && (
+            <div style={{ background: "#fff", border: `1px dashed ${C.border}`, borderRadius: 16, padding: 24, color: C.slate, fontSize: 13.5 }}>
+              None yet. Click Connect with X (or another network) and log in as the posting user.
+            </div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {accounts.map((acc) => {
+              const ch = SOCIAL_CHANNELS[acc.platform] || { label: acc.platform, color: C.ink, soft: HUB_PAPER };
+              return (
+                <div key={acc.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: ch.soft, color: ch.color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800 }}>
+                      {ch.mark || acc.platform.slice(0, 2)}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}>
+                        {acc.label || ch.label} {acc.handle ? `· ${acc.handle}` : ""}
+                      </div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                        {acc.status === "connected" ? "Connected" : acc.status === "error" ? "Error" : "Disconnected"}
+                        {acc.isDefault ? " · default for this network" : ""}
+                      </div>
+                      {acc.lastError ? <div style={{ fontSize: 11.5, color: C.red, marginTop: 4 }}>{acc.lastError}</div> : null}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                    <button type="button" onClick={() => testOne(acc.id)} disabled={testingId === acc.id} style={{ height: 34, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                      {testingId === acc.id ? "Testing…" : "Test"}
+                    </button>
+                    <button type="button" onClick={() => removeOne(acc.id)} style={{ height: 34, padding: "0 12px", borderRadius: 8, border: `1px solid #F0C4B8`, background: "#fff", color: C.red, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <button type="button" onClick={() => setShowAdvanced((v) => !v)} style={{ marginTop: 8, border: "none", background: "none", color: C.slate, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}>
+          {showAdvanced ? "Hide token paste (advanced)" : "Advanced: paste a token instead of OAuth"}
+        </button>
+
+        {showAdvanced && (
+          <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+              {Object.keys(SOCIAL_ACCOUNT_GUIDES).map((id) => (
+                <button key={id} type="button" onClick={() => setPlatform(id)} style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: platform === id ? (SOCIAL_CHANNELS[id]?.color || C.ink) : HUB_PAPER, color: platform === id ? "#fff" : C.ink, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                  {SOCIAL_ACCOUNT_GUIDES[id].title}
+                </button>
+              ))}
+            </div>
+            {guide.fields.map((field) => (
+              <div key={field.key} style={{ marginBottom: 8 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 3 }}>{field.label}</label>
+                <input type={field.secret ? "password" : "text"} value={form[field.key] || ""} onChange={(e) => setForm((f) => ({ ...f, [field.key]: e.target.value }))} placeholder={field.placeholder} style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }} />
+              </div>
+            ))}
+            <button type="button" onClick={saveAccount} disabled={saving} style={{ marginTop: 8, height: 40, padding: "0 16px", border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+              {saving ? "Saving…" : "Save token"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function schedulerViewFromHash() {
+  try {
+    const hash = window.location.hash.replace(/^#\/?/, "");
+    const parts = hash.split("/");
+    if (parts[0] !== "scheduler" || !parts[1]) return "";
+    const [viewRaw, qs] = String(parts[1]).split("?");
+    if (qs) {
+      const p = new URLSearchParams(qs);
+      if (p.get("oauth")) {
+        try {
+          localStorage.setItem("aivhub_oauth_result", JSON.stringify({
+            ok: p.get("oauth") === "ok",
+            platform: p.get("platform") || "",
+            handle: p.get("handle") || "",
+            error: p.get("error") || "",
+          }));
+        } catch (_) {}
+      }
+    }
+    return viewRaw || "";
+  } catch (_) {
+    return "";
+  }
+}
+
 function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, commonAi, setCommonAi, onOpenCommonAi }) {
   const company = companyFromProfile(profile, knowledgeSources);
   const [view, setView] = useState(() => {
     try {
-      const hash = window.location.hash.replace(/^#\/?/, "");
-      const parts = hash.split("/");
-      if (parts[0] === "scheduler" && parts[1]) {
-        return parts[1];
-      }
-      return localStorage.getItem("aivhub_scheduler_view") || "plan";
+      return schedulerViewFromHash() || localStorage.getItem("aivhub_scheduler_view") || "plan";
     } catch (_) {
       return "plan";
     }
@@ -17008,11 +17651,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   useEffect(() => {
     const onHash = () => {
       try {
-        const hash = window.location.hash.replace(/^#\/?/, "");
-        const parts = hash.split("/");
-        if (parts[0] === "scheduler" && parts[1] && parts[1] !== view) {
-          setView(parts[1]);
-        }
+        const next = schedulerViewFromHash();
+        if (next && next !== view) setView(next);
       } catch (_) {}
     };
     window.addEventListener("hashchange", onHash);
@@ -17136,6 +17776,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     }
   });
   const [emails, setEmails] = useState(INITIAL_SCHEDULER_EMAILS);
+  const [socialAccounts, setSocialAccounts] = useState([]);
+  const [imageGenRequest, setImageGenRequest] = useState(null);
   // Modern Pin-to-Slot & Custom Time Scheduling State
   const [pinModalTopic, setPinModalTopic] = useState(null);
   const [pinDate, setPinDate] = useState(() => isoDate(Date.now()));
@@ -17336,7 +17978,6 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
 
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
-  const [channels, setChannels] = useState({ linkedin: true, threads: true, x: true, facebook: true, instagram: false });
   const [editingId, setEditingId] = useState(null);
   const [editCopy, setEditCopy] = useState("");
   const [panel, setPanel] = useState(null);
@@ -17417,6 +18058,19 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         }
       })
       .catch((e) => console.warn("Could not load backend posts:", e));
+    api.getSocialAccounts()
+      .then((data) => { if (Array.isArray(data)) setSocialAccounts(data); })
+      .catch((e) => console.warn("Could not load social accounts:", e));
+    api.getEmails()
+      .then((data) => {
+        if (Array.isArray(data) && data.length) {
+          setEmails((prev) => {
+            const ids = new Set(data.map((e) => e.id));
+            return [...data, ...prev.filter((e) => !ids.has(e.id))];
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const awaiting = posts.filter((p) => p.status === "awaiting_approval");
@@ -17429,6 +18083,118 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const pushAi = (text) => {
     setChat((cs) => [...cs, { id: "c_" + Date.now(), who: "ai", text }]);
   };
+
+  const refreshSocialAccounts = () => {
+    api.getSocialAccounts()
+      .then((data) => { if (Array.isArray(data)) setSocialAccounts(data); })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    const onMsg = (e) => {
+      const d = e && e.data;
+      if (!d || d.type !== "aivhub-social-oauth") return;
+      refreshSocialAccounts();
+      if (d.ok) pushAi("Connected " + (d.platform || "account") + (d.handle ? " · " + d.handle : "") + ". Scheduled posts publish to this login.");
+      else if (d.error) pushAi("Connect failed: " + d.error);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  const schedulerImgConf = () => {
+    try {
+      const s = localStorage.getItem("aivhub_scheduler_ai");
+      if (s) return JSON.parse(s);
+    } catch (_) {}
+    return commonAi?.schedulerAi || {};
+  };
+
+  const persistPost = (np) => {
+    api.createPost({
+      id: np.id,
+      title: np.topicHeadline || np.theme,
+      copy: np.copy,
+      channels: np.channels,
+      status: np.status,
+      slotDateMs: np.dateMs,
+      time: np.time,
+      theme: np.theme,
+      imageUrl: np.imageUrl,
+      imagePrompt: np.imagePrompt,
+      hook: np.hook,
+      linkedinCopy: np.linkedinCopy,
+      xCopy: np.xCopy,
+      facebookCopy: np.facebookCopy,
+      instagramCopy: np.instagramCopy,
+      threadsCopy: np.threadsCopy,
+      hashtags: np.hashtags,
+      cta: np.cta,
+      firstComment: np.firstComment,
+      altText: np.altText,
+    }).catch((e) => console.warn("Could not persist created post:", e));
+  };
+
+  const enrichPostWithAi = async (basePost, topicText) => {
+    try {
+      const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
+      const imgConf = schedulerImgConf();
+      const res = await api.generateSocialPackage({
+        topic: topicText || basePost.topicHeadline || basePost.theme,
+        style: imgConf.imageStyle || "modern_saas",
+        aspect_ratio: imgConf.imageAspectRatio || "16:9",
+        apiKey: creds.apiKey,
+        provider: creds.provider,
+        model: creds.model,
+        baseUrl: creds.baseUrl,
+        image_provider: imgConf.imageProvider,
+        imageProvider: imgConf.imageProvider,
+        image_api_key: imgConf.imageApiKey,
+        imageApiKey: imgConf.imageApiKey,
+        image_model: imgConf.imageModel,
+        image_base_url: imgConf.imageBaseUrl,
+      });
+      const p = res && res.package;
+      if (!p) return basePost;
+      return {
+        ...basePost,
+        hook: p.hook || basePost.hook,
+        copy: p.linkedin_copy || p.linkedinCopy || basePost.copy,
+        linkedinCopy: p.linkedin_copy || p.linkedinCopy,
+        xCopy: p.x_copy || p.xCopy,
+        facebookCopy: p.facebook_copy || p.facebookCopy,
+        instagramCopy: p.instagram_copy || p.instagramCopy,
+        threadsCopy: p.threads_copy || p.threadsCopy,
+        hashtags: p.hashtags || basePost.hashtags,
+        cta: p.cta || basePost.cta,
+        firstComment: p.first_comment || p.firstComment,
+        altText: p.alt_text || p.altText,
+        imageUrl: p.imageUrl || basePost.imageUrl,
+        imagePrompt: p.imagePrompt || p.image_prompt || basePost.imagePrompt,
+      };
+    } catch (err) {
+      console.warn("LLM package fallback to template copy:", err);
+      return basePost;
+    }
+  };
+
+  useEffect(() => {
+    const tick = () => {
+      api.publishDuePosts()
+        .then((res) => {
+          if (res && Array.isArray(res.published) && res.published.length) {
+            setPosts((prev) => prev.map((p) => {
+              const hit = res.published.find((x) => x.id === p.id);
+              return hit ? { ...p, ...hit, status: "published", publishedAt: hit.publishedAt || "just now", publishResults: hit.publishResults || hit.publish_results } : p;
+            }));
+          }
+        })
+        .catch(() => {});
+    };
+    const id = window.setInterval(tick, 45000);
+    tick();
+    return () => window.clearInterval(id);
+  }, []);
 
   const applyPlan = (nextSchedules, replace, horizon, customRange) => {
     const range = customRange || horizonRange(horizon || planHorizon || "month");
@@ -17547,34 +18313,38 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const mailDuePosts = (created) => {
     const dueOnes = (created || []).filter((p) => p.status === "awaiting_approval");
     if (dueOnes.length) {
-      setEmails((es) => [...dueOnes.map((p) => makeApprovalEmail(p, operator)), ...es]);
+      const mails = dueOnes.map((p) => makeApprovalEmail(p, operator));
+      setEmails((es) => [...mails, ...es]);
+      mails.forEach((em) => {
+        api.createEmail({
+          id: em.id,
+          postId: em.postId,
+          subject: em.subject,
+          to: em.to,
+          body: em.body,
+          preview: em.preview,
+          sentAt: em.sentAt,
+          status: em.status,
+        }).catch(() => {});
+      });
     }
     return dueOnes.length;
   };
 
-  const writePosts = () => {
+  const writePosts = async () => {
     const { nextSlots, created } = writePostsFrom(schedules, topics, slots, company);
     setSlots(nextSlots);
-    if (created.length) {
-      setPosts((ps) => [...created, ...ps]);
-      created.forEach((np) => {
-        api.createPost({
-          id: np.id,
-          title: np.topicHeadline || np.theme,
-          copy: np.copy,
-          channels: np.channels,
-          status: np.status,
-          slotDateMs: np.dateMs,
-          time: np.time,
-          theme: np.theme,
-          imageUrl: np.imageUrl,
-          imagePrompt: np.imagePrompt,
-        }).catch((e) => console.warn("Could not persist created post:", e));
-      });
+    const enriched = [];
+    for (const np of created) {
+      enriched.push(await enrichPostWithAi(np, np.topicHeadline || np.theme));
     }
-    const mailed = mailDuePosts(created);
+    if (enriched.length) {
+      setPosts((ps) => [...enriched, ...ps]);
+      enriched.forEach((np) => persistPost(np));
+    }
+    const mailed = mailDuePosts(enriched);
     setView(mailed ? "approval" : "month");
-    return { n: created.length, mailed };
+    return { n: enriched.length, mailed };
   };
 
   const sendDue = () => {
@@ -17605,9 +18375,24 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     }
     if (parsed.kind === "connect") {
       setTyping(false);
-      setChannels((c) => ({ ...c, [parsed.channel]: true }));
       setView("channels");
-      pushAi("Connected " + (SOCIAL_CHANNELS[parsed.channel] && SOCIAL_CHANNELS[parsed.channel].label) + ". Drafts can publish here after you approve.");
+      const label = (SOCIAL_CHANNELS[parsed.channel] && SOCIAL_CHANNELS[parsed.channel].label) || parsed.channel;
+      const already = (socialAccounts || []).find((a) => a.platform === parsed.channel && a.status === "connected");
+      if (already) {
+        pushAi(label + " already connected as " + (already.handle || already.label) + ". Approve a post then Confirm & post to publish.");
+        return;
+      }
+      pushAi("Opening " + label + " login. Sign in as the account you want to post from.");
+      api.startSocialOauth(parsed.channel, window.location.origin)
+        .then((res) => {
+          if (res?.authUrl) {
+            const popup = window.open(res.authUrl, "aivhub-oauth-" + parsed.channel, "width=620,height=780,menubar=no,toolbar=no");
+            if (!popup) window.location.href = res.authUrl;
+          }
+        })
+        .catch((e) => {
+          pushAi((e && e.message) || "Save Client ID + Secret once under Accounts (AIVHub developer app), then click Connect with " + label + ".");
+        });
       return;
     }
     if (parsed.kind === "status") {
@@ -17654,8 +18439,10 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         runResearch(researchQuery || schedules.map((s) => s.theme).join("; "), true);
         return;
       }
-      const { n, mailed } = writePosts();
-      pushAi(n ? ("Wrote " + n + " posts here from " + company.name + " knowledge." + (mailed ? " " + mailed + " due now — sent for approval (app + email)." : " They sit on the schedule until due.")) : "Every slotted topic already has a post. Open the calendar or approvals.");
+      pushAi("Writing posts with the copywriter model…");
+      writePosts().then(({ n, mailed }) => {
+        pushAi(n ? ("Wrote " + n + " posts from " + company.name + " knowledge (LLM package per slot)." + (mailed ? " " + mailed + " due now — sent for approval." : " They sit on the schedule until due.")) : "Every slotted topic already has a post. Open the calendar or approvals.");
+      });
       return;
     }
     if (parsed.kind === "send_due") {
@@ -17755,18 +18542,18 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       // Strictly no hardcoded text. All responses are streamed dynamically from the real AI LLM.
     }
 
-    if (view === "images" && !text.toLowerCase().includes("plan") && !text.toLowerCase().includes("post")) {
-      setTyping(false);
+    if (view === "images" && parsed.kind !== "plan" && parsed.kind !== "write_posts" && parsed.kind !== "open" && parsed.kind !== "connect") {
       const clean = text.trim();
-      const promptIdea1 = `Modern sleek SaaS vector illustration of ${clean}, glowing cyan telemetry graphs, frosted glassmorphism UI components, clean gradients, 4k`;
-      const promptIdea2 = `Photorealistic editorial photography of ${clean}, natural corporate executive studio lighting, 35mm lens, high detail, 8k`;
-      pushAi(
-        `🎨 Visual Director AI Suggestions for “${clean}”:\n\n` +
-        `1. Tech SaaS Vector Style:\n“${promptIdea1}”\n\n` +
-        `2. Editorial Photography Style:\n“${promptIdea2}”\n\n` +
-        `💡 Tip: Copy either prompt into the Image Studio prompt box on the left and click “Generate Visual” to render!`
-      );
-      return;
+      const t = clean.toLowerCase();
+      let styleGuess = "";
+      if (/neon|cyber|hud/.test(t)) styleGuess = "neon_tech";
+      else if (/photo|editorial|realistic/.test(t)) styleGuess = "editorial";
+      else if (/3d|clay|isometric/.test(t)) styleGuess = "minimalist_3d";
+      else if (/cinematic|drama/.test(t)) styleGuess = "cinematic";
+      else if (/saas|dashboard|vector/.test(t)) styleGuess = "modern_saas";
+      setImageGenRequest({ id: Date.now(), prompt: clean, style: styleGuess || undefined });
+      pushAi("Rendering that on the left canvas now…");
+      // Fall through to LLM so the right rail also explains the visual.
     }
 
     // Call Real LLM Gateway for open conversational partner & planning
@@ -17807,7 +18594,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         model: creds.model || "gpt-4o",
         baseUrl: creds.baseUrl || "",
         imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas",
-        chatOnly: !!chatOnly
+        chatOnly: !!chatOnly || view === "images"
       },
       { signal: controller.signal }
     ).then((res) => {
@@ -17898,9 +18685,34 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     setSlots((ss) => ss.map((s) => (s.postId === id ? { ...s, postId: null } : s)));
     api.updatePostStatus(id, "rejected").catch((e) => console.warn("Could not reject post on backend:", e));
   };
-  const confirmPublish = (id) => {
-    setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, status: "published", publishedAt: "just now" } : p)));
-    api.updatePostStatus(id, "published").catch((e) => console.warn("Could not publish post on backend:", e));
+  const confirmPublish = async (id) => {
+    try {
+      const res = await api.publishPost(id);
+      const results = res.results || res.post?.publishResults || [];
+      const ok = results.filter((r) => r.ok);
+      const fail = results.filter((r) => !r.ok);
+      setPosts((ps) => ps.map((p) => (
+        p.id === id
+          ? {
+              ...p,
+              ...(res.post || {}),
+              status: (res.post && res.post.status) || (ok.length ? "published" : p.status),
+              publishedAt: (res.post && (res.post.publishedAt || res.post.published_at)) || (ok.length ? "just now" : p.publishedAt),
+              publishResults: results,
+            }
+          : p
+      )));
+      if (!ok.length) {
+        pushAi("Publish failed. Connect accounts under Accounts, then retry.\n" + fail.map((f) => `• ${f.platform}: ${f.error}`).join("\n"));
+        setView("channels");
+      } else if (fail.length) {
+        pushAi("Posted to " + ok.map((o) => o.platform).join(", ") + ". Failed: " + fail.map((f) => f.platform + " — " + f.error).join("; "));
+      } else {
+        pushAi("Posted live to " + ok.map((o) => o.platform + (o.handle ? " (" + o.handle + ")" : "")).join(", ") + ".");
+      }
+    } catch (e) {
+      pushAi("Publish error: " + (e.message || "Could not reach publisher."));
+    }
   };
 
   const handleOpenPinModal = (topic) => {
@@ -17978,7 +18790,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       time: targetSlot.time,
     };
 
-    const newPost = writePostFromTopic(sch, pinModalTopic, targetSlot, null, company);
+    const drafted = writePostFromTopic(sch, pinModalTopic, targetSlot, null, company);
+    const newPost = await enrichPostWithAi(drafted, pinModalTopic.headline || pinModalTopic.title || drafted.theme);
     targetSlot.postId = newPost.id;
 
     setSlots((prev) => {
@@ -18000,6 +18813,16 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         theme: targetSlot.theme,
         imageUrl: newPost.imageUrl,
         imagePrompt: newPost.imagePrompt,
+        hook: newPost.hook,
+        linkedinCopy: newPost.linkedinCopy,
+        xCopy: newPost.xCopy,
+        facebookCopy: newPost.facebookCopy,
+        instagramCopy: newPost.instagramCopy,
+        threadsCopy: newPost.threadsCopy,
+        hashtags: newPost.hashtags,
+        cta: newPost.cta,
+        firstComment: newPost.firstComment,
+        altText: newPost.altText,
       });
     } catch (apiErr) {
       console.warn("Could not save post to backend:", apiErr);
@@ -18163,7 +18986,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     { id: "inbox", label: "Email inbox", icon: Mail, count: unreadMail },
     { id: "published", label: "Published", icon: ArrowUpRight },
     { id: "company", label: "Company knowledge", icon: BookOpen },
-    { id: "channels", label: "Channels", icon: Plug },
+    { id: "channels", label: "Accounts", icon: Plug, count: (socialAccounts || []).filter((a) => a.status === "connected").length },
     { id: "ai", label: "AI Configuration", icon: Settings2 },
   ];
 
@@ -18172,11 +18995,11 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     plan: "Plan — chat, research, save",
     month: (planRange && planRange.label ? planRange.label : PLAN_MONTH.label) + (planSaved ? " · saved" : " · draft"),
     topics: "Topic library",
-    images: "AI Image Studio · Generate Social Graphics",
+    images: "AI Image Studio — canvas + Visual Director chat",
     approval: "Approvals",
     inbox: "Email inbox",
     published: "Published",
-    channels: "Channels",
+    channels: "Social accounts",
     ai: "Post Scheduler · AI Configuration",
   };
   const monthCells = buildMonthCells(calCursor.year, calCursor.month);
@@ -19149,7 +19972,16 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.textInk, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{p.copy}</div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.teal, fontWeight: 600, marginTop: 10 }}>{p.cta}</div>
-                <div style={{ display: "flex", gap: 4, marginTop: 12 }}>{p.channels.map((c) => <ChannelPill key={c} id={c} />)}</div>
+                <div style={{ display: "flex", gap: 4, marginTop: 12 }}>{(p.channels || []).map((c) => <ChannelPill key={c} id={c} />)}</div>
+                {(p.publishResults || []).length > 0 && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: C.slate }}>
+                    {(p.publishResults || []).map((r, i) => (
+                      <div key={i} style={{ color: r.ok ? C.teal : C.red }}>
+                        {r.ok ? "✓" : "✕"} {r.platform}{r.handle ? ` (${r.handle})` : ""}{r.url ? " · " + r.url : ""}{r.error ? " — " + r.error : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             </div>
@@ -19360,43 +20192,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         )}
 
         {view === "channels" && (
-          <div style={{ flex: 1, overflowY: "auto", padding: "28px 36px 48px", background: HUB_PAPER }}>
-            <div style={{ maxWidth: 980, width: "100%", margin: "0 auto" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, letterSpacing: "-0.02em" }}>
-                    Connected Social Channels
-                  </div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 3 }}>
-                    Manage OAuth integrations and active broadcast targets for automated post publishing.
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16, alignContent: "start" }}>
-            {Object.keys(SOCIAL_CHANNELS).map((id) => {
-              const ch = SOCIAL_CHANNELS[id];
-              const on = channels[id];
-              return (
-                <div key={id} className="hover-float" style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: ch.soft, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: ch.color }}>
-                      {ch.mark}
-                    </div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>{ch.label}</div>
-                  </div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginBottom: 14 }}>{on ? "Connected — drafts can publish here after you confirm." : "Not connected. Prototype toggle only."}</div>
-                  <button
-                    onClick={() => setChannels((c) => ({ ...c, [id]: !c[id] }))}
-                    style={{ height: 36, width: "100%", borderRadius: 10, border: "none", background: on ? C.ink : C.paperSoft, color: on ? "#fff" : C.textInk, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                  >
-                    {on ? "Connected" : "Connect"}
-                  </button>
-                </div>
-              );
-            })}
-              </div>
-            </div>
-          </div>
+          <SocialAccountsView accounts={socialAccounts} onChanged={refreshSocialAccounts} />
         )}
         {view === "images" && (
           <SafeErrorBoundary label="AI Image Studio" onReset={() => setView("images")}>
@@ -19409,6 +20205,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
               company={company}
               onNavigate={navigateSch}
               initialTargetPostId={imageStudioTargetPostId}
+              generateRequest={imageGenRequest}
+              onGenerateConsumed={(id) => setImageGenRequest((prev) => (prev && prev.id === id ? null : prev))}
             />
           </SafeErrorBoundary>
         )}
@@ -19561,7 +20359,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
 
           {/* Subheader info or Search bar */}
           <div style={{ padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 11, color: C.slate, borderBottom: `1px solid ${C.borderLight}`, background: HUB_PAPER, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>{view === "images" ? "Visual prompt suggestions & design ideation" : "Plan campaign days, hooks, and topic strategy"}</span>
+            <span>{view === "images" ? "Chat here → canvas on the left renders the visual" : "Plan campaign days, hooks, and topic strategy"}</span>
             <span style={{ color: C.teal, fontWeight: 600 }}>⚡ Real-time AI Assistant</span>
           </div>
 
@@ -19862,7 +20660,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                 ref={chatInput}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={view === "images" ? "Ask for visual concepts or prompt ideas…" : "Type campaign ideas, dates, or topics to plan…"}
+                placeholder={view === "images" ? "Describe the visual to render on the left canvas…" : "Type campaign ideas, dates, or topics to plan…"}
                 style={{ flex: 1, height: 40, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13, background: HUB_PAPER, color: C.textInk, outline: "none" }}
               />
 
@@ -20151,7 +20949,16 @@ function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdi
       )}
       <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.teal, fontWeight: 600, marginTop: 10 }}>{post.cta}</div>
       {post.edited && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 6 }}>Edited before approval</div>}
-      <div style={{ display: "flex", gap: 4, marginTop: 12, flexWrap: "wrap" }}>{post.channels.map((c) => <ChannelPill key={c} id={c} />)}</div>
+      <div style={{ display: "flex", gap: 4, marginTop: 12, flexWrap: "wrap" }}>{(post.channels || []).map((c) => <ChannelPill key={c} id={c} />)}</div>
+      {(post.publishResults || []).length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 12 }}>
+          {(post.publishResults || []).map((r, i) => (
+            <div key={i} style={{ color: r.ok ? C.teal : C.red }}>
+              {r.ok ? "✓" : "✕"} {r.platform}{r.error ? " — " + r.error : (r.url ? " · " + r.url : "")}
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
         {editing ? (
           <>
@@ -20239,7 +21046,13 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
       if (e && e.detail) setView(e.detail);
     };
     window.addEventListener("aivhub_set_voice_view", onSwitchView);
-    return () => window.removeEventListener("aivhub_set_voice_view", onSwitchView);
+    window.__aivhub_switch_voice_view = (v) => {
+      if (v) setView(v);
+    };
+    return () => {
+      window.removeEventListener("aivhub_set_voice_view", onSwitchView);
+      delete window.__aivhub_switch_voice_view;
+    };
   }, []);
   const [selectedMissionId, setSelectedMissionId] = useState(null);
   const [liveFocus, setLiveFocus] = useState(null);
@@ -21217,7 +22030,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
           />
         )}
         {view === "company" && <CompanyProfileView profile={profile} setProfile={setProfile} notifications={notifications} setNotifications={setNotifications} sources={knowledgeSources} setSources={setKnowledgeSources} services={services} setServices={setServices} faq={faq} setFaq={setFaq} />}
-        {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} profile={profile} setProfile={setProfile} />}
+        {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} profile={profile} setProfile={setProfile} onNavigateView={setView} />}
         {view === "analytics" && <AnalyticsView notifications={notifications} setNotifications={setNotifications} />}
         {view === "docs" && <TelephonyDocsView notifications={notifications} setNotifications={setNotifications} onNavigate={setView} />}
       </div>

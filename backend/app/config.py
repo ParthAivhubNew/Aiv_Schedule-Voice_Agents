@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     XAI_TEMPERATURE: float = float(os.getenv("XAI_TEMPERATURE", "0.80"))  # Expressive human warmth & natural inflection
     XAI_REALTIME_WS_URL: str = os.getenv("XAI_REALTIME_WS_URL", "wss://api.x.ai/v1/realtime")
     XAI_SIP_FQDN: str = os.getenv("XAI_SIP_FQDN", "sip.voice.x.ai")
+    VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "simulation")
 
     
     # Telnyx Telephony Configuration
@@ -64,8 +65,19 @@ class Settings(BaseSettings):
     SIPGATE_SERVER: Optional[str] = os.getenv("SIPGATE_SERVER", "sipconnect.sipgate.co.uk")
     SIPGATE_PHONE_NUMBER: Optional[str] = os.getenv("SIPGATE_PHONE_NUMBER", "+445600022627")
     
-    # System mode: "simulation" or "live"
-    VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "simulation")
+    # Public URLs for OAuth callbacks (must match the developer-app redirect URI)
+    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8000")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+    # Social OAuth apps (optional; can also be saved in Accounts UI)
+    X_OAUTH_CLIENT_ID: Optional[str] = os.getenv("X_OAUTH_CLIENT_ID", None)
+    X_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("X_OAUTH_CLIENT_SECRET", None)
+    LINKEDIN_OAUTH_CLIENT_ID: Optional[str] = os.getenv("LINKEDIN_OAUTH_CLIENT_ID", None)
+    LINKEDIN_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("LINKEDIN_OAUTH_CLIENT_SECRET", None)
+    FACEBOOK_OAUTH_CLIENT_ID: Optional[str] = os.getenv("FACEBOOK_OAUTH_CLIENT_ID", None) or os.getenv("FACEBOOK_APP_ID", None)
+    FACEBOOK_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("FACEBOOK_OAUTH_CLIENT_SECRET", None) or os.getenv("FACEBOOK_APP_SECRET", None)
+    THREADS_OAUTH_CLIENT_ID: Optional[str] = os.getenv("THREADS_OAUTH_CLIENT_ID", None)
+    THREADS_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("THREADS_OAUTH_CLIENT_SECRET", None)
 
     class Config:
         env_file = ".env"

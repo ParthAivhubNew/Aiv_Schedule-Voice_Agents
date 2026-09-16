@@ -45,7 +45,7 @@ def create_topic_image_prompt(title: str, angle: str = "", theme: str = "Operati
     style_suffix = IMAGE_STYLES.get(style, IMAGE_STYLES["modern_saas"])
     return f"{base_concept}, {theme.lower()} focus, {style_suffix}"
 
-def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 1200, height: int = 675, aspect_ratio: str = "16:9") -> str:
+def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 1200, height: int = 675, aspect_ratio: str = "16:9", **_kwargs) -> str:
     """Generates an instant high-resolution AI image URL using Pollinations FLUX/AI image service."""
     clean_prompt = prompt.strip()
     if not clean_prompt:
@@ -326,6 +326,9 @@ Return ONLY a valid JSON object with these EXACT keys:
   "hook": "A 1-2 sentence scroll-stopping opening hook designed to beat 'see more' cutoffs",
   "linkedin_copy": "Full-length LinkedIn post with structured paragraphs, emoji bullets, and compelling business insight",
   "x_copy": "A punchy, viral tweet strictly under 250 characters with a strong takeaway",
+  "facebook_copy": "Conversational Facebook post with a story angle and a question",
+  "instagram_copy": "Visual-first Instagram caption with line breaks and 5-8 niche hashtags at the end",
+  "threads_copy": "Casual Threads post under 500 characters, conversational, no hashtag dump",
   "hashtags": ["#Tag1", "#Tag2", "#Tag3", "#Tag4", "#Tag5"],
   "cta": "Engaging question or prompt to drive comment interaction",
   "first_comment": "First comment snippet for resource or demo links (keeps outbound link out of main post)",
@@ -377,6 +380,9 @@ How is your team currently tracking daily throughput? Let's discuss in the comme
 
 #Operations #BusinessIntelligence #Automation #B2B #Logistics""",
             "x_copy": f"Manual reporting shouldn't be running your operations. Real-time dashboards give mid-market teams instant visibility without reporting delay. Read on: {clean_topic.lower()} #OpsEx",
+            "facebook_copy": f"{clean_topic}\n\nReal-time visibility beats end-of-shift spreadsheets. {company_name} helps ops teams see the floor as it happens.\n\nWhat's your team still assembling by hand?",
+            "instagram_copy": f"{clean_topic}\n\nLive ops > stale reports.\nOne screen. Trusted numbers.\n\n#Operations #BusinessIntelligence #Automation #B2BTech #Logistics",
+            "threads_copy": f"{clean_topic} — mid-market teams don't need another PDF pack. They need the number the floor already trusts.",
             "hashtags": ["#Operations", "#BusinessIntelligence", "#Automation", "#B2BTech", "#Logistics"],
             "cta": "What's the biggest reporting bottleneck in your operations right now? Drop your thoughts below 👇",
             "first_comment": f"🔗 Learn how {company_name} helps teams eliminate manual reporting: https://aivhub.io/demo",

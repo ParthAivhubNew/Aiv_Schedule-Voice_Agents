@@ -1,4 +1,5 @@
 import abc
+import base64
 import logging
 import re
 from typing import Any, Dict, List, Optional, Type
@@ -136,22 +137,17 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
         internal_call_id = meta.get("call_id") or "call_outbound"
         media_stream_url = meta.get("media_stream_url") or "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
 
-        # TwiML: Fork audio to real-time Media Stream for browser Listen/Takeover + SIP bridge to xAI
-        sip_target = f"{bridge_sip_uri}?x-custom-callid={internal_call_id}&amp;x-twilio-callsid={{CallSid}}" if "?" not in bridge_sip_uri else f"{bridge_sip_uri}&amp;x-custom-callid={internal_call_id}&amp;x-twilio-callsid={{CallSid}}"
+        # Bidirectional stream: xAI speaks μ-law over WS. Greeting is pre-buffered while the
+        # phone still rings so pickup has no dead air. No SIP after the human is on the line.
         twiml = (
             f"<Response>"
-            f"<Start>"
-            f"<Stream track=\"both_tracks\" url=\"{media_stream_url}\">"
+            f"<Connect>"
+            f"<Stream url=\"{media_stream_url}\">"
             f"<Parameter name=\"internalCallId\" value=\"{internal_call_id}\" />"
             f"</Stream>"
-            f"</Start>"
-            f"<Dial answerOnBridge=\"true\" callerId=\"{from_clean}\" timeout=\"20\" action=\"{action_url}\" method=\"POST\">"
-            f"<Sip>{sip_target}</Sip>"
-            f"</Dial>"
+            f"</Connect>"
             f"</Response>"
         )
-
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json"
         payload = {
             "To": to_clean,
             "From": from_clean,
@@ -160,9 +156,9 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
             "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
             "StatusCallbackMethod": "POST"
         }
+        logger.info(f"Dispatching Twilio stream-bridge outbound: To={to_clean} stream={media_stream_url}")
 
-        logger.info(f"Dispatching Twilio outbound call: To={to_clean}, From={from_clean}, Bridge={bridge_sip_uri}")
-
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json"
         async with httpx.AsyncClient(timeout=12.0) as client:
             res = await client.post(url, data=payload, auth=(sid, token))
             if res.status_code in [200, 201]:
@@ -285,14 +281,31 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
             raise ValueError("Telnyx API Key must be configured in Connections or Settings.")
 
         url = "https://api.telnyx.com/v2/calls"
+        meta = metadata or {}
+        internal_call_id = str(meta.get("call_id") or "call_outbound")
+        media_stream_url = meta.get("media_stream_url") or "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
         payload: Dict[str, Any] = {
             "to": to_clean,
             "from": from_clean,
-            "connection_id": connection_id or "default"
+            "connection_id": connection_id or "default",
+            "stream_url": media_stream_url,
+            "stream_track": "inbound_track",
+            "stream_bidirectional_mode": "rtp",
+            "stream_bidirectional_codec": "PCMU",
+            "client_state": base64.b64encode(internal_call_id.encode("utf-8")).decode("ascii"),
         }
+        logger.info(f"Dispatching Telnyx stream-bridge outbound: To={to_clean} stream={media_stream_url}")
 
         async with httpx.AsyncClient(timeout=12.0) as client:
             res = await client.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+            if res.status_code not in [200, 201] and "stream" in (res.text or "").lower():
+                logger.warning(f"Telnyx rejected stream attach ({res.status_code}); retrying dial without stream")
+                payload.pop("stream_url", None)
+                payload.pop("stream_track", None)
+                payload.pop("stream_bidirectional_mode", None)
+                payload.pop("stream_bidirectional_codec", None)
+                payload.pop("client_state", None)
+                res = await client.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
             if res.status_code in [200, 201]:
                 data = res.json().get("data", {})
                 call_control_id = data.get("call_control_id", f"telnyx_{to_clean[-4:]}")

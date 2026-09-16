@@ -38,6 +38,9 @@ export async function apiRequest(endpoint, options = {}) {
 
     return await response.json();
   } catch (error) {
+    if (error && (error.name === "AbortError" || error.message === "The user aborted a request.")) {
+      throw error;
+    }
     console.error(`API Error on ${url}:`, error);
     throw error;
   }
@@ -108,7 +111,7 @@ export const api = {
   // AI Lead Radar & Enrichment
   enrichProspect: (payload) => apiRequest('/enrichment/enrich-prospect', { method: 'POST', body: payload }),
   discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload }),
-  fillContactGaps: (payload) => apiRequest('/enrichment/fill-gaps', { method: 'POST', body: payload }),
+  fillContactGaps: (payload, extra = {}) => apiRequest('/enrichment/fill-gaps', { method: 'POST', body: payload, signal: extra.signal }),
   copilotChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
   openChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
 
@@ -137,6 +140,16 @@ export const api = {
     body: payload
   }),
   getEmails: () => apiRequest('/scheduler/emails'),
+  createEmail: (payload) => apiRequest('/scheduler/emails', { method: 'POST', body: payload }),
+  getSocialAccounts: () => apiRequest('/scheduler/accounts'),
+  saveSocialAccount: (payload) => apiRequest('/scheduler/accounts', { method: 'POST', body: payload }),
+  testSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}/test`, { method: 'POST' }),
+  deleteSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}`, { method: 'DELETE' }),
+  publishPost: (postId) => apiRequest(`/scheduler/posts/${postId}/publish`, { method: 'POST' }),
+  publishDuePosts: () => apiRequest('/scheduler/publish-due', { method: 'POST' }),
+  getSocialOauthApps: () => apiRequest('/scheduler/oauth/apps'),
+  saveSocialOauthApp: (payload) => apiRequest('/scheduler/oauth/apps', { method: 'POST', body: payload }),
+  startSocialOauth: (platform, frontend) => apiRequest(`/scheduler/oauth/${platform}/start${frontend ? `?frontend=${encodeURIComponent(frontend)}` : ''}`),
 
   // Dedicated Process Logs (Multi-Subsystem)
   getProcessLogs: (params = {}) => {
