@@ -316,6 +316,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
         "voiceName": configured_voice,
         "clonedVoiceLabel": (engine_conn.config.get("cloned_voice_label") if engine_conn and isinstance(engine_conn.config, dict) else None),
+        "xaiCloneApiBlocked": bool((engine_conn.config or {}).get("xai_clone_api_blocked")) if engine_conn and isinstance(engine_conn.config, dict) else False,
         "customVoices": custom_voices,
         "silenceDurationMs": configured_silence,
         "temperature": configured_temp,
@@ -386,36 +387,59 @@ async def clone_recorded_voice(
 
     conn = await _orchestration_conn(db)
     cfg = conn.config if conn and isinstance(conn.config, dict) else {}
-    engine = str(cfg.get("engine") or conn.name if conn else "xai").lower()
+    engine = str(form.get("engine") or cfg.get("engine") or (conn.name if conn else "") or "xai").lower()
     filename = getattr(file, "filename", None) or "reference.webm"
     ctype = getattr(file, "content_type", None) or "audio/webm"
     xai_key = xai_api_key(conn)
     el_key = await elevenlabs_api_key(db)
 
+    if "openai" in engine or engine == "simulation":
+        raise HTTPException(
+            status_code=400,
+            detail="This voice engine cannot clone a recording. Switch to xAI (paste Voice ID from console.x.ai) or Modular (ElevenLabs) to use your own voice.",
+        )
+
     clone = None
     xai_err = None
-    if xai_key and xai_key.startswith("xai-"):
+    if "modular" in engine:
+        if not el_key:
+            raise HTTPException(status_code=400, detail="No ElevenLabs key in Connections (Text-to-Speech). Save the key, then record again.")
+        try:
+            clone = await clone_on_elevenlabs(el_key, audio, filename, ctype, name.strip() or "My voice")
+        except Exception as err:
+            logger.warning(f"ElevenLabs voice clone failed: {err}")
+            raise HTTPException(status_code=400, detail=f"Clone failed: {err}")
+    elif xai_key and xai_key.startswith("xai-"):
         try:
             clone = await clone_on_xai(xai_key, audio, filename, ctype, name.strip() or "My voice")
         except Exception as err:
             xai_err = str(err)
             logger.warning(f"xAI voice clone failed: {err}")
 
-    if clone is None and ("modular" in engine) and el_key:
-        try:
-            clone = await clone_on_elevenlabs(el_key, audio, filename, ctype, name.strip() or "My voice")
-        except Exception as err:
-            logger.warning(f"ElevenLabs voice clone failed: {err}")
-            raise HTTPException(status_code=400, detail=f"Clone failed: {err}")
-
     if clone is None:
         needs_console = bool(xai_err and ("403" in xai_err or "Enterprise" in xai_err or "not enabled" in xai_err.lower()))
-        msg = (
-            "xAI clone API is Enterprise-only. Clone in console.x.ai (Custom Voices) then paste the Voice ID below."
-            if needs_console or (xai_key and xai_key.startswith("xai-"))
-            else (xai_err or "No xAI API key saved. Add the key in this hub, then clone, or paste a Voice ID from console.x.ai.")
-        )
-        raise HTTPException(status_code=403 if needs_console else 400, detail=msg)
+        if needs_console or (xai_key and xai_key.startswith("xai-") and "modular" not in engine):
+            try:
+                await save_orchestration_config(db, {"xai_clone_api_blocked": True})
+            except Exception:
+                pass
+            try:
+                from app.services.process_logger import log_process_event
+                await log_process_event(
+                    subsystem="voice",
+                    process_name="xai_voice_clone",
+                    level="WARN",
+                    message="Admin: xAI in-app voice clone is Enterprise-only. Operators must create the voice in console.x.ai (Custom Voices) and paste the 8-character Voice ID in Voice & Telephony Trunking Hub. Upgrade the xAI team plan to unlock Record → Save in AIVHub.",
+                    details={"action": "console.x.ai Custom Voices → Copy Voice ID → Link pasted ID", "blocked": True},
+                    db=db,
+                )
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=403,
+                detail="xAI clone API is Enterprise-only. Clone in console.x.ai (Custom Voices) then paste the Voice ID below. Admin has been notified.",
+            )
+        raise HTTPException(status_code=400, detail=xai_err or "No xAI API key saved. Add the key in this hub, then clone, or paste a Voice ID from console.x.ai.")
 
     voices = upsert_voice_list(stored_custom_voices(conn), clone)
     await save_orchestration_config(db, {

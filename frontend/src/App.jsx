@@ -6892,6 +6892,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [cloneMsg, setCloneMsg] = useState("");
   const [cloneErr, setCloneErr] = useState("");
   const [cloning, setCloning] = useState(false);
+  const [xaiCloneBlocked, setXaiCloneBlocked] = useState(false);
+  const [showEnterpriseRecord, setShowEnterpriseRecord] = useState(false);
   const [recState, setRecState] = useState("idle");
   const [recSec, setRecSec] = useState(0);
   const recRef = useRef(null);
@@ -6922,6 +6924,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
         if (data.voiceName) setVoiceName(data.voiceName);
         if (Array.isArray(data.customVoices)) setCustomVoices(data.customVoices);
+        if (data.xaiCloneApiBlocked) setXaiCloneBlocked(true);
         if (data.silenceDurationMs) setSilenceDurationMs(data.silenceDurationMs);
         if (data.temperature) setTemperature(data.temperature);
         if (data.signingSecret) setSigningSecret(data.signingSecret);
@@ -6944,6 +6947,38 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   useEffect(() => {
     fetchStatus();
   }, []);
+
+  const notifyAdminXaiClone = (force) => {
+    if (typeof setNotifications !== "function") return;
+    try {
+      if (!force && sessionStorage.getItem("aivhub_admin_xai_clone_notice") === "1") return;
+      sessionStorage.setItem("aivhub_admin_xai_clone_notice", "1");
+    } catch (_) { /* ignore */ }
+    setNotifications((ns) => {
+      if ((ns || []).some((n) => n.id === "n_xai_clone_enterprise")) return ns;
+      return [
+        {
+          id: "n_xai_clone_enterprise",
+          text: "Admin action needed: xAI in-app voice clone (Record → Save) requires an Enterprise plan. Until upgrade, operators must create the voice in console.x.ai → Custom Voices, copy the 8-character Voice ID, and paste it in Voice & Telephony Trunking Hub.",
+          time: "just now",
+          unread: true,
+          type: "alert",
+          targetView: "provider",
+          targetAction: "Open voice hub →",
+        },
+        ...(ns || []),
+      ];
+    });
+  };
+
+  useEffect(() => {
+    setCloneErr("");
+    setCloneMsg("");
+    setRecBlob(null);
+    setRecState("idle");
+    try { recRef.current?.stop(); } catch (_) { /* ignore */ }
+    if (engineChoice === "xai") notifyAdminXaiClone(false);
+  }, [engineChoice]);
 
   useEffect(() => {
     if (recState !== "recording") return undefined;
@@ -7031,6 +7066,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       }
       const fd = new FormData();
       fd.append("name", cloneName.trim() || "My voice");
+      fd.append("engine", engineChoice);
       fd.append("file", file, cloneFilename(file));
       setCloneMsg("Uploading clone…");
       const res = await api.cloneVoice(fd);
@@ -7040,7 +7076,13 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       setRecState("idle");
       setRecBlob(null);
     } catch (err) {
-      setCloneErr(err.message || String(err));
+      const msg = err.message || String(err);
+      setCloneErr(msg);
+      if (/enterprise/i.test(msg) || /403/.test(msg)) {
+        setXaiCloneBlocked(true);
+        setShowEnterpriseRecord(false);
+        notifyAdminXaiClone(true);
+      }
     } finally {
       setCloning(false);
     }
@@ -7049,13 +7091,17 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const linkPastedVoice = async () => {
     const vid = pasteVoiceId.trim();
     if (!vid) {
-      setCloneErr("Paste a Voice ID from console.x.ai.");
+      setCloneErr(engineChoice === "modular" ? "Paste an ElevenLabs Voice ID, or record below." : "Paste a Voice ID from console.x.ai.");
       return;
     }
     setCloning(true);
     setCloneErr("");
     try {
-      const res = await api.selectVoice({ voice_id: vid, label: cloneName.trim() || vid, provider: "xai" });
+      const res = await api.selectVoice({
+        voice_id: vid,
+        label: cloneName.trim() || vid,
+        provider: engineChoice === "modular" ? "elevenlabs" : "xai",
+      });
       setVoiceName(vid);
       if (res.voices) setCustomVoices(res.voices);
       setCloneMsg(res.message || "Custom voice linked.");
@@ -7538,12 +7584,26 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               </div>
             </div>
 
-            <div style={{ gridColumn: "1 / -1", border: "1px solid #DDD6FE", background: "#FAF5FF", borderRadius: 12, padding: 16 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: "#5B21B6", marginBottom: 6 }}>Clone your own voice</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 12 }}>
-                Right now the agent speaks as xAI Grok <b>Ara</b> unless you pick another built-in or a clone. Record 60–90s of natural speech (quiet room), then save. xAI create-API is Enterprise; if clone upload is blocked, make the voice in{" "}
-                <a href="https://console.x.ai" target="_blank" rel="noreferrer" style={{ color: "#6D28D9" }}>console.x.ai → Custom Voices</a>
-                {" "}and paste the Voice ID.
+            {engineChoice === "xai" && (
+            <div style={{ gridColumn: "1 / -1", border: "1px solid #F59E0B", background: "#FFFBEB", borderRadius: 12, padding: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <AlertTriangle size={16} color="#B45309" />
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: "#92400E" }}>Use your own voice on xAI calls</div>
+              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#78350F", lineHeight: 1.5, marginBottom: 10 }}>
+                AIVHub <b>Record → Save clone</b> talks to xAI’s create-voice API. That API is <b>Enterprise-only</b>. Your current plan cannot create a clone from this plugin. Admin is notified in the bell and in System Process Logs.
+              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#1F2937", lineHeight: 1.55, background: "#fff", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                <b>What to do now (works on the free console):</b>
+                <ol style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                  <li>Record 90–120s of natural speech on your phone/computer (quiet room).</li>
+                  <li>Open <a href="https://console.x.ai" target="_blank" rel="noreferrer" style={{ color: "#6D28D9" }}>console.x.ai → Custom Voices</a> with the same xAI team as this API key.</li>
+                  <li>Upload the file. Card ⋯ → <b>Copy Voice ID</b> (8 characters).</li>
+                  <li>Paste it below → <b>Link pasted ID</b>. Pick it in AI Voice Persona. Live Grok calls use that voice.</li>
+                </ol>
+                <div style={{ marginTop: 8, fontSize: 12, color: "#92400E" }}>
+                  Admin: upgrade the xAI team to Enterprise if you want Record → Save inside AIVHub. Until then, console + paste is the path.
+                </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 10 }}>
                 <input
@@ -7557,13 +7617,73 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   type="text"
                   value={pasteVoiceId}
                   onChange={(e) => setPasteVoiceId(e.target.value)}
-                  placeholder="Or paste xAI Voice ID (8 chars)"
+                  placeholder="Paste xAI Voice ID (8 chars)"
                   style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13 }}
                 />
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: pasteVoiceId.trim() ? "#92400E" : "#E7E5E4", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed" }}>
+                  {cloning ? "Linking…" : "Link pasted ID"}
+                </button>
+                <button type="button" onClick={() => setShowEnterpriseRecord((v) => !v)} style={{ background: "transparent", color: "#92400E", border: "1px dashed #F59E0B", borderRadius: 8, padding: "8px 14px", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                  {showEnterpriseRecord ? "Hide Enterprise record" : "I have xAI Enterprise — show in-app record"}
+                </button>
+              </div>
+              {showEnterpriseRecord && !xaiCloneBlocked && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #F59E0B" }}>
+                  <div style={{ fontSize: 12, color: "#78350F", marginBottom: 8 }}>Only use this if xAI confirmed Enterprise clone API on this team.</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                    {recState !== "recording" ? (
+                      <button type="button" onClick={startRecording} style={{ background: "#5B21B6", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <Mic size={14} /> Record
+                      </button>
+                    ) : (
+                      <button type="button" onClick={stopRecording} style={{ background: "#B91C1C", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <Square size={12} /> Stop ({recSec}s)
+                      </button>
+                    )}
+                    <button type="button" onClick={uploadClone} disabled={cloning || !recBlob} style={{ background: recBlob ? C.ink : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: recBlob && !cloning ? "pointer" : "not-allowed" }}>
+                      {cloning ? "Cloning…" : "Save clone to plugin"}
+                    </button>
+                    {recState === "ready" && recBlob && (
+                      <span style={{ fontSize: 12, color: "#059669" }}>Recording ready ({Math.max(recSec, 1)}s).</span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {showEnterpriseRecord && xaiCloneBlocked && (
+                <div style={{ marginTop: 10, fontSize: 12.5, color: "#B91C1C" }}>
+                  This team already failed Enterprise clone API. Use console + paste above. Do not record here.
+                </div>
+              )}
+              {cloneMsg && <div style={{ marginTop: 8, fontSize: 12.5, color: "#059669" }}>{cloneMsg}</div>}
+              {cloneErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{cloneErr}</div>}
+              {customVoices.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 12, color: C.slate }}>
+                  Linked voices: {customVoices.map((v) => v.name || v.voice_id).join(" · ")}
+                </div>
+              )}
+            </div>
+            )}
+
+            {engineChoice === "modular" && (
+            <div style={{ gridColumn: "1 / -1", border: "1px solid #A7F3D0", background: "#ECFDF5", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: "#065F46", marginBottom: 6 }}>Clone your own voice (ElevenLabs)</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#047857", lineHeight: 1.45, marginBottom: 12 }}>
+                Modular pipeline clones through the ElevenLabs key in Connections → Text-to-Speech. Record 60–90s, then save. xAI console is not used on this engine.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 10 }}>
+                <input
+                  type="text"
+                  value={cloneName}
+                  onChange={(e) => setCloneName(e.target.value)}
+                  placeholder="Voice label (e.g. Sam — own voice)"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
+                />
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                 {recState !== "recording" ? (
-                  <button type="button" onClick={startRecording} style={{ background: "#5B21B6", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <button type="button" onClick={startRecording} style={{ background: "#065F46", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <Mic size={14} /> Record
                   </button>
                 ) : (
@@ -7574,11 +7694,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 <button type="button" onClick={uploadClone} disabled={cloning || !recBlob} style={{ background: recBlob ? C.ink : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: recBlob && !cloning ? "pointer" : "not-allowed" }}>
                   {cloning ? "Cloning…" : "Save clone to plugin"}
                 </button>
-                <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: "#fff", color: "#5B21B6", border: "1px solid #C4B5FD", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed" }}>
-                  Link pasted ID
-                </button>
                 {recState === "ready" && recBlob && (
-                  <span style={{ fontSize: 12, color: "#059669" }}>Recording ready ({Math.max(recSec, 1)}s) — save it. Audio is compressed so the upload stays under the server limit.</span>
+                  <span style={{ fontSize: 12, color: "#059669" }}>Recording ready ({Math.max(recSec, 1)}s) — save it.</span>
                 )}
                 {recState === "recording" && (
                   <span style={{ fontSize: 12, color: "#B91C1C" }}>Recording… keep talking naturally. Stop at 60–90s.</span>
@@ -7592,6 +7709,18 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 </div>
               )}
             </div>
+            )}
+
+            {(engineChoice === "openai" || engineChoice === "simulation") && (
+            <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, background: "#F8FAFC", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 6 }}>Own-voice clone not available on this engine</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>
+                {engineChoice === "openai"
+                  ? "OpenAI Realtime uses built-in voices only (Alloy, Echo, Shimmer, Onyx). There is no custom clone. Switch the engine above to xAI (paste a console Voice ID) or Modular (record into ElevenLabs) if you need your own voice on calls."
+                  : "Simulated engine uses scripted audio. Switch to xAI or Modular to clone a real voice."}
+              </div>
+            </div>
+            )}
 
             <div>
               <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
@@ -8621,22 +8750,77 @@ function MetricCard({ label, value, delta, mono }) {
 }
 
 function AnalyticsView({ notifications, setNotifications }) {
+  const fallbackTrend = [
+    { day: "1 Aug", rate: 11 },
+    { day: "6 Aug", rate: 12 },
+    { day: "11 Aug", rate: 13 },
+    { day: "16 Aug", rate: 15 },
+    { day: "21 Aug", rate: 16 },
+    { day: "26 Aug", rate: 18 },
+  ];
+  const fallbackCost = [
+    { name: "LLM", Paid: 320, "Open Source": 42 },
+    { name: "STT", Paid: 180, "Open Source": 6 },
+    { name: "TTS", Paid: 260, "Open Source": 4 },
+    { name: "Telephony", Paid: 410, "Open Source": 380 },
+  ];
+  const [metrics, setMetrics] = useState({
+    conversionRate: "18%",
+    conversionDelta: "+6pt",
+    takeoverRate: "9%",
+    costPerMeeting: "£11.40",
+    avgDuration: "2m 34s",
+    meetingsBooked: 10,
+    prospectsReached: 41,
+  });
+  const [trend, setTrend] = useState(fallbackTrend);
+  const [costBreakdown, setCostBreakdown] = useState(fallbackCost);
+  const [loadErr, setLoadErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const data = await api.getAnalytics();
+        if (!alive || !data) return;
+        const m = data.metrics || {};
+        setMetrics((prev) => ({
+          ...prev,
+          conversionRate: m.conversionRate || prev.conversionRate,
+          conversionDelta: m.conversionDelta || prev.conversionDelta,
+          meetingsBooked: m.meetingsBooked ?? prev.meetingsBooked,
+          prospectsReached: m.prospectsReached ?? prev.prospectsReached,
+        }));
+        if (Array.isArray(data.trend) && data.trend.length) setTrend(data.trend);
+        if (Array.isArray(data.costBreakdown) && data.costBreakdown.length) setCostBreakdown(data.costBreakdown);
+      } catch (err) {
+        if (alive) setLoadErr(err.message || "Analytics API unavailable — showing local snapshot.");
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   return (
     <>
       <TopBar title="Analytics" subtitle="Platform performance and cost, last 30 days" notifications={notifications} setNotifications={setNotifications} />
       <div style={{ padding: "20px 32px" }}>
+        {loadErr && (
+          <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: "#FFF7ED", border: "1px solid #FED7AA", color: "#9A3412", fontSize: 12.5 }}>
+            {loadErr}
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
-          <MetricCard label="Meetings booked rate" value="18%" delta="+6pt" />
-          <MetricCard label="Human takeover rate" value="9%" />
-          <MetricCard label="Cost per meeting booked" value="£11.40" mono />
-          <MetricCard label="Avg. call duration" value="2m 34s" mono />
+          <MetricCard label="Meetings booked rate" value={metrics.conversionRate} delta={metrics.conversionDelta} />
+          <MetricCard label="Meetings booked" value={String(metrics.meetingsBooked)} />
+          <MetricCard label="Cost per meeting booked" value={metrics.costPerMeeting} mono />
+          <MetricCard label="Prospects reached" value={String(metrics.prospectsReached)} />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 14 }}>
           <div className="hover-float" style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18, cursor: "default" }}>
             <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk, marginBottom: 12 }}>Meetings booked rate — trend</div>
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={TREND}>
+              <LineChart data={trend}>
                 <CartesianGrid stroke={C.border} vertical={false} />
                 <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: FONT_BODY, fill: C.slate }} axisLine={{ stroke: C.border }} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fontFamily: FONT_BODY, fill: C.slate }} axisLine={false} tickLine={false} unit="%" />
@@ -8649,7 +8833,7 @@ function AnalyticsView({ notifications, setNotifications }) {
           <div className="hover-float" style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18, cursor: "default" }}>
             <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk, marginBottom: 12 }}>Cost by layer — Paid vs Open Source</div>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={COST_BREAKDOWN}>
+              <BarChart data={costBreakdown}>
                 <CartesianGrid stroke={C.border} vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 11, fontFamily: FONT_BODY, fill: C.slate }} axisLine={{ stroke: C.border }} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fontFamily: FONT_BODY, fill: C.slate }} axisLine={false} tickLine={false} />
@@ -22504,7 +22688,11 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         )}
         {view === "company" && <CompanyProfileView profile={profile} setProfile={setProfile} notifications={notifications} setNotifications={setNotifications} sources={knowledgeSources} setSources={setKnowledgeSources} services={services} setServices={setServices} faq={faq} setFaq={setFaq} />}
         {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} profile={profile} setProfile={setProfile} onNavigateView={setView} />}
-        {view === "analytics" && <AnalyticsView notifications={notifications} setNotifications={setNotifications} />}
+        {view === "analytics" && (
+          <SafeErrorBoundary label="Analytics" onReset={() => setView("analytics")}>
+            <AnalyticsView notifications={notifications} setNotifications={setNotifications} />
+          </SafeErrorBoundary>
+        )}
         {view === "docs" && <TelephonyDocsView notifications={notifications} setNotifications={setNotifications} onNavigate={setView} />}
       </div>
 
