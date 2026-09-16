@@ -12939,6 +12939,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
             provider: aiSettings.imageProvider,
             api_key: (aiSettings.imageApiKey || "").trim(),
             base_url: aiSettings.imageBaseUrl ? aiSettings.imageBaseUrl.trim() : undefined,
+            model: aiSettings.imageModel || undefined,
           });
         } catch (_) {}
       } else {

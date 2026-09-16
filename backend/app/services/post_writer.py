@@ -69,61 +69,83 @@ async def resolve_image_credentials(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Use saved ChatGPT/OpenAI key for images whenever present. Pollinations only if no paid key."""
+    """Prefer the saved IMAGE connection (custom / OpenAI). Never send an xAI voice key to an image API."""
     from app.config import settings
-    from app.services.llm_gateway import resolve_llm_credentials
+    from sqlalchemy.future import select
+    from app.models.models import Connection
 
     prov = (provider or "").strip().lower()
     key = (api_key or "").strip()
     mod = (model or "").strip()
     burl = (base_url or "").strip()
-    if "chatgpt" in prov or "gpt" in prov or "dall" in prov:
+    if prov in ("chatgpt", "gpt", "dall-e", "dalle"):
         prov = "openai"
-    explicit_paid = any(x in prov for x in ("stability", "fal", "custom"))
+
+    def _is_xai(k: str) -> bool:
+        return (k or "").startswith("xai-")
+
+    if _is_xai(key):
+        key = ""
+
+    img_row = None
+    if db is not None:
+        try:
+            res = await db.execute(select(Connection))
+            conns = list(res.scalars().all())
+            image_conns = [
+                c for c in conns
+                if c.status == "connected" and str(c.group_name or "").upper().startswith("IMAGE")
+            ]
+            prefer = image_conns or [
+                c for c in conns
+                if c.status == "connected" and "image" in str(c.name or "").lower()
+            ]
+            for c in prefer:
+                cfg = c.config if isinstance(c.config, dict) else {}
+                k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
+                if k and not _is_xai(k):
+                    img_row = {
+                        "provider": (cfg.get("provider") or c.name or "custom").strip().lower(),
+                        "api_key": k,
+                        "base_url": (cfg.get("base_url") or cfg.get("baseUrl") or "").strip(),
+                        "model": (cfg.get("model") or "").strip(),
+                    }
+                    break
+        except Exception as e:
+            logger.warning(f"IMAGE connection lookup failed: {e}")
+
+    if img_row:
+        row_prov = img_row["provider"]
+        if row_prov in ("chatgpt", "gpt", "dall-e", "dalle"):
+            row_prov = "openai"
+        # Saved IMAGE connection is the engine. Do not let an LLM/xAI key steal this slot.
+        prov = row_prov or prov or "custom"
+        key = img_row["api_key"] or key
+        burl = img_row["base_url"] or burl
+        mod = img_row["model"] or mod
+
+    explicit_paid = any(x in (prov or "") for x in ("stability", "fal", "custom", "openai", "dall"))
     env_openai = (getattr(settings, "OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY") or "").strip()
+    if _is_xai(env_openai):
+        env_openai = ""
 
-    llm = {}
-    try:
-        llm = await resolve_llm_credentials(
-            db=db,
-            api_key=key or None,
-            provider="openai" if (not prov or prov == "pollinations") else prov,
-            model=mod or None,
-            base_url=burl or None,
-        ) or {}
-    except Exception as e:
-        logger.warning(f"resolve_image_credentials llm lookup: {e}")
-
-    llm_key = (llm.get("api_key") or "").strip()
-    llm_prov = (llm.get("provider") or "").strip().lower()
-    if "chatgpt" in llm_prov or "gpt" in llm_prov or "dall" in llm_prov:
-        llm_prov = "openai"
-
-    openai_key = ""
-    if prov in ("", "pollinations", "openai") and key:
-        openai_key = key
-    if not openai_key and llm_prov in ("", "openai") and llm_key:
-        openai_key = llm_key
-    if not openai_key:
-        openai_key = env_openai
-
-    if not explicit_paid and openai_key:
+    if explicit_paid and (key or burl):
+        return {
+            "provider": prov or "custom",
+            "api_key": key,
+            "model": mod,
+            "base_url": burl,
+        }
+    if env_openai:
         return {
             "provider": "openai",
-            "api_key": openai_key,
+            "api_key": env_openai,
             "model": mod if mod and ("dall-e" in mod or "gpt-image" in mod) else "dall-e-3",
-            "base_url": burl or llm.get("base_url") or "https://api.openai.com/v1",
-        }
-    if explicit_paid and (key or llm_key):
-        return {
-            "provider": prov,
-            "api_key": key or llm_key,
-            "model": mod or llm.get("model"),
-            "base_url": burl or llm.get("base_url"),
+            "base_url": burl or "https://api.openai.com/v1",
         }
     return {
         "provider": prov or "pollinations",
-        "api_key": key or llm_key,
+        "api_key": key,
         "model": mod,
         "base_url": burl,
     }
@@ -296,35 +318,86 @@ async def generate_image_with_provider(
     elif "fal" in prov and (not api_key or not api_key.strip()):
         fallback_warning = "Fal.ai key not provided. Generated with Pollinations FLUX."
 
-    # 4. Custom endpoint
-    elif "custom" in prov and base_url and base_url.strip():
+    # 4. Custom endpoint (Automatic1111 / Comfy / OpenAI-compatible gpt-image)
+    elif "custom" in prov and (base_url or "").strip():
         try:
             headers = {"Content-Type": "application/json"}
             if api_key and api_key.strip():
                 headers["Authorization"] = f"Bearer {api_key.strip()}"
-            body = {"prompt": full_prompt, "width": w, "height": h, "aspect_ratio": aspect_ratio}
-            async with httpx.AsyncClient(timeout=40.0) as client:
-                res = await client.post(base_url.strip(), headers=headers, json=body)
-                if res.status_code == 200:
-                    d = res.json()
-                    custom_url = d.get("imageUrl") or d.get("url") or (d.get("images", [{}])[0].get("url") if isinstance(d.get("images"), list) else None)
-                    if custom_url:
-                        return {
-                            "status": "ok",
-                            "imageUrl": custom_url,
-                            "imagePrompt": clean_prompt,
-                            "provider": "custom",
-                            "model": model or "custom",
-                            "style": style,
-                            "aspect_ratio": aspect_ratio,
-                            "width": w,
-                            "height": h
-                        }
+            raw_url = base_url.strip().rstrip("/")
+            looks_openai = any(x in raw_url.lower() for x in ("openai", "/v1/image", "images/generations"))
+            dalle_size = "1792x1024" if aspect_ratio == "16:9" else ("1024x1792" if aspect_ratio == "9:16" else "1024x1024")
+            urls = [raw_url]
+            if looks_openai or (model or "").startswith("gpt-image") or (model or "").startswith("dall-e"):
+                if raw_url.endswith("/v1"):
+                    urls.append(raw_url + "/images/generations")
+                elif raw_url.endswith("/v1/image"):
+                    urls.append(raw_url + "s/generations")
+                elif "/images/generations" not in raw_url:
+                    urls.append(raw_url.rstrip("/") + "/images/generations")
+            # de-dupe while preserving order
+            seen = set()
+            urls = [u for u in urls if u and not (u in seen or seen.add(u))]
+            openai_body = {
+                "model": model or "gpt-image-1",
+                "prompt": full_prompt[:1000],
+                "n": 1,
+                "size": dalle_size,
+            }
+            generic_body = {
+                "prompt": full_prompt,
+                "model": model or "custom",
+                "width": w,
+                "height": h,
+                "aspect_ratio": aspect_ratio,
+            }
+            last_err = ""
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                for url in urls:
+                    for body in (openai_body, generic_body):
+                        res = await client.post(url, headers=headers, json=body)
+                        if res.status_code in (200, 201):
+                            try:
+                                d = res.json()
+                            except Exception:
+                                d = {}
+                            row = {}
+                            if isinstance(d, dict):
+                                data = d.get("data")
+                                if isinstance(data, list) and data:
+                                    row = data[0] if isinstance(data[0], dict) else {}
+                            custom_url = (
+                                (row.get("url") if row else None)
+                                or (d.get("imageUrl") if isinstance(d, dict) else None)
+                                or (d.get("url") if isinstance(d, dict) else None)
+                                or (d.get("images", [{}])[0].get("url") if isinstance(d, dict) and isinstance(d.get("images"), list) and d.get("images") and isinstance(d.get("images")[0], dict) else None)
+                            )
+                            b64 = (row.get("b64_json") if row else None) or (d.get("b64_json") if isinstance(d, dict) else None) or (d.get("b64") if isinstance(d, dict) else None)
+                            if b64 and not custom_url:
+                                custom_url = f"data:image/png;base64,{b64}"
+                            if custom_url:
+                                return {
+                                    "status": "ok",
+                                    "imageUrl": custom_url,
+                                    "imagePrompt": clean_prompt,
+                                    "provider": "custom",
+                                    "model": model or "custom",
+                                    "style": style,
+                                    "aspect_ratio": aspect_ratio,
+                                    "width": w,
+                                    "height": h,
+                                }
+                        last_err = f"{res.status_code}: {res.text[:240]}"
+                        if res.status_code in (401, 403):
+                            break
+            fallback_warning = f"Custom image endpoint failed ({last_err})"
         except Exception as e:
             logger.warning(f"Custom image endpoint exception: {e}")
-            fallback_warning = f"Custom endpoint error ({e}). Switched to Pollinations FLUX."
+            fallback_warning = f"Custom endpoint error ({e})"
+    elif "custom" in prov and not (base_url or "").strip():
+        fallback_warning = "Custom image engine needs a Custom Endpoint URL in AI Configuration."
     else:
-        fallback_warning = None
+        fallback_warning = fallback_warning
 
     if paid:
         return {
@@ -503,7 +576,7 @@ What's the one report you'd kill first if the floor already had the truth?""",
     img_res = await generate_image_with_provider(
         prompt=img_prompt,
         provider=img_creds.get("provider") or image_provider,
-        api_key=img_creds.get("api_key") or image_api_key or api_key,
+        api_key=img_creds.get("api_key") or image_api_key,
         model=img_creds.get("model") or image_model,
         base_url=img_creds.get("base_url") or image_base_url,
         style=style,

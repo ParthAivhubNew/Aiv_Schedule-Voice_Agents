@@ -8,7 +8,6 @@ from app.models.models import SocialPost, SocialEmail, SocialAccount, CompanyPro
 from app.services.post_writer import (
     parse_chat_intent,
     create_topic_image_prompt,
-    generate_image_url,
     generate_image_with_provider,
     generate_complete_social_package,
     ASPECT_RATIOS,
@@ -651,13 +650,16 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         await db.commit()
         await db.refresh(post)
 
-    if not (post.image_url or "").strip():
-        from app.services.post_writer import generate_image_url, create_topic_image_prompt
+    image_url = (post.image_url or "").strip()
+    if not image_url or "pollinations.ai" in image_url.lower():
+        from app.services.post_writer import create_topic_image_prompt
         prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
-        post.image_prompt = prompt
-        post.image_url = generate_image_url(prompt, width=1200, height=675)
-        await db.commit()
-        await db.refresh(post)
+        img = await generate_image_with_provider(prompt=prompt, style="modern_saas", aspect_ratio="16:9", db=db)
+        if img.get("imageUrl"):
+            post.image_prompt = img.get("imagePrompt") or prompt
+            post.image_url = img["imageUrl"]
+            await db.commit()
+            await db.refresh(post)
 
     acc_res = await db.execute(select(SocialAccount))
     accounts = acc_res.scalars().all()
@@ -790,7 +792,6 @@ If the user asks general questions or discusses strategy, respond conversational
                     chosen_topic = random.choice(TOPIC_BANK[theme])
                     channel = channels[i % len(channels)]
                     img_prompt = create_topic_image_prompt(chosen_topic["title"], chosen_topic["angle"], theme, image_style)
-                    img_url = generate_image_url(img_prompt, style=image_style, aspect_ratio="16:9")
                     t_id = f"top_{uuid.uuid4().hex[:8]}"
                     topics_data.append({
                         "id": t_id,
@@ -804,7 +805,7 @@ If the user asks general questions or discusses strategy, respond conversational
                         "query": theme,
                         "saved": True,
                         "imagePrompt": img_prompt,
-                        "imageUrl": img_url,
+                        "imageUrl": "",
                         "day": days[i] if i < len(days) else f"Day {i+1}",
                         "channel": channel,
                     })

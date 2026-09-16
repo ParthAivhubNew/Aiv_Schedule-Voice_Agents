@@ -25,6 +25,7 @@ class TestKeyRequest(BaseModel):
     base_url: Optional[str] = None
     baseUrl: Optional[str] = None
     account_sid: Optional[str] = None
+    model: Optional[str] = None
 
     @property
     def resolved_api_key(self) -> str:
@@ -139,7 +140,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         "auth_token": clean_key,
         "account_sid": req.account_sid or (existing.config.get("account_sid") if existing and isinstance(existing.config, dict) else None),
         "base_url": req.resolved_base_url,
-        "provider": req.provider
+        "provider": req.provider,
+        "model": req.model or (existing.config.get("model") if existing and isinstance(existing.config, dict) else None),
     }
 
     if existing:

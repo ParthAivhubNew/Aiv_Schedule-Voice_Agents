@@ -262,7 +262,7 @@ export function resolveImageCredentials(commonAi) {
   ].map((x) => (x || "").trim()).find(Boolean) || "";
 
   const explicitPaid = ["stability", "fal", "custom"].includes(String(sched.imageProvider || "").toLowerCase());
-  if (explicitPaid && (sched.imageApiKey || "").trim()) {
+  if (explicitPaid) {
     return {
       imageProvider: sched.imageProvider,
       imageApiKey: (sched.imageApiKey || "").trim(),
