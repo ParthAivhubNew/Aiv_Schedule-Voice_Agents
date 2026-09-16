@@ -16687,7 +16687,12 @@ function parseChatIntent(text, ctx) {
   if (/\b(find topics|what's going on|whats going on|research|scan news|current (news|topics|events)|search|look up)\b/.test(t)) {
     return { kind: "research", query: stripResearchPrefix(raw) };
   }
-  if (/\b(write posts|make the posts|draft the posts|generate posts|write from (the |this )?plan)\b/.test(t)) return { kind: "write_posts" };
+  if (/\b(write posts|make the posts|draft the posts|generate posts|write from (the |this )?plan)\b/.test(t)) {
+    return {
+      kind: "write_posts",
+      adaptPerChannel: /\b(different|unique|adapt|customise|customize)\b/.test(t) && /\b(channel|platform|linkedin|instagram|facebook|caption)\b/.test(t),
+    };
+  }
   if (/\b(pin (them |these |topics )?to (the |empty )?slots|use (these |them )?on (the )?plan)\b/.test(t)) return { kind: "pin_topics" };
 
   if (/\b(what's due|whats due|send (for )?approval|due posts|time has come|check due|notify me)\b/.test(t)) return { kind: "send_due" };
@@ -17472,10 +17477,22 @@ function SocialAccountsView({ accounts = [], onChanged }) {
   const [testingId, setTestingId] = useState(null);
   const [flash, setFlash] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [activeGuideTab, setActiveGuideTab] = useState("meta");
+  const [copiedKey, setCopiedKey] = useState(null);
   const [platform, setPlatform] = useState("x");
   const [form, setForm] = useState({ label: "", handle: "", accessToken: "", accountId: "", apiKey: "", apiSecret: "", tokenSecret: "", authorType: "person" });
   const [saving, setSaving] = useState(false);
   const guide = SOCIAL_ACCOUNT_GUIDES[platform] || SOCIAL_ACCOUNT_GUIDES.x;
+
+  const copyToClipboard = (text, key) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+      notify(`Copied: ${text.length > 40 ? text.slice(0, 40) + '...' : text}`);
+    } catch (_) {}
+  };
 
   const notify = (msg) => {
     setFlash(msg);
@@ -17651,14 +17668,182 @@ function SocialAccountsView({ accounts = [], onChanged }) {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 36px 48px", background: HUB_PAPER }}>
       <div style={{ maxWidth: 1040, width: "100%", margin: "0 auto" }}>
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, letterSpacing: "-0.02em" }}>
-            Connect social accounts
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, letterSpacing: "-0.02em" }}>
+              Connect social accounts
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4, maxWidth: 650 }}>
+              Users connect their own Facebook, Instagram, LinkedIn, X, or Threads by logging in. After Connect, scheduled posts publish directly.
+            </div>
           </div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4, maxWidth: 760 }}>
-            Users connect their own X, LinkedIn, Facebook, Instagram, or Threads by logging in. After Connect, scheduled posts publish to that account. No token paste for the normal path.
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowGuide((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "9px 16px",
+              borderRadius: 10,
+              border: `1px solid ${showGuide ? C.teal : C.border}`,
+              background: showGuide ? C.tealSoft : "#fff",
+              color: showGuide ? C.teal : C.ink,
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: "pointer",
+              boxShadow: C.shadowCard,
+              transition: "all 0.15s ease",
+            }}
+          >
+            <BookOpen size={16} />
+            {showGuide ? "Hide Setup Guide" : "Step-by-Step Connection Guide"}
+          </button>
         </div>
+
+        {showGuide && (
+          <div style={{ marginBottom: 22, background: "#fff", border: `1px solid ${C.teal}`, borderRadius: 16, padding: 22, boxShadow: C.shadowCardHover }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 7, background: C.tealSoft, color: C.teal, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <BookOpen size={16} />
+                </div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
+                  Official Connection & Verification Guide
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[
+                  { id: "meta", label: "Facebook & Instagram (Meta)" },
+                  { id: "linkedin", label: "LinkedIn" },
+                  { id: "x", label: "X (Twitter)" },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setActiveGuideTab(t.id)}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: activeGuideTab === t.id ? C.ink : HUB_PAPER,
+                      color: activeGuideTab === t.id ? "#fff" : C.ink,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {activeGuideTab === "meta" && (
+              <div>
+                <div style={{ background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontSize: 12.5, color: "#0369A1", lineHeight: 1.5 }}>
+                  <strong>How Meta Works:</strong> Your Facebook Page and Instagram Professional Account are linked together under one Business Portfolio. In AIVHub, you only need to create <strong>one Meta Developer App</strong> and save the App ID, Secret, and Configuration ID. Then you click <em>Connect with Facebook</em> and <em>Connect with Instagram</em> with 1 click!
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginBottom: 16 }}>
+                  {/* Step 1 */}
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: C.teal, marginBottom: 6 }}>1. Link IG to Facebook Page</div>
+                    <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
+                      Open <strong>Meta Business Suite</strong>. Select your Business Portfolio (e.g. <em>Parth_Aivhub</em>) and ensure your Facebook Page and Instagram Account are linked as a pair.
+                    </div>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: C.teal, marginBottom: 6 }}>2. Create Meta App (Business)</div>
+                    <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
+                      Go to <strong>developers.facebook.com/apps</strong> &rarr; Create App &rarr; select <strong>Other &rarr; Business</strong> &rarr; pick your Business Portfolio &rarr; Add product: <strong>Facebook Login for Business</strong>.
+                    </div>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: C.teal, marginBottom: 6 }}>3. Whitelist Redirect URIs</div>
+                    <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
+                      Under <em>Facebook Login for Business &rarr; Settings</em>, paste the exact server callback URLs below into <strong>Valid OAuth Redirect URIs</strong> and Save.
+                    </div>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: C.teal, marginBottom: 6 }}>4. Create Login Configuration</div>
+                    <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
+                      Under <em>Facebook Login for Business &rarr; Configurations</em>, click Create Configuration &rarr; select <strong>User access token</strong> &rarr; check the 5 permissions (`pages_show_list`, `pages_manage_posts`, `instagram_content_publish`, etc.) &rarr; copy the <strong>Configuration ID</strong>!
+                    </div>
+                  </div>
+                </div>
+
+                {/* Important Server Endpoints Table */}
+                <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", background: "#fff", marginBottom: 14 }}>
+                  <div style={{ background: HUB_PAPER, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 12, color: C.ink }}>
+                    Required Meta Developer URLs (Click to copy)
+                  </div>
+                  {[
+                    { label: "Facebook Callback URI", val: callbackFor("facebook") },
+                    { label: "Instagram Callback URI", val: callbackFor("instagram") },
+                    { label: "App Domain", val: (resolvedPublicBase().replace(/^https?:\/\//, "").split(":")[0]) },
+                    { label: "Privacy Policy URL", val: `${resolvedPublicBase()}/privacy` },
+                    { label: "Terms of Service URL", val: `${resolvedPublicBase()}/terms` },
+                    { label: "Data Deletion Instructions URL", val: `${resolvedPublicBase()}/data-deletion` },
+                  ].map((row, idx) => (
+                    <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderBottom: idx < 5 ? `1px solid ${C.border}` : "none", gap: 12 }}>
+                      <span style={{ fontSize: 12, color: C.slate, fontWeight: 600, minWidth: 160 }}>{row.label}</span>
+                      <code style={{ fontSize: 11.5, fontFamily: FONT_MONO, color: C.ink, background: HUB_PAPER, padding: "3px 8px", borderRadius: 6, flex: 1, wordBreak: "break-all" }}>{row.val}</code>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(row.val, `meta_copy_${idx}`)}
+                        style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                      >
+                        {copiedKey === `meta_copy_${idx}` ? <Check size={12} color={C.teal} /> : <ExternalLink size={12} />}
+                        {copiedKey === `meta_copy_${idx}` ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: 11.5, color: C.slate, background: HUB_PAPER, padding: "8px 12px", borderRadius: 8 }}>
+                  💡 <strong>Tip for Dev Mode:</strong> Keep the Meta App in <em>Development Mode</em>! The app admin and team roles automatically have full publishing rights without requiring legal business verification.
+                </div>
+              </div>
+            )}
+
+            {activeGuideTab === "linkedin" && (
+              <div>
+                <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, marginBottom: 12 }}>
+                  <strong>Connecting LinkedIn Profile or Company Page:</strong>
+                </div>
+                <ol style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.6, paddingLeft: 20, margin: 0 }}>
+                  <li>Go to <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noreferrer" style={{ color: C.teal, fontWeight: 600 }}>LinkedIn Developer Portal</a> and click <strong>Create App</strong>.</li>
+                  <li>Link your LinkedIn Company Page and upload your logo.</li>
+                  <li>Under the <strong>Auth</strong> tab, add this redirect URI: <code style={{ background: HUB_PAPER, padding: "2px 6px", borderRadius: 4, color: C.ink }}>{callbackFor("linkedin")}</code>.</li>
+                  <li>Under the <strong>Products</strong> tab, request access to: <em>Share on LinkedIn</em> and <em>Sign In with LinkedIn using OpenID Connect</em>.</li>
+                  <li>Copy your <strong>Client ID</strong> and <strong>Primary Client Secret</strong> into AIVHub admin below, click <strong>Save app</strong>, then click <strong>Connect with LinkedIn</strong>!</li>
+                </ol>
+              </div>
+            )}
+
+            {activeGuideTab === "x" && (
+              <div>
+                <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, marginBottom: 12 }}>
+                  <strong>Connecting X (Twitter) Account:</strong>
+                </div>
+                <ol style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.6, paddingLeft: 20, margin: 0 }}>
+                  <li>Go to the <a href="https://developer.x.com/en/portal/dashboard" target="_blank" rel="noreferrer" style={{ color: C.teal, fontWeight: 600 }}>X Developer Portal</a>.</li>
+                  <li>Under your Project App &rarr; User authentication settings, enable OAuth 2.0 (Confidential Client).</li>
+                  <li>Set Callback URI to: <code style={{ background: HUB_PAPER, padding: "2px 6px", borderRadius: 4, color: C.ink }}>{callbackFor("x")}</code>.</li>
+                  <li>Select permissions: <em>Read and Write</em>.</li>
+                  <li>Copy Client ID and Client Secret into AIVHub admin below, click <strong>Save app</strong>, then click <strong>Connect with X</strong>!</li>
+                </ol>
+              </div>
+            )}
+          </div>
+        )}
 
         {flash && (
           <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: C.ink, color: "#fff", fontSize: 13, fontWeight: 600 }}>
@@ -18336,8 +18521,6 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       const d = e && e.data;
       if (!d || d.type !== "aivhub-social-oauth") return;
       refreshSocialAccounts();
-      if (d.ok) pushAi("Connected " + (d.platform || "account") + (d.handle ? " · " + d.handle : "") + ". Scheduled posts publish to this login.");
-      else if (d.error) pushAi("Connect failed: " + d.error);
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
@@ -18373,6 +18556,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       cta: np.cta,
       firstComment: np.firstComment,
       altText: np.altText,
+      adaptPerChannel: !!np.adaptPerChannel,
     }).catch((e) => console.warn("Could not persist created post:", e));
   };
 
@@ -18381,6 +18565,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
       const imgConf = resolveImageCredentials(commonAi);
       const schedDirectives = (commonAi && commonAi.channelDirectives) || {};
+      const adapt = !!basePost.adaptPerChannel;
       const res = await api.generateSocialPackage({
         topic: topicText || basePost.topicHeadline || basePost.theme,
         style: imgConf.imageStyle || "modern_saas",
@@ -18390,6 +18575,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         model: creds.model,
         baseUrl: creds.baseUrl,
         linkedin_directive: schedDirectives.linkedin || "",
+        adaptPerChannel: adapt,
+        adapt_per_channel: adapt,
         image_provider: imgConf.imageProvider,
         imageProvider: imgConf.imageProvider,
         image_api_key: imgConf.imageApiKey,
@@ -18398,20 +18585,22 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         image_base_url: imgConf.imageBaseUrl,
       });
       const p = res && res.package;
-      if (!p) return basePost;
-      const aiOk = p.generationSource === "llm" && !p.needsHumanReview;
+      if (!p) return { ...basePost, status: "awaiting_approval" };
+      const canonical = p.copy || p.linkedin_copy || p.linkedinCopy || basePost.copy;
+      const same = !basePost.adaptPerChannel;
       return {
         ...basePost,
-        generationSource: p.generationSource || (aiOk ? "llm" : "fallback"),
-        needsHumanReview: !!p.needsHumanReview || p.generationSource !== "llm",
-        status: p.generationSource !== "llm" ? "awaiting_approval" : basePost.status,
+        generationSource: p.generationSource || "fallback",
+        needsHumanReview: true,
+        status: "awaiting_approval",
+        adaptPerChannel: !!p.adaptPerChannel || !!basePost.adaptPerChannel,
         hook: p.hook || basePost.hook,
-        copy: p.linkedin_copy || p.linkedinCopy || basePost.copy,
-        linkedinCopy: p.linkedin_copy || p.linkedinCopy,
-        xCopy: p.x_copy || p.xCopy,
-        facebookCopy: p.facebook_copy || p.facebookCopy,
-        instagramCopy: p.instagram_copy || p.instagramCopy,
-        threadsCopy: p.threads_copy || p.threadsCopy,
+        copy: canonical,
+        linkedinCopy: same ? canonical : (p.linkedin_copy || p.linkedinCopy || canonical),
+        xCopy: same ? String(canonical || "").slice(0, 240) : (p.x_copy || p.xCopy),
+        facebookCopy: same ? canonical : (p.facebook_copy || p.facebookCopy || canonical),
+        instagramCopy: same ? canonical : (p.instagram_copy || p.instagramCopy || canonical),
+        threadsCopy: same ? canonical : (p.threads_copy || p.threadsCopy || canonical),
         hashtags: p.hashtags || basePost.hashtags,
         cta: p.cta || basePost.cta,
         firstComment: p.first_comment || p.firstComment,
@@ -18519,30 +18708,10 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         const assigned = assignTopicsToSlots(slots, found);
         setSlots(assigned);
         window.setTimeout(() => {
-          const { nextSlots, created } = writePostsFrom(schedules, found, assigned, company);
-          setSlots(nextSlots);
-          if (created.length) {
-            setPosts((ps) => [...created, ...ps]);
-            created.forEach((np) => {
-              api.createPost({
-                id: np.id,
-                title: np.topicHeadline || np.theme,
-                copy: np.copy,
-                channels: np.channels,
-                status: np.status,
-                slotDateMs: np.dateMs,
-                time: np.time,
-                theme: np.theme,
-                imageUrl: np.imageUrl,
-                imagePrompt: np.imagePrompt,
-              }).catch((e) => console.warn("Could not persist created post:", e));
-            });
-          }
-          const mailed = mailDuePosts(created);
-          const later = created.length - mailed;
-          setView(mailed ? "approval" : "month");
-          pushAi("Searched “" + q + "”, saved " + found.length + " topics, wrote " + created.length + " posts in this software." + (mailed ? " " + mailed + " already due — sent for approval." : "") + (later ? " " + later + " scheduled." : ""));
-        }, 700);
+          writePosts(false).then(({ n }) => {
+            pushAi("Found " + found.length + " topics and wrote " + n + " drafts. Open Approvals to review copy + image, then Confirm & post.");
+          });
+        }, 400);
       } else {
         pushAi("Found " + found.length + " for “" + q + "”. They sit on the left — pin onto slots, keep chatting, or save the plan. No need to leave this screen.");
       }
@@ -18578,55 +18747,25 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     return dueOnes.length;
   };
 
-  const writePosts = async () => {
+  const writePosts = async (adaptPerChannel = false) => {
     const { nextSlots, created } = writePostsFrom(schedules, topics, slots, company);
     setSlots(nextSlots);
     const enriched = [];
     for (const np of created) {
-      enriched.push(await enrichPostWithAi(np, np.topicHeadline || np.theme));
+      const drafted = {
+        ...np,
+        status: "awaiting_approval",
+        emailSent: true,
+        approvalVia: ["app", "email"],
+        adaptPerChannel: !!adaptPerChannel,
+      };
+      enriched.push(await enrichPostWithAi(drafted, np.topicHeadline || np.theme));
     }
-    const out = [];
-    let posted = 0;
-    for (const np of enriched) {
-      persistPost(np);
-      const dueNow = np.status === "awaiting_approval" || np.status === "approved";
-      const aiReady = np.generationSource === "llm" && !np.needsHumanReview;
-      const channelConnected = (np.channels || ["linkedin"]).some((ch) =>
-        (socialAccounts || []).some((a) => a.platform === ch && a.status === "connected")
-      );
-      if (channelConnected && dueNow && aiReady) {
-        try {
-          const res = await api.publishPost(np.id, {
-            title: np.topicHeadline || np.title,
-            copy: np.copy || np.linkedinCopy,
-            linkedinCopy: np.linkedinCopy || np.copy,
-            channels: np.channels || ["linkedin"],
-            status: "approved",
-            slotDateMs: np.dateMs,
-            time: np.time,
-            theme: np.theme,
-            imageUrl: np.imageUrl,
-            imagePrompt: np.imagePrompt,
-            hook: np.hook,
-            hashtags: np.hashtags,
-            cta: np.cta,
-          });
-          const ok = (res.results || []).some((r) => r.ok);
-          if (ok) {
-            posted += 1;
-            out.push({ ...np, status: "published", publishResults: res.results, publishedAt: "just now" });
-            continue;
-          }
-        } catch (e) {
-          console.warn("Auto-publish failed:", e);
-        }
-      }
-      out.push(np);
-    }
-    if (out.length) setPosts((ps) => [...out, ...ps]);
-    const mailed = mailDuePosts(out.filter((p) => p.status === "awaiting_approval"));
-    setView(posted ? "published" : mailed ? "approval" : "month");
-    return { n: out.length, mailed, posted };
+    for (const np of enriched) persistPost(np);
+    if (enriched.length) setPosts((ps) => [...enriched, ...ps]);
+    const mailed = mailDuePosts(enriched);
+    setView("approval");
+    return { n: enriched.length, mailed, posted: 0 };
   };
 
   const sendDue = () => {
@@ -18661,20 +18800,11 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       const label = (SOCIAL_CHANNELS[parsed.channel] && SOCIAL_CHANNELS[parsed.channel].label) || parsed.channel;
       const already = (socialAccounts || []).find((a) => a.platform === parsed.channel && a.status === "connected");
       if (already) {
-        pushAi(label + " already connected as " + (already.handle || already.label) + ". Approve a post then Confirm & post to publish.");
+        pushAi(label + " already connected as " + (already.handle || already.label) + ". Connect lives under Accounts — Plan chat is for topics and drafts.");
         return;
       }
-      pushAi("Opening " + label + " login. Sign in as the account you want to post from.");
-      api.startSocialOauth(parsed.channel, window.location.origin)
-        .then((res) => {
-          if (res?.authUrl) {
-            const popup = window.open(res.authUrl, "aivhub-oauth-" + parsed.channel, "width=620,height=780,menubar=no,toolbar=no");
-            if (!popup) window.location.href = res.authUrl;
-          }
-        })
-        .catch((e) => {
-          pushAi((e && e.message) || "Save Client ID + Secret once under Accounts (AIVHub developer app), then click Connect with " + label + ".");
-        });
+      setView("channels");
+      pushAi("Open Accounts to connect " + label + " (Connect with " + label + "). This chat stays for planning, not login errors.");
       return;
     }
     if (parsed.kind === "status") {
@@ -18721,17 +18851,13 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         runResearch(researchQuery || schedules.map((s) => s.theme).join("; "), true);
         return;
       }
-      pushAi("Writing posts with the copywriter model…");
-      writePosts().then(({ n, mailed, posted }) => {
+      pushAi("Writing posts for approval…");
+      writePosts(!!parsed.adaptPerChannel).then(({ n, mailed }) => {
         if (!n) {
-          pushAi("Every slotted topic already has a post. Open calendar or approvals.");
+          pushAi("Every slotted topic already has a post. Open Calendar or Approvals.");
           return;
         }
-        if (posted) {
-          pushAi("Wrote " + n + " posts with ChatGPT copy + image, then posted " + posted + " live to LinkedIn. Future slots wait until due.");
-          return;
-        }
-        pushAi("Wrote " + n + " posts (LLM copy + image attached)." + (mailed ? " " + mailed + " waiting one Confirm in Approvals." : " They sit on the schedule until due.") + " Connect LinkedIn once under Accounts to auto-post next time.");
+        pushAi("Wrote " + n + " post" + (n === 1 ? "" : "s") + " with copy + image. They sit in Approvals — review, then Confirm & post. Nothing goes live until you confirm." + (mailed ? " Also emailed " + mailed + "." : ""));
       });
       return;
     }
@@ -18789,12 +18915,13 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     }
     if (parsed.kind === "publish_all") {
       setTyping(false);
-      const ready = posts.filter((p) => p.status === "approved" || p.status === "awaiting_approval");
+      const ready = posts.filter((p) => p.status === "approved");
       if (!ready.length) {
-        pushAi("Need a written post first. Say “write posts”.");
+        pushAi("Approve in Approvals first, then say publish — nothing posts from chat until it is approved.");
+        setView("approval");
         return;
       }
-      pushAi("Publishing " + ready.length + " to connected accounts…");
+      pushAi("Publishing " + ready.length + " approved post" + (ready.length === 1 ? "" : "s") + " to every selected connected channel…");
       Promise.all(ready.map((p) => confirmPublish(p.id))).then(() => setView("published"));
       return;
     }
@@ -18993,12 +19120,15 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
           hook: current.hook,
           hashtags: current.hashtags,
           cta: current.cta,
+          adaptPerChannel: !!current.adaptPerChannel,
         });
       } catch (_) {}
       const res = await api.publishPost(id, {
         title: current.topicHeadline || current.title || "Social Post",
         copy: current.copy || current.linkedinCopy || "",
-        linkedinCopy: current.linkedinCopy || current.copy || "",
+        linkedinCopy: current.adaptPerChannel ? (current.linkedinCopy || current.copy) : (current.copy || current.linkedinCopy || ""),
+        facebookCopy: current.adaptPerChannel ? current.facebookCopy : (current.copy || current.facebookCopy),
+        instagramCopy: current.adaptPerChannel ? current.instagramCopy : (current.copy || current.instagramCopy),
         channels: current.channels || ["linkedin"],
         status: "approved",
         slotDateMs: current.slotDateMs || current.dateMs,
@@ -19009,6 +19139,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         hook: current.hook,
         hashtags: current.hashtags,
         cta: current.cta,
+        adaptPerChannel: !!current.adaptPerChannel,
       });
       const results = res.results || res.post?.publishResults || [];
       const ok = results.filter((r) => r.ok);
@@ -20289,6 +20420,16 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                   <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.teal, background: C.tealSoft, borderRadius: 999, padding: "4px 10px" }}>Posted {p.publishedAt}</span>
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.textInk, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{p.copy}</div>
+                {p.imageUrl ? (
+                  <div style={{ margin: "14px 0 8px", borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}`, background: "#0d0f17" }}>
+                    <img src={p.imageUrl} alt={p.imagePrompt || p.topicHeadline || "Published visual"} style={{ width: "100%", maxHeight: 320, objectFit: "cover", display: "block" }} />
+                  </div>
+                ) : null}
+                {p.imagePrompt ? (
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginTop: 6, lineHeight: 1.45 }}>
+                    Visual prompt: {p.imagePrompt}
+                  </div>
+                ) : null}
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.teal, fontWeight: 600, marginTop: 10 }}>{p.cta}</div>
                 <div style={{ display: "flex", gap: 4, marginTop: 12 }}>{(p.channels || []).map((c) => <ChannelPill key={c} id={c} />)}</div>
                 {(p.publishResults || []).length > 0 && (
@@ -21265,6 +21406,11 @@ function SchedulerPostCard({ post, tone, editingId, editCopy, setEditCopy, onEdi
       ) : (
         <div style={{ fontFamily: FONT_BODY, fontSize: 14.5, color: C.textInk, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{post.copy}</div>
       )}
+      {post.imagePrompt ? (
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginTop: 8, lineHeight: 1.45 }}>
+          Visual matches this prompt: {post.imagePrompt}
+        </div>
+      ) : null}
       <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.teal, fontWeight: 600, marginTop: 10 }}>{post.cta}</div>
       {post.edited && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 6 }}>Edited before approval</div>}
       <div style={{ display: "flex", gap: 4, marginTop: 12, flexWrap: "wrap" }}>{(post.channels || []).map((c) => <ChannelPill key={c} id={c} />)}</div>
