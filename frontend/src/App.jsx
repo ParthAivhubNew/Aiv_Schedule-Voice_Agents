@@ -114,6 +114,7 @@ import {
 
 
 import { api } from "./api/apiClient";
+import { compressVoiceBlob, cloneFilename } from "./utils/compressVoice";
 import { WebSocketClient } from "./api/wsClient";
 import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import { TelephonyDocsView } from "./views/TelephonyDocsView";
@@ -6946,7 +6947,15 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
 
   useEffect(() => {
     if (recState !== "recording") return undefined;
-    recTimerRef.current = setInterval(() => setRecSec((s) => s + 1), 1000);
+    recTimerRef.current = setInterval(() => {
+      setRecSec((s) => {
+        const next = s + 1;
+        if (next >= 90) {
+          try { recRef.current?.stop(); } catch (_) { /* ignore */ }
+        }
+        return next;
+      });
+    }, 1000);
     return () => {
       if (recTimerRef.current) clearInterval(recTimerRef.current);
     };
@@ -6973,7 +6982,15 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           ? "audio/webm"
           : "";
       recChunksRef.current = [];
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      let rec;
+      try {
+        const recOpts = mime
+          ? { mimeType: mime, audioBitsPerSecond: 16000 }
+          : { audioBitsPerSecond: 16000 };
+        rec = new MediaRecorder(stream, recOpts);
+      } catch (_) {
+        rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      }
       rec.ondataavailable = (e) => {
         if (e.data && e.data.size) recChunksRef.current.push(e.data);
       };
@@ -6983,7 +7000,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         setRecBlob(new Blob(recChunksRef.current, { type }));
         setRecState("ready");
       };
-      rec.start(250);
+      rec.start(1000);
       recRef.current = rec;
       setRecState("recording");
     } catch (err) {
@@ -7002,11 +7019,20 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
     }
     setCloning(true);
     setCloneErr("");
-    setCloneMsg("");
+    setCloneMsg("Compressing recording…");
     try {
+      let file = recBlob;
+      try {
+        file = await compressVoiceBlob(recBlob);
+      } catch (_) {
+        if (recBlob.size > 900 * 1024) {
+          throw new Error("Could not compress recording. Record 30–45 seconds and retry.");
+        }
+      }
       const fd = new FormData();
       fd.append("name", cloneName.trim() || "My voice");
-      fd.append("file", recBlob, "reference.webm");
+      fd.append("file", file, cloneFilename(file));
+      setCloneMsg("Uploading clone…");
       const res = await api.cloneVoice(fd);
       setCloneMsg(res.message || "Voice cloned and saved.");
       if (res.voices) setCustomVoices(res.voices);
@@ -7552,7 +7578,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   Link pasted ID
                 </button>
                 {recState === "ready" && recBlob && (
-                  <span style={{ fontSize: 12, color: "#059669" }}>Recording ready ({Math.max(recSec, 1)}s) — save it.</span>
+                  <span style={{ fontSize: 12, color: "#059669" }}>Recording ready ({Math.max(recSec, 1)}s) — save it. Audio is compressed so the upload stays under the server limit.</span>
                 )}
                 {recState === "recording" && (
                   <span style={{ fontSize: 12, color: "#B91C1C" }}>Recording… keep talking naturally. Stop at 60–90s.</span>
@@ -17742,7 +17768,7 @@ function SocialAccountsView({ accounts = [], onChanged }) {
             {activeGuideTab === "meta" && (
               <div>
                 <div style={{ background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontSize: 12.5, color: "#0369A1", lineHeight: 1.5 }}>
-                  <strong>How Meta Works:</strong> Your Facebook Page and Instagram Professional Account are linked together under one Business Portfolio. In AIVHub, you only need to create <strong>one Meta Developer App</strong> and save the App ID, Secret, and Configuration ID. Then you click <em>Connect with Facebook</em> and <em>Connect with Instagram</em> with 1 click!
+                  <strong>How Meta Connection Works:</strong> Your Facebook Page and Instagram Professional Account must be linked together in your Meta Business Suite. In AIVHub, you register your Meta App once below (or use your organization's parent app), then users click <em>Connect with Facebook</em> and <em>Connect with Instagram</em> to authorize posting.
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginBottom: 16 }}>
@@ -17750,7 +17776,7 @@ function SocialAccountsView({ accounts = [], onChanged }) {
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
                     <div style={{ fontWeight: 800, fontSize: 13, color: C.teal, marginBottom: 6 }}>1. Link IG to Facebook Page</div>
                     <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
-                      Open <strong>Meta Business Suite</strong>. Select your Business Portfolio (e.g. <em>Parth_Aivhub</em>) and ensure your Facebook Page and Instagram Account are linked as a pair.
+                      Open <a href="https://business.facebook.com" target="_blank" rel="noreferrer" style={{ color: C.teal, fontWeight: 700 }}>Meta Business Suite</a>. Select your <strong>Business Portfolio</strong>. Ensure your Facebook Page and Instagram Professional account appear linked together under your business assets.
                     </div>
                   </div>
 
@@ -17758,7 +17784,7 @@ function SocialAccountsView({ accounts = [], onChanged }) {
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
                     <div style={{ fontWeight: 800, fontSize: 13, color: C.teal, marginBottom: 6 }}>2. Create Meta App (Business)</div>
                     <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
-                      Go to <strong>developers.facebook.com/apps</strong> &rarr; Create App &rarr; select <strong>Other &rarr; Business</strong> &rarr; pick your Business Portfolio &rarr; Add product: <strong>Facebook Login for Business</strong>.
+                      Go to <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" style={{ color: C.teal, fontWeight: 700 }}>developers.facebook.com/apps</a> &rarr; <strong>Create App</strong> &rarr; select <strong>Other &rarr; Business</strong> &rarr; choose your Business Portfolio &rarr; Add product: <strong>Facebook Login for Business</strong>.
                     </div>
                   </div>
 
@@ -17766,7 +17792,7 @@ function SocialAccountsView({ accounts = [], onChanged }) {
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
                     <div style={{ fontWeight: 800, fontSize: 13, color: C.teal, marginBottom: 6 }}>3. Whitelist Redirect URIs</div>
                     <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
-                      Under <em>Facebook Login for Business &rarr; Settings</em>, paste the exact server callback URLs below into <strong>Valid OAuth Redirect URIs</strong> and Save.
+                      Under <em>Facebook Login for Business &rarr; Settings</em>, paste your server callback URLs (listed below) into <strong>Valid OAuth Redirect URIs</strong> and click <strong>Save changes</strong>.
                     </div>
                   </div>
 
@@ -17774,41 +17800,43 @@ function SocialAccountsView({ accounts = [], onChanged }) {
                   <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
                     <div style={{ fontWeight: 800, fontSize: 13, color: C.teal, marginBottom: 6 }}>4. Create Login Configuration</div>
                     <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
-                      Under <em>Facebook Login for Business &rarr; Configurations</em>, click Create Configuration &rarr; select <strong>User access token</strong> &rarr; check the 5 permissions (`pages_show_list`, `pages_manage_posts`, `instagram_content_publish`, etc.) &rarr; copy the <strong>Configuration ID</strong>!
+                      Under <em>Facebook Login for Business &rarr; Configurations</em>, click <strong>Create Configuration</strong> &rarr; choose <strong>User access token</strong> &rarr; select permissions (`pages_show_list`, `pages_manage_posts`, `instagram_content_publish`, etc.) &rarr; copy the <strong>Configuration ID</strong> into AIVHub.
                     </div>
                   </div>
                 </div>
 
                 {/* Important Server Endpoints Table */}
                 <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", background: "#fff", marginBottom: 14 }}>
-                  <div style={{ background: HUB_PAPER, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 12, color: C.ink }}>
-                    Required Meta Developer URLs (Click to copy)
+                  <div style={{ background: HUB_PAPER, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontWeight: 700, fontSize: 12, color: C.ink }}>Your Instance's Meta Developer Endpoints (Dynamically Generated)</span>
+                    <span style={{ fontSize: 11, color: C.slate }}>Click any copy button to paste directly into Meta Developer Settings</span>
                   </div>
                   {[
                     { label: "Facebook Callback URI", val: callbackFor("facebook") },
                     { label: "Instagram Callback URI", val: callbackFor("instagram") },
                     { label: "App Domain", val: (resolvedPublicBase().replace(/^https?:\/\//, "").split(":")[0]) },
+                    { label: "Website Site URL", val: resolvedPublicBase() },
                     { label: "Privacy Policy URL", val: `${resolvedPublicBase()}/privacy` },
                     { label: "Terms of Service URL", val: `${resolvedPublicBase()}/terms` },
                     { label: "Data Deletion Instructions URL", val: `${resolvedPublicBase()}/data-deletion` },
                   ].map((row, idx) => (
-                    <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderBottom: idx < 5 ? `1px solid ${C.border}` : "none", gap: 12 }}>
-                      <span style={{ fontSize: 12, color: C.slate, fontWeight: 600, minWidth: 160 }}>{row.label}</span>
+                    <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderBottom: idx < 6 ? `1px solid ${C.border}` : "none", gap: 12 }}>
+                      <span style={{ fontSize: 12, color: C.slate, fontWeight: 600, minWidth: 170 }}>{row.label}</span>
                       <code style={{ fontSize: 11.5, fontFamily: FONT_MONO, color: C.ink, background: HUB_PAPER, padding: "3px 8px", borderRadius: 6, flex: 1, wordBreak: "break-all" }}>{row.val}</code>
                       <button
                         type="button"
                         onClick={() => copyToClipboard(row.val, `meta_copy_${idx}`)}
-                        style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                        style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
                       >
-                        {copiedKey === `meta_copy_${idx}` ? <Check size={12} color={C.teal} /> : <ExternalLink size={12} />}
+                        {copiedKey === `meta_copy_${idx}` ? <Check size={12} color={C.teal} /> : <Copy size={12} />}
                         {copiedKey === `meta_copy_${idx}` ? "Copied" : "Copy"}
                       </button>
                     </div>
                   ))}
                 </div>
 
-                <div style={{ fontSize: 11.5, color: C.slate, background: HUB_PAPER, padding: "8px 12px", borderRadius: 8 }}>
-                  💡 <strong>Tip for Dev Mode:</strong> Keep the Meta App in <em>Development Mode</em>! The app admin and team roles automatically have full publishing rights without requiring legal business verification.
+                <div style={{ fontSize: 11.5, color: C.slate, background: HUB_PAPER, padding: "10px 14px", borderRadius: 8, lineHeight: 1.5 }}>
+                  💡 <strong>Development Mode vs Live Mode:</strong> For your team's internal accounts, keep the Meta App in <em>Development Mode</em>. Administrators and Developers automatically have posting access to their own Pages without legal Business Verification. When launching as a public SaaS for external customers, complete Meta's standard App Review under your production domain.
                 </div>
               </div>
             )}
