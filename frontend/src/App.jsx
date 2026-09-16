@@ -202,7 +202,7 @@ const INITIAL_COMMON_AI_CONFIG = {
   // Per-channel tone directives for Post Scheduler
   customConnections: [],
   channelDirectives: {
-    linkedin: "Professional thought leadership. Strong 2-line hook, generous line spacing, practical takeaways, 2-3 relevant hashtags.",
+    linkedin: "Ops-leader voice. One scene or number in line 1. Short paragraphs. No numbered lists. Max 1 hashtag. One honest question at end. No brochure tone.",
     x: "Punchy, bold hook. Short sentences, high-contrast perspective, strong CTA, zero filler hashtags.",
     facebook: "Community-driven, engaging story angle, conversational tone, open-ended question at the end.",
     instagram: "Visual storytelling caption, aesthetic bullet points, conversational tone, 5-8 niche hashtags.",
@@ -6885,6 +6885,18 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [accountSid, setAccountSid] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
   const [voiceName, setVoiceName] = useState("ara");
+  const [customVoices, setCustomVoices] = useState([]);
+  const [cloneName, setCloneName] = useState("My voice");
+  const [pasteVoiceId, setPasteVoiceId] = useState("");
+  const [cloneMsg, setCloneMsg] = useState("");
+  const [cloneErr, setCloneErr] = useState("");
+  const [cloning, setCloning] = useState(false);
+  const [recState, setRecState] = useState("idle");
+  const [recSec, setRecSec] = useState(0);
+  const recRef = useRef(null);
+  const recTimerRef = useRef(null);
+  const recChunksRef = useRef([]);
+  const [recBlob, setRecBlob] = useState(null);
   const [silenceDurationMs, setSilenceDurationMs] = useState(380);
   const [temperature, setTemperature] = useState(0.80);
   const [webhookUrl, setWebhookUrl] = useState("https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook");
@@ -6908,6 +6920,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         if (data.phoneNumber) setPhoneNumber(data.phoneNumber);
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
         if (data.voiceName) setVoiceName(data.voiceName);
+        if (Array.isArray(data.customVoices)) setCustomVoices(data.customVoices);
         if (data.silenceDurationMs) setSilenceDurationMs(data.silenceDurationMs);
         if (data.temperature) setTemperature(data.temperature);
         if (data.signingSecret) setSigningSecret(data.signingSecret);
@@ -6930,6 +6943,103 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   useEffect(() => {
     fetchStatus();
   }, []);
+
+  useEffect(() => {
+    if (recState !== "recording") return undefined;
+    recTimerRef.current = setInterval(() => setRecSec((s) => s + 1), 1000);
+    return () => {
+      if (recTimerRef.current) clearInterval(recTimerRef.current);
+    };
+  }, [recState]);
+
+  const stopRecording = () => {
+    try {
+      recRef.current?.stop();
+    } catch (_) { /* ignore */ }
+    recRef.current = null;
+    if (recTimerRef.current) clearInterval(recTimerRef.current);
+  };
+
+  const startRecording = async () => {
+    setCloneErr("");
+    setCloneMsg("");
+    setRecBlob(null);
+    setRecSec(0);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "";
+      recChunksRef.current = [];
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size) recChunksRef.current.push(e.data);
+      };
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const type = rec.mimeType || "audio/webm";
+        setRecBlob(new Blob(recChunksRef.current, { type }));
+        setRecState("ready");
+      };
+      rec.start(250);
+      recRef.current = rec;
+      setRecState("recording");
+    } catch (err) {
+      setCloneErr(`Mic blocked: ${err.message || err}`);
+    }
+  };
+
+  const uploadClone = async () => {
+    if (!recBlob) {
+      setCloneErr("Record your voice first (aim 60–90 seconds).");
+      return;
+    }
+    if (recSec < 15 && recBlob.size < 40000) {
+      setCloneErr("Too short. Record at least 30 seconds of natural speech.");
+      return;
+    }
+    setCloning(true);
+    setCloneErr("");
+    setCloneMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("name", cloneName.trim() || "My voice");
+      fd.append("file", recBlob, "reference.webm");
+      const res = await api.cloneVoice(fd);
+      setCloneMsg(res.message || "Voice cloned and saved.");
+      if (res.voices) setCustomVoices(res.voices);
+      if (res.voice?.voice_id) setVoiceName(res.voice.voice_id);
+      setRecState("idle");
+      setRecBlob(null);
+    } catch (err) {
+      setCloneErr(err.message || String(err));
+    } finally {
+      setCloning(false);
+    }
+  };
+
+  const linkPastedVoice = async () => {
+    const vid = pasteVoiceId.trim();
+    if (!vid) {
+      setCloneErr("Paste a Voice ID from console.x.ai.");
+      return;
+    }
+    setCloning(true);
+    setCloneErr("");
+    try {
+      const res = await api.selectVoice({ voice_id: vid, label: cloneName.trim() || vid, provider: "xai" });
+      setVoiceName(vid);
+      if (res.voices) setCustomVoices(res.voices);
+      setCloneMsg(res.message || "Custom voice linked.");
+      setPasteVoiceId("");
+    } catch (err) {
+      setCloneErr(err.message || String(err));
+    } finally {
+      setCloning(false);
+    }
+  };
 
   const handlePing = async () => {
     setPinging(true);
@@ -7357,7 +7467,15 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               </label>
               <select
                 value={voiceName}
-                onChange={(e) => setVoiceName(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setVoiceName(v);
+                  api.selectVoice({
+                    voice_id: v,
+                    label: customVoices.find((x) => x.voice_id === v)?.name || v,
+                    provider: customVoices.find((x) => x.voice_id === v)?.provider || "xai",
+                  }).catch(() => {});
+                }}
                 style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
               >
                 {engineChoice === "xai" ? (
@@ -7380,7 +7498,73 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                     <option value="sonic">Cartesia Sonic (90ms Ultra-Fast)</option>
                   </>
                 )}
+                {customVoices.map((v) => (
+                  <option key={v.voice_id} value={v.voice_id}>
+                    {v.name || v.voice_id} (cloned{v.provider ? ` · ${v.provider}` : ""})
+                  </option>
+                ))}
+                {voiceName && !["ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "rachel", "adam", "sonic"].includes(voiceName) && !customVoices.some((v) => v.voice_id === voiceName) && (
+                  <option value={voiceName}>Custom clone ({voiceName})</option>
+                )}
               </select>
+              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                Live Grok calls use this ID. Built-in = Ara/Eve/Rex. Cloned = your recording.
+              </div>
+            </div>
+
+            <div style={{ gridColumn: "1 / -1", border: "1px solid #DDD6FE", background: "#FAF5FF", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: "#5B21B6", marginBottom: 6 }}>Clone your own voice</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 12 }}>
+                Right now the agent speaks as xAI Grok <b>Ara</b> unless you pick another built-in or a clone. Record 60–90s of natural speech (quiet room), then save. xAI create-API is Enterprise; if clone upload is blocked, make the voice in{" "}
+                <a href="https://console.x.ai" target="_blank" rel="noreferrer" style={{ color: "#6D28D9" }}>console.x.ai → Custom Voices</a>
+                {" "}and paste the Voice ID.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 10 }}>
+                <input
+                  type="text"
+                  value={cloneName}
+                  onChange={(e) => setCloneName(e.target.value)}
+                  placeholder="Voice label (e.g. Sam — own voice)"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
+                />
+                <input
+                  type="text"
+                  value={pasteVoiceId}
+                  onChange={(e) => setPasteVoiceId(e.target.value)}
+                  placeholder="Or paste xAI Voice ID (8 chars)"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13 }}
+                />
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                {recState !== "recording" ? (
+                  <button type="button" onClick={startRecording} style={{ background: "#5B21B6", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Mic size={14} /> Record
+                  </button>
+                ) : (
+                  <button type="button" onClick={stopRecording} style={{ background: "#B91C1C", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Square size={12} /> Stop ({recSec}s)
+                  </button>
+                )}
+                <button type="button" onClick={uploadClone} disabled={cloning || !recBlob} style={{ background: recBlob ? C.ink : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: recBlob && !cloning ? "pointer" : "not-allowed" }}>
+                  {cloning ? "Cloning…" : "Save clone to plugin"}
+                </button>
+                <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: "#fff", color: "#5B21B6", border: "1px solid #C4B5FD", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed" }}>
+                  Link pasted ID
+                </button>
+                {recState === "ready" && recBlob && (
+                  <span style={{ fontSize: 12, color: "#059669" }}>Recording ready ({Math.max(recSec, 1)}s) — save it.</span>
+                )}
+                {recState === "recording" && (
+                  <span style={{ fontSize: 12, color: "#B91C1C" }}>Recording… keep talking naturally. Stop at 60–90s.</span>
+                )}
+              </div>
+              {cloneMsg && <div style={{ marginTop: 8, fontSize: 12.5, color: "#059669" }}>{cloneMsg}</div>}
+              {cloneErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{cloneErr}</div>}
+              {customVoices.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 12, color: C.slate }}>
+                  Saved clones: {customVoices.map((v) => v.name || v.voice_id).join(" · ")}
+                </div>
+              )}
             </div>
 
             <div>
@@ -17246,7 +17430,7 @@ const SOCIAL_ACCOUNT_GUIDES = {
   },
   facebook: {
     title: "Facebook Page",
-    blurb: "Use a Page access token (not a user token). Test will list pages if you paste a user token with pages_show_list.",
+    blurb: "Meta Developer app + Facebook Page (not a personal profile). One-time: save App ID/Secret below, register OAuth callback, then Connect with Facebook. Instagram Business must be linked to the same Page for IG posting.",
     fields: [
       { key: "accessToken", label: "Page access token", placeholder: "EAAG…", secret: true },
       { key: "accountId", label: "Page ID (optional if token can list pages)", placeholder: "1234567890" },
@@ -17254,7 +17438,7 @@ const SOCIAL_ACCOUNT_GUIDES = {
   },
   instagram: {
     title: "Instagram Business",
-    blurb: "Needs a Facebook Page linked to an Instagram professional account. Image URL must be public (Pollinations URLs work).",
+    blurb: "Convert IG to Professional/Business and link it to your Facebook Page in Meta Business Suite. Use the same Meta app as Facebook — save secrets once, then Connect with Instagram. Post images need a public URL (hosted image or CDN).",
     fields: [
       { key: "accessToken", label: "Access token", placeholder: "EAAG…", secret: true },
       { key: "accountId", label: "Instagram business account ID", placeholder: "17841…" },
@@ -18181,6 +18365,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     try {
       const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
       const imgConf = resolveImageCredentials(commonAi);
+      const schedDirectives = (commonAi && commonAi.channelDirectives) || {};
       const res = await api.generateSocialPackage({
         topic: topicText || basePost.topicHeadline || basePost.theme,
         style: imgConf.imageStyle || "modern_saas",
@@ -18189,6 +18374,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         provider: creds.provider,
         model: creds.model,
         baseUrl: creds.baseUrl,
+        linkedin_directive: schedDirectives.linkedin || "",
         image_provider: imgConf.imageProvider,
         imageProvider: imgConf.imageProvider,
         image_api_key: imgConf.imageApiKey,
@@ -18198,8 +18384,12 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       });
       const p = res && res.package;
       if (!p) return basePost;
+      const aiOk = p.generationSource === "llm" && !p.needsHumanReview;
       return {
         ...basePost,
+        generationSource: p.generationSource || (aiOk ? "llm" : "fallback"),
+        needsHumanReview: !!p.needsHumanReview || p.generationSource !== "llm",
+        status: p.generationSource !== "llm" ? "awaiting_approval" : basePost.status,
         hook: p.hook || basePost.hook,
         copy: p.linkedin_copy || p.linkedinCopy || basePost.copy,
         linkedinCopy: p.linkedin_copy || p.linkedinCopy,
@@ -18380,13 +18570,16 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     for (const np of created) {
       enriched.push(await enrichPostWithAi(np, np.topicHeadline || np.theme));
     }
-    const liConnected = (socialAccounts || []).some((a) => a.platform === "linkedin" && a.status === "connected");
     const out = [];
     let posted = 0;
     for (const np of enriched) {
       persistPost(np);
       const dueNow = np.status === "awaiting_approval" || np.status === "approved";
-      if (liConnected && dueNow) {
+      const aiReady = np.generationSource === "llm" && !np.needsHumanReview;
+      const channelConnected = (np.channels || ["linkedin"]).some((ch) =>
+        (socialAccounts || []).some((a) => a.platform === ch && a.status === "connected")
+      );
+      if (channelConnected && dueNow && aiReady) {
         try {
           const res = await api.publishPost(np.id, {
             title: np.topicHeadline || np.title,

@@ -107,6 +107,8 @@ export const api = {
   getTelephonyHub: () => apiRequest('/connections/telephony-hub'),
   provisionTelephonyHub: (payload) => apiRequest('/connections/telephony-hub/provision', { method: 'POST', body: payload }),
   testTelephonyPing: () => apiRequest('/connections/telephony-hub/test-ping', { method: 'POST' }),
+  cloneVoice: (formData) => apiRequest('/connections/telephony-hub/voices/clone', { method: 'POST', body: formData }),
+  selectVoice: (payload) => apiRequest('/connections/telephony-hub/voices/select', { method: 'POST', body: payload }),
 
   // AI Lead Radar & Enrichment
   enrichProspect: (payload) => apiRequest('/enrichment/enrich-prospect', { method: 'POST', body: payload }),

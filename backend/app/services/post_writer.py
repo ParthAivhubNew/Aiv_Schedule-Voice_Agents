@@ -40,9 +40,25 @@ ASPECT_RATIOS = {
     "4:5": (1080, 1350)
 }
 
+IMAGE_SCENE_VARIANTS = [
+    "Photoreal editorial: shift supervisor with clipboard on a production line, shallow depth of field, no readable fake UI text, no logos",
+    "Photoreal editorial: small dispatch team at dawn around a wall board of routes and KPIs, industrial lighting, no logos",
+    "Photoreal editorial: planners in a glass-walled ops room overlooking warehouse activity, abstract screens only, no fake UI text",
+    "Photoreal editorial: maintenance lead reviewing sensor alerts on a tablet beside running equipment, cinematic, no logos",
+    "Photoreal editorial: mid-market control room with people at desks and large abstract data walls, warehouse visible through glass, no fake UI text",
+]
+
+
+def pick_image_scene(topic: str) -> str:
+    key = sum(ord(c) for c in (topic or "")) or 42
+    return IMAGE_SCENE_VARIANTS[key % len(IMAGE_SCENE_VARIANTS)]
+
+
 def create_topic_image_prompt(title: str, angle: str = "", theme: str = "Operations", style: str = "modern_saas") -> str:
     """Creates an evocative image prompt based on the topic title, theme and style."""
     base_concept = title.replace("Why ", "").replace("How ", "").replace("?", "").strip()
+    if style in ("editorial", "modern_saas", "cinematic"):
+        return f"{base_concept}. {pick_image_scene(base_concept)}"
     style_suffix = IMAGE_STYLES.get(style, IMAGE_STYLES["modern_saas"])
     return f"{base_concept}, {theme.lower()} focus, {style_suffix}"
 
@@ -123,6 +139,8 @@ async def resolve_image_credentials(
         key = img_row["api_key"] or key
         burl = img_row["base_url"] or burl
         mod = img_row["model"] or mod
+        if not mod and (prov == "custom" or "gpt-image" in (burl or "").lower()):
+            mod = "gpt-image-2.5-flare"
 
     explicit_paid = any(x in (prov or "") for x in ("stability", "fal", "custom", "openai", "dall"))
     env_openai = (getattr(settings, "OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY") or "").strip()
@@ -339,7 +357,7 @@ async def generate_image_with_provider(
             seen = set()
             urls = [u for u in urls if u and not (u in seen or seen.add(u))]
             openai_body = {
-                "model": model or "gpt-image-1",
+                "model": model or "gpt-image-2.5-flare",
                 "prompt": full_prompt[:1000],
                 "n": 1,
                 "size": dalle_size,
@@ -352,9 +370,10 @@ async def generate_image_with_provider(
                 "aspect_ratio": aspect_ratio,
             }
             last_err = ""
+            bodies = (openai_body,) if (looks_openai or (model or "").startswith("gpt-image") or (model or "").startswith("dall-e") or not model) else (generic_body, openai_body)
             async with httpx.AsyncClient(timeout=90.0) as client:
                 for url in urls:
-                    for body in (openai_body, generic_body):
+                    for body in bodies:
                         res = await client.post(url, headers=headers, json=body)
                         if res.status_code in (200, 201):
                             try:
@@ -462,6 +481,8 @@ async def generate_complete_social_package(
     topic: str,
     company_name: str = "AIVHub",
     company_pitch: str = "AI-powered business intelligence dashboards",
+    company_context: str = "",
+    linkedin_directive: str = "",
     api_key: Optional[str] = None,
     provider: Optional[str] = None,
     model: Optional[str] = None,
@@ -488,31 +509,46 @@ async def generate_complete_social_package(
     from app.services.llm_gateway import call_open_chat_llm
 
     clean_topic = topic.strip() or "Why ops teams lose 2 days/week to manual spreadsheets"
-    
+    kb_block = (company_context or "").strip()
+    li_rules = (linkedin_directive or "").strip() or (
+        "Short lines. One specific scene or number in line 1. No numbered lists. "
+        "No 'three things' framing. Max 1 hashtag in the post body. "
+        "One honest question at the end. No product pitch in the first half."
+    )
+    scene_hint = pick_image_scene(clean_topic)
+
     # 1. Attempt LLM generation if credentials available
     system_prompt = f"""You are a sharp B2B ghostwriter for {company_name} ({company_pitch}).
 Write like an ops director who has lived on a plant floor — not a marketing brochure.
 
+Company facts (use only these; do not invent metrics or customers):
+{kb_block or "No extra facts supplied — use plausible industry detail but no fake case studies or percentages."}
+
+LinkedIn rules: {li_rules}
+
+Banned phrases: delve, game-changer, revolutionary, in today's fast-paced world, most leaders don't realize, three things we keep seeing, unlock, leverage synergy.
+
 Return ONLY valid JSON with these keys:
 {{
   "hook": "First visible line before LinkedIn See more. Specific, slightly uncomfortable, no cliché.",
-  "linkedin_copy": "The FULL LinkedIn post (150-220 words). Do NOT repeat the topic title as line 1. Open with a scene or number. Then 3 concrete takeaways with real quantities. One human question at the end. Max 1 emoji. No 'Most leaders don't realize'. No corporate fluff.",
+  "linkedin_copy": "FULL LinkedIn post (140-200 words). Do NOT repeat the topic title as line 1. Open with a scene or one ugly number. Short paragraphs. NO numbered lists (no 1. 2. 3.). One human question at the end. Max 1 emoji. Mention {company_name} at most once, naturally.",
   "x_copy": "Tweet under 240 chars, one sharp claim.",
-  "facebook_copy": "Conversational post with one story beat and a question.",
-  "instagram_copy": "Short caption + 5 niche hashtags.",
+  "facebook_copy": "Warm, conversational, 2-4 short paragraphs, one story beat, question at end, no hashtag spam.",
+  "instagram_copy": "Visual caption under 120 words, line breaks, 3-5 niche hashtags at end only.",
   "threads_copy": "Casual take under 400 chars.",
-  "hashtags": ["#Tag1", "#Tag2", "#Tag3", "#Tag4", "#Tag5"],
+  "hashtags": ["#Tag1", "#Tag2"],
   "cta": "A question an ops/plant leader would actually answer in comments.",
-  "first_comment": "Useful follow-up or demo line.",
-  "image_prompt": "Photoreal editorial photo of a live operations control room / dispatch wall, no fake UI text, no logos, cinematic lighting",
+  "first_comment": "Useful follow-up (not a sales pitch).",
+  "image_prompt": "{scene_hint}",
   "alt_text": "Plain-language image description",
   "recommended_time": "Tue 09:30"
 }}"""
 
     llm_payload = None
+    generation_source = "fallback"
     try:
         res = await call_open_chat_llm(
-            messages=[{"role": "user", "content": f"Topic: {clean_topic}"}],
+            messages=[{"role": "user", "content": f"Topic: {clean_topic}\nAngle: write for operators and plant leaders."}],
             system_prompt=system_prompt,
             api_key=api_key,
             provider=provider,
@@ -529,6 +565,7 @@ Return ONLY valid JSON with these keys:
                 if m:
                     reply_str = m.group(1)
             llm_payload = json.loads(reply_str)
+            generation_source = "llm"
     except Exception as e:
         logger.warning(f"LLM package generation fallback triggered: {e}")
 
@@ -541,26 +578,21 @@ Return ONLY valid JSON with these keys:
 
 A supervisor still walks the line with a clipboard. Someone else re-keys it. By the time leadership sees the number, the bottleneck already shipped.
 
-{company_name} exists so the number on the wall is the same number in the meeting.
-
-What actually changes when the board is live:
-• 8+ hours/week stop going into copy-paste reporting
-• Dispatch sees a slip before the truck leaves, not in Friday's pack
-• Supervisors coach from one screen instead of three exports
-
 If your team still rebuilds yesterday every morning, the process is the product — and it's slow.
 
-What's the one report you'd kill first if the floor already had the truth?""",
+What's the one report you'd kill first if the floor already had the truth?
+
+#Operations""",
             "x_copy": f"If the pack is late, the decision is already stale. Live ops beats end-of-shift spreadsheets. {clean_topic}",
             "facebook_copy": f"{clean_topic}\n\nThe floor already knows. The spreadsheet is just catching up.\n\nWhat report would you retire this month?",
-            "instagram_copy": f"{clean_topic}\n\nLive board > late pack.\n\n#Operations #Manufacturing #SupplyChain #B2B #Automation",
+            "instagram_copy": f"{clean_topic}\n\nLive board > late pack.\n\n#Operations #Manufacturing #SupplyChain",
             "threads_copy": f"{clean_topic} — if it takes a pack to see the shift, you didn't see the shift.",
-            "hashtags": ["#Operations", "#Manufacturing", "#SupplyChain", "#Automation", "#B2B"],
+            "hashtags": ["#Operations", "#Manufacturing"],
             "cta": "What's the one report you'd kill first if the floor already had the truth?",
-            "first_comment": f"How {company_name} replaces the pack: live ops dashboards, not another export.",
-            "alt_text": f"Live operations control room with a large wall display of throughput and dispatch metrics for {clean_headline}.",
+            "first_comment": "Happy to share how teams cut reconcile time — what does your close process look like today?",
+            "alt_text": f"Operations team reviewing live throughput metrics for {clean_headline}.",
             "recommended_time": "Tuesday 09:30 AM",
-            "image_prompt": "Photoreal cinematic photo of a mid-market operations control room, large wall screens with abstract charts (no readable fake UI text), supervisors in workwear, warehouse visible through glass, cool industrial lighting, no logos",
+            "image_prompt": scene_hint,
         }
 
     # Generate Image with Provider & Key
@@ -595,6 +627,8 @@ What's the one report you'd kill first if the floor already had the truth?""",
     llm_payload["width"] = img_res.get("width", width)
     llm_payload["height"] = img_res.get("height", height)
     llm_payload["topic"] = clean_topic
+    llm_payload["generationSource"] = generation_source
+    llm_payload["needsHumanReview"] = generation_source != "llm"
     if img_res.get("warning"):
         llm_payload["imageWarning"] = img_res["warning"]
 

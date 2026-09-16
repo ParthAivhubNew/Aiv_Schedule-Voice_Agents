@@ -3,7 +3,7 @@ import uuid
 import time
 import httpx
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -214,6 +214,12 @@ class TelephonyHubProvisionRequest(BaseModel):
     webhook_url: Optional[str] = None
     signing_secret: Optional[str] = None
 
+
+class SelectVoiceRequest(BaseModel):
+    voice_id: str
+    label: Optional[str] = None
+    provider: Optional[str] = "xai"
+
 @router.get("/telephony-hub")
 async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     """
@@ -269,6 +275,9 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         configured_voice = engine_conn.config.get("voice_name") or engine_conn.config.get("voice") or configured_voice
         configured_silence = engine_conn.config.get("silence_duration_ms", 380)
         configured_temp = engine_conn.config.get("temperature", 0.80)
+        stored_custom = engine_conn.config.get("custom_voices") or []
+    else:
+        stored_custom = []
 
     live_engine = "xai"
     live_note = ""
@@ -286,6 +295,15 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     except Exception as plan_err:
         logger.warning(f"Could not resolve live voice plan: {plan_err}")
 
+    custom_voices = list(stored_custom) if isinstance(stored_custom, list) else []
+    try:
+        from app.services.voice_clone import list_xai_custom_voices, upsert_voice_list, xai_api_key as _xai_key
+        remote, _err = await list_xai_custom_voices(_xai_key(engine_conn))
+        for v in remote:
+            custom_voices = upsert_voice_list(custom_voices, v)
+    except Exception as v_err:
+        logger.warning(f"Could not list xAI custom voices: {v_err}")
+
     return {
         "activeCarrier": active_carrier,
         "activeEngine": active_engine,
@@ -297,6 +315,8 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "phoneNumber": active_phone,
         "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
         "voiceName": configured_voice,
+        "clonedVoiceLabel": (engine_conn.config.get("cloned_voice_label") if engine_conn and isinstance(engine_conn.config, dict) else None),
+        "customVoices": custom_voices,
         "silenceDurationMs": configured_silence,
         "temperature": configured_temp,
         "status": "connected" if is_connected else "configured",
@@ -310,6 +330,131 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "signingSecretMasked": (clean_secret[:8] + "••••••••" + clean_secret[-4:]) if clean_secret and len(clean_secret) > 12 else ("whsec_••••••••" if clean_secret else "Not configured"),
         "isLive": is_connected or os.getenv("VOICE_ENGINE_MODE") == "live"
     }
+
+
+@router.get("/telephony-hub/voices")
+async def list_cloned_voices(db: AsyncSession = Depends(get_db)):
+    from app.services.voice_clone import (
+        _orchestration_conn,
+        list_xai_custom_voices,
+        stored_custom_voices,
+        upsert_voice_list,
+        xai_api_key,
+    )
+    conn = await _orchestration_conn(db)
+    voices = stored_custom_voices(conn)
+    remote, err = await list_xai_custom_voices(xai_api_key(conn))
+    for v in remote:
+        voices = upsert_voice_list(voices, v)
+    cfg = conn.config if conn and isinstance(conn.config, dict) else {}
+    return {
+        "success": True,
+        "voices": voices,
+        "activeVoice": cfg.get("voice_name") or settings.XAI_VOICE_NAME,
+        "xaiListError": err,
+    }
+
+
+@router.post("/telephony-hub/voices/clone")
+async def clone_recorded_voice(
+    name: str = Form("My voice"),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.voice_clone import (
+        _orchestration_conn,
+        clone_on_elevenlabs,
+        clone_on_xai,
+        elevenlabs_api_key,
+        save_orchestration_config,
+        stored_custom_voices,
+        upsert_voice_list,
+        xai_api_key,
+    )
+    audio = await file.read()
+    if not audio or len(audio) < 2000:
+        raise HTTPException(status_code=400, detail="Recording too short. Speak 30–90 seconds in a quiet room.")
+    if len(audio) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Recording too large (max 25 MB).")
+
+    conn = await _orchestration_conn(db)
+    cfg = conn.config if conn and isinstance(conn.config, dict) else {}
+    engine = str(cfg.get("engine") or conn.name if conn else "xai").lower()
+    filename = file.filename or "reference.webm"
+    ctype = file.content_type or "audio/webm"
+    xai_key = xai_api_key(conn)
+    el_key = await elevenlabs_api_key(db)
+
+    clone = None
+    xai_err = None
+    if xai_key and xai_key.startswith("xai-"):
+        try:
+            clone = await clone_on_xai(xai_key, audio, filename, ctype, name.strip() or "My voice")
+        except Exception as err:
+            xai_err = str(err)
+            logger.warning(f"xAI voice clone failed: {err}")
+
+    if clone is None and ("modular" in engine) and el_key:
+        try:
+            clone = await clone_on_elevenlabs(el_key, audio, filename, ctype, name.strip() or "My voice")
+        except Exception as err:
+            logger.warning(f"ElevenLabs voice clone failed: {err}")
+            raise HTTPException(status_code=400, detail=f"Clone failed: {err}")
+
+    if clone is None:
+        needs_console = bool(xai_err and ("403" in xai_err or "Enterprise" in xai_err or "not enabled" in xai_err.lower()))
+        msg = (
+            "xAI clone API is Enterprise-only. Clone in console.x.ai (Custom Voices) then paste the Voice ID below."
+            if needs_console or (xai_key and xai_key.startswith("xai-"))
+            else (xai_err or "No xAI API key saved. Add the key in this hub, then clone, or paste a Voice ID from console.x.ai.")
+        )
+        raise HTTPException(status_code=403 if needs_console else 400, detail=msg)
+
+    voices = upsert_voice_list(stored_custom_voices(conn), clone)
+    await save_orchestration_config(db, {
+        "custom_voices": voices,
+        "voice_name": clone["voice_id"],
+        "cloned_voice_id": clone["voice_id"],
+        "cloned_voice_label": clone.get("name") or name,
+    })
+    settings.XAI_VOICE_NAME = clone["voice_id"]
+    return {
+        "success": True,
+        "voice": clone,
+        "voices": voices,
+        "message": f"Cloned voice saved. Live Grok calls will use {clone.get('name') or clone['voice_id']}.",
+    }
+
+
+@router.post("/telephony-hub/voices/select")
+async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depends(get_db)):
+    from app.services.voice_clone import (
+        _orchestration_conn,
+        save_orchestration_config,
+        stored_custom_voices,
+        upsert_voice_list,
+    )
+    vid = (req.voice_id or "").strip()
+    if not vid:
+        raise HTTPException(status_code=400, detail="voice_id is required.")
+    conn = await _orchestration_conn(db)
+    voices = stored_custom_voices(conn)
+    label = (req.label or "").strip()
+    builtins = {"ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage", "rachel", "adam", "sonic"}
+    if vid.lower() not in builtins:
+        voices = upsert_voice_list(voices, {
+            "voice_id": vid,
+            "name": label or vid,
+            "provider": req.provider or "xai",
+        })
+    await save_orchestration_config(db, {
+        "custom_voices": voices,
+        "voice_name": vid,
+        "cloned_voice_id": vid if vid.lower() not in builtins else None,
+        "cloned_voice_label": label or vid,
+    })
+    settings.XAI_VOICE_NAME = vid
+    return {"success": True, "voice_id": vid, "voices": voices, "message": f"Active voice set to {label or vid}."}
 
 
 @router.post("/telephony-hub/provision")
@@ -518,6 +663,14 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 db.add(CompanyProfile(id="default", caller_id=phone_clean))
             await db.flush()
 
+            prev_voices = []
+            prev_label = None
+            prev_orch = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            prev_c = prev_orch.scalars().first()
+            if prev_c and isinstance(prev_c.config, dict):
+                prev_voices = prev_c.config.get("custom_voices") or []
+                prev_label = prev_c.config.get("cloned_voice_label")
+
             # Clean and re-insert Telephony and Voice Orchestration connections
             await db.execute(delete(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
             
@@ -547,6 +700,9 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                     "engine": engine,
                     "engine_label": engine_name,
                     "voice_name": req.voice_name or "ara",
+                    "custom_voices": prev_voices,
+                    "cloned_voice_id": None if (req.voice_name or "ara") in ("ara", "eve", "rex", "leo") else (req.voice_name or None),
+                    "cloned_voice_label": prev_label if (req.voice_name and req.voice_name not in ("ara", "eve", "rex", "leo")) else None,
                     "silence_duration_ms": req.silence_duration_ms or 380,
                     "temperature": req.temperature or 0.80
                 }

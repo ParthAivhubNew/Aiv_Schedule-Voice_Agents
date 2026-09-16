@@ -226,19 +226,40 @@ async def generate_package_endpoint(payload: Dict[str, Any], db: AsyncSession = 
 
     company_name = "AIVHub"
     company_pitch = "AI-powered business intelligence dashboards"
+    company_context = ""
+    linkedin_directive = (payload.get("linkedinDirective") or payload.get("linkedin_directive") or "").strip()
     try:
         prof_res = await db.execute(select(CompanyProfile).limit(1))
         profile = prof_res.scalars().first()
         if profile:
             company_name = profile.name or company_name
             company_pitch = profile.pitch or company_pitch
+            bits = [profile.pitch or "", profile.industry or "", profile.website or ""]
+            company_context = "\n".join(x for x in bits if x).strip()
     except Exception as e:
         logger.warning(f"Could not load company profile for package: {e}")
+
+    try:
+        from app.services.rag_service import search_knowledge
+        hits = await search_knowledge(db, topic, top_k=3, min_score=0.38)
+        if hits:
+            kb_lines = []
+            for h in hits:
+                title = (h.get("title") or "Note").strip()
+                content = (h.get("content") or "").strip().replace("\n", " ")[:420]
+                if content:
+                    kb_lines.append(f"- {title}: {content}")
+            if kb_lines:
+                company_context = (company_context + "\n\nKnowledge base:\n" + "\n".join(kb_lines)).strip()
+    except Exception as kb_err:
+        logger.warning(f"Knowledge lookup for package skipped: {kb_err}")
 
     package = await generate_complete_social_package(
         topic=topic,
         company_name=company_name,
         company_pitch=company_pitch,
+        company_context=company_context,
+        linkedin_directive=linkedin_directive,
         api_key=api_key,
         provider=provider,
         model=model,
@@ -654,7 +675,14 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
     if not image_url or "pollinations.ai" in image_url.lower():
         from app.services.post_writer import create_topic_image_prompt
         prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
-        img = await generate_image_with_provider(prompt=prompt, style="modern_saas", aspect_ratio="16:9", db=db)
+        img = await generate_image_with_provider(
+            prompt=prompt,
+            style="modern_saas",
+            aspect_ratio="16:9",
+            model=payload.get("model") or payload.get("image_model") or payload.get("imageModel"),
+            provider=payload.get("image_provider") or payload.get("imageProvider") or payload.get("provider"),
+            db=db,
+        )
         if img.get("imageUrl"):
             post.image_prompt = img.get("imagePrompt") or prompt
             post.image_url = img["imageUrl"]
