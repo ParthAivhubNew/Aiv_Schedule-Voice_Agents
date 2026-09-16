@@ -148,17 +148,25 @@ async def list_posts(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/generate-image")
-async def generate_image_endpoint(payload: Dict[str, Any]):
+async def generate_image_endpoint(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
     prompt = payload.get("prompt", "")
     title = payload.get("title", "")
     theme = payload.get("theme", "Operations")
     style = payload.get("style", "modern_saas")
     aspect_ratio = payload.get("aspect_ratio") or payload.get("aspectRatio") or "16:9"
 
-    provider = payload.get("provider") or payload.get("image_provider") or payload.get("imageEngine") or "pollinations"
-    api_key = payload.get("api_key") or payload.get("apiKey") or payload.get("image_api_key") or payload.get("imageApiKey")
-    model = payload.get("model") or payload.get("image_model") or payload.get("imageModel")
-    base_url = payload.get("base_url") or payload.get("baseUrl") or payload.get("image_base_url") or payload.get("imageBaseUrl")
+    from app.services.post_writer import resolve_image_credentials
+    creds = await resolve_image_credentials(
+        db=db,
+        provider=payload.get("provider") or payload.get("image_provider") or payload.get("imageEngine") or payload.get("imageProvider"),
+        api_key=payload.get("api_key") or payload.get("apiKey") or payload.get("image_api_key") or payload.get("imageApiKey"),
+        model=payload.get("model") or payload.get("image_model") or payload.get("imageModel"),
+        base_url=payload.get("base_url") or payload.get("baseUrl") or payload.get("image_base_url") or payload.get("imageBaseUrl"),
+    )
+    provider = creds.get("provider")
+    api_key = creds.get("api_key")
+    model = creds.get("model")
+    base_url = creds.get("base_url")
 
     w, h = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
     width = int(payload.get("width", w))
@@ -179,9 +187,10 @@ async def generate_image_endpoint(payload: Dict[str, Any]):
         aspect_ratio=aspect_ratio,
         width=width,
         height=height,
+        db=db,
     )
     return {
-        "status": "ok",
+        "status": img.get("status") or "ok",
         "imageUrl": img.get("imageUrl"),
         "imagePrompt": img.get("imagePrompt") or prompt,
         "prompt": img.get("imagePrompt") or prompt,
@@ -627,6 +636,28 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
             db.add(post)
             await db.commit()
             await db.refresh(post)
+    elif payload:
+        if payload.get("title") or payload.get("topicHeadline"):
+            post.title = payload.get("title") or payload.get("topicHeadline") or post.title
+        if payload.get("copy") or payload.get("linkedinCopy") or payload.get("linkedin_copy"):
+            post.copy = payload.get("copy") or payload.get("linkedinCopy") or payload.get("linkedin_copy")
+        if payload.get("channels"):
+            post.channels = payload.get("channels")
+        if payload.get("imageUrl"):
+            post.image_url = payload.get("imageUrl")
+        if payload.get("imagePrompt"):
+            post.image_prompt = payload.get("imagePrompt")
+        _apply_package_fields(post, payload)
+        await db.commit()
+        await db.refresh(post)
+
+    if not (post.image_url or "").strip():
+        from app.services.post_writer import generate_image_url, create_topic_image_prompt
+        prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
+        post.image_prompt = prompt
+        post.image_url = generate_image_url(prompt, width=1200, height=675)
+        await db.commit()
+        await db.refresh(post)
 
     acc_res = await db.execute(select(SocialAccount))
     accounts = acc_res.scalars().all()

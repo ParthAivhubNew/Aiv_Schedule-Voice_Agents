@@ -1,3 +1,4 @@
+import os
 import re
 import urllib.parse
 import random
@@ -52,13 +53,81 @@ def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 120
         clean_prompt = "Business intelligence dashboard analytics operations team"
     style_suffix = IMAGE_STYLES.get(style, "")
     full_prompt = f"{clean_prompt}, {style_suffix}".strip(", ")
-    encoded = urllib.parse.quote(full_prompt)
+    encoded = urllib.parse.quote(full_prompt, safe="")
     seed = random.randint(1000, 999999)
     
     if aspect_ratio in ASPECT_RATIOS:
         width, height = ASPECT_RATIOS[aspect_ratio]
         
     return f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}"
+
+
+async def resolve_image_credentials(
+    db: Any = None,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Use saved ChatGPT/OpenAI key for images whenever present. Pollinations only if no paid key."""
+    from app.config import settings
+    from app.services.llm_gateway import resolve_llm_credentials
+
+    prov = (provider or "").strip().lower()
+    key = (api_key or "").strip()
+    mod = (model or "").strip()
+    burl = (base_url or "").strip()
+    if "chatgpt" in prov or "gpt" in prov or "dall" in prov:
+        prov = "openai"
+    explicit_paid = any(x in prov for x in ("stability", "fal", "custom"))
+    env_openai = (getattr(settings, "OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY") or "").strip()
+
+    llm = {}
+    try:
+        llm = await resolve_llm_credentials(
+            db=db,
+            api_key=key or None,
+            provider="openai" if (not prov or prov == "pollinations") else prov,
+            model=mod or None,
+            base_url=burl or None,
+        ) or {}
+    except Exception as e:
+        logger.warning(f"resolve_image_credentials llm lookup: {e}")
+
+    llm_key = (llm.get("api_key") or "").strip()
+    llm_prov = (llm.get("provider") or "").strip().lower()
+    if "chatgpt" in llm_prov or "gpt" in llm_prov or "dall" in llm_prov:
+        llm_prov = "openai"
+
+    openai_key = ""
+    if prov in ("", "pollinations", "openai") and key:
+        openai_key = key
+    if not openai_key and llm_prov in ("", "openai") and llm_key:
+        openai_key = llm_key
+    if not openai_key:
+        openai_key = env_openai
+
+    if not explicit_paid and openai_key:
+        return {
+            "provider": "openai",
+            "api_key": openai_key,
+            "model": mod if mod and ("dall-e" in mod or "gpt-image" in mod) else "dall-e-3",
+            "base_url": burl or llm.get("base_url") or "https://api.openai.com/v1",
+        }
+    if explicit_paid and (key or llm_key):
+        return {
+            "provider": prov,
+            "api_key": key or llm_key,
+            "model": mod or llm.get("model"),
+            "base_url": burl or llm.get("base_url"),
+        }
+    return {
+        "provider": prov or "pollinations",
+        "api_key": key or llm_key,
+        "model": mod,
+        "base_url": burl,
+    }
+
 
 async def generate_image_with_provider(
     prompt: str,
@@ -70,61 +139,82 @@ async def generate_image_with_provider(
     aspect_ratio: str = "16:9",
     width: Optional[int] = None,
     height: Optional[int] = None,
+    db: Any = None,
 ) -> Dict[str, Any]:
     """
-    Renders an AI image using the user's selected provider (OpenAI DALL-E 3, Stability SDXL, Fal.ai FLUX, or Pollinations Free).
-    Falls back safely to Pollinations FLUX if an external API key is missing or encounters a rate/quota error.
+    Renders an AI image using the saved ChatGPT/OpenAI key when present.
+    Pollinations is only used when no paid image key exists.
     """
-    prov = (provider or "pollinations").lower().strip()
+    creds = await resolve_image_credentials(
+        db=db, provider=provider, api_key=api_key, model=model, base_url=base_url
+    )
+    prov = (creds.get("provider") or provider or "pollinations").lower().strip()
+    api_key = creds.get("api_key") or api_key
+    model = creds.get("model") or model
+    base_url = creds.get("base_url") or base_url
+    paid = prov in ("openai", "stability", "fal", "custom") and bool((api_key or "").strip() or (base_url or "").strip())
+
     clean_prompt = (prompt or "").strip() or "Business intelligence operations dashboard analytics"
     style_suffix = IMAGE_STYLES.get(style, IMAGE_STYLES.get("modern_saas", ""))
-    full_prompt = f"{clean_prompt}, {style_suffix}".strip(", ")
+    full_prompt = f"{clean_prompt}, {style_suffix}, no watermarks, no unreadable UI text".strip(", ")
 
     def_w, def_h = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
     w = int(width or def_w)
     h = int(height or def_h)
+    fallback_warning = None
 
-    # 1. OpenAI (DALL-E 3 / DALL-E 2)
+    # 1. OpenAI (DALL-E 3 / gpt-image-1)
     if ("openai" in prov or "dall" in prov) and api_key and api_key.strip():
+        last_err = ""
+        dalle_size = "1792x1024" if aspect_ratio == "16:9" else ("1024x1792" if aspect_ratio == "9:16" else "1024x1024")
+        target_url = (base_url or "https://api.openai.com/v1").rstrip("/") + "/images/generations"
+        headers = {
+            "Authorization": f"Bearer {api_key.strip()}",
+            "Content-Type": "application/json",
+        }
+        models_to_try = []
+        for m in (model, "dall-e-3", "gpt-image-1"):
+            if m and m not in models_to_try:
+                models_to_try.append(m)
         try:
-            target_model = model or "dall-e-3"
-            dalle_size = "1792x1024" if aspect_ratio == "16:9" else ("1024x1792" if aspect_ratio == "9:16" else "1024x1024")
-            target_url = (base_url or "https://api.openai.com/v1").rstrip("/") + "/images/generations"
-            headers = {
-                "Authorization": f"Bearer {api_key.strip()}",
-                "Content-Type": "application/json"
-            }
-            body = {
-                "model": target_model,
-                "prompt": full_prompt[:1000],
-                "n": 1,
-                "size": dalle_size
-            }
-            async with httpx.AsyncClient(timeout=40.0) as client:
-                res = await client.post(target_url, headers=headers, json=body)
-                if res.status_code == 200:
-                    d = res.json()
-                    img_url = d.get("data", [{}])[0].get("url")
-                    if img_url:
-                        logger.info(f"OpenAI DALL-E image generated successfully.")
-                        return {
-                            "status": "ok",
-                            "imageUrl": img_url,
-                            "imagePrompt": clean_prompt,
-                            "provider": "openai",
-                            "model": target_model,
-                            "style": style,
-                            "aspect_ratio": aspect_ratio,
-                            "width": w,
-                            "height": h
-                        }
-                logger.warning(f"OpenAI image generation returned {res.status_code}: {res.text[:200]}")
-                fallback_warning = f"OpenAI DALL-E returned {res.status_code}. Switched to Pollinations FLUX."
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                for target_model in models_to_try:
+                    body = {
+                        "model": target_model,
+                        "prompt": full_prompt[:1000],
+                        "n": 1,
+                        "size": dalle_size,
+                    }
+                    if target_model.startswith("dall-e"):
+                        body["response_format"] = "b64_json"
+                    res = await client.post(target_url, headers=headers, json=body)
+                    if res.status_code == 200:
+                        row = (res.json().get("data") or [{}])[0]
+                        img_url = row.get("url")
+                        b64 = row.get("b64_json")
+                        if b64:
+                            img_url = f"data:image/png;base64,{b64}"
+                        if img_url:
+                            logger.info(f"OpenAI image generated via {target_model}")
+                            return {
+                                "status": "ok",
+                                "imageUrl": img_url,
+                                "imagePrompt": clean_prompt,
+                                "provider": "openai",
+                                "model": target_model,
+                                "style": style,
+                                "aspect_ratio": aspect_ratio,
+                                "width": w,
+                                "height": h,
+                            }
+                    last_err = f"{res.status_code}: {res.text[:240]}"
+                    logger.warning(f"OpenAI image {target_model} failed {last_err}")
+            fallback_warning = f"OpenAI image failed ({last_err})"
         except Exception as e:
             logger.warning(f"OpenAI image generation exception: {e}")
-            fallback_warning = f"OpenAI connection error ({e}). Switched to Pollinations FLUX."
+            fallback_warning = f"OpenAI image error ({e})"
     elif ("openai" in prov or "dall" in prov) and (not api_key or not api_key.strip()):
-        fallback_warning = "OpenAI image key not provided. Generated with Pollinations FLUX."
+        fallback_warning = "OpenAI/ChatGPT image key not found in Scheduler AI, Connections, or OPENAI_API_KEY."
 
     # 2. Stability AI (SDXL)
     elif ("stability" in prov or "sdxl" in prov) and api_key and api_key.strip():
@@ -236,7 +326,18 @@ async def generate_image_with_provider(
     else:
         fallback_warning = None
 
-    # Built-in Default / Resilient Fallback: Pollinations FLUX
+    if paid:
+        return {
+            "status": "error",
+            "imageUrl": None,
+            "imagePrompt": clean_prompt,
+            "provider": prov,
+            "model": model,
+            "warning": fallback_warning or f"{prov} image generation failed. Pollinations was not used because a paid image key is configured.",
+            "fallback": False,
+        }
+
+    # Free fallback only when no ChatGPT/OpenAI (or other paid) image key exists
     fallback_url = generate_image_url(clean_prompt, style=style, width=w, height=h, aspect_ratio=aspect_ratio)
     resp = {
         "status": "ok",
@@ -247,11 +348,10 @@ async def generate_image_with_provider(
         "style": style,
         "aspect_ratio": aspect_ratio,
         "width": w,
-        "height": h
+        "height": h,
+        "fallback": True,
+        "warning": fallback_warning or "No OpenAI/ChatGPT image key saved — used free Pollinations.",
     }
-    if fallback_warning:
-        resp["warning"] = fallback_warning
-        resp["fallback"] = True
     return resp
 
 
@@ -317,24 +417,23 @@ async def generate_complete_social_package(
     clean_topic = topic.strip() or "Why ops teams lose 2 days/week to manual spreadsheets"
     
     # 1. Attempt LLM generation if credentials available
-    system_prompt = f"""You are an elite B2B Social Media Marketing Strategist and Copywriter for {company_name}.
-Value Proposition: {company_pitch}.
-Your job is to generate a comprehensive, publication-ready social media content package based on the given topic.
+    system_prompt = f"""You are a sharp B2B ghostwriter for {company_name} ({company_pitch}).
+Write like an ops director who has lived on a plant floor — not a marketing brochure.
 
-Return ONLY a valid JSON object with these EXACT keys:
+Return ONLY valid JSON with these keys:
 {{
-  "hook": "A 1-2 sentence scroll-stopping opening hook designed to beat 'see more' cutoffs",
-  "linkedin_copy": "Full-length LinkedIn post with structured paragraphs, emoji bullets, and compelling business insight",
-  "x_copy": "A punchy, viral tweet strictly under 250 characters with a strong takeaway",
-  "facebook_copy": "Conversational Facebook post with a story angle and a question",
-  "instagram_copy": "Visual-first Instagram caption with line breaks and 5-8 niche hashtags at the end",
-  "threads_copy": "Casual Threads post under 500 characters, conversational, no hashtag dump",
+  "hook": "First visible line before LinkedIn See more. Specific, slightly uncomfortable, no cliché.",
+  "linkedin_copy": "The FULL LinkedIn post (150-220 words). Do NOT repeat the topic title as line 1. Open with a scene or number. Then 3 concrete takeaways with real quantities. One human question at the end. Max 1 emoji. No 'Most leaders don't realize'. No corporate fluff.",
+  "x_copy": "Tweet under 240 chars, one sharp claim.",
+  "facebook_copy": "Conversational post with one story beat and a question.",
+  "instagram_copy": "Short caption + 5 niche hashtags.",
+  "threads_copy": "Casual take under 400 chars.",
   "hashtags": ["#Tag1", "#Tag2", "#Tag3", "#Tag4", "#Tag5"],
-  "cta": "Engaging question or prompt to drive comment interaction",
-  "first_comment": "First comment snippet for resource or demo links (keeps outbound link out of main post)",
-  "image_prompt": "Evocative, descriptive prompt for generating a visual graphic matching this topic",
-  "alt_text": "Accessibility description for the image graphic",
-  "recommended_time": "Optimal day and time to post (e.g. Tuesday 09:30 AM)"
+  "cta": "A question an ops/plant leader would actually answer in comments.",
+  "first_comment": "Useful follow-up or demo line.",
+  "image_prompt": "Photoreal editorial photo of a live operations control room / dispatch wall, no fake UI text, no logos, cinematic lighting",
+  "alt_text": "Plain-language image description",
+  "recommended_time": "Tue 09:30"
 }}"""
 
     llm_payload = None
@@ -364,45 +463,54 @@ Return ONLY a valid JSON object with these EXACT keys:
     if not llm_payload:
         clean_headline = clean_topic.replace("Why ", "").replace("How ", "").strip()
         llm_payload = {
-            "hook": f"Most operations leaders don't realize this: {clean_topic.lower()}.",
-            "linkedin_copy": f"""🚀 {clean_topic}
+            "hook": "Your Thursday pack is already late — and the floor moved on two hours ago.",
+            "linkedin_copy": f"""The spreadsheet that “closes the day” is usually a post-mortem.
 
-In mid-market operations, real-time visibility is the difference between proactive decisions and expensive firefighting.
+A supervisor still walks the line with a clipboard. Someone else re-keys it. By the time leadership sees the number, the bottleneck already shipped.
 
-At {company_name}, we help operational teams replace manual reporting with automated intelligence.
+{company_name} exists so the number on the wall is the same number in the meeting.
 
-Key insights for ops leaders:
-• Eliminate 8+ hours of weekly spreadsheet assembly
-• Spot production and dispatch bottlenecks before delivery deadlines
-• Empower supervisors with live, decision-ready metrics
+What actually changes when the board is live:
+• 8+ hours/week stop going into copy-paste reporting
+• Dispatch sees a slip before the truck leaves, not in Friday's pack
+• Supervisors coach from one screen instead of three exports
 
-How is your team currently tracking daily throughput? Let's discuss in the comments below.
+If your team still rebuilds yesterday every morning, the process is the product — and it's slow.
 
-#Operations #BusinessIntelligence #Automation #B2B #Logistics""",
-            "x_copy": f"Manual reporting shouldn't be running your operations. Real-time dashboards give mid-market teams instant visibility without reporting delay. Read on: {clean_topic.lower()} #OpsEx",
-            "facebook_copy": f"{clean_topic}\n\nReal-time visibility beats end-of-shift spreadsheets. {company_name} helps ops teams see the floor as it happens.\n\nWhat's your team still assembling by hand?",
-            "instagram_copy": f"{clean_topic}\n\nLive ops > stale reports.\nOne screen. Trusted numbers.\n\n#Operations #BusinessIntelligence #Automation #B2BTech #Logistics",
-            "threads_copy": f"{clean_topic} — mid-market teams don't need another PDF pack. They need the number the floor already trusts.",
-            "hashtags": ["#Operations", "#BusinessIntelligence", "#Automation", "#B2BTech", "#Logistics"],
-            "cta": "What's the biggest reporting bottleneck in your operations right now? Drop your thoughts below 👇",
-            "first_comment": f"🔗 Learn how {company_name} helps teams eliminate manual reporting: https://aivhub.io/demo",
-            "alt_text": f"A high-tech digital operational dashboard displaying telemetry and analytics for {clean_headline}.",
-            "recommended_time": "Tuesday 09:30 AM (Peak B2B Traffic)"
+What's the one report you'd kill first if the floor already had the truth?""",
+            "x_copy": f"If the pack is late, the decision is already stale. Live ops beats end-of-shift spreadsheets. {clean_topic}",
+            "facebook_copy": f"{clean_topic}\n\nThe floor already knows. The spreadsheet is just catching up.\n\nWhat report would you retire this month?",
+            "instagram_copy": f"{clean_topic}\n\nLive board > late pack.\n\n#Operations #Manufacturing #SupplyChain #B2B #Automation",
+            "threads_copy": f"{clean_topic} — if it takes a pack to see the shift, you didn't see the shift.",
+            "hashtags": ["#Operations", "#Manufacturing", "#SupplyChain", "#Automation", "#B2B"],
+            "cta": "What's the one report you'd kill first if the floor already had the truth?",
+            "first_comment": f"How {company_name} replaces the pack: live ops dashboards, not another export.",
+            "alt_text": f"Live operations control room with a large wall display of throughput and dispatch metrics for {clean_headline}.",
+            "recommended_time": "Tuesday 09:30 AM",
+            "image_prompt": "Photoreal cinematic photo of a mid-market operations control room, large wall screens with abstract charts (no readable fake UI text), supervisors in workwear, warehouse visible through glass, cool industrial lighting, no logos",
         }
 
     # Generate Image with Provider & Key
+    img_creds = await resolve_image_credentials(
+        db=db,
+        provider=image_provider,
+        api_key=image_api_key or api_key,
+        model=image_model,
+        base_url=image_base_url or base_url,
+    )
     img_prompt = llm_payload.get("image_prompt") or create_topic_image_prompt(clean_topic, style=style)
     width, height = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
     img_res = await generate_image_with_provider(
         prompt=img_prompt,
-        provider=image_provider or "pollinations",
-        api_key=image_api_key,
-        model=image_model,
-        base_url=image_base_url,
+        provider=img_creds.get("provider") or image_provider,
+        api_key=img_creds.get("api_key") or image_api_key or api_key,
+        model=img_creds.get("model") or image_model,
+        base_url=img_creds.get("base_url") or image_base_url,
         style=style,
         aspect_ratio=aspect_ratio,
         width=width,
-        height=height
+        height=height,
+        db=db,
     )
 
     llm_payload["imageUrl"] = img_res.get("imageUrl")

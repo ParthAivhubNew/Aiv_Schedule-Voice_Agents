@@ -66,7 +66,7 @@ def copy_for_platform(post, platform: str) -> str:
     hook = (getattr(post, "hook", None) or "").strip()
     hashtags = getattr(post, "hashtags", None) or []
     if isinstance(hashtags, str):
-        tag_line = hashtags
+        tag_line = hashtags.strip()
     else:
         tag_line = " ".join([t if str(t).startswith("#") else f"#{t}" for t in hashtags if t])
     cta = (getattr(post, "cta", None) or "").strip()
@@ -78,16 +78,30 @@ def copy_for_platform(post, platform: str) -> str:
         "instagram": getattr(post, "instagram_copy", None),
         "threads": getattr(post, "threads_copy", None),
     }.get(p)
-
     body = (channel_copy or getattr(post, "copy", None) or "").strip()
+
     if p == "x":
-        text = body or hook
-        return text[:280]
-    if p == "linkedin":
-        parts = [hook, body, cta, tag_line]
-        return "\n\n".join([x for x in parts if x]).strip()
-    parts = [hook, body, cta, tag_line]
-    return "\n\n".join([x for x in parts if x]).strip() or body
+        return (body or hook)[:280]
+
+    # Full channel draft already includes hook / CTA / tags — do not wrap again.
+    if body and (channel_copy or len(body) > 160):
+        text = body
+        if cta and cta not in text:
+            text = f"{text}\n\n{cta}"
+        if tag_line and tag_line.split()[0] not in text:
+            text = f"{text}\n\n{tag_line}"
+        return text.strip()
+
+    parts = []
+    if hook and hook.lower() not in body.lower():
+        parts.append(hook)
+    if body:
+        parts.append(body)
+    if cta and cta not in body:
+        parts.append(cta)
+    if tag_line and tag_line not in body:
+        parts.append(tag_line)
+    return "\n\n".join(parts).strip()
 
 
 async def fetch_image_bytes(url: Optional[str]) -> Tuple[Optional[bytes], str]:

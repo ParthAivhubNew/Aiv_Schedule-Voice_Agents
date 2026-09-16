@@ -121,7 +121,7 @@ import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
 import { CalcomAdminModal } from "./admin/CalcomAdminModal";
-import { getActiveAiCredentials } from "./tokens";
+import { getActiveAiCredentials, resolveImageCredentials } from "./tokens";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -12680,9 +12680,15 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
     const initialVisibleName = (commonAi?.visibleNames || {})["postWriter"] || saved?.visibleName || "Post Copywriter & Hook Engine";
     const detectedProv = saved?.provider || commonAi?.schedulerAi?.provider || detectProvider(initialModel);
     const matchedKey = (commonAi?.providers || []).find((p) => p.id === detectedProv)?.apiKey || saved?.apiKey || commonAi?.schedulerAi?.apiKey || "";
-
-    const detectedImgProv = saved?.imageProvider || (saved?.imageEngine === "sdxl" ? "stability" : saved?.imageEngine === "custom_engine" ? "custom" : "pollinations");
-    const matchedImgKey = saved?.imageApiKey || (commonAi?.providers || []).find((p) => p.id === detectedImgProv)?.apiKey || (detectedImgProv === "openai" ? matchedKey : "");
+    const openaiImgKey = (commonAi?.providers || []).find((p) => p.id === "openai" || /openai|chatgpt/i.test(p.name || ""))?.apiKey || "";
+    const savedImg = (saved?.imageProvider || "").toLowerCase();
+    const explicitPaidImg = ["stability", "fal", "custom"].includes(savedImg);
+    const detectedImgProv = explicitPaidImg
+      ? saved.imageProvider
+      : (openaiImgKey || saved?.imageApiKey || matchedKey)
+        ? "openai"
+        : (savedImg || "pollinations");
+    const matchedImgKey = saved?.imageApiKey || (detectedImgProv === "openai" ? (openaiImgKey || matchedKey) : "") || (commonAi?.providers || []).find((p) => p.id === detectedImgProv)?.apiKey || "";
     const initialImgVisibleName = (commonAi?.visibleNames || {})["imageStudio"] || saved?.imageVisibleName || "AI Visual Studio";
 
     return {
@@ -14109,13 +14115,13 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
   const schedulerAi = useMemo(() => {
     try {
       const s = localStorage.getItem("aivhub_scheduler_ai");
-      if (s) return JSON.parse(s);
+      if (s) return { ...(commonAi?.schedulerAi || {}), ...JSON.parse(s) };
     } catch (_) {}
     return commonAi?.schedulerAi || {};
   }, [commonAi]);
-
-  const safeProvider = schedulerAi?.imageProvider || "pollinations";
-  const safeApiKey = schedulerAi?.imageApiKey || "";
+  const imageCreds = useMemo(() => resolveImageCredentials(commonAi), [commonAi]);
+  const safeProvider = imageCreds.imageProvider;
+  const safeApiKey = imageCreds.imageApiKey;
   const defaultStyle = schedulerAi?.imageStyle || commonAi?.schedulerAi?.imageStyle || "modern_saas";
   const [style, setStyle] = useState(defaultStyle);
   const [aspectRatio, setAspectRatio] = useState(schedulerAi?.imageAspectRatio || "16:9"); // "16:9" | "1:1" | "9:16"
@@ -14160,8 +14166,8 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
       };
     }
     return {
-      imageUrl: "https://image.pollinations.ai/prompt/Modern%20sleek%20SaaS%20vector%20illustration%20of%20business%20intelligence%20dashboard%20with%20realtime%20analytics%20graphs%2C%20clean%20UI%20gradients%2C%204k?width=1200&height=675&nologo=true&seed=9021",
-      prompt: "Modern sleek SaaS vector illustration of business intelligence dashboard with realtime analytics graphs, clean UI gradients, 4k",
+      imageUrl: "",
+      prompt: "Live operations control room, cinematic, no fake UI text",
       style: "modern_saas",
       ratio: "16:9",
       width: 1200,
@@ -14244,20 +14250,20 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
         width,
         height,
         aspect_ratio: aspectRatio,
-        provider: schedulerAi.imageProvider || "pollinations",
-        image_provider: schedulerAi.imageProvider || "pollinations",
-        api_key: schedulerAi.imageApiKey || "",
-        image_api_key: schedulerAi.imageApiKey || "",
-        model: schedulerAi.imageModel || "",
-        image_model: schedulerAi.imageModel || "",
-        base_url: schedulerAi.imageBaseUrl || "",
-        image_base_url: schedulerAi.imageBaseUrl || "",
+        provider: imageCreds.imageProvider,
+        image_provider: imageCreds.imageProvider,
+        api_key: imageCreds.imageApiKey,
+        image_api_key: imageCreds.imageApiKey,
+        model: imageCreds.imageModel,
+        image_model: imageCreds.imageModel,
+        base_url: imageCreds.imageBaseUrl,
+        image_base_url: imageCreds.imageBaseUrl,
       });
 
       if (res && res.imageUrl) {
         let finalUrl = res.imageUrl;
-        if (forcedSeed && !finalUrl.startsWith("data:")) {
-          finalUrl = `${finalUrl}&seed=${Math.floor(Math.random() * 999999)}`;
+        if (forcedSeed && !finalUrl.startsWith("data:") && !finalUrl.startsWith("blob:")) {
+          finalUrl = finalUrl.includes("?") ? `${finalUrl}&seed=${Math.floor(Math.random() * 999999)}` : finalUrl;
         }
         const newVisual = {
           imageUrl: finalUrl,
@@ -14266,7 +14272,7 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
           ratio: aspectRatio,
           width: res.width || width,
           height: res.height || height,
-          provider: res.provider || schedulerAi.imageProvider || "pollinations",
+          provider: res.provider || imageCreds.imageProvider,
         };
         setCurrentVisual(newVisual);
         if (onWorkingVisualChange) onWorkingVisualChange(newVisual);
@@ -14274,26 +14280,15 @@ function SchedulerImageStudioView({ topics = [], setTopics, posts = [], setPosts
         if (res.warning) {
           showToast(`⚠️ ${res.warning}`);
         } else {
-          const provName = res.provider === "openai" ? "OpenAI DALL-E 3" : res.provider === "stability" ? "Stability SDXL" : res.provider === "fal" ? "Fal.ai FLUX" : "Pollinations FLUX";
-          showToast(`✨ AI visual graphic generated via ${provName}!`);
+          const provName = res.provider === "openai" ? "OpenAI / ChatGPT image" : res.provider === "stability" ? "Stability SDXL" : res.provider === "fal" ? "Fal.ai FLUX" : "Pollinations FLUX";
+          showToast(`✨ Visual generated via ${provName}`);
         }
+      } else {
+        showToast(res?.warning || "Image generation failed. Check ChatGPT/OpenAI key in AI Configuration.");
       }
     } catch (err) {
       console.error("Error generating image:", err);
-      const encoded = encodeURIComponent(`${cleanPrompt}, ${activeStyle}`);
-      const fallbackUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
-      const fallbackVisual = {
-        imageUrl: fallbackUrl,
-        prompt: cleanPrompt,
-        style: activeStyle,
-        ratio: aspectRatio,
-        width,
-        height,
-      };
-      setCurrentVisual(fallbackVisual);
-      if (onWorkingVisualChange) onWorkingVisualChange(fallbackVisual);
-      setHistory((prev) => [fallbackVisual, ...prev].slice(0, 10));
-      showToast("✨ Generated AI visual via Pollinations!");
+      showToast((err && err.message) || "Image generation failed. Check the saved ChatGPT/OpenAI key.");
     } finally {
       setGenerating(false);
     }
@@ -16264,9 +16259,8 @@ function writePostFromTopic(schedule, topic, slot, status, company) {
   const due = slot && isSlotDue(slot);
   const resolved = status || (due ? "awaiting_approval" : "scheduled");
   const kb = (company && company.kbNames) || [];
-  const imagePrompt = t.imagePrompt || `${t.headline || (schedule && schedule.theme) || "Modern operations"}, modern tech illustration, clean design, 4k`;
-  const seed = Math.floor(Math.random() * 900000) + 100000;
-  const imageUrl = t.imageUrl || `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=1200&height=675&nologo=true&seed=${seed}`;
+  const imagePrompt = t.imagePrompt || `${t.headline || (schedule && schedule.theme) || "Modern operations"}, live operations control room, cinematic, no fake UI text`;
+  const imageUrl = t.imageUrl || "";
 
   return {
     id: "post_" + (slot && slot.id) + "_" + t.id,
@@ -18185,7 +18179,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const enrichPostWithAi = async (basePost, topicText) => {
     try {
       const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
-      const imgConf = schedulerImgConf();
+      const imgConf = resolveImageCredentials(commonAi);
       const res = await api.generateSocialPackage({
         topic: topicText || basePost.topicHeadline || basePost.theme,
         style: imgConf.imageStyle || "modern_saas",
@@ -18385,13 +18379,45 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     for (const np of created) {
       enriched.push(await enrichPostWithAi(np, np.topicHeadline || np.theme));
     }
-    if (enriched.length) {
-      setPosts((ps) => [...enriched, ...ps]);
-      enriched.forEach((np) => persistPost(np));
+    const liConnected = (socialAccounts || []).some((a) => a.platform === "linkedin" && a.status === "connected");
+    const out = [];
+    let posted = 0;
+    for (const np of enriched) {
+      persistPost(np);
+      const dueNow = np.status === "awaiting_approval" || np.status === "approved";
+      if (liConnected && dueNow) {
+        try {
+          const res = await api.publishPost(np.id, {
+            title: np.topicHeadline || np.title,
+            copy: np.copy || np.linkedinCopy,
+            linkedinCopy: np.linkedinCopy || np.copy,
+            channels: np.channels || ["linkedin"],
+            status: "approved",
+            slotDateMs: np.dateMs,
+            time: np.time,
+            theme: np.theme,
+            imageUrl: np.imageUrl,
+            imagePrompt: np.imagePrompt,
+            hook: np.hook,
+            hashtags: np.hashtags,
+            cta: np.cta,
+          });
+          const ok = (res.results || []).some((r) => r.ok);
+          if (ok) {
+            posted += 1;
+            out.push({ ...np, status: "published", publishResults: res.results, publishedAt: "just now" });
+            continue;
+          }
+        } catch (e) {
+          console.warn("Auto-publish failed:", e);
+        }
+      }
+      out.push(np);
     }
-    const mailed = mailDuePosts(enriched);
-    setView(mailed ? "approval" : "month");
-    return { n: enriched.length, mailed };
+    if (out.length) setPosts((ps) => [...out, ...ps]);
+    const mailed = mailDuePosts(out.filter((p) => p.status === "awaiting_approval"));
+    setView(posted ? "published" : mailed ? "approval" : "month");
+    return { n: out.length, mailed, posted };
   };
 
   const sendDue = () => {
@@ -18487,8 +18513,16 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         return;
       }
       pushAi("Writing posts with the copywriter model…");
-      writePosts().then(({ n, mailed }) => {
-        pushAi(n ? ("Wrote " + n + " posts from " + company.name + " knowledge (LLM package per slot)." + (mailed ? " " + mailed + " due now — sent for approval." : " They sit on the schedule until due.")) : "Every slotted topic already has a post. Open the calendar or approvals.");
+      writePosts().then(({ n, mailed, posted }) => {
+        if (!n) {
+          pushAi("Every slotted topic already has a post. Open calendar or approvals.");
+          return;
+        }
+        if (posted) {
+          pushAi("Wrote " + n + " posts with ChatGPT copy + image, then posted " + posted + " live to LinkedIn. Future slots wait until due.");
+          return;
+        }
+        pushAi("Wrote " + n + " posts (LLM copy + image attached)." + (mailed ? " " + mailed + " waiting one Confirm in Approvals." : " They sit on the schedule until due.") + " Connect LinkedIn once under Accounts to auto-post next time.");
       });
       return;
     }
@@ -18546,14 +18580,13 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     }
     if (parsed.kind === "publish_all") {
       setTyping(false);
-      const ready = posts.filter((p) => p.status === "approved");
+      const ready = posts.filter((p) => p.status === "approved" || p.status === "awaiting_approval");
       if (!ready.length) {
-        pushAi("Need an approval first — in this app or from the email. Scheduled posts wait until due.");
+        pushAi("Need a written post first. Say “write posts”.");
         return;
       }
-      setPosts((ps) => ps.map((p) => (p.status === "approved" ? { ...p, status: "published", publishedAt: "just now" } : p)));
-      setView("published");
-      pushAi("Posted " + ready.length + " from this software to the connected channels.");
+      pushAi("Publishing " + ready.length + " to connected accounts…");
+      Promise.all(ready.map((p) => confirmPublish(p.id))).then(() => setView("published"));
       return;
     }
     if (parsed.kind === "reject") {
@@ -19099,25 +19132,21 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   const handleRegeneratePostImage = async (post, customPrompt) => {
     try {
       const topicText = customPrompt || post.imagePrompt || post.topicHeadline || post.title || post.theme || "Operations dashboard analytics";
-      let imgConf = {};
-      try {
-        const s = localStorage.getItem("aivhub_scheduler_ai");
-        if (s) imgConf = JSON.parse(s);
-      } catch (_) {}
-      const style = imgConf.imageStyle || commonAi?.schedulerAi?.imageStyle || "modern_saas";
+      const imgConf = resolveImageCredentials(commonAi);
+      const style = imgConf.imageStyle || "modern_saas";
       const res = await api.generateImage({
         prompt: topicText,
         title: post.title || post.topicHeadline,
         theme: post.theme,
         style,
-        provider: imgConf.imageProvider || "pollinations",
-        image_provider: imgConf.imageProvider || "pollinations",
-        api_key: imgConf.imageApiKey || "",
-        image_api_key: imgConf.imageApiKey || "",
-        model: imgConf.imageModel || "",
-        image_model: imgConf.imageModel || "",
-        base_url: imgConf.imageBaseUrl || "",
-        image_base_url: imgConf.imageBaseUrl || "",
+        provider: imgConf.imageProvider,
+        image_provider: imgConf.imageProvider,
+        api_key: imgConf.imageApiKey,
+        image_api_key: imgConf.imageApiKey,
+        model: imgConf.imageModel,
+        image_model: imgConf.imageModel,
+        base_url: imgConf.imageBaseUrl,
+        image_base_url: imgConf.imageBaseUrl,
       });
       if (res && res.imageUrl) {
         setPosts((ps) => ps.map((p) => (p.id === post.id ? { ...p, imageUrl: res.imageUrl, imagePrompt: res.imagePrompt } : p)));

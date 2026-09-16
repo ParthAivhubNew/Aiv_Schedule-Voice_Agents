@@ -128,6 +128,18 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
       }
     }
 
+    const openaiProv = (Array.isArray(commonAi?.providers) ? commonAi.providers : []).find(
+      (p) => p.id === "openai" || /openai|chatgpt|gpt/i.test(p.name || "")
+    );
+    const looksClaude = /claude|anthropic|sonnet/i.test(String(schedModel || "") + String(schedProv || ""));
+    const hasAnthropic = schedProv === "anthropic" && schedKey;
+    if (looksClaude && !hasAnthropic && (openaiProv?.apiKey || (schedProv === "openai" && schedKey))) {
+      schedProv = "openai";
+      schedKey = schedKey || openaiProv?.apiKey;
+      schedModel = "gpt-4o";
+      schedBaseUrl = schedBaseUrl || openaiProv?.baseUrl || "https://api.openai.com/v1";
+    }
+
     // Ultimate fallback: check commonAi.providers or localStorage['aivhub_common_ai'] for ANY working key
     if (!schedKey) {
       let provs = Array.isArray(commonAi?.providers) ? commonAi.providers : [];
@@ -228,6 +240,55 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
     provider: provId,
     model: modelName || "gpt-4o",
     baseUrl: provObj?.baseUrl || commonAi?.schedulerAi?.baseUrl || ""
+  };
+}
+
+/** Prefer saved ChatGPT/OpenAI key for images. Never default to Pollinations if that key exists. */
+export function resolveImageCredentials(commonAi) {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem("aivhub_scheduler_ai") || "{}") || {};
+  } catch (_) {
+    saved = {};
+  }
+  const sched = { ...(commonAi?.schedulerAi || {}), ...saved };
+  const providers = Array.isArray(commonAi?.providers) ? commonAi.providers : [];
+  const openaiProv = providers.find((p) => p.id === "openai" || /openai|chatgpt|dall/i.test(p.name || ""));
+  const openaiKey = [
+    sched.imageApiKey,
+    sched.imageProvider === "openai" ? sched.apiKey : "",
+    openaiProv?.apiKey,
+    /openai|gpt|chatgpt/i.test(String(sched.provider || "") + String(sched.model || "")) ? sched.apiKey : "",
+  ].map((x) => (x || "").trim()).find(Boolean) || "";
+
+  const explicitPaid = ["stability", "fal", "custom"].includes(String(sched.imageProvider || "").toLowerCase());
+  if (explicitPaid && (sched.imageApiKey || "").trim()) {
+    return {
+      imageProvider: sched.imageProvider,
+      imageApiKey: (sched.imageApiKey || "").trim(),
+      imageModel: sched.imageModel || "",
+      imageBaseUrl: sched.imageBaseUrl || "",
+      imageStyle: sched.imageStyle || "modern_saas",
+      imageAspectRatio: sched.imageAspectRatio || "16:9",
+    };
+  }
+  if (openaiKey) {
+    return {
+      imageProvider: "openai",
+      imageApiKey: openaiKey,
+      imageModel: sched.imageModel && /dall-e|gpt-image/i.test(sched.imageModel) ? sched.imageModel : "dall-e-3",
+      imageBaseUrl: sched.imageBaseUrl || openaiProv?.baseUrl || "https://api.openai.com/v1",
+      imageStyle: sched.imageStyle || "modern_saas",
+      imageAspectRatio: sched.imageAspectRatio || "16:9",
+    };
+  }
+  return {
+    imageProvider: sched.imageProvider || "pollinations",
+    imageApiKey: (sched.imageApiKey || "").trim(),
+    imageModel: sched.imageModel || "",
+    imageBaseUrl: sched.imageBaseUrl || "",
+    imageStyle: sched.imageStyle || "modern_saas",
+    imageAspectRatio: sched.imageAspectRatio || "16:9",
   };
 }
 
