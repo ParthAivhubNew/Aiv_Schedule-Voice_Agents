@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     LINKEDIN_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("LINKEDIN_OAUTH_CLIENT_SECRET", None)
     FACEBOOK_OAUTH_CLIENT_ID: Optional[str] = os.getenv("FACEBOOK_OAUTH_CLIENT_ID", None) or os.getenv("FACEBOOK_APP_ID", None)
     FACEBOOK_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("FACEBOOK_OAUTH_CLIENT_SECRET", None) or os.getenv("FACEBOOK_APP_SECRET", None)
+    FACEBOOK_OAUTH_CONFIG_ID: Optional[str] = os.getenv("FACEBOOK_OAUTH_CONFIG_ID", None)
+    INSTAGRAM_OAUTH_CONFIG_ID: Optional[str] = os.getenv("INSTAGRAM_OAUTH_CONFIG_ID", None) or os.getenv("FACEBOOK_OAUTH_CONFIG_ID", None)
     THREADS_OAUTH_CLIENT_ID: Optional[str] = os.getenv("THREADS_OAUTH_CLIENT_ID", None)
     THREADS_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("THREADS_OAUTH_CLIENT_SECRET", None)
 

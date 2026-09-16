@@ -451,6 +451,7 @@ async def upsert_oauth_app(payload: Dict[str, Any], db: AsyncSession = Depends(g
         payload.get("clientId") or payload.get("client_id") or "",
         payload.get("clientSecret") or payload.get("client_secret") or "",
         payload.get("redirectUri") or payload.get("redirect_uri") or "",
+        config_id=payload.get("configId") or payload.get("config_id") or "",
     )
     return {"status": "ok", "app": public_app_dict(app)}
 

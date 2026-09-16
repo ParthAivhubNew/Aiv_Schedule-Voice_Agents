@@ -24,13 +24,57 @@ logger = logging.getLogger("social_oauth")
 
 PLATFORMS = ("linkedin", "x", "facebook", "instagram", "threads")
 
+# Meta only accepts scopes added to your app's Use Case(s) with status "Ready for testing".
+# See: https://developers.facebook.com/docs/permissions/
 SCOPES = {
     "x": "tweet.read tweet.write users.read offline.access",
     "linkedin": "openid profile email w_member_social",
-    "facebook": "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement,instagram_basic,instagram_content_publish,business_management",
-    "instagram": "pages_show_list,instagram_basic,instagram_content_publish,business_management",
+    "facebook": "pages_show_list,pages_read_engagement,pages_manage_posts",
+    "instagram": "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish",
     "threads": "threads_basic,threads_content_publish,threads_manage_replies",
 }
+
+
+def _oauth_scope(platform: str) -> str:
+    """Allow env override; comma-separated scope list."""
+    plat = normalize_platform(platform)
+    env_key = {
+        "facebook": "FACEBOOK_OAUTH_SCOPES",
+        "instagram": "INSTAGRAM_OAUTH_SCOPES",
+    }.get(plat)
+    if env_key:
+        override = (os.getenv(env_key) or "").strip()
+        if override:
+            return override.replace(" ", "")
+    return SCOPES.get(plat, "")
+
+
+def _oauth_config_id(platform: str, row_config: str = "") -> str:
+    plat = normalize_platform(platform)
+    saved = (row_config or "").strip()
+    if saved:
+        return saved
+    if plat == "instagram":
+        return (settings.INSTAGRAM_OAUTH_CONFIG_ID or settings.FACEBOOK_OAUTH_CONFIG_ID or "").strip()
+    if plat in ("facebook", "instagram"):
+        return (settings.FACEBOOK_OAUTH_CONFIG_ID or "").strip()
+    return ""
+
+
+async def _ensure_oauth_app_schema(db: AsyncSession) -> None:
+    try:
+        from sqlalchemy import text
+        await db.execute(text("ALTER TABLE social_oauth_apps ADD COLUMN IF NOT EXISTS config_id VARCHAR DEFAULT ''"))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        try:
+            from sqlalchemy import text
+            await db.execute(text("ALTER TABLE social_oauth_apps ADD COLUMN config_id VARCHAR DEFAULT ''"))
+            await db.commit()
+        except Exception:
+            await db.rollback()
+
 
 ENV_KEYS = {
     "x": ("X_OAUTH_CLIENT_ID", "X_OAUTH_CLIENT_SECRET"),
@@ -76,6 +120,9 @@ async def get_oauth_app(db: AsyncSession, platform: str) -> Dict[str, Any]:
     client_id = (row.client_id if row else "") or ""
     client_secret = (row.client_secret if row else "") or ""
     redirect_uri = (row.redirect_uri if row else "") or ""
+    row_config = ""
+    if row:
+        row_config = getattr(row, "config_id", None) or ""
 
     env_id_key, env_secret_key = ENV_KEYS.get(plat, ("", ""))
     if not client_id and env_id_key:
@@ -93,11 +140,13 @@ async def get_oauth_app(db: AsyncSession, platform: str) -> Dict[str, Any]:
         redirect_uri = default_redirect_uri(plat)
     redirect_uri = redirect_uri.strip()
 
+    config_id = _oauth_config_id(plat, row_config)
     return {
         "platform": plat,
         "clientId": client_id.strip(),
         "clientSecret": client_secret.strip(),
         "redirectUri": redirect_uri,
+        "configId": config_id,
         "configured": bool(client_id.strip() and client_secret.strip()),
         # Prefer saved redirect (set from Accounts UI) over env PUBLIC_BASE_URL
         "callbackUrl": redirect_uri or default_redirect_uri(plat),
@@ -117,11 +166,20 @@ def public_app_dict(app: Dict[str, Any]) -> Dict[str, Any]:
         "hasSecret": bool(app.get("clientSecret")),
         "redirectUri": callback,
         "callbackUrl": callback,
+        "hasConfigId": bool((app.get("configId") or "").strip()),
     }
 
 
-async def save_oauth_app(db: AsyncSession, platform: str, client_id: str, client_secret: str, redirect_uri: str = "") -> Dict[str, Any]:
+async def save_oauth_app(
+    db: AsyncSession,
+    platform: str,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str = "",
+    config_id: str = "",
+) -> Dict[str, Any]:
     plat = normalize_platform(platform)
+    await _ensure_oauth_app_schema(db)
     res = await db.execute(select(SocialOAuthApp).where(SocialOAuthApp.platform == plat))
     row = res.scalars().first()
     if not row:
@@ -133,6 +191,8 @@ async def save_oauth_app(db: AsyncSession, platform: str, client_id: str, client
         row.client_secret = client_secret.strip()
     if redirect_uri is not None:
         row.redirect_uri = (redirect_uri or "").strip()
+    if config_id is not None and hasattr(row, "config_id"):
+        row.config_id = (config_id or "").strip()
     row.updated_at = datetime.utcnow()
     await db.commit()
     return await get_oauth_app(db, plat)
@@ -197,17 +257,27 @@ async def start_oauth(db: AsyncSession, platform: str, frontend_url: str = "") -
         }
         url = "https://threads.net/oauth/authorize?" + urllib.parse.urlencode(q)
     else:
-        # facebook + instagram use Facebook Login
+        # Facebook Login for Business apps should use config_id (not scope). See Meta docs.
+        config_id = app.get("configId") or _oauth_config_id(plat)
         q = {
             "client_id": cid,
             "redirect_uri": redirect,
             "state": state_id,
             "response_type": "code",
-            "scope": SCOPES[plat],
         }
+        if config_id:
+            q["config_id"] = config_id
+        else:
+            q["scope"] = _oauth_scope(plat)
         url = "https://www.facebook.com/v21.0/dialog/oauth?" + urllib.parse.urlencode(q)
 
-    return {"ok": True, "authUrl": url, "state": state_id, "callbackUrl": redirect}
+    return {
+        "ok": True,
+        "authUrl": url,
+        "state": state_id,
+        "callbackUrl": redirect,
+        "usesConfigId": bool((app.get("configId") or _oauth_config_id(plat))),
+    }
 
 
 async def _exchange_x(app, code, verifier) -> Dict[str, Any]:

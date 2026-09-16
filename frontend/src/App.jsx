@@ -17430,7 +17430,7 @@ const SOCIAL_ACCOUNT_GUIDES = {
   },
   facebook: {
     title: "Facebook Page",
-    blurb: "Meta Developer app + Facebook Page (not a personal profile). One-time: save App ID/Secret below, register OAuth callback, then Connect with Facebook. Instagram Business must be linked to the same Page for IG posting.",
+    blurb: "Meta app must enable permissions under Use cases → Customize (each scope “Ready for testing”) or Connect shows Invalid Scopes. Then save App ID/Secret, OAuth callbacks, Connect with Facebook, pick a Page.",
     fields: [
       { key: "accessToken", label: "Page access token", placeholder: "EAAG…", secret: true },
       { key: "accountId", label: "Page ID (optional if token can list pages)", placeholder: "1234567890" },
@@ -17459,7 +17459,7 @@ const SOCIAL_ACCOUNT_GUIDES = {
 function SocialAccountsView({ accounts = [], onChanged }) {
   const [oauthApps, setOauthApps] = useState([]);
   const [setupPlat, setSetupPlat] = useState("linkedin");
-  const [setupForm, setSetupForm] = useState({ clientId: "", clientSecret: "" });
+  const [setupForm, setSetupForm] = useState({ clientId: "", clientSecret: "", configId: "" });
   const [publicBaseUrl, setPublicBaseUrl] = useState(() => {
     try {
       const o = window.location.origin || "";
@@ -17554,9 +17554,10 @@ function SocialAccountsView({ accounts = [], onChanged }) {
         platform: setupPlat,
         clientId: setupForm.clientId.trim(),
         clientSecret: setupForm.clientSecret.trim(),
+        configId: setupForm.configId.trim(),
         redirectUri: `${base}/api/scheduler/oauth/${setupPlat}/callback`,
       });
-      setSetupForm({ clientId: "", clientSecret: "" });
+      setSetupForm({ clientId: "", clientSecret: "", configId: "" });
       setPublicBaseUrl(base);
       loadApps();
       notify(`AIVHub ${SOCIAL_ACCOUNT_GUIDES[setupPlat].title} app saved. Register this callback on the platform, then users click Connect.`);
@@ -17744,6 +17745,20 @@ function SocialAccountsView({ accounts = [], onChanged }) {
               </code>
             ))}
           </div>
+          {(setupPlat === "facebook" || setupPlat === "instagram") && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Facebook Login for Business — Configuration ID (required for Meta “Aiv Test” style apps)</label>
+              <input
+                value={setupForm.configId}
+                onChange={(e) => setSetupForm((f) => ({ ...f, configId: e.target.value }))}
+                placeholder={setupApp.hasConfigId ? "saved — paste to replace" : "From Facebook Login for Business → Configurations"}
+                style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}
+              />
+              <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>
+                Meta Business Login apps reject raw scopes. Create a configuration with only the permissions you enabled, copy its ID here, then Connect (no Invalid Scopes).
+              </div>
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Client ID</label>

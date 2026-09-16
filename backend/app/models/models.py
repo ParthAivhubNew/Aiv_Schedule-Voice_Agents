@@ -383,6 +383,7 @@ class SocialOAuthApp(Base):
     client_id = Column(String, default="")
     client_secret = Column(Text, default="")
     redirect_uri = Column(String, default="")
+    config_id = Column(String, default="")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
