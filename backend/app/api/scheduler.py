@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.database import get_db
+from app.database import get_db, engine
 from app.models.models import SocialPost, SocialEmail, SocialAccount, CompanyProfile
 from app.services.post_writer import (
     parse_chat_intent,
@@ -38,6 +39,38 @@ import random
 logger = logging.getLogger("scheduler_api")
 
 router = APIRouter(prefix="/scheduler", tags=["Post Scheduler"])
+
+_SOCIAL_POST_EXTRA_COLS = [
+    ("topic_id", "VARCHAR"),
+    ("schedule_id", "VARCHAR"),
+    ("tone", "VARCHAR"),
+    ("image_url", "TEXT"),
+    ("image_prompt", "TEXT"),
+    ("hook", "TEXT"),
+    ("linkedin_copy", "TEXT"),
+    ("x_copy", "TEXT"),
+    ("facebook_copy", "TEXT"),
+    ("instagram_copy", "TEXT"),
+    ("threads_copy", "TEXT"),
+    ("hashtags", "JSON"),
+    ("cta", "TEXT"),
+    ("first_comment", "TEXT"),
+    ("alt_text", "TEXT"),
+    ("publish_results", "JSON"),
+    ("published_at", "VARCHAR"),
+]
+
+
+async def _repair_social_posts_schema() -> None:
+    async with engine.begin() as conn:
+        for col, col_type in _SOCIAL_POST_EXTRA_COLS:
+            try:
+                await conn.execute(text(f"ALTER TABLE social_posts ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE social_posts ADD COLUMN {col} {col_type}"))
+                except Exception:
+                    pass
 
 
 def _serialize_post(p: SocialPost) -> Dict[str, Any]:
@@ -97,9 +130,21 @@ def _apply_package_fields(post: SocialPost, payload: Dict[str, Any]):
 
 @router.get("/posts")
 async def list_posts(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SocialPost).order_by(SocialPost.created_at.desc()))
-    posts = result.scalars().all()
-    return [_serialize_post(p) for p in posts]
+    async def _load():
+        result = await db.execute(select(SocialPost).order_by(SocialPost.created_at.desc()))
+        return [_serialize_post(p) for p in result.scalars().all()]
+
+    try:
+        return await _load()
+    except Exception as e:
+        logger.exception("list_posts failed")
+        await db.rollback()
+        await _repair_social_posts_schema()
+        try:
+            return await _load()
+        except Exception as e2:
+            logger.exception("list_posts failed after schema repair")
+            raise HTTPException(status_code=500, detail=str(e2) or str(e))
 
 
 @router.post("/generate-image")
@@ -214,23 +259,23 @@ async def create_post_endpoint(payload: Dict[str, Any], db: AsyncSession = Depen
     image_url = payload.get("imageUrl")
     image_prompt = payload.get("imagePrompt")
 
-    res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
-    existing_post = res.scalars().first()
-    if existing_post:
-        existing_post.title = title
-        existing_post.copy = copy
-        existing_post.channels = channels
-        existing_post.status = status
-        existing_post.slot_date_ms = float(slot_date_ms)
-        existing_post.time = time_str
-        existing_post.theme = theme
-        if image_url is not None:
-            existing_post.image_url = image_url
-        if image_prompt is not None:
-            existing_post.image_prompt = image_prompt
-        _apply_package_fields(existing_post, payload)
-        new_post = existing_post
-    else:
+    async def _upsert():
+        res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
+        existing_post = res.scalars().first()
+        if existing_post:
+            existing_post.title = title
+            existing_post.copy = copy
+            existing_post.channels = channels
+            existing_post.status = status
+            existing_post.slot_date_ms = float(slot_date_ms)
+            existing_post.time = time_str
+            existing_post.theme = theme
+            if image_url is not None:
+                existing_post.image_url = image_url
+            if image_prompt is not None:
+                existing_post.image_prompt = image_prompt
+            _apply_package_fields(existing_post, payload)
+            return existing_post
         new_post = SocialPost(
             id=post_id,
             title=title,
@@ -245,8 +290,22 @@ async def create_post_endpoint(payload: Dict[str, Any], db: AsyncSession = Depen
         )
         _apply_package_fields(new_post, payload)
         db.add(new_post)
-    await db.commit()
-    await db.refresh(new_post)
+        return new_post
+
+    try:
+        new_post = await _upsert()
+        await db.commit()
+        await db.refresh(new_post)
+    except Exception:
+        logger.exception("create_post failed")
+        await db.rollback()
+        await _repair_social_posts_schema()
+        try:
+            new_post = await _upsert()
+            await db.commit()
+            await db.refresh(new_post)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
     return {
         "status": "ok",
@@ -520,19 +579,60 @@ async def delete_account(account_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/posts/{post_id}/publish")
-async def publish_post_endpoint(post_id: str, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
-    post = res.scalars().first()
+async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    payload: Dict[str, Any] = {}
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            payload = raw
+    except Exception:
+        payload = {}
+
+    async def _load():
+        res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
+        return res.scalars().first()
+
+    try:
+        post = await _load()
+    except Exception:
+        logger.exception("publish load failed")
+        await db.rollback()
+        await _repair_social_posts_schema()
+        try:
+            post = await _load()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
     if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+        post = SocialPost(
+            id=post_id,
+            title=payload.get("title") or payload.get("topicHeadline") or "Untitled Social Post",
+            copy=payload.get("copy") or payload.get("linkedinCopy") or payload.get("linkedin_copy") or "",
+            channels=payload.get("channels") or ["linkedin"],
+            status=payload.get("status") or "approved",
+            slot_date_ms=float(payload.get("slotDateMs") or payload.get("dateMs") or (time.time() * 1000)),
+            time=payload.get("time") or "10:00",
+            theme=payload.get("theme") or "Operations",
+            image_url=payload.get("imageUrl"),
+            image_prompt=payload.get("imagePrompt"),
+        )
+        _apply_package_fields(post, payload)
+        db.add(post)
+        try:
+            await db.commit()
+            await db.refresh(post)
+        except Exception:
+            await db.rollback()
+            await _repair_social_posts_schema()
+            db.add(post)
+            await db.commit()
+            await db.refresh(post)
+
     acc_res = await db.execute(select(SocialAccount))
     accounts = acc_res.scalars().all()
     bundled = await publish_post_to_accounts(post, accounts)
     post.publish_results = bundled.get("results") or []
-    if bundled.get("allOk"):
-        post.status = "published"
-        post.published_at = datetime.utcnow().isoformat()
-    elif bundled.get("ok"):
+    if bundled.get("allOk") or bundled.get("ok"):
         post.status = "published"
         post.published_at = datetime.utcnow().isoformat()
     await db.commit()

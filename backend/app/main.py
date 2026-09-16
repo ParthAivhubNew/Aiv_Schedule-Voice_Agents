@@ -79,6 +79,11 @@ async def lifespan(app: FastAPI):
                 pass
 
         for col, col_type in [
+            ("topic_id", "VARCHAR"),
+            ("schedule_id", "VARCHAR"),
+            ("tone", "VARCHAR"),
+            ("image_url", "TEXT"),
+            ("image_prompt", "TEXT"),
             ("hook", "TEXT"),
             ("linkedin_copy", "TEXT"),
             ("x_copy", "TEXT"),

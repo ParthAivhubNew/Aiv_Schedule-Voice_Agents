@@ -18734,7 +18734,40 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   };
   const confirmPublish = async (id) => {
     try {
-      const res = await api.publishPost(id);
+      const current = posts.find((p) => p.id === id) || {};
+      try {
+        await api.createPost({
+          id,
+          title: current.topicHeadline || current.title || "Social Post",
+          copy: current.copy || current.linkedinCopy || "",
+          linkedinCopy: current.linkedinCopy || current.copy || "",
+          channels: current.channels || ["linkedin"],
+          status: "approved",
+          slotDateMs: current.slotDateMs || current.dateMs,
+          time: current.time || "09:00",
+          theme: current.theme || "Operations",
+          imageUrl: current.imageUrl,
+          imagePrompt: current.imagePrompt,
+          hook: current.hook,
+          hashtags: current.hashtags,
+          cta: current.cta,
+        });
+      } catch (_) {}
+      const res = await api.publishPost(id, {
+        title: current.topicHeadline || current.title || "Social Post",
+        copy: current.copy || current.linkedinCopy || "",
+        linkedinCopy: current.linkedinCopy || current.copy || "",
+        channels: current.channels || ["linkedin"],
+        status: "approved",
+        slotDateMs: current.slotDateMs || current.dateMs,
+        time: current.time || "09:00",
+        theme: current.theme || "Operations",
+        imageUrl: current.imageUrl,
+        imagePrompt: current.imagePrompt,
+        hook: current.hook,
+        hashtags: current.hashtags,
+        cta: current.cta,
+      });
       const results = res.results || res.post?.publishResults || [];
       const ok = results.filter((r) => r.ok);
       const fail = results.filter((r) => !r.ok);
