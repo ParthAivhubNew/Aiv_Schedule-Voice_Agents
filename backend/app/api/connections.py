@@ -3,7 +3,7 @@ import uuid
 import time
 import httpx
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -357,8 +357,7 @@ async def list_cloned_voices(db: AsyncSession = Depends(get_db)):
 
 @router.post("/telephony-hub/voices/clone")
 async def clone_recorded_voice(
-    name: str = Form("My voice"),
-    file: UploadFile = File(...),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.voice_clone import (
@@ -371,6 +370,14 @@ async def clone_recorded_voice(
         upsert_voice_list,
         xai_api_key,
     )
+    try:
+        form = await request.form(max_files=2, max_fields=20, max_part_size=25 * 1024 * 1024)
+    except TypeError:
+        form = await request.form()
+    name = str(form.get("name") or "My voice")
+    file = form.get("file")
+    if file is None or not hasattr(file, "read"):
+        raise HTTPException(status_code=400, detail="No audio file. Record your voice, then Save clone.")
     audio = await file.read()
     if not audio or len(audio) < 2000:
         raise HTTPException(status_code=400, detail="Recording too short. Speak 30–90 seconds in a quiet room.")
@@ -380,8 +387,8 @@ async def clone_recorded_voice(
     conn = await _orchestration_conn(db)
     cfg = conn.config if conn and isinstance(conn.config, dict) else {}
     engine = str(cfg.get("engine") or conn.name if conn else "xai").lower()
-    filename = file.filename or "reference.webm"
-    ctype = file.content_type or "audio/webm"
+    filename = getattr(file, "filename", None) or "reference.webm"
+    ctype = getattr(file, "content_type", None) or "audio/webm"
     xai_key = xai_api_key(conn)
     el_key = await elevenlabs_api_key(db)
 

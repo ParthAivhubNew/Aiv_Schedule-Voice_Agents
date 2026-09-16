@@ -13,6 +13,10 @@ export default defineConfig({
         timeout: 180000,
         proxyTimeout: 180000,
       },
+      '/media': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,

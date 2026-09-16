@@ -70,15 +70,18 @@ def copy_for_platform(post, platform: str) -> str:
     else:
         tag_line = " ".join([t if str(t).startswith("#") else f"#{t}" for t in hashtags if t])
     cta = (getattr(post, "cta", None) or "").strip()
+    adapt = bool(getattr(post, "adapt_per_channel", False))
 
-    channel_copy = {
-        "linkedin": getattr(post, "linkedin_copy", None),
-        "x": getattr(post, "x_copy", None),
-        "facebook": getattr(post, "facebook_copy", None),
-        "instagram": getattr(post, "instagram_copy", None),
-        "threads": getattr(post, "threads_copy", None),
-    }.get(p)
-    body = (channel_copy or getattr(post, "copy", None) or "").strip()
+    channel_copy = None
+    if adapt:
+        channel_copy = {
+            "linkedin": getattr(post, "linkedin_copy", None),
+            "x": getattr(post, "x_copy", None),
+            "facebook": getattr(post, "facebook_copy", None),
+            "instagram": getattr(post, "instagram_copy", None),
+            "threads": getattr(post, "threads_copy", None),
+        }.get(p)
+    body = (channel_copy or getattr(post, "copy", None) or getattr(post, "linkedin_copy", None) or "").strip()
 
     if p == "x":
         return (body or hook)[:280]
@@ -513,6 +516,9 @@ async def _publish_instagram(account, token: str, text: str, image_url: Optional
     ig_id = (account.account_id or "").strip()
     if not ig_id:
         return {"ok": False, "platform": "instagram", "error": "Instagram business account ID missing."}
+    if image_url and str(image_url).startswith("data:"):
+        from app.services.media_store import persist_image_url
+        image_url = persist_image_url(image_url)
     if not image_url or str(image_url).startswith("data:"):
         return {"ok": False, "platform": "instagram", "error": "Instagram needs a public image URL. Generate a visual first."}
     async with httpx.AsyncClient(timeout=45.0) as client:
@@ -543,6 +549,9 @@ async def _publish_threads(account, token: str, text: str, image_url: Optional[s
             return {"ok": False, "platform": "threads", "error": tested.get("error")}
         uid = account.account_id
     data = {"access_token": token, "text": text[:500]}
+    if image_url and str(image_url).startswith("data:"):
+        from app.services.media_store import persist_image_url
+        image_url = persist_image_url(image_url)
     if image_url and not str(image_url).startswith("data:"):
         data["media_type"] = "IMAGE"
         data["image_url"] = image_url
@@ -574,10 +583,14 @@ def pick_account_for_channel(accounts: List[Any], channel: str) -> Optional[Any]
     return defaults[0] if defaults else matches[0]
 
 
-async def publish_post_to_accounts(post, accounts: List[Any]) -> Dict[str, Any]:
+async def publish_post_to_accounts(post, accounts: List[Any], public_base: Optional[str] = None) -> Dict[str, Any]:
+    from app.services.media_store import persist_image_url
     channels = post.channels or ["linkedin"]
     if isinstance(channels, str):
         channels = [channels]
+    image_url = persist_image_url(getattr(post, "image_url", None), public_base)
+    if image_url:
+        post.image_url = image_url
     results = []
     for ch in channels:
         plat = normalize_platform(ch)
@@ -590,7 +603,6 @@ async def publish_post_to_accounts(post, accounts: List[Any]) -> Dict[str, Any]:
             })
             continue
         text = copy_for_platform(post, plat)
-        image_url = getattr(post, "image_url", None)
         result = await publish_to_account(acc, text, image_url)
         result["accountId"] = acc.id
         result["handle"] = acc.handle

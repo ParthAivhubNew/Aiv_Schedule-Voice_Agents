@@ -1,7 +1,9 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
+from pathlib import Path
 import logging
 
 from app.config import settings
@@ -150,6 +152,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+try:
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+except Exception:
+    pass
+
+_media_dir = Path(__file__).resolve().parent / "static" / "generated"
+_media_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/media/generated", StaticFiles(directory=str(_media_dir)), name="generated-media")
+
+try:
+    from starlette.formparsers import MultiPartParser
+    MultiPartParser.max_part_size = 25 * 1024 * 1024
+except Exception:
+    pass
 
 # Mount REST API Routers
 app.include_router(auth_router, prefix=settings.API_PREFIX)

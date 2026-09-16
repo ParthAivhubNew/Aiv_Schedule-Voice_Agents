@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -55,6 +55,7 @@ _SOCIAL_POST_EXTRA_COLS = [
     ("cta", "TEXT"),
     ("first_comment", "TEXT"),
     ("alt_text", "TEXT"),
+    ("adapt_per_channel", "BOOLEAN"),
     ("publish_results", "JSON"),
     ("published_at", "VARCHAR"),
 ]
@@ -99,6 +100,7 @@ def _serialize_post(p: SocialPost) -> Dict[str, Any]:
         "tone": p.tone or "Professional",
         "imageUrl": p.image_url,
         "imagePrompt": p.image_prompt,
+        "adaptPerChannel": bool(getattr(p, "adapt_per_channel", False)),
         "publishResults": p.publish_results or [],
         "publishedAt": p.published_at,
         "createdAt": p.created_at.isoformat() if p.created_at else None,
@@ -125,6 +127,35 @@ def _apply_package_fields(post: SocialPost, payload: Dict[str, Any]):
             setattr(post, col, val)
     if payload.get("hashtags") is not None:
         post.hashtags = payload.get("hashtags")
+    adapt = payload.get("adaptPerChannel")
+    if adapt is None:
+        adapt = payload.get("adapt_per_channel")
+    if adapt is not None and hasattr(post, "adapt_per_channel"):
+        post.adapt_per_channel = bool(adapt)
+
+
+def _host_image(image_url, request=None):
+    from app.services.media_store import persist_image_url, public_base_from_request
+    return persist_image_url(image_url, public_base_from_request(request))
+
+
+def _public_base(request=None):
+    from app.services.media_store import public_base_from_request
+    return public_base_from_request(request)
+
+
+@router.get("/media/{filename}")
+async def serve_generated_media(filename: str):
+    from app.services.media_store import safe_media_path
+    path = safe_media_path(filename)
+    if not path:
+        raise HTTPException(status_code=404, detail="Image not found")
+    media_type = "image/jpeg"
+    if filename.endswith(".png"):
+        media_type = "image/png"
+    elif filename.endswith(".webp"):
+        media_type = "image/webp"
+    return FileResponse(path, media_type=media_type)
 
 
 @router.get("/posts")
@@ -147,7 +178,7 @@ async def list_posts(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/generate-image")
-async def generate_image_endpoint(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
     prompt = payload.get("prompt", "")
     title = payload.get("title", "")
     theme = payload.get("theme", "Operations")
@@ -188,9 +219,10 @@ async def generate_image_endpoint(payload: Dict[str, Any], db: AsyncSession = De
         height=height,
         db=db,
     )
+    hosted = _host_image(img.get("imageUrl"), request)
     return {
         "status": img.get("status") or "ok",
-        "imageUrl": img.get("imageUrl"),
+        "imageUrl": hosted,
         "imagePrompt": img.get("imagePrompt") or prompt,
         "prompt": img.get("imagePrompt") or prompt,
         "provider": img.get("provider") or provider,
@@ -203,7 +235,7 @@ async def generate_image_endpoint(payload: Dict[str, Any], db: AsyncSession = De
 
 
 @router.post("/generate-package")
-async def generate_package_endpoint(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+async def generate_package_endpoint(payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
     topic = (
         payload.get("topic")
         or payload.get("custom_angle")
@@ -270,13 +302,16 @@ async def generate_package_endpoint(payload: Dict[str, Any], db: AsyncSession = 
         image_base_url=image_base_url,
         style=style,
         aspect_ratio=aspect_ratio,
+        adapt_per_channel=bool(payload.get("adaptPerChannel") or payload.get("adapt_per_channel")),
         db=db,
     )
+    if package.get("imageUrl"):
+        package["imageUrl"] = _host_image(package.get("imageUrl"), request)
     return {"status": "ok", "package": package}
 
 
 @router.post("/posts/create")
-async def create_post_endpoint(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
     post_id = payload.get("id") or f"post_{uuid.uuid4().hex[:8]}"
     title = payload.get("title") or payload.get("hook") or "Untitled Social Post"
     copy = payload.get("copy") or payload.get("linkedin_copy") or payload.get("linkedinCopy") or ""
@@ -285,7 +320,7 @@ async def create_post_endpoint(payload: Dict[str, Any], db: AsyncSession = Depen
     slot_date_ms = payload.get("slotDateMs") or (time.time() * 1000 + 86400000)
     time_str = payload.get("time", "10:00")
     theme = payload.get("theme", "Operations")
-    image_url = payload.get("imageUrl")
+    image_url = _host_image(payload.get("imageUrl"), request)
     image_prompt = payload.get("imagePrompt")
 
     async def _upsert():
@@ -345,7 +380,7 @@ async def create_post_endpoint(payload: Dict[str, Any], db: AsyncSession = Depen
 
 
 @router.post("/posts/{post_id}/status")
-async def update_post_status(post_id: str, payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+async def update_post_status(post_id: str, payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
     post = res.scalars().first()
     if not post:
@@ -356,7 +391,7 @@ async def update_post_status(post_id: str, payload: Dict[str, Any], db: AsyncSes
     if "copy" in payload and payload["copy"] is not None:
         post.copy = payload["copy"]
     if "imageUrl" in payload:
-        post.image_url = payload["imageUrl"]
+        post.image_url = _host_image(payload["imageUrl"], request)
     if "imagePrompt" in payload:
         post.image_prompt = payload["imagePrompt"]
     if "slotDateMs" in payload and payload["slotDateMs"] is not None:
@@ -643,7 +678,7 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
             slot_date_ms=float(payload.get("slotDateMs") or payload.get("dateMs") or (time.time() * 1000)),
             time=payload.get("time") or "10:00",
             theme=payload.get("theme") or "Operations",
-            image_url=payload.get("imageUrl"),
+            image_url=_host_image(payload.get("imageUrl"), request),
             image_prompt=payload.get("imagePrompt"),
         )
         _apply_package_fields(post, payload)
@@ -665,15 +700,24 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         if payload.get("channels"):
             post.channels = payload.get("channels")
         if payload.get("imageUrl"):
-            post.image_url = payload.get("imageUrl")
+            post.image_url = _host_image(payload.get("imageUrl"), request)
         if payload.get("imagePrompt"):
             post.image_prompt = payload.get("imagePrompt")
         _apply_package_fields(post, payload)
         await db.commit()
         await db.refresh(post)
 
-    image_url = (post.image_url or "").strip()
-    if not image_url or "pollinations.ai" in image_url.lower():
+    image_url = _host_image((post.image_url or "").strip(), request)
+    if image_url and image_url != post.image_url:
+        post.image_url = image_url
+        await db.commit()
+        await db.refresh(post)
+    hosted_ok = bool(
+        image_url
+        and not str(image_url).startswith("data:")
+        and "pollinations.ai" not in str(image_url).lower()
+    )
+    if not hosted_ok:
         from app.services.post_writer import create_topic_image_prompt
         prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
         img = await generate_image_with_provider(
@@ -686,13 +730,13 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         )
         if img.get("imageUrl"):
             post.image_prompt = img.get("imagePrompt") or prompt
-            post.image_url = img["imageUrl"]
+            post.image_url = _host_image(img["imageUrl"], request)
             await db.commit()
             await db.refresh(post)
 
     acc_res = await db.execute(select(SocialAccount))
     accounts = acc_res.scalars().all()
-    bundled = await publish_post_to_accounts(post, accounts)
+    bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
     post.publish_results = bundled.get("results") or []
     if bundled.get("allOk") or bundled.get("ok"):
         post.status = "published"
@@ -708,7 +752,7 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
 
 
 @router.post("/publish-due")
-async def publish_due_endpoint(db: AsyncSession = Depends(get_db)):
+async def publish_due_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
     """Publish approved posts whose slot time has arrived, if accounts are connected."""
     now_ms = time.time() * 1000
     result = await db.execute(select(SocialPost).where(SocialPost.status.in_(["approved", "scheduled"])))
@@ -733,7 +777,10 @@ async def publish_due_endpoint(db: AsyncSession = Depends(get_db)):
         if not due:
             skipped.append(post.id)
             continue
-        bundled = await publish_post_to_accounts(post, accounts)
+        hosted = _host_image(post.image_url, request)
+        if hosted:
+            post.image_url = hosted
+        bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
         post.publish_results = bundled.get("results") or []
         if bundled.get("ok"):
             post.status = "published"

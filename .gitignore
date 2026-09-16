@@ -25,6 +25,10 @@ venv/
 ENV/
 *.venv/
 
+# Generated social images (recreated on generate)
+backend/app/static/generated/*
+!backend/app/static/generated/.gitkeep
+
 # Database & SQLite
 *.db
 *.sqlite3

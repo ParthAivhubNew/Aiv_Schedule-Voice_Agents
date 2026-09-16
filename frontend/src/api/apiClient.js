@@ -24,6 +24,9 @@ export async function apiRequest(endpoint, options = {}) {
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
       let msg = `Request failed with status ${response.status}`;
+      if (response.status === 413) {
+        msg = "Upload too large (413). Record 30–60 seconds; the app compresses audio before send.";
+      }
       if (typeof errData.detail === 'string') {
         msg = errData.detail;
       } else if (Array.isArray(errData.detail)) {

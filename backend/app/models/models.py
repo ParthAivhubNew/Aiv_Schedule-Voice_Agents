@@ -351,6 +351,7 @@ class SocialPost(Base):
     cta = Column(Text, nullable=True)
     first_comment = Column(Text, nullable=True)
     alt_text = Column(Text, nullable=True)
+    adapt_per_channel = Column(Boolean, default=False)
     publish_results = Column(JSON, default=list)
     published_at = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

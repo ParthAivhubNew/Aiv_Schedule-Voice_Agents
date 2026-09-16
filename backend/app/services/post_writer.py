@@ -493,6 +493,7 @@ async def generate_complete_social_package(
     image_base_url: Optional[str] = None,
     style: str = "modern_saas",
     aspect_ratio: str = "16:9",
+    adapt_per_channel: bool = False,
     db: Any = None
 ) -> Dict[str, Any]:
     """
@@ -517,30 +518,40 @@ async def generate_complete_social_package(
     )
     scene_hint = pick_image_scene(clean_topic)
 
+    if adapt_per_channel:
+        copy_schema = f'''
+  "copy": "Canonical post body (140-200 words) about THIS topic: {clean_topic}.",
+  "linkedin_copy": "LinkedIn version of the same idea.",
+  "facebook_copy": "Facebook version of the same idea, conversational.",
+  "instagram_copy": "Instagram caption of the same idea, line breaks, 3-5 hashtags at end.",
+  "threads_copy": "Short take of the same idea under 400 chars.",
+  "x_copy": "Tweet under 240 chars, same claim."'''
+    else:
+        copy_schema = f'''
+  "copy": "ONE post used on every selected channel (140-200 words). Must be clearly about: {clean_topic}. Do NOT swap in a different story. Do NOT repeat the topic title as line 1. Open with a scene or one number from this topic. Short paragraphs. NO numbered lists. One question at the end. Max 1 emoji. Mention {company_name} at most once."'''
+
     # 1. Attempt LLM generation if credentials available
     system_prompt = f"""You are a sharp B2B ghostwriter for {company_name} ({company_pitch}).
 Write like an ops director who has lived on a plant floor — not a marketing brochure.
 
+The user topic is the assignment. Every sentence must serve that topic. Do not write a generic Thursday-pack post unless the topic is about late reporting packs.
+
 Company facts (use only these; do not invent metrics or customers):
 {kb_block or "No extra facts supplied — use plausible industry detail but no fake case studies or percentages."}
 
-LinkedIn rules: {li_rules}
+Voice: {li_rules}
 
 Banned phrases: delve, game-changer, revolutionary, in today's fast-paced world, most leaders don't realize, three things we keep seeing, unlock, leverage synergy.
 
 Return ONLY valid JSON with these keys:
 {{
-  "hook": "First visible line before LinkedIn See more. Specific, slightly uncomfortable, no cliché.",
-  "linkedin_copy": "FULL LinkedIn post (140-200 words). Do NOT repeat the topic title as line 1. Open with a scene or one ugly number. Short paragraphs. NO numbered lists (no 1. 2. 3.). One human question at the end. Max 1 emoji. Mention {company_name} at most once, naturally.",
-  "x_copy": "Tweet under 240 chars, one sharp claim.",
-  "facebook_copy": "Warm, conversational, 2-4 short paragraphs, one story beat, question at end, no hashtag spam.",
-  "instagram_copy": "Visual caption under 120 words, line breaks, 3-5 niche hashtags at end only.",
-  "threads_copy": "Casual take under 400 chars.",
+  "hook": "First visible line. Specific to the topic, slightly uncomfortable, no cliché.",
+{copy_schema}
   "hashtags": ["#Tag1", "#Tag2"],
-  "cta": "A question an ops/plant leader would actually answer in comments.",
+  "cta": "A question a reader of THIS topic would actually answer.",
   "first_comment": "Useful follow-up (not a sales pitch).",
-  "image_prompt": "{scene_hint}",
-  "alt_text": "Plain-language image description",
+  "image_prompt": "Photoreal editorial photo that illustrates THIS topic ({clean_topic}). {scene_hint}",
+  "alt_text": "Plain-language image description matching the topic",
   "recommended_time": "Tue 09:30"
 }}"""
 
@@ -548,7 +559,7 @@ Return ONLY valid JSON with these keys:
     generation_source = "fallback"
     try:
         res = await call_open_chat_llm(
-            messages=[{"role": "user", "content": f"Topic: {clean_topic}\nAngle: write for operators and plant leaders."}],
+            messages=[{"role": "user", "content": f"Topic (write ONLY about this): {clean_topic}\nAudience: operators and plant leaders."}],
             system_prompt=system_prompt,
             api_key=api_key,
             provider=provider,
@@ -572,28 +583,40 @@ Return ONLY valid JSON with these keys:
     # 2. Intelligent deterministic fallback if LLM is unavailable
     if not llm_payload:
         clean_headline = clean_topic.replace("Why ", "").replace("How ", "").strip()
+        body = (
+            f"{clean_headline[0].upper() + clean_headline[1:] if clean_headline else clean_topic}.\n\n"
+            f"This is not a slogan. It is the work: {clean_headline}.\n\n"
+            f"If your team still treats this as a slide instead of a shift problem, the process is the product — and it is slow.\n\n"
+            f"What would you change first if this were true on your floor tomorrow?\n\n"
+            f"#Operations"
+        )
         llm_payload = {
-            "hook": "Your Thursday pack is already late — and the floor moved on two hours ago.",
-            "linkedin_copy": f"""The spreadsheet that “closes the day” is usually a post-mortem.
-
-A supervisor still walks the line with a clipboard. Someone else re-keys it. By the time leadership sees the number, the bottleneck already shipped.
-
-If your team still rebuilds yesterday every morning, the process is the product — and it's slow.
-
-What's the one report you'd kill first if the floor already had the truth?
-
-#Operations""",
-            "x_copy": f"If the pack is late, the decision is already stale. Live ops beats end-of-shift spreadsheets. {clean_topic}",
-            "facebook_copy": f"{clean_topic}\n\nThe floor already knows. The spreadsheet is just catching up.\n\nWhat report would you retire this month?",
-            "instagram_copy": f"{clean_topic}\n\nLive board > late pack.\n\n#Operations #Manufacturing #SupplyChain",
-            "threads_copy": f"{clean_topic} — if it takes a pack to see the shift, you didn't see the shift.",
-            "hashtags": ["#Operations", "#Manufacturing"],
-            "cta": "What's the one report you'd kill first if the floor already had the truth?",
-            "first_comment": "Happy to share how teams cut reconcile time — what does your close process look like today?",
-            "alt_text": f"Operations team reviewing live throughput metrics for {clean_headline}.",
+            "hook": clean_headline[:120] or "The floor already moved. The pack did not.",
+            "copy": body,
+            "linkedin_copy": body,
+            "facebook_copy": body,
+            "instagram_copy": body,
+            "threads_copy": body[:400],
+            "x_copy": (clean_headline[:200] + " What would you change first?")[:240],
+            "hashtags": ["#Operations"],
+            "cta": "What would you change first if this were true on your floor tomorrow?",
+            "first_comment": "Curious how you close this today — pack, board, or walk-around?",
+            "alt_text": f"Editorial photo illustrating {clean_headline}.",
             "recommended_time": "Tuesday 09:30 AM",
-            "image_prompt": scene_hint,
+            "image_prompt": f"Photoreal editorial photo that illustrates: {clean_topic}. {scene_hint}",
         }
+
+    canonical = (llm_payload.get("copy") or llm_payload.get("linkedin_copy") or "").strip()
+    if canonical and not adapt_per_channel:
+        llm_payload["copy"] = canonical
+        llm_payload["linkedin_copy"] = canonical
+        llm_payload["facebook_copy"] = canonical
+        llm_payload["instagram_copy"] = canonical
+        llm_payload["threads_copy"] = canonical[:400]
+        llm_payload["x_copy"] = (llm_payload.get("x_copy") or canonical)[:240]
+    elif canonical:
+        llm_payload["copy"] = canonical
+    llm_payload["adaptPerChannel"] = bool(adapt_per_channel)
 
     # Generate Image with Provider & Key
     img_creds = await resolve_image_credentials(
@@ -604,6 +627,8 @@ What's the one report you'd kill first if the floor already had the truth?
         base_url=image_base_url or base_url,
     )
     img_prompt = llm_payload.get("image_prompt") or create_topic_image_prompt(clean_topic, style=style)
+    if clean_topic and clean_topic.lower()[:24] not in (img_prompt or "").lower():
+        img_prompt = f"{clean_topic}. {img_prompt}"
     width, height = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
     img_res = await generate_image_with_provider(
         prompt=img_prompt,
