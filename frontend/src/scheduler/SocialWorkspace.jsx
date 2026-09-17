@@ -119,6 +119,15 @@ function buildMonthCells(year, month) {
   return cells;
 }
 
+function wantsPerChannelDiff(text) {
+  const t = String(text || "").toLowerCase();
+  if (!t.trim()) return false;
+  if (/(each|every|per)\s+(channel|platform|network)|adapt per channel|channel-specific|different (for )?each|unique (for )?each/.test(t)) return true;
+  if (/(different|unique|separate|own)\s+(image|caption|copy|visual|version|post)/.test(t)) return true;
+  if (/(linkedin|instagram|facebook|threads|\bx\b|twitter).{0,48}(different|unique|own|separate)|(different|unique|own|separate).{0,48}(linkedin|instagram|facebook|threads|\bx\b|twitter)/.test(t)) return true;
+  return false;
+}
+
 function companyName(profile) {
   return (profile && (profile.name || profile.company)) || "your company";
 }
@@ -544,6 +553,8 @@ export function SocialWorkspace({
   const [focusPostId, setFocusPostId] = useState("");
   const [imageBusy, setImageBusy] = useState("");
   const [imageNote, setImageNote] = useState({});
+  const [copyBusy, setCopyBusy] = useState("");
+  const [copyNote, setCopyNote] = useState({});
   const [hoverMsg, setHoverMsg] = useState("");
 
   const showToast = (msg) => {
@@ -656,9 +667,10 @@ export function SocialWorkspace({
     }).catch(() => {});
   };
 
-  const applyPlan = (incoming, replaceAll) => {
+  const applyPlan = (incoming, replaceAll, share = true) => {
     if (!incoming || !Array.isArray(incoming.posts) || !incoming.posts.length) return [];
     const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || isoDate(Date.now());
+    const stamp = "b_" + Date.now();
     const nextPosts = incoming.posts.map((raw) => {
       const channel = String(raw.channel || (incoming.channels && incoming.channels[0]) || (channelDrafts[0]) || "linkedin").toLowerCase();
       return {
@@ -672,6 +684,8 @@ export function SocialWorkspace({
         caption: stripAiSlop(raw.caption || raw.captionDraft || raw.copy || ""),
         imagePrompt: raw.imagePrompt || raw.image_prompt || raw.headline || "",
         imageUrl: raw.imageUrl || "",
+        batchId: raw.batchId || incoming.batchId || stamp,
+        uniqueForChannel: !share,
         status: "draft",
         enriching: false,
       };
@@ -708,7 +722,7 @@ export function SocialWorkspace({
     }
     nextPosts.forEach(persistPost);
     const toFill = nextPosts.filter((p) => !p.imageUrl || (p.caption || "").trim().length < 60);
-    fillPackages(toFill);
+    fillPackages(toFill, { share });
     if (nextPosts[0]) {
       setSelectedId(nextPosts[0].id);
       setApprovalOpen(true);
@@ -716,23 +730,38 @@ export function SocialWorkspace({
     return nextPosts;
   };
 
-  const fillPackages = (items) => {
+  const fillPackages = (items, opts = {}) => {
+    const skipImage = !!opts.skipImage;
+    const revisionNote = String(opts.revisionNote || "").trim();
+    const shareOpt = opts.share !== false;
     const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
     const img = resolveImageCredentials(commonAi);
-    (items || []).forEach((item, idx) => {
-      const seed = typeof item === "string" ? null : item;
-      const id = typeof item === "string" ? item : item && item.id;
-      if (!id || enriching.current.has(id)) return;
-      enriching.current.add(id);
-      setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, enriching: true } : p)));
+    const seeds = (items || []).map((item) => (typeof item === "string" ? { id: item } : item)).filter((p) => p && p.id);
+    if (!seeds.length) return;
+    const groups = [];
+    const used = new Set();
+    seeds.forEach((p) => {
+      if (used.has(p.id)) return;
+      const mates = p.batchId && !p.uniqueForChannel
+        ? seeds.filter((q) => q.batchId && q.batchId === p.batchId && !q.uniqueForChannel)
+        : [p];
+      mates.forEach((m) => used.add(m.id));
+      groups.push(mates);
+    });
+    groups.forEach((group, gIdx) => {
+      const lead = group[0];
+      const ids = group.map((g) => g.id);
+      if (ids.some((id) => enriching.current.has(id))) return;
+      ids.forEach((id) => enriching.current.add(id));
+      setPosts((ps) => ps.map((p) => (ids.includes(p.id) ? { ...p, enriching: true } : p)));
       window.setTimeout(async () => {
-        let p = seed;
-        if (!p) {
-          try { p = JSON.parse(localStorage.getItem(LS_POSTS) || "[]").find((row) => row.id === id); } catch (_) {}
+        let p = lead.id && !lead.plan ? null : lead;
+        if (!p || !p.plan) {
+          try { p = JSON.parse(localStorage.getItem(LS_POSTS) || "[]").find((row) => row.id === lead.id) || lead; } catch (_) { p = lead; }
         }
         if (!p) {
-          enriching.current.delete(id);
-          setPosts((ps) => ps.map((row) => (row.id === id ? { ...row, enriching: false } : row)));
+          ids.forEach((id) => enriching.current.delete(id));
+          setPosts((ps) => ps.map((row) => (ids.includes(row.id) ? { ...row, enriching: false } : row)));
           return;
         }
         try {
@@ -740,9 +769,12 @@ export function SocialWorkspace({
           const res = await api.generateSocialPackage({
             topic: p.plan || p.headline,
             existingCopy: p.caption || "",
+            revisionNote,
+            skipImage,
             linkedinDirective: (commonAi && commonAi.channelDirectives && commonAi.channelDirectives.linkedin) || "",
             style: img.imageStyle || "modern_saas",
-            aspect_ratio: (p.channel === "linkedin" ? "4:5" : (img.imageAspectRatio || "16:9")),
+            aspect_ratio: "4:5",
+            adaptPerChannel: false,
             apiKey: creds.apiKey,
             provider: creds.provider,
             model: creds.model,
@@ -754,13 +786,15 @@ export function SocialWorkspace({
             ...companyPayload(profile),
           });
           const pkg = res && res.package;
+          const share = shareOpt && !p.uniqueForChannel;
           setPosts((rows) => rows.map((row) => {
-            if (row.id !== id) return row;
+            const hit = ids.includes(row.id) || (share && p.batchId && row.batchId === p.batchId && !row.uniqueForChannel && row.status !== "posted");
+            if (!hit) return row;
             const src = pkg && pkg.generationSource;
             const assembled = assembleCaption(pkg, row.caption);
             const caption = (src === "llm" && assembled)
               ? assembled
-              : (hadCopy ? row.caption : (assembled || row.caption || ""));
+              : ((revisionNote || hadCopy) && !assembled ? row.caption : (assembled || row.caption || ""));
             const next = {
               ...row,
               enriching: false,
@@ -770,18 +804,19 @@ export function SocialWorkspace({
               hashtags: (pkg && pkg.hashtags) || row.hashtags,
               imageConcept: (pkg && (pkg.imageConcept || pkg.image_concept)) || row.imageConcept,
               imageHeadline: (pkg && (pkg.imageHeadline || pkg.image_headline)) || row.imageHeadline,
-              imageUrl: (pkg && pkg.imageUrl) || row.imageUrl,
-              imagePrompt: (pkg && (pkg.imagePrompt || pkg.image_prompt)) || row.imagePrompt,
+              imageUrl: skipImage ? row.imageUrl : ((pkg && pkg.imageUrl) || row.imageUrl),
+              imagePrompt: skipImage ? row.imagePrompt : ((pkg && (pkg.imagePrompt || pkg.image_prompt)) || row.imagePrompt),
             };
             persistPost(next);
             return next;
           }));
         } catch (_) {
-          setPosts((rows) => rows.map((row) => (row.id === id ? { ...row, enriching: false } : row)));
+          setPosts((rows) => rows.map((row) => (ids.includes(row.id) ? { ...row, enriching: false } : row)));
         } finally {
-          enriching.current.delete(id);
+          ids.forEach((id) => enriching.current.delete(id));
+          setCopyBusy((cur) => (ids.includes(cur) ? "" : cur));
         }
-      }, 150 * idx);
+      }, 80 * gIdx);
     });
   };
 
@@ -871,7 +906,15 @@ export function SocialWorkspace({
           imagePrompt: res.imagePrompt || res.prompt || prompt,
           imageChat: aiTurn ? [...(p.imageChat || []), aiTurn] : (p.imageChat || []),
         };
-        setPosts((ps) => ps.map((row) => (row.id === p.id ? next : row)));
+        setPosts((ps) => ps.map((row) => {
+          if (row.id === p.id) return next;
+          if (!p.uniqueForChannel && !wantsPerChannelDiff(change) && p.batchId && row.batchId === p.batchId && !row.uniqueForChannel && row.status !== "posted") {
+            const shared = { ...row, imageUrl: next.imageUrl, imagePrompt: next.imagePrompt };
+            persistPost(shared);
+            return shared;
+          }
+          return row;
+        }));
         persistPost(next);
       } else {
         showToast((res && res.warning) || "Image generation failed.");
@@ -887,11 +930,25 @@ export function SocialWorkspace({
     const text = String((imageNote && imageNote[p.id]) || "").trim();
     if (!text || !p || imageBusy === p.id) return;
     setImageNote((m) => ({ ...m, [p.id]: "" }));
+    const split = wantsPerChannelDiff(text);
     const userTurn = { id: "im_" + Date.now(), who: "user", text };
     const nextChat = [...(p.imageChat || []), userTurn];
-    const seeded = { ...p, imageChat: nextChat, status: p.status === "posted" ? "posted" : "draft" };
+    const seeded = { ...p, imageChat: nextChat, uniqueForChannel: p.uniqueForChannel || split, status: p.status === "posted" ? "posted" : "draft" };
     setPosts((ps) => ps.map((row) => (row.id === p.id ? seeded : row)));
     await regenImage(seeded, text);
+  };
+
+  const sendCopyChat = (p) => {
+    const text = String((copyNote && copyNote[p.id]) || "").trim();
+    if (!text || !p || copyBusy === p.id || p.enriching) return;
+    setCopyNote((m) => ({ ...m, [p.id]: "" }));
+    const split = wantsPerChannelDiff(text);
+    const userTurn = { id: "cp_" + Date.now(), who: "user", text };
+    const nextChat = [...(p.copyChat || []), userTurn];
+    const seeded = { ...p, copyChat: nextChat, uniqueForChannel: p.uniqueForChannel || split, status: p.status === "posted" ? "posted" : "draft" };
+    setCopyBusy(p.id);
+    setPosts((ps) => ps.map((row) => (row.id === p.id ? seeded : row)));
+    fillPackages([seeded], { skipImage: true, revisionNote: text, share: !split && !p.uniqueForChannel });
   };
 
   const revertTouched = (id, patch) => {
@@ -989,6 +1046,8 @@ export function SocialWorkspace({
     const topic = typed;
     const dates = pinnedDates.length ? pinnedDates.slice() : [dateDraft || isoDate(Date.now())];
     const channels = activeChannels();
+    const batchId = "b_" + Date.now();
+    const perChannel = wantsPerChannelDiff(topic);
     const created = [];
     dates.forEach((date) => {
       channels.forEach((channel) => {
@@ -1003,6 +1062,8 @@ export function SocialWorkspace({
           caption: "",
           imagePrompt: topic,
           imageUrl: "",
+          batchId,
+          uniqueForChannel: perChannel,
           status: "draft",
           enriching: true,
         });
@@ -1015,7 +1076,7 @@ export function SocialWorkspace({
     setApprovalOpen(true);
     setPosts((ps) => [...ps, ...created]);
     created.forEach(persistPost);
-    fillPackages(created);
+    fillPackages(created, { share: !perChannel });
     const d = new Date(parseIsoDate(created[0].date));
     setCal({ year: d.getFullYear(), month: d.getMonth() });
     setPlan({
@@ -1032,7 +1093,9 @@ export function SocialWorkspace({
         kind: "draft",
         postId: created[0].id,
         text: created.length > 1
-          ? ("Drafting " + created.length + " posts (" + dates.length + " day" + (dates.length === 1 ? "" : "s") + " × " + channels.length + " channel" + (channels.length === 1 ? "" : "s") + "). Open Approvals to edit image or copy, then approve.")
+          ? (perChannel
+            ? ("Drafting a different caption + image for each of " + created.length + " slots, because you asked for per-channel versions.")
+            : ("Drafting one caption + one image for " + created.length + " slots (" + dates.length + " day" + (dates.length === 1 ? "" : "s") + " × " + channels.length + " channel" + (channels.length === 1 ? "" : "s") + ")."))
           : ("Drafting for " + dayLabel(created[0].date) + " on " + chLabel + ". Open Approvals to edit image or copy, then approve."),
       },
     ]);
@@ -1116,7 +1179,7 @@ export function SocialWorkspace({
       setTyping(false);
       const incoming = (res && res.plan) || extractPlanFromText(res && res.reply) || extractPlanFromText(text);
       const created = (incoming && Array.isArray(incoming.posts) && incoming.posts.length)
-        ? applyPlan(incoming, true)
+        ? applyPlan(incoming, true, !wantsPerChannelDiff(text))
         : [];
       const spoken = humanizeAiReply((res && res.reply) || "", created.length > 0);
       setChat((cs) => [
@@ -1801,10 +1864,16 @@ export function SocialWorkspace({
                     <div style={{ fontSize: 13, color: C.slate, whiteSpace: "pre-wrap" }}>{p.caption}</div>
                   ) : (
                     <>
+                      <label style={labelStyle}>Headline</label>
+                      <input
+                        value={p.headline || ""}
+                        onChange={(e) => revertTouched(p.id, { headline: e.target.value })}
+                        style={{ width: "100%", boxSizing: "border-box", height: 36, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 10 }}
+                      />
                       <label style={labelStyle}>Image chat</label>
                       <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginBottom: 10, background: HUB_PAPER }}>
                         <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
-                          Tell the visual what to change. AI redraws from that note.
+                          Tell the visual what to change. Same image on every channel unless you ask for a different one (e.g. “different image for Instagram”).
                         </div>
                         <div style={{ maxHeight: 140, overflowY: "auto", marginBottom: 8 }}>
                           {(p.imageChat || []).length === 0 ? (
@@ -1854,9 +1923,48 @@ export function SocialWorkspace({
                         <button type="button" onClick={() => regenImage(p)} disabled={imageBusy === p.id} style={secBtn}>
                           <ImageIcon size={14} /> {imageBusy === p.id ? "Generating…" : (p.imageUrl ? "Regenerate image" : "Generate image")}
                         </button>
-                        <button type="button" onClick={() => chatThisPost(p)} style={secBtn}>
-                          <MessageSquare size={14} /> Chat this post
-                        </button>
+                      </div>
+                      <label style={labelStyle}>Caption chat</label>
+                      <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginBottom: 10, background: HUB_PAPER }}>
+                        <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
+                          Tell AI how to change hook, body, headline, hashtags. Same copy on every channel unless you ask for a unique version. Image stays unless you use Image chat.
+                        </div>
+                        <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: 8 }}>
+                          {(p.copyChat || []).length === 0 ? (
+                            <div style={{ fontSize: 12, color: C.slateLight }}>e.g. “Shorter hook. Softer CTA. Keep the Excel scene. Drop two hashtags.”</div>
+                          ) : (p.copyChat || []).map((m) => (
+                            <div key={m.id} style={{ marginBottom: 6, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
+                              <div style={{
+                                maxWidth: "90%",
+                                padding: "6px 9px",
+                                borderRadius: 8,
+                                background: m.who === "user" ? C.ink : "#fff",
+                                color: m.who === "user" ? "#fff" : C.textInk,
+                                fontSize: 12,
+                                lineHeight: 1.4,
+                                border: m.who === "user" ? "none" : `1px solid ${C.border}`,
+                              }}>
+                                {m.text}
+                              </div>
+                            </div>
+                          ))}
+                          {copyBusy === p.id || p.enriching ? <div style={{ fontSize: 12, color: C.teal }}>Rewriting copy…</div> : null}
+                        </div>
+                        <form
+                          onSubmit={(e) => { e.preventDefault(); sendCopyChat(p); }}
+                          style={{ display: "flex", gap: 6 }}
+                        >
+                          <input
+                            value={copyNote[p.id] || ""}
+                            onChange={(e) => setCopyNote((m) => ({ ...m, [p.id]: e.target.value }))}
+                            placeholder="How should the caption change?"
+                            disabled={copyBusy === p.id || p.enriching}
+                            style={{ flex: 1, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13 }}
+                          />
+                          <button type="submit" disabled={copyBusy === p.id || p.enriching || !(copyNote[p.id] || "").trim()} style={{ ...priBtn, height: 36, background: C.teal }}>
+                            <Send size={14} /> Apply
+                          </button>
+                        </form>
                       </div>
                       <label style={labelStyle}>Post copy</label>
                       <textarea
@@ -1866,7 +1974,12 @@ export function SocialWorkspace({
                         style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
                       />
                       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => fillPackages([p])} style={secBtn}>Rewrite caption</button>
+                        <button type="button" onClick={() => fillPackages([p], { skipImage: true })} disabled={p.enriching} style={secBtn}>
+                          <Sparkles size={14} /> Rewrite caption
+                        </button>
+                        <button type="button" onClick={() => chatThisPost(p)} style={secBtn}>
+                          <MessageSquare size={14} /> Chat in Plan AI
+                        </button>
                         <button type="button" disabled={!!publishing} onClick={() => approveOne(p)} style={priBtn}>
                           <Check size={14} /> {publishing === p.id ? "Posting…" : "Approve & post"}
                         </button>

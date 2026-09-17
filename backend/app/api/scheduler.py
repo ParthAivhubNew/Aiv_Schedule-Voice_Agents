@@ -307,6 +307,8 @@ async def generate_package_endpoint(payload: Dict[str, Any], request: Request, d
         style=style,
         aspect_ratio=aspect_ratio,
         adapt_per_channel=bool(payload.get("adaptPerChannel") or payload.get("adapt_per_channel")),
+        skip_image=bool(payload.get("skipImage") or payload.get("skip_image")),
+        revision_note=(payload.get("revisionNote") or payload.get("revision_note") or "").strip(),
         db=db,
     )
     if package.get("imageUrl"):

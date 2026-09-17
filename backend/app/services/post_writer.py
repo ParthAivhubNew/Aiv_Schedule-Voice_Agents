@@ -736,6 +736,8 @@ async def generate_complete_social_package(
     style: str = "modern_saas",
     aspect_ratio: str = "4:5",
     adapt_per_channel: bool = False,
+    skip_image: bool = False,
+    revision_note: str = "",
     db: Any = None
 ) -> Dict[str, Any]:
     """
@@ -764,11 +766,14 @@ async def generate_complete_social_package(
     clean_topic = user_plan or (company_pitch or "").strip() or "Write about this company's actual offering from the profile. Do not invent another business."
     li_rules = (linkedin_directive or "").strip() or linkedin_craft_brief(brand, company_pitch, company_context)
     draft = (existing_copy or "").strip()
+    note = (revision_note or "").strip()
     draft_block = (
-        f"\nExisting draft (KEEP names, files, meetings, numbers. Thicken only. Do not replace the scene):\n{draft}\n"
+        f"\nExisting draft (KEEP names, files, meetings, numbers unless the revision asks to change them):\n{draft}\n"
         if draft
         else ""
     )
+    if note:
+        draft_block += f"\nREVISION REQUEST (apply this to hook, body, headline, hashtags, CTA — not a new topic):\n{note}\n"
 
     plan_hint = clean_topic.replace('"', "'")[:280]
     if adapt_per_channel:
@@ -812,12 +817,19 @@ Return ONLY valid JSON:
   "alt_text": "Plain-language image description",
   "recommended_time": "Tue 09:30"
 }}"""
-    user_msg = (
-        "Write one complete LinkedIn post + matching image brief.\n"
-        "About the user's post plan. Grounded in the company profile. 120-220 words, 3-6 hashtags."
-        if not draft else
-        "Rewrite the draft. Keep names and numbers. Keep 120-220 words, 3-6 hashtags. Stay on the user's plan."
-    )
+    if note:
+        user_msg = (
+            "Revise the existing draft using the revision request. Return the FULL post JSON "
+            "(hook, copy, hashtags, postTitle, cta). Stay on the same topic and company facts. "
+            "Do not invent a new angle. Do not change the image concept unless the request is about the image."
+        )
+    elif draft:
+        user_msg = "Rewrite the draft. Keep names and numbers. Keep 120-220 words, 3-6 hashtags. Stay on the user's plan."
+    else:
+        user_msg = (
+            "Write one complete LinkedIn post + matching image brief.\n"
+            "About the user's post plan. Grounded in the company profile. 120-220 words, 3-6 hashtags."
+        )
 
     llm_payload = None
     generation_source = "fallback"
@@ -877,6 +889,16 @@ Return ONLY valid JSON:
         llm_payload["linkedin_copy"] = assemble_linkedin_post({**llm_payload, "copy": llm_payload.get("linkedin_copy") or canonical_body})
         llm_payload["copy"] = assembled
     llm_payload["adaptPerChannel"] = bool(adapt_per_channel)
+
+    if skip_image:
+        llm_payload["imageUrl"] = None
+        llm_payload["imagePrompt"] = llm_payload.get("image_prompt") or llm_payload.get("imagePrompt") or ""
+        llm_payload["image_prompt"] = llm_payload["imagePrompt"]
+        llm_payload["generationSource"] = generation_source
+        llm_payload["needsHumanReview"] = generation_source != "llm"
+        llm_payload["topic"] = clean_topic
+        llm_payload["skipImage"] = True
+        return llm_payload
 
     # Generate Image with Provider & Key
     img_creds = await resolve_image_credentials(
