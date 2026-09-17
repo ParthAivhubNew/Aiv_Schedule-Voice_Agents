@@ -107,6 +107,298 @@ function MiniChat({ messages, emptyHint, hint, busyLabel, value, onChange, onSub
   );
 }
 
+function groupPostsByDateChannel(list) {
+  const byDate = {};
+  (list || []).forEach((p) => {
+    const d = p.date || "undated";
+    if (!byDate[d]) byDate[d] = {};
+    const ch = String(p.channel || "linkedin").toLowerCase();
+    if (!byDate[d][ch]) byDate[d][ch] = [];
+    byDate[d][ch].push(p);
+  });
+  const dates = Object.keys(byDate).sort();
+  return dates.map((date) => {
+    const channels = CHANNELS
+      .map((c) => ({ ...c, posts: byDate[date][c.id] || [] }))
+      .filter((c) => c.posts.length);
+    const extras = Object.keys(byDate[date]).filter((id) => !CHANNELS.some((c) => c.id === id));
+    extras.forEach((id) => {
+      channels.push({ id, label: id, color: C.ink, soft: HUB_PAPER, mark: id.slice(0, 2), posts: byDate[date][id] });
+    });
+    const count = channels.reduce((n, c) => n + c.posts.length, 0);
+    return { date, channels, count };
+  });
+}
+
+function ApprovalsBoard({
+  waitingList,
+  doneList,
+  expandedId,
+  setExpandedId,
+  statusColor,
+  statusLabel,
+  imageBusy,
+  imageNote,
+  setImageNote,
+  sendImageChat,
+  regenImage,
+  applyImageToBatch,
+  copyBusy,
+  copyNote,
+  setCopyNote,
+  sendCopyChat,
+  fillPackages,
+  chatThisPost,
+  approveOne,
+  publishing,
+  revertTouched,
+}) {
+  const waitingGroups = useMemo(() => groupPostsByDateChannel(waitingList), [waitingList]);
+  const doneGroups = useMemo(() => groupPostsByDateChannel(doneList), [doneList]);
+  const dimmed = !!expandedId;
+
+  const renderPostRow = (p, isDone) => {
+    const open = expandedId === p.id;
+    const ch = CHANNELS.find((c) => c.id === String(p.channel || "").toLowerCase()) || { color: C.ink, soft: HUB_PAPER };
+    return (
+      <div
+        key={p.id}
+        id={"appr_" + p.id}
+        style={{
+          position: "relative",
+          marginBottom: open ? 12 : 6,
+          marginLeft: 12,
+          zIndex: open ? 5 : 1,
+          opacity: dimmed && !open ? 0.38 : 1,
+          transform: open ? "scale(1.01)" : "scale(1)",
+          transition: "opacity 0.18s ease, transform 0.18s ease",
+          pointerEvents: dimmed && !open ? "none" : "auto",
+        }}
+      >
+        {!open ? (
+          <button
+            type="button"
+            onClick={() => setExpandedId(p.id)}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              border: `1px solid ${C.border}`,
+              borderRadius: 10,
+              background: "#fff",
+              padding: "8px 10px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              fontFamily: FONT_BODY,
+            }}
+          >
+            <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: ch.soft, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {p.imageUrl ? (
+                <img src={p.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <span style={{ fontSize: 10, color: C.slate }}>{p.enriching ? "…" : "—"}</span>
+              )}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.headline || "Draft post"}
+              </div>
+              <div style={{ fontSize: 11, color: C.slate, marginTop: 2 }}>
+                {p.time || "09:00"} · {statusLabel(p.status)}
+              </div>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(p.status), flexShrink: 0 }}>{statusLabel(p.status)}</span>
+          </button>
+        ) : (
+          <div style={{
+            background: "#fff",
+            border: `2px solid ${C.teal}`,
+            borderRadius: 14,
+            padding: 16,
+            boxShadow: "0 16px 40px rgba(18,20,28,0.18)",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10, alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 12, color: C.slate }}>
+                  {dayLabel(p.date)} · {p.time} · {p.channel}
+                  {p.batchId && !p.uniqueForChannel ? " · shared image set" : ""}
+                </div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginTop: 2 }}>
+                  {isDone ? (p.headline || "Post") : "Edit & approve"}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(p.status) }}>{statusLabel(p.status)}</span>
+                <button type="button" onClick={() => setExpandedId("")} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Collapse">
+                  <X size={16} color={C.slate} />
+                </button>
+              </div>
+            </div>
+            {isDone ? (
+              <>
+                {p.imageUrl ? <img src={p.imageUrl} alt="" style={{ width: "100%", borderRadius: 12, marginBottom: 8, maxHeight: 220, objectFit: "cover" }} /> : null}
+                <div style={{ fontSize: 13, color: C.slate, whiteSpace: "pre-wrap" }}>{p.caption}</div>
+              </>
+            ) : (
+              <>
+                {p.imageUrl ? (
+                  <img src={p.imageUrl} alt="" style={{ width: "100%", borderRadius: 12, marginBottom: 8, maxHeight: 220, objectFit: "cover" }} />
+                ) : (
+                  <div style={{ height: 100, borderRadius: 12, background: C.paperSoft, display: "flex", alignItems: "center", justifyContent: "center", color: C.slate, marginBottom: 8, fontSize: 13 }}>
+                    {p.enriching || imageBusy === p.id ? "Generating visual…" : "No image yet"}
+                  </div>
+                )}
+                <MiniChat
+                  messages={p.imageChat}
+                  hint="Image chat — same visual on every channel in this set unless you ask for a different one."
+                  emptyHint="e.g. “Spreadsheet on the left monitor, no fake dashboard UI.”"
+                  busyLabel={imageBusy === p.id ? "Redrawing…" : ""}
+                  value={imageNote[p.id] || ""}
+                  onChange={(v) => setImageNote((m) => ({ ...m, [p.id]: v }))}
+                  onSubmit={() => sendImageChat(p)}
+                  disabled={imageBusy === p.id}
+                  placeholder="Describe the image change…"
+                />
+                <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => regenImage(p)} disabled={imageBusy === p.id} style={secBtn}>
+                    <ImageIcon size={14} /> {imageBusy === p.id ? "Generating…" : (p.imageUrl ? "Regenerate image" : "Generate image")}
+                  </button>
+                  {p.imageUrl && p.batchId && !p.uniqueForChannel ? (
+                    <button type="button" onClick={() => applyImageToBatch(p)} style={secBtn}>
+                      Use this image on all channels
+                    </button>
+                  ) : null}
+                </div>
+                <label style={labelStyle}>Headline</label>
+                <input
+                  value={p.headline || ""}
+                  onChange={(e) => revertTouched(p.id, { headline: e.target.value })}
+                  style={{ width: "100%", boxSizing: "border-box", height: 36, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 10 }}
+                />
+                <label style={labelStyle}>Post copy</label>
+                <textarea
+                  value={p.caption || ""}
+                  onChange={(e) => revertTouched(p.id, { caption: e.target.value })}
+                  rows={5}
+                  style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box", marginBottom: 10 }}
+                />
+                <MiniChat
+                  messages={p.copyChat}
+                  hint="Post text chat — changes headline, hook, body, and hashtags. Image stays unless you use the chat above."
+                  emptyHint="e.g. “Shorter headline. Softer CTA.”"
+                  busyLabel={copyBusy === p.id || p.enriching ? "Rewriting…" : ""}
+                  value={copyNote[p.id] || ""}
+                  onChange={(v) => setCopyNote((m) => ({ ...m, [p.id]: v }))}
+                  onSubmit={() => sendCopyChat(p)}
+                  disabled={copyBusy === p.id || p.enriching}
+                  placeholder="Change headline, hook, body, or hashtags…"
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => fillPackages([p], { skipImage: true })} disabled={p.enriching} style={secBtn}>
+                    <Sparkles size={14} /> Rewrite caption
+                  </button>
+                  <button type="button" onClick={() => chatThisPost(p)} style={secBtn}>
+                    <MessageSquare size={14} /> Chat in Plan AI
+                  </button>
+                  <button type="button" disabled={!!publishing} onClick={() => approveOne(p)} style={priBtn}>
+                    <Check size={14} /> {publishing === p.id ? "Posting…" : "Approve & post"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderGroups = (groups, isDone) => groups.map((g) => (
+    <div key={(isDone ? "d_" : "w_") + g.date} style={{ marginBottom: 18 }}>
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "8px 10px",
+        background: HUB_PAPER,
+        borderRadius: 8,
+        marginBottom: 8,
+        border: `1px solid ${C.border}`,
+      }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+          {g.date === "undated" ? "No date" : dayLabel(g.date)}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>
+          {g.count} post{g.count === 1 ? "" : "s"} · {g.channels.length} channel{g.channels.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      {g.channels.map((ch) => (
+        <div key={g.date + "_" + ch.id} style={{ marginBottom: 10 }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "4px 4px 6px 4px",
+            borderBottom: `1px solid ${C.border}`,
+            marginBottom: 8,
+          }}>
+            <div style={{ width: 22, height: 22, borderRadius: 6, background: ch.soft, color: ch.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800 }}>
+              {ch.mark}
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 12.5, color: C.ink, flex: 1 }}>{ch.label}</div>
+            <div style={{ fontSize: 11, color: C.slate }}>{ch.posts.length}</div>
+          </div>
+          {ch.posts.map((p) => renderPostRow(p, isDone))}
+        </div>
+      ))}
+    </div>
+  ));
+
+  return (
+    <div style={{
+      background: "#fff",
+      border: `1px solid ${C.border}`,
+      borderRadius: 16,
+      padding: 18,
+      boxShadow: "0 2px 10px rgba(18,20,28,0.04)",
+      minHeight: 280,
+    }}>
+      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>
+        Posts by scheduled date
+      </div>
+      <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16, lineHeight: 1.45 }}>
+        Dates nest channels; channels nest posts. Click a row to enlarge and edit. Approve lives in the enlarged card.
+      </div>
+
+      {!waitingGroups.length && !doneGroups.length ? (
+        <div style={{ padding: 24, color: C.slate, fontSize: 13, border: `1px dashed ${C.border}`, borderRadius: 12 }}>
+          No posts yet. Generate a draft first.
+        </div>
+      ) : null}
+
+      {waitingGroups.length ? (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: C.slateLight, marginBottom: 8 }}>WAITING</div>
+          {renderGroups(waitingGroups, false)}
+        </>
+      ) : doneGroups.length ? (
+        <div style={{ padding: "12px 14px", borderRadius: 10, background: HUB_PAPER, color: C.slate, fontSize: 13, marginBottom: 14 }}>
+          No drafts waiting.
+        </div>
+      ) : null}
+
+      {doneGroups.length ? (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: C.slateLight, margin: "12px 0 8px" }}>
+            ALREADY HANDLED
+          </div>
+          {renderGroups(doneGroups, true)}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function assembleCaption(pkg, fallback) {
   if (!pkg) return fallback || "";
   const hook = stripAiSlop(pkg.hook || "");
@@ -825,6 +1117,7 @@ export function SocialWorkspace({
   const [editingId, setEditingId] = useState("");
   const [editText, setEditText] = useState("");
   const [approvalOpen, setApprovalOpen] = useState(false);
+  const [expandedApprovalId, setExpandedApprovalId] = useState("");
   const [pinnedDates, setPinnedDates] = useState(() => {
     const saved = readJson(LS_PINS, []);
     return Array.isArray(saved) ? saved.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
@@ -1490,6 +1783,7 @@ export function SocialWorkspace({
     setDraft("");
     setFocusPostId(created[0].id);
     setSelectedId(created[0].id);
+    setExpandedApprovalId(created[0].id);
     setApprovalOpen(true);
     setPosts((ps) => [...ps, ...created]);
     created.forEach(persistPost);
@@ -1702,7 +1996,10 @@ export function SocialWorkspace({
   };
 
   const openApprovals = (id) => {
-    if (id) setSelectedId(id);
+    if (id) {
+      setSelectedId(id);
+      setExpandedApprovalId(id);
+    }
     setApprovalOpen(true);
   };
 
@@ -2317,9 +2614,9 @@ export function SocialWorkspace({
       </div>
 
       {approvalOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", padding: 24 }} onClick={() => setApprovalOpen(false)}>
-          <div style={{ width: 760, maxWidth: "100%", height: "100%", background: "#fff", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", padding: 24 }} onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); }}>
+          <div style={{ width: 820, maxWidth: "100%", height: "100%", background: HUB_PAPER, borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Approvals</div>
                 <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
@@ -2331,109 +2628,35 @@ export function SocialWorkspace({
                   <Check size={14} /> Approve all drafts
                 </button>
               ) : null}
-              <button type="button" onClick={() => setApprovalOpen(false)} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
+              <button type="button" onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); }} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
             </div>
-            <div style={{ flex: 1, overflowY: "auto", padding: 18, background: HUB_PAPER }}>
-              {waitingList.length === 0 && doneList.length === 0 ? (
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, color: C.slate }}>
-                  No posts yet. Generate a draft first.
-                </div>
-              ) : null}
-              {waitingList.length === 0 && doneList.length > 0 ? (
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, color: C.slate, marginBottom: 12, fontSize: 13 }}>
-                  No drafts waiting. Scheduled / posted items below.
-                </div>
-              ) : null}
-              {waitingList.map((p) => (
-                <div key={p.id} id={"appr_" + p.id} style={{ background: "#fff", border: `1px solid ${selectedId === p.id ? C.teal : C.border}`, borderRadius: 14, padding: 16, marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
-                    <div style={{ fontSize: 12, color: C.slate }}>
-                      {dayLabel(p.date)} · {p.time} · {p.channel} · {statusLabel(p.status)}
-                      {p.batchId && !p.uniqueForChannel ? " · shared image set" : ""}
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(p.status) }}>{statusLabel(p.status)}</span>
-                  </div>
-                  {p.imageUrl ? (
-                    <img src={p.imageUrl} alt="" style={{ width: "100%", borderRadius: 12, marginBottom: 8, maxHeight: 200, objectFit: "cover" }} />
-                  ) : (
-                    <div style={{ height: 100, borderRadius: 12, background: C.paperSoft, display: "flex", alignItems: "center", justifyContent: "center", color: C.slate, marginBottom: 8, fontSize: 13 }}>
-                      {p.enriching || imageBusy === p.id ? "Generating visual…" : "No image yet"}
-                    </div>
-                  )}
-                  <MiniChat
-                    messages={p.imageChat}
-                    hint="Image chat — same visual on every channel in this set unless you ask for a different one."
-                    emptyHint="e.g. “Spreadsheet on the left monitor, no fake dashboard UI.”"
-                    busyLabel={imageBusy === p.id ? "Redrawing…" : ""}
-                    value={imageNote[p.id] || ""}
-                    onChange={(v) => setImageNote((m) => ({ ...m, [p.id]: v }))}
-                    onSubmit={() => sendImageChat(p)}
-                    disabled={imageBusy === p.id}
-                    placeholder="Describe the image change…"
-                  />
-                  <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-                    <button type="button" onClick={() => regenImage(p)} disabled={imageBusy === p.id} style={secBtn}>
-                      <ImageIcon size={14} /> {imageBusy === p.id ? "Generating…" : (p.imageUrl ? "Regenerate image" : "Generate image")}
-                    </button>
-                    {p.imageUrl && p.batchId && !p.uniqueForChannel ? (
-                      <button type="button" onClick={() => applyImageToBatch(p)} style={secBtn}>
-                        Use this image on all channels
-                      </button>
-                    ) : null}
-                  </div>
-                  <label style={labelStyle}>Headline</label>
-                  <input
-                    value={p.headline || ""}
-                    onChange={(e) => revertTouched(p.id, { headline: e.target.value })}
-                    style={{ width: "100%", boxSizing: "border-box", height: 36, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 10 }}
-                  />
-                  <label style={labelStyle}>Post copy</label>
-                  <textarea
-                    value={p.caption || ""}
-                    onChange={(e) => revertTouched(p.id, { caption: e.target.value })}
-                    rows={6}
-                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box", marginBottom: 10 }}
-                  />
-                  <MiniChat
-                    messages={p.copyChat}
-                    hint="Post text chat — under the copy. Changes headline, hook, body, and hashtags together. Image stays unless you use the chat above the picture."
-                    emptyHint="e.g. “Shorter headline. Softer CTA. Drop two hashtags.”"
-                    busyLabel={copyBusy === p.id || p.enriching ? "Rewriting headline and caption…" : ""}
-                    value={copyNote[p.id] || ""}
-                    onChange={(v) => setCopyNote((m) => ({ ...m, [p.id]: v }))}
-                    onSubmit={() => sendCopyChat(p)}
-                    disabled={copyBusy === p.id || p.enriching}
-                    placeholder="Change headline, hook, body, or hashtags…"
-                  />
-                  <div style={{ display: "flex", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
-                    <button type="button" onClick={() => fillPackages([p], { skipImage: true })} disabled={p.enriching} style={secBtn}>
-                      <Sparkles size={14} /> Rewrite caption
-                    </button>
-                    <button type="button" onClick={() => chatThisPost(p)} style={secBtn}>
-                      <MessageSquare size={14} /> Chat in Plan AI
-                    </button>
-                    <button type="button" disabled={!!publishing} onClick={() => approveOne(p)} style={priBtn}>
-                      <Check size={14} /> {publishing === p.id ? "Posting…" : "Approve & post"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {doneList.length ? (
-                <div style={{ marginTop: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: C.slateLight }}>
-                  ALREADY HANDLED ({doneList.length})
-                </div>
-              ) : null}
-              {doneList.map((p) => (
-                <div key={p.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 8, opacity: 0.85 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.headline}</div>
-                      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>{dayLabel(p.date)} · {p.time} · {p.channel}</div>
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(p.status), flexShrink: 0 }}>{statusLabel(p.status)}</span>
-                  </div>
-                </div>
-              ))}
+            <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
+              <ApprovalsBoard
+                waitingList={waitingList}
+                doneList={doneList}
+                expandedId={expandedApprovalId}
+                setExpandedId={(id) => {
+                  setExpandedApprovalId(id);
+                  if (id) setSelectedId(id);
+                }}
+                statusColor={statusColor}
+                statusLabel={statusLabel}
+                imageBusy={imageBusy}
+                imageNote={imageNote}
+                setImageNote={setImageNote}
+                sendImageChat={sendImageChat}
+                regenImage={regenImage}
+                applyImageToBatch={applyImageToBatch}
+                copyBusy={copyBusy}
+                copyNote={copyNote}
+                setCopyNote={setCopyNote}
+                sendCopyChat={sendCopyChat}
+                fillPackages={fillPackages}
+                chatThisPost={chatThisPost}
+                approveOne={approveOne}
+                publishing={publishing}
+                revertTouched={revertTouched}
+              />
             </div>
           </div>
         </div>

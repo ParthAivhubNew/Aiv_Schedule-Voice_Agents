@@ -126,6 +126,8 @@ import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel } fro
 import { SocialWorkspaceGate } from "./scheduler/SocialWorkspace";
 import { EDITION_EVENT, getSchedulerEdition, setSchedulerEdition } from "./scheduler/schedulerEdition";
 import { humanizeAiReply } from "./scheduler/chatClean";
+import { CallingWorkspace } from "./calling/CallingWorkspace";
+import { CALLING_EDITION_EVENT, getCallingEdition, setCallingEdition } from "./calling/callingEdition";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -362,26 +364,40 @@ function dash(v) {
 function CompanyDossierModal({ contact, onClose, onWatchLive, onTakeOver, onBookMeeting, callIsLive }) {
   if (!contact) return null;
   const company = dash(contact.name);
-  const person = dash(contact.contact) || (company && !dash(contact.phone) ? "" : company);
+  const person = dash(contact.contact);
+  const displayName = person || company || "Contact";
   const phone = dash(contact.phone);
   const email = dash(contact.email);
-  const site = dash(contact.site || contact.source || contact.website);
+  const rawSite = dash(contact.site || contact.source || contact.website);
+  const site = looksLikeUrl(rawSite) && rawSite.toLowerCase() !== displayName.toLowerCase() ? rawSite : "";
+  const linkedin = looksLikeUrl(dash(contact.linkedin)) ? dash(contact.linkedin) : "";
   const city = dash(contact.city);
   const title = dash(contact.title);
   const notes = dash(contact.notes);
   const hook = dash(contact.openingHook);
-  const fleet = dash(contact.fleet);
-  const rev = dash(contact.rev);
-  const staff = dash(contact.staff);
-  const stack = dash(contact.stack);
-  const tz = dash(contact.timezone);
-  const facts = [
-    fleet && { label: "Fleet", value: fleet },
-    rev && { label: "Turnover", value: rev },
-    staff && { label: "Staff", value: staff },
-    stack && { label: "Stack", value: stack },
-  ].filter(Boolean);
   const live = Boolean(callIsLive || contact.status === "calling");
+
+  const present = [
+    person && { label: "Person", value: person },
+    company && company !== person && { label: "Company", value: company },
+    title && { label: "Title", value: title },
+    phone && { label: "Phone", value: phone },
+    email && { label: "Email", value: email },
+    city && { label: "City", value: city },
+    site && { label: "Website", value: site, href: site.startsWith("http") ? site : `https://${site}` },
+    linkedin && { label: "LinkedIn", value: linkedin, href: linkedin.startsWith("http") ? linkedin : `https://${linkedin}` },
+    notes && { label: "Notes", value: notes },
+    hook && { label: "Call hook", value: hook },
+  ].filter(Boolean);
+
+  const missing = [
+    !company && "company",
+    !person && "person",
+    !phone && "phone",
+    !email && "email",
+    !site && "website",
+    !linkedin && "LinkedIn",
+  ].filter(Boolean);
 
   return (
     <div
@@ -390,28 +406,14 @@ function CompanyDossierModal({ contact, onClose, onWatchLive, onTakeOver, onBook
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: "#fff", borderRadius: 16, width: 640, maxWidth: "95vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 56px rgba(0,0,0,0.3)", border: `1px solid ${C.border}`, cursor: "default" }}
+        style={{ background: "#fff", borderRadius: 16, width: 560, maxWidth: "95vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 56px rgba(0,0,0,0.3)", border: `1px solid ${C.border}`, cursor: "default" }}
       >
         <div style={{ padding: "20px 26px", borderBottom: `1px solid ${C.border}`, background: HUB_PAPER, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink }}>
-                {person || company || "Contact"}
-              </span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink }}>{displayName}</span>
               <Badge status={contact.status} small />
             </div>
-            <div style={{ fontSize: 13, color: C.slate, marginTop: 6, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-              {company && person && company !== person && <span>{company}</span>}
-              {title && <span>{title}</span>}
-              {city && <span>{city}</span>}
-              {phone && <span>{phone}</span>}
-              {email && <span>{email}</span>}
-            </div>
-            {site ? (
-              <div style={{ fontSize: 12.5, marginTop: 6 }}>
-                <a href={site.startsWith("http") ? site : `https://${site}`} target="_blank" rel="noreferrer" style={{ color: C.cobalt }}>{site}</a>
-              </div>
-            ) : null}
           </div>
           <button
             onClick={onClose}
@@ -421,35 +423,22 @@ function CompanyDossierModal({ contact, onClose, onWatchLive, onTakeOver, onBook
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "22px 26px", display: "flex", flexDirection: "column", gap: 14 }}>
-          {facts.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(facts.length, 4)}, 1fr)`, gap: 12 }}>
-              {facts.map((f) => (
-                <div key={f.label} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>{f.label}</div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginTop: 2 }}>{f.value}</div>
-                </div>
-              ))}
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 0 18px" }}>
+          {present.map((row) => (
+            <div key={row.label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "10px 26px", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", paddingTop: 2 }}>{row.label}</div>
+              <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.45, wordBreak: "break-word" }}>
+                {row.href ? (
+                  <a href={row.href} target="_blank" rel="noreferrer" style={{ color: C.cobalt }}>{row.value}</a>
+                ) : (
+                  row.value
+                )}
+              </div>
             </div>
-          )}
-          {tz && (
-            <div style={{ fontSize: 13, color: C.slate }}>Timezone: {tz}</div>
-          )}
-          {notes && (
-            <div style={{ background: C.cobaltSoft, borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.cobaltDeep, textTransform: "uppercase", marginBottom: 4 }}>Notes from file</div>
-              <div style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.5 }}>{notes}</div>
-            </div>
-          )}
-          {hook && (
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Call hook</div>
-              <div style={{ fontSize: 13, color: C.slate, lineHeight: 1.5 }}>{hook}</div>
-            </div>
-          )}
-          {!facts.length && !notes && !hook && (
-            <div style={{ fontSize: 13, color: C.slate, lineHeight: 1.5 }}>
-              Only file fields shown. No invented company stats.
+          ))}
+          {missing.length > 0 && (
+            <div style={{ padding: "14px 26px 0", fontSize: 13, color: C.slate, lineHeight: 1.5 }}>
+              Missing from file: {missing.join(", ")}. Use Find missing to search the web, or type them here.
             </div>
           )}
         </div>
@@ -2190,9 +2179,9 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
         }
         setParsedContacts(contacts);
         setTotalRows(contacts.length);
-        setUploadSuccess(true);
+    setUploadSuccess(true);
         setLiveFileReady(true);
-        setTaskTitle(name.replace(/\.[^/.]+$/, "").replace(/_/g, " ") + " Campaign");
+    setTaskTitle(name.replace(/\.[^/.]+$/, "").replace(/_/g, " ") + " Campaign");
         const phoneH = guessColumn(headers, "phone");
         const nameH = guessColumn(headers, "name") || guessColumn(headers, "contact");
         setMappings((m) => ({
@@ -2940,7 +2929,7 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
                 {launchError ? <div style={{ fontSize: 11.5, color: "#B91C1C", maxWidth: 360, textAlign: "right" }}>{launchError}</div> : null}
-                <button
+              <button
                 onClick={handleLaunch}
                 disabled={launching || !liveFileReady}
                 title={!liveFileReady ? "Upload a spreadsheet with phone numbers first" : "Places real outbound calls"}
@@ -5557,9 +5546,9 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                           : { bg: "#F8FAFC", bd: C.border, fg: C.slate, label: "No sources indexed", sub: "Add your website or docs. The agent only enriches the pitch from what you index here." };
                   return (
                     <>
-                      <SectionIntro
-                        icon={BookOpen}
-                        title="Knowledge sources & vector database"
+                  <SectionIntro
+                    icon={BookOpen}
+                    title="Knowledge sources & vector database"
                         desc="Websites, PDFs, documents, or objection playbooks. The crawler extracts text, chunks it, and indexes it for recall on live calls. The one-line pitch is the spine — this index is how the AI fills in product, pricing, and proof."
                       />
                       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, margin: "14px 0 18px", padding: "12px 14px", borderRadius: 12, background: ragTone.bg, border: `1px solid ${ragTone.bd}` }}>
@@ -5572,9 +5561,9 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                           <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: ragTone.fg, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                             {ragTone.label}
                             <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", opacity: 0.8 }}>pgvector</span>
-                          </div>
+                  </div>
                           <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: ragTone.fg, opacity: 0.85, marginTop: 3, lineHeight: 1.45 }}>{ragTone.sub}</div>
-                        </div>
+                </div>
                       </div>
                     </>
                   );
@@ -6072,13 +6061,13 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                   ))}
                 </div>
                 <button onClick={addFaq} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center", marginTop: 12 }}>
-                  <PlusCircle size={13} /> Add a question
-                </button>
+                    <PlusCircle size={13} /> Add a question
+                  </button>
               </div>
 
               <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}>
                 Save
-              </button>
+                  </button>
             </div>
           )}
 
@@ -9204,7 +9193,7 @@ function applyFillToRow(r, fill) {
     if (!val || String(r[key] || "").trim()) return;
     if (ok && !ok(val)) return;
     next[key] = val;
-    if (mark) aiFields[key] = true;
+      if (mark) aiFields[key] = true;
   };
   take("phone", true, isProposedPhone);
   take("email", true);
@@ -10161,7 +10150,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
       const websiteRaw = String((map.website ? rec[map.website] : "") || "").trim();
       const website = looksLikeUrl(websiteRaw) ? websiteRaw : "";
       return {
-        id: "imp_" + i,
+      id: "imp_" + i,
         name: company || person,
         phone: String((map.phone ? rec[map.phone] : "") || "").trim(),
         email: String((map.email ? rec[map.email] : "") || "").trim(),
@@ -10172,7 +10161,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           ? String(rec[map.linkedin]).trim()
           : "",
         channel: normalizeChannel(map.channel ? rec[map.channel] : ""),
-        fallback: "none",
+      fallback: "none",
       };
     });
     // flag missing/invalid/duplicate rows, then only auto-include the clean ones —
@@ -10250,16 +10239,16 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
       const company = looksLikeCompanyLabel(r.name) && !isPersonName(r.name) ? r.name.trim() : "";
       const website = looksLikeUrl(r.source) ? r.source.trim() : "";
       return {
-        id: Date.now() + i,
+      id: Date.now() + i,
         name: company,
-        phone: r.phone,
-        email: r.email || "",
+      phone: r.phone,
+      email: r.email || "",
         contact: person,
         sourceType: website ? "Website URL" : "Notes only",
         source: website,
         linkedin: looksLikeUrl(r.linkedin) ? r.linkedin : "",
-        channel: r.channel || "",
-        fallback: r.fallback || "none",
+      channel: r.channel || "",
+      fallback: r.fallback || "none",
       };
     });
     setRows(kept);
@@ -10833,8 +10822,8 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                   onClick={() => {
                     setCallHoursPolicy(p.id);
                     if (p.weekdayStart && p.weekdayEnd) {
-                      setWindowStart(p.weekdayStart);
-                      setWindowEnd(p.weekdayEnd);
+                    setWindowStart(p.weekdayStart);
+                    setWindowEnd(p.weekdayEnd);
                     }
                   }}
                   style={{
@@ -12316,45 +12305,45 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
         {/* Plugin tabs only when opened from Hub (all plugins). In-plugin: header title is enough. */}
         {!scopePlugin ? (
-          <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
-            {[
-              { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
-              { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
-              { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
-              { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
-              { id: "calcom", label: "Calendar & Cal.com", icon: CalendarCheck, color: "#10B981" },
-              { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
-            ].map((t) => {
-              const Icon = t.icon;
-              const active = tab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "13px 18px",
-                    borderRadius: "8px 8px 0 0",
-                    border: "none",
-                    borderBottom: active ? `3px solid ${t.color || C.cobalt}` : "3px solid transparent",
-                    background: "transparent",
-                    color: active ? (t.color || C.cobalt) : C.slate,
-                    fontFamily: FONT_BODY,
-                    fontSize: 13,
-                    fontWeight: active ? 700 : 500,
-                    cursor: "pointer",
-                    transition: "all 0.15s",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <Icon size={15} color={active ? (t.color || C.cobalt) : C.slate} />
-                  <span>{t.label}</span>
-                </button>
-              );
-            })}
-          </div>
+        <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
+          {[
+            { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
+            { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
+            { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
+            { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
+            { id: "calcom", label: "Calendar & Cal.com", icon: CalendarCheck, color: "#10B981" },
+            { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
+          ].map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "13px 18px",
+                  borderRadius: "8px 8px 0 0",
+                  border: "none",
+                  borderBottom: active ? `3px solid ${t.color || C.cobalt}` : "3px solid transparent",
+                  background: "transparent",
+                  color: active ? (t.color || C.cobalt) : C.slate,
+                  fontFamily: FONT_BODY,
+                  fontSize: 13,
+                  fontWeight: active ? 700 : 500,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Icon size={15} color={active ? (t.color || C.cobalt) : C.slate} />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
         ) : null}
 
         {/* Tab Body */}
@@ -12364,27 +12353,27 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {tab === "leadgen" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {!scopePlugin ? (
-                <div style={{ background: "#F5F3FF", border: `1px solid #DDD6FE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Search size={18} color="#8B5CF6" />
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                        Lead Generation AI Configuration
-                      </div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                        Powers autonomous account discovery, decision-maker extraction, and live website dossiers.
-                      </div>
+              <div style={{ background: "#F5F3FF", border: `1px solid #DDD6FE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Search size={18} color="#8B5CF6" />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      Lead Generation AI Configuration
+                    </div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Powers autonomous account discovery, decision-maker extraction, and live website dossiers.
                     </div>
                   </div>
-                  {onNavigateToPlugin && (
-                    <button
-                      onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
-                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                    >
-                      Open Plugin <ChevronRight size={13} />
-                    </button>
-                  )}
                 </div>
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Plugin <ChevronRight size={13} />
+                  </button>
+                )}
+              </div>
               ) : null}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -12406,27 +12395,27 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {tab === "scheduler" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {!scopePlugin ? (
-                <div style={{ background: "#F0FDF4", border: `1px solid #BBF7D0`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <CalendarDays size={18} color={C.teal} />
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                        Post Scheduler AI Configuration
-                      </div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                        Powers multi-channel post drafting, topic ideation, image rendering, and editorial planning.
-                      </div>
+              <div style={{ background: "#F0FDF4", border: `1px solid #BBF7D0`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <CalendarDays size={18} color={C.teal} />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      Post Scheduler AI Configuration
+                    </div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Powers multi-channel post drafting, topic ideation, image rendering, and editorial planning.
                     </div>
                   </div>
-                  {onNavigateToPlugin && (
-                    <button
-                      onClick={() => { onNavigateToPlugin("scheduler"); onClose(); }}
-                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                    >
-                      Open Plugin <ChevronRight size={13} />
-                    </button>
-                  )}
                 </div>
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("scheduler"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Plugin <ChevronRight size={13} />
+                  </button>
+                )}
+              </div>
               ) : null}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -12719,27 +12708,27 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {tab === "email" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {!scopePlugin ? (
-                <div style={{ background: "#FFFBEB", border: `1px solid #FDE68A`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Mail size={18} color="#F59E0B" />
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                        Email Outreach AI Configuration
-                      </div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                        Powers cold sequence generation, reply classification, spam detection, and content repurposing.
-                      </div>
+              <div style={{ background: "#FFFBEB", border: `1px solid #FDE68A`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Mail size={18} color="#F59E0B" />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      Email Outreach AI Configuration
+                    </div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Powers cold sequence generation, reply classification, spam detection, and content repurposing.
                     </div>
                   </div>
-                  {onNavigateToPlugin && (
-                    <button
-                      onClick={() => { onNavigateToPlugin("emailoutreach"); onClose(); }}
-                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                    >
-                      Open Plugin <ChevronRight size={13} />
-                    </button>
-                  )}
                 </div>
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("emailoutreach"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Plugin <ChevronRight size={13} />
+                  </button>
+                )}
+              </div>
               ) : null}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -12761,27 +12750,27 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {tab === "voice" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {!scopePlugin ? (
-                <div style={{ background: "#EFF6FF", border: `1px solid #BFDBFE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <PhoneCall size={18} color={C.cobalt} />
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                        AI Voice Assistant Configuration
-                      </div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                        Powers real-time phone conversations, ultra-low latency TTS, acoustic STT, and PSTN carrier dialing.
-                      </div>
+              <div style={{ background: "#EFF6FF", border: `1px solid #BFDBFE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <PhoneCall size={18} color={C.cobalt} />
+                  <div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                      AI Voice Assistant Configuration
+                    </div>
+                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                      Powers real-time phone conversations, ultra-low latency TTS, acoustic STT, and PSTN carrier dialing.
                     </div>
                   </div>
-                  {onNavigateToPlugin && (
-                    <button
-                      onClick={() => { onNavigateToPlugin("voice"); onClose(); }}
-                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                    >
-                      Open Plugin <ChevronRight size={13} />
-                    </button>
-                  )}
                 </div>
+                {onNavigateToPlugin && (
+                  <button
+                    onClick={() => { onNavigateToPlugin("voice"); onClose(); }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    Open Plugin <ChevronRight size={13} />
+                  </button>
+                )}
+              </div>
               ) : null}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -18662,9 +18651,9 @@ function SocialAccountsView({ accounts = [], onChanged }) {
 }
 
 function schedulerViewFromHash() {
-  try {
-    const hash = window.location.hash.replace(/^#\/?/, "");
-    const parts = hash.split("/");
+    try {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      const parts = hash.split("/");
     if (parts[0] !== "scheduler" || !parts[1]) return "";
     const [viewRaw, qs] = String(parts[1]).split("?");
     if (qs) {
@@ -18681,7 +18670,7 @@ function schedulerViewFromHash() {
       }
     }
     return viewRaw || "";
-  } catch (_) {
+    } catch (_) {
     return "";
   }
 }
@@ -22900,16 +22889,16 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     setLiveFocus({ missionId: res.mission_id, missionTitle: res.title });
     await refreshLiveCalls();
     setView("live");
-    setNotifications((ns) => [
-      {
-        id: "n_" + Date.now(),
+      setNotifications((ns) => [
+        {
+          id: "n_" + Date.now(),
         text: res.message || `Live outbound started for ${res.total} contacts.`,
-        time: "just now",
-        unread: true,
+          time: "just now",
+          unread: true,
         type: res.failed ? "error" : "success",
-      },
-      ...ns,
-    ]);
+        },
+        ...ns,
+      ]);
     return res;
   };
 
@@ -23397,6 +23386,64 @@ function SchedulerEditionRoot(props) {
   );
 }
 
+function CallingEditionRoot(props) {
+  const [edition, setEdition] = useState(() => getCallingEdition());
+  useEffect(() => {
+    const sync = () => setEdition(getCallingEdition());
+    window.addEventListener("hashchange", sync);
+    window.addEventListener(CALLING_EDITION_EVENT, sync);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener(CALLING_EDITION_EVENT, sync);
+    };
+  }, []);
+  if (edition === "classic") {
+    const goSimple = () => {
+      setCallingEdition("simple");
+      try { window.history.replaceState(null, "", "#/voice/list"); } catch (_) {}
+      setEdition("simple");
+    };
+    return (
+      <div style={{ height: "100%", position: "relative" }}>
+        <VoiceOperatorApp {...props} />
+        <button
+          type="button"
+          onClick={goSimple}
+          title="Back to simple calling"
+          style={{
+            position: "fixed",
+            right: 18,
+            bottom: 18,
+            zIndex: 4000,
+            height: 36,
+            padding: "0 12px",
+            borderRadius: 9,
+            border: "1px solid #E4E1D9",
+            background: "#fff",
+            color: "#12141C",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: "Inter, sans-serif",
+            boxShadow: "0 8px 24px rgba(18,20,28,0.16)",
+          }}
+        >
+          Use new calling
+        </button>
+      </div>
+    );
+  }
+  return (
+    <CallingWorkspace
+      {...props}
+      onUseClassic={() => {
+        setCallingEdition("classic");
+        setEdition("classic");
+      }}
+    />
+  );
+}
+
 export default function App() {
   const [operator, setOperator] = useState(() => {
     try {
@@ -23859,7 +23906,7 @@ export default function App() {
           )}
 
           {p === "voice" && (
-            <VoiceOperatorApp
+            <CallingEditionRoot
               operator={operator}
               onBackToHub={handleBackToHub}
               onLogout={handleLogout}
