@@ -97,6 +97,39 @@ export function timezoneLabel(tzId) {
   return found ? found.label : tzId || "UK — London (GMT/BST)";
 }
 
+export function timezoneShort(tzId) {
+  const map = {
+    "Europe/London": "UK",
+    "Europe/Paris": "Paris",
+    "Europe/Berlin": "Berlin",
+    "Europe/Madrid": "Madrid",
+    "Europe/Dublin": "Ireland",
+    "Asia/Kolkata": "IST",
+    "Asia/Dubai": "GST",
+    "Asia/Singapore": "SGT",
+    "America/New_York": "ET",
+    "America/Chicago": "CT",
+    "America/Denver": "MT",
+    "America/Los_Angeles": "PT",
+    "Australia/Sydney": "AEST",
+    UTC: "UTC",
+  };
+  if (!tzId) return "UK";
+  return map[tzId] || String(tzId).split("/").pop().replace(/_/g, " ");
+}
+
+export function meetingTimeLabel(m) {
+  if (!m) return "";
+  const hostTz = m.hostTimezone || m.host_timezone || "Europe/London";
+  const pTz = m.prospectTimezone || m.prospect_timezone || hostTz;
+  const hostTime = m.time || "";
+  const date = m.date || "";
+  const host = `${date} · ${hostTime} ${timezoneShort(hostTz)}`.trim();
+  const pTime = m.prospectTime || m.prospect_time;
+  if (!pTime || pTz === hostTz || pTime === hostTime) return host;
+  return `${host} · attendee ${pTime} ${timezoneShort(pTz)}`;
+}
+
 export function getActiveAiCredentials(commonAi, pluginType = "leadgen", featureKey = "") {
   // If scheduler, directly read the user's configured scheduler AI settings
   if (pluginType === "scheduler") {

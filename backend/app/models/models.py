@@ -187,6 +187,7 @@ class LiveCall(Base):
     ended = Column(Boolean, default=False)
     booked = Column(Boolean, default=False)
     transcript = Column(JSON, default=list)
+    prospect_timezone = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class CallLog(Base):
@@ -217,6 +218,11 @@ class Meeting(Base):
     mission = Column(String, nullable=False)
     date = Column(String, nullable=False)
     time = Column(String, nullable=False)
+    host_timezone = Column(String, default="Europe/London")
+    prospect_timezone = Column(String, nullable=True)
+    prospect_date = Column(String, nullable=True)
+    prospect_time = Column(String, nullable=True)
+    starts_at_utc = Column(DateTime, nullable=True)
     duration = Column(String, default="15 min")
     status = Column(String, default="upcoming")  # upcoming, needs_outcome, converted, not_fit
     fit = Column(Integer, default=85)
@@ -269,10 +275,14 @@ class CalcomSetting(Base):
     working_hours_start = Column(String, default="09:00")
     working_hours_end = Column(String, default="17:30")
     working_days = Column(JSON, default=lambda: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+    working_hours_by_day = Column(JSON, nullable=True)
+    slot_step_minutes = Column(Integer, default=15)
+    flex_minutes = Column(Integer, default=0)
     buffer_before = Column(Integer, default=5)
     buffer_after = Column(Integer, default=5)
     auto_email_attendee = Column(Boolean, default=True)
     auto_email_host = Column(Boolean, default=True)
+    prospect_timezone_override = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class ScheduleItem(Base):

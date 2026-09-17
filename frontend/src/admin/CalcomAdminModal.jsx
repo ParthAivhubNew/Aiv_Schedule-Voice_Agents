@@ -40,7 +40,7 @@ import {
   Inbox,
   Workflow
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
+import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, meetingTimeLabel } from "../tokens";
 import { api } from "../api/apiClient";
 
 export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "overview" }) {
@@ -136,6 +136,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
     start: "09:00",
     end: "17:30",
     timezone: "Europe/London",
+    prospectTimezoneOverride: "",
+    hoursByDay: {},
+    slotStep: 15,
+    flexMinutes: 0,
     bufferBefore: 5,
     bufferAfter: 5
   });
@@ -168,6 +172,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           start: st.working_hours_start || "09:00",
           end: st.working_hours_end || "17:30",
           timezone: st.timezone || "Europe/London",
+          prospectTimezoneOverride: st.prospect_timezone_override || "",
+          hoursByDay: st.working_hours_by_day || {},
+          slotStep: st.slot_step_minutes || 15,
+          flexMinutes: st.flex_minutes || 0,
           bufferBefore: st.buffer_before ?? 5,
           bufferAfter: st.buffer_after ?? 5
         });
@@ -240,6 +248,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
         working_hours_start: workingSchedule.start,
         working_hours_end: workingSchedule.end,
         timezone: workingSchedule.timezone,
+        prospect_timezone_override: workingSchedule.prospectTimezoneOverride || "",
+        working_hours_by_day: workingSchedule.hoursByDay || {},
+        slot_step_minutes: workingSchedule.slotStep || 15,
+        flex_minutes: workingSchedule.flexMinutes || 0,
         buffer_before: workingSchedule.bufferBefore,
         buffer_after: workingSchedule.bufferAfter
       };
@@ -418,21 +430,47 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
 
   const handleTestAccount = async () => {
     if (!accountForm.email) {
-      alert("Please enter an email address first.");
+      alert("Enter the Gmail address first.");
+      return;
+    }
+    if (!accountForm.password && !accountForm.id) {
+      alert("Gmail needs a 16-character App Password. Normal Gmail password is rejected.");
       return;
     }
     setAccountTesting(true);
     setAccountTestResult(null);
     try {
-      await new Promise(r => setTimeout(r, 600));
-      setAccountTestResult({
-        success: true,
-        message: `Successfully verified communication channel with ${accountForm.email} (${accountForm.provider.toUpperCase()} API). Ready to send invites and sync calendar.`
+      const saved = await api.saveCalcomAccount({
+        id: accountForm.id || undefined,
+        provider: accountForm.provider,
+        name: accountForm.name || `${accountForm.provider.toUpperCase()} Account`,
+        status: "connected",
+        email: accountForm.email,
+        senderName: accountForm.senderName,
+        password: accountForm.password,
+        config: {
+          email: accountForm.email,
+          sender_name: accountForm.senderName,
+          host: accountForm.smtpHost || (accountForm.provider === "google" ? "smtp.gmail.com" : "smtp.office365.com"),
+          port: accountForm.smtpPort || 587,
+          use_tls: accountForm.useTls,
+          sync_calendar: accountForm.syncCalendar,
+          send_invites: accountForm.sendInvites,
+          is_primary: accountForm.isPrimary,
+        },
       });
+      const accId = saved?.account?.id || accountForm.id;
+      if (accId) setAccountForm((f) => ({ ...f, id: accId }));
+      const res = await api.testCalcomAccount(accId);
+      setAccountTestResult({
+        success: !!res.success,
+        message: res.message || res.error || (res.success ? "SMTP login OK." : "Test failed."),
+      });
+      await loadData();
     } catch (err) {
       setAccountTestResult({
         success: false,
-        message: "Failed to verify connection. Check credentials."
+        message: err.message || "Failed to verify connection. Check the app password.",
       });
     } finally {
       setAccountTesting(false);
@@ -817,7 +855,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                           <div>
                             <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{m.prospect}</div>
                             <div style={{ fontSize: 12, color: "#64748B" }}>
-                              {m.attendeeEmail} &bull; {m.date} ({m.duration || "15 min"})
+                              {m.attendeeEmail} &bull; {meetingTimeLabel(m)} ({m.duration || "15 min"})
                             </div>
                           </div>
                         </div>
@@ -1825,7 +1863,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                 Availability Schedule & Timezone
               </div>
               <div style={{ fontSize: 12, color: "#64748B", marginBottom: 20 }}>
-                Set your active days, operating hours, and buffer times to prevent overlapping meetings.
+                Default hours apply to every active day. Override a single day when Friday is shorter, or add flex minutes if a client asks just after close.
               </div>
 
               {saveMessage && (
@@ -1910,6 +1948,113 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                     <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
                     <option value="UTC">UTC Universal</option>
                   </select>
+                  <div style={{ fontSize: 11, color: "#64748B", marginTop: 6 }}>
+                    Worker diary times. Each saved meeting is stamped with this zone.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                    Slot step
+                  </label>
+                  <select
+                    value={workingSchedule.slotStep || 15}
+                    onChange={(e) => setWorkingSchedule({ ...workingSchedule, slotStep: parseInt(e.target.value, 10) || 15 })}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13 }}
+                  >
+                    <option value={15}>Every 15 minutes</option>
+                    <option value={30}>Every 30 minutes</option>
+                    <option value={45}>Every 45 minutes</option>
+                    <option value={60}>Every 60 minutes</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                    Flex after close
+                  </label>
+                  <select
+                    value={workingSchedule.flexMinutes || 0}
+                    onChange={(e) => setWorkingSchedule({ ...workingSchedule, flexMinutes: parseInt(e.target.value, 10) || 0 })}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13 }}
+                  >
+                    <option value={0}>None — hard close</option>
+                    <option value={15}>+15 min if they ask late</option>
+                    <option value={30}>+30 min if they ask late</option>
+                    <option value={45}>+45 min if they ask late</option>
+                    <option value={60}>+60 min if they ask late</option>
+                  </select>
+                  <div style={{ fontSize: 11, color: "#64748B", marginTop: 6 }}>
+                    Agent still prefers core hours. Flex only unlocks a little extra if they push past close.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 8 }}>Per-day hours (optional)</div>
+                <div style={{ fontSize: 11, color: "#64748B", marginBottom: 10 }}>
+                  Leave blank to use the default start/end. Set Friday 09:00–15:00 if that day is shorter.
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {(workingSchedule.days || []).map((day) => {
+                    const spec = (workingSchedule.hoursByDay || {})[day] || {};
+                    return (
+                      <div key={day} style={{ display: "grid", gridTemplateColumns: "120px 1fr 1fr 72px", gap: 8, alignItems: "center" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{day}</div>
+                        <input
+                          type="time"
+                          value={spec.start || workingSchedule.start}
+                          onChange={(e) => {
+                            const next = { ...(workingSchedule.hoursByDay || {}), [day]: { ...spec, start: e.target.value, end: spec.end || workingSchedule.end } };
+                            setWorkingSchedule({ ...workingSchedule, hoursByDay: next });
+                          }}
+                          style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 12 }}
+                        />
+                        <input
+                          type="time"
+                          value={spec.end || workingSchedule.end}
+                          onChange={(e) => {
+                            const next = { ...(workingSchedule.hoursByDay || {}), [day]: { start: spec.start || workingSchedule.start, end: e.target.value } };
+                            setWorkingSchedule({ ...workingSchedule, hoursByDay: next });
+                          }}
+                          style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 12 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = { ...(workingSchedule.hoursByDay || {}) };
+                            delete next[day];
+                            setWorkingSchedule({ ...workingSchedule, hoursByDay: next });
+                          }}
+                          style={{ border: "1px solid #E2E8F0", background: "#fff", borderRadius: 8, fontSize: 11, fontWeight: 600, color: "#64748B", padding: "6px 0", cursor: "pointer" }}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  Test: treat callers as this timezone (optional)
+                </label>
+                <select
+                  value={workingSchedule.prospectTimezoneOverride || ""}
+                  onChange={(e) => setWorkingSchedule({ ...workingSchedule, prospectTimezoneOverride: e.target.value })}
+                  style={{ width: "100%", maxWidth: 480, padding: "8px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13 }}
+                >
+                  <option value="">Auto — from phone number / mission (recommended)</option>
+                  <option value="Europe/London">Force Europe/London</option>
+                  <option value="Europe/Paris">Force Europe/Paris</option>
+                  <option value="Europe/Berlin">Force Europe/Berlin</option>
+                  <option value="Asia/Kolkata">Force Asia/Kolkata (IST)</option>
+                  <option value="America/New_York">Force America/New_York</option>
+                </select>
+                <div style={{ fontSize: 11, color: "#64748B", marginTop: 6 }}>
+                  Operator-only. Client never hears a timezone. Leave Auto unless you are testing a region.
                 </div>
               </div>
 
@@ -2415,23 +2560,26 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                   </div>
                 </div>
               ) : (
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 4 }}>Authentication Mode</div>
-                  <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#334155" }}>
-                    ✓ <strong>Zero-Config Automated Sync Active:</strong> Pre-authenticated for {accountForm.provider.toUpperCase()} API & Calendar integration.
-                  </div>
+                <div style={{ background: "#FFF7ED", border: "1px solid #FED7AA", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#9A3412", lineHeight: 1.5 }}>
+                  <b>Gmail will not accept your normal password.</b> Use an App Password:
+                  <ol style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                    <li>Open <a href="https://myaccount.google.com/security" target="_blank" rel="noreferrer">Google Account → Security</a></li>
+                    <li>Turn on <b>2-Step Verification</b></li>
+                    <li>Search <b>App passwords</b> → generate one for Mail</li>
+                    <li>Paste the 16-character code below. SMTP host is smtp.gmail.com:587</li>
+                  </ol>
                 </div>
               )}
 
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
-                  Password or App Password (Optional)
+                  {accountForm.provider === "google" ? "Gmail App Password (required)" : "Password or App Password"}
                 </label>
                 <input
                   type="password"
                   value={accountForm.password}
                   onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
-                  placeholder="••••••••••••"
+                  placeholder={accountForm.provider === "google" ? "16-character app password" : "••••••••••••"}
                   style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13 }}
                 />
               </div>

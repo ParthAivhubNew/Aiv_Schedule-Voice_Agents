@@ -29,7 +29,7 @@ import {
   LogOut,
   Building2
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName } from "../tokens";
+import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, meetingTimeLabel } from "../tokens";
 import { api } from "../api/apiClient";
 
 export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile, commonAi, onOpenCommonAi }) {
@@ -331,7 +331,7 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
           <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
             <div style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>Working Schedule</div>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 700, color: C.ink, marginTop: 4 }}>
-              {settings?.working_hours_start || "09:00"}–{settings?.working_hours_end || "17:30"}
+              {settings?.working_hours_start || "09:00"}–{settings?.working_hours_end || "17:30"} {settings?.timezone || "Europe/London"}
             </div>
           </div>
         </div>
@@ -558,7 +558,7 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
                       <div style={{ flex: 1, padding: "0 16px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12.5, color: C.ink, fontWeight: 600 }}>
                           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <Clock size={14} color={C.slate} /> {m.time} ({m.duration || "15 min"})
+                            <Clock size={14} color={C.slate} /> {meetingTimeLabel(m)} ({m.duration || "15 min"})
                           </span>
                           <span>•</span>
                           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>

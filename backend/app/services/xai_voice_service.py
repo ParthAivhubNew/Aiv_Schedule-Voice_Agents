@@ -21,6 +21,7 @@ from app.models.models import (
     CompanyProfile,
     LiveCall,
     Meeting,
+    Mission,
     Prospect,
     ScheduleItem,
     Service,
@@ -28,6 +29,7 @@ from app.models.models import (
 )
 from app.services.process_logger import log_process_event, scrub_text
 from app.services.rag_service import search_knowledge
+from app.services.timezone_service import display_hhmm, now_in, resolve_prospect_timezone
 from app.websockets.call_hub import call_hub
 
 logger = logging.getLogger("xai_voice_service")
@@ -346,10 +348,55 @@ def verify_xai_webhook_signature(
 # ----------------------------------------------------------------------
 # 2. DYNAMIC SYSTEM PROMPT & TOOL DEFINITIONS
 # ----------------------------------------------------------------------
+async def _resolve_call_clocks(
+    db,
+    call_id: Optional[str] = None,
+    prospect_id: Optional[str] = None,
+    caller_number: Optional[str] = None,
+):
+    from app.services.calendar_service import calendar_service
+
+    setting = await calendar_service.get_or_create_settings(db)
+    host_tz = setting.timezone or "Europe/London"
+    phone = caller_number or ""
+    mission_tz = None
+    override = setting.prospect_timezone_override
+    call_obj = None
+    if call_id:
+        c_res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
+        call_obj = c_res.scalars().first()
+        if call_obj:
+            if call_obj.prospect_timezone:
+                override = call_obj.prospect_timezone
+            if call_obj.prospect_id:
+                prospect_id = prospect_id or call_obj.prospect_id
+            if call_obj.mission_id:
+                m_res = await db.execute(select(Mission).where(Mission.id == call_obj.mission_id))
+                mission = m_res.scalars().first()
+                if mission:
+                    mission_tz = mission.timezone
+    if prospect_id:
+        p_res = await db.execute(select(Prospect).where(Prospect.id == prospect_id))
+        p = p_res.scalars().first()
+        if p:
+            phone = p.phone or phone
+            if p.mission_id and not mission_tz:
+                m_res = await db.execute(select(Mission).where(Mission.id == p.mission_id))
+                mission = m_res.scalars().first()
+                if mission:
+                    mission_tz = mission.timezone
+    p_tz = resolve_prospect_timezone(phone=phone, mission_tz=mission_tz, override=override, host_tz=host_tz)
+    if call_obj and not call_obj.prospect_timezone:
+        call_obj.prospect_timezone = p_tz
+    return host_tz, p_tz, phone, setting
+
+
 async def build_xai_system_instructions(
     caller_number: str,
     prospect_name: Optional[str] = None,
     hold_opening: bool = False,
+    prospect_id: Optional[str] = None,
+    call_id: Optional[str] = None,
 ) -> str:
     """
     Constructs real-time system prompt customized with Company Profile,
@@ -357,13 +404,18 @@ async def build_xai_system_instructions(
     and charismatic, natural conversational rules.
     """
     try:
-        london_tz = zoneinfo.ZoneInfo("Europe/London")
-        now = datetime.now(london_tz)
+        async with AsyncSessionLocal() as clock_db:
+            host_tz, prospect_tz, _, _ = await _resolve_call_clocks(
+                clock_db, call_id=call_id, prospect_id=prospect_id, caller_number=caller_number
+            )
+        now = now_in(prospect_tz)
     except Exception:
+        host_tz = "Europe/London"
+        prospect_tz = "Europe/London"
         now = datetime.utcnow() + timedelta(hours=1)
 
     current_date_str = now.strftime("%A, %d %B %Y")
-    current_time_str = now.strftime("%I:%M %p")
+    current_time_str = now.strftime("%I:%M %p").lstrip("0")
     day_part = "morning" if now.hour < 12 else "afternoon" if now.hour < 17 else "evening"
     tomorrow_str = (now + timedelta(days=1)).strftime("%A, %d %B %Y")
 
@@ -406,6 +458,18 @@ async def build_xai_system_instructions(
         faq_lines.append(f"- Q: {f.question}\n  A: {f.answer}")
     faq_text = "\n".join(faq_lines) if faq_lines else "None provided yet."
 
+    calendar_brief = ""
+    try:
+        from app.services.calendar_service import calendar_service
+        async with AsyncSessionLocal() as cal_db:
+            calendar_brief = await calendar_service.get_availability_brief(cal_db, days=5, prospect_tz=prospect_tz)
+    except Exception as cal_err:
+        logger.warning(f"Could not load live calendar for voice prompt: {cal_err}")
+        calendar_brief = (
+            f"LIVE CLOCK for speech: {current_date_str} at {current_time_str}. "
+            "Calendar lookup failed — call check_calendar_availability before offering a time."
+        )
+
     target_name = prospect_name or "there"
     target_clean = re.sub(r"\(.*?\)", "", target_name).strip()
     target_first_name = target_clean.split()[0] if target_clean else "there"
@@ -444,35 +508,39 @@ HUMAN CONVERSATIONAL FLOW & NATURAL CADENCE RULES (MANDATORY):
 - When they reply:
   "The reason for my call—we help businesses connect scattered operational data into live dashboards and AI insights. Just wanted to see if you'd be open to a quick 15-minute walkthrough sometime this week?"
 
-CRITICAL MEETING BOOKING & CONTACT DETAILS CAPTURE (MANDATORY):
-1. PRIMARY OBJECTIVE: Schedule a 15-minute discovery demo AND capture direct contact details (Email and Phone).
-2. When the prospect agrees to a day or time (e.g., "Tomorrow works", "Friday at 2"):
-   - Ask for their email warmly: "Brilliant! What's the best email address to send the calendar invite and direct link to?"
-3. When they provide their email: Repeat it back naturally to verify:
-   - "Got it, that's [email]. I'll make sure the invite goes straight there."
-4. Confirm their direct phone number:
-   - "And is this the best number to reach you on, or do you have a direct mobile you prefer?"
-5. ONLY call `book_calendar_meeting` AFTER you have collected confirmed email, date, and time.
+CRITICAL MEETING BOOKING (FLEXIBLE — NOT RIGID):
+1. Goal: book a 15-minute discovery when they are willing. You are a coordinator, not a form.
+2. CLOCK: Use the local wall-clock below. Never guess the day or year.
+3. CALENDAR: Only offer spoken times from the list (or a fresh check_calendar_availability). Never invent a slot.
+4. If they are vague ("sometime next week", "after 3", "Thursday-ish"):
+   - Call check_calendar_availability with that phrasing.
+   - Offer 2–3 real openings in their window. Do not force "tomorrow or Friday".
+5. If their preferred time is taken: say that window is packed, then offer the nearest openings. Do not argue.
+6. If they want evening/weekend we cannot do: "That evening's packed — I have two windows earlier the same day, or the next morning." Never mention timezones, UK, GMT, BST, IST, "your time", "our time", or converting clocks.
+7. Agree the time FIRST. Then ask for email. Do not block exploring times until you have an email.
+8. When email + day + time are agreed, call book_calendar_meeting with the time they heard (spoken local). Repeat email back once.
+9. If they only want an overview email now, take the address and do not force a meeting.
 
 OBJECTION & HESITATION HANDLING (EMPATHETIC & HUMAN):
 - If they say "I'm busy" / "In a meeting":
   "Totally understand, won't keep you! What's the best email address to drop a quick 1-page overview to?"
 - If they say "Send an email first":
-  "Happy to do that! What email should I ping it over to, and who should I mark it for?"
+  "Happy to do that! What email should I ping it over to?"
 - If they ask "Are you an AI?":
-  "I am an AI assistant working directly with our executive team at {company_name}! I can answer questions and get you booked directly with our specialists—how does that sound?"
+  "I am an AI assistant working directly with our executive team at {company_name}! I can answer questions and get you booked with our specialists—how does that sound?"
 - If they ask about detailed pricing:
-  "Pricing scales with your data sources and team size. We tailor everything in a quick 15-minute walkthrough. Would tomorrow or Friday suit you better?"
+  "Pricing scales with your data sources and team size. We walk through it on a short call. What window this week is easiest for you?"
 
-TEMPORAL GROUND TRUTH & UK CLOCK (EXACT):
-- Location & Timezone: London, United Kingdom (BST / Europe/London). Both you and the prospect are in the UK.
-- EXACT CURRENT UK TIME: {current_time_str} ({day_part})
-- EXACT TODAY'S DATE: {current_date_str}
-- TOMORROW: {tomorrow_str}
-- CURRENT YEAR: {now.year}
-- IF ASKED WHAT TIME OR DAY IT IS: "It's currently {current_time_str} on {current_date_str} here in the UK."
-- ONLY propose future time slots (later than {current_time_str}).
-- NEVER schedule past dates.
+TEMPORAL GROUND TRUTH (EXACT — DO NOT DRIFT):
+- EXACT NOW (speak this clock, never name a timezone): {current_time_str} ({day_part}) on {current_date_str}.
+- TOMORROW: {tomorrow_str}.
+- CURRENT YEAR: {now.year}.
+- If asked the time or date: "It's {current_time_str} on {current_date_str}." Do not add country or zone.
+- Never schedule a time that has already passed today.
+- Never say UK, London, GMT, BST, IST, CET, "your time", "our time", or that you converted anything.
+
+OUR LIVE CALENDAR (SOURCE OF TRUTH):
+{calendar_brief}
 
 Company Pitch:
 {pitch}
@@ -512,7 +580,7 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "name": "book_calendar_meeting",
-            "description": "Schedules a 15-minute discovery meeting or demo with the caller on the company calendar. Requires the prospect's confirmed email address.",
+            "description": "Books a 15-minute discovery on the REAL company calendar and emails the invite. Use only after a time from check_calendar_availability (or the live slot list) is agreed. Email can be collected just before this call.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -543,13 +611,17 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "name": "check_calendar_availability",
-            "description": "Checks available appointment slots for a given day.",
+            "description": "Looks up REAL open slots on our calendar. Use for any date the caller mentions: today, tomorrow, Friday, next week, a YYYY-MM-DD date, or a loose window. Pass range=week to see several days. Never invent times — only offer what this tool returns.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "date": {
                         "type": "string",
-                        "description": "Date to check in YYYY-MM-DD format."
+                        "description": "Day the caller wants: today, tomorrow, Friday, next Tuesday, next week, or YYYY-MM-DD."
+                    },
+                    "range": {
+                        "type": "string",
+                        "description": "day (default) or week if they are flexible / said next week / this week."
                     }
                 },
                 "required": ["date"]
@@ -610,33 +682,74 @@ async def execute_xai_tool(
             }
 
         elif name == "book_calendar_meeting":
+            from app.services.calendar_service import calendar_service, parse_spoken_date, _norm_time
+            from app.services.timezone_service import display_hhmm
+
             raw_date = args.get("date", "Tomorrow")
-            time_val = args.get("time", "14:00")
+            time_val = _norm_time(args.get("time", "14:00"))
             email_val = (args.get("email") or "").strip()
             phone_val = (args.get("phone") or "").strip()
-            notes_val = args.get("notes", "Discovery call booked via xAI Voice Agent")
+            notes_val = args.get("notes", "Discovery call booked via voice agent")
 
-            # Ground date to real-world future timeline
-            now = datetime.utcnow()
-            date_val = raw_date.strip()
-            # If past year like 2024 or 2025 was provided, bump to current year
-            date_val = re.sub(r"\b202[0-5]\b", str(now.year), date_val)
-            if not date_val or date_val.lower() in ["tomorrow", "tmrw"]:
-                date_val = (now + timedelta(days=1)).strftime("%A, %d %b %Y")
-            elif date_val.lower() in ["today"]:
-                date_val = now.strftime("%A, %d %b %Y")
-            
+            if not email_val or "@" not in email_val:
+                return {
+                    "success": False,
+                    "needs": "email",
+                    "message": "Need a real email before booking so we can send the calendar invite. Ask for it, then call this tool again.",
+                }
+
             async with AsyncSessionLocal() as db:
+                host_tz, p_tz, phone, setting = await _resolve_call_clocks(
+                    db, call_id=call_id, prospect_id=prospect_id
+                )
+                phone = phone_val or phone
                 call_res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
                 call_record = call_res.scalars().first()
                 prospect_name = call_record.prospect if call_record else "Valued Prospect"
                 mission_name = call_record.mission if call_record else "Inbound Voice"
-                
+                p_now = now_in(p_tz)
+                target = parse_spoken_date(raw_date, p_now)
+                date_iso = target.strftime("%Y-%m-%d")
+                spoken_label = target.strftime("%A, %d %B %Y")
+                hours_label = f"{setting.working_hours_start or '09:00'}–{setting.working_hours_end or '17:30'}"
+
+                booked = await calendar_service.create_booking(
+                    db,
+                    prospect_name=prospect_name,
+                    attendee_email=email_val,
+                    date_str=date_iso,
+                    time_str=time_val,
+                    notes=notes_val,
+                    mission_name=mission_name,
+                    format_type="video",
+                    platform="Google Meet",
+                    prospect_timezone=p_tz,
+                    prospect_phone=phone,
+                    time_is_prospect_local=True,
+                    enforce_hours=True,
+                )
+
+                if not booked.get("success"):
+                    alts = booked.get("availableSlots") or []
+                    alt_spoken = ", ".join(display_hhmm(t) for t in alts) if alts else "nearby weekday windows"
+                    return {
+                        "success": False,
+                        "conflict": True,
+                        "date": spoken_label,
+                        "requested_time": time_val,
+                        "available_slots": [display_hhmm(t) for t in alts],
+                        "message": (
+                            f"That window is packed. Offer these instead: {alt_spoken}. "
+                            "Do not mention timezones. Do not book the requested time."
+                        ),
+                    }
+
+                spoken_time = display_hhmm(booked.get("prospectTime") or time_val)
+                spoken_date = booked.get("prospectDate") or date_iso
+
                 if call_record:
                     call_record.booked = True
-                    log_notes = f"System: Meeting booked for {date_val} at {time_val}"
-                    if email_val:
-                        log_notes += f" | Email: {email_val}"
+                    log_notes = f"System: Meeting booked for {spoken_date} at {spoken_time} (diary {booked.get('date')} {booked.get('time')} {host_tz}) | Email: {email_val}"
                     call_record.transcript = (call_record.transcript or []) + [log_notes]
 
                 if prospect_id:
@@ -644,134 +757,121 @@ async def execute_xai_tool(
                     p = p_res.scalars().first()
                     if p:
                         p.status = "meeting_booked"
-                        p.note = f"Booked: {date_val} at {time_val} ({notes_val})"
-                        if email_val:
-                            p.email = email_val
+                        p.note = f"Booked: {spoken_date} at {spoken_time} ({notes_val})"
+                        p.email = email_val
                         if phone_val:
                             p.phone = phone_val
-
-                # Also update contact registry if entry exists for this prospect
-                if email_val and prospect_name:
-                    try:
-                        from app.models.models import ContactRegistry
-                        reg_res = await db.execute(select(ContactRegistry).where(ContactRegistry.canonical_name == prospect_name))
-                        reg_entry = reg_res.scalars().first()
-                        if reg_entry:
-                            people = list(reg_entry.people or [])
-                            if people and isinstance(people[0], dict):
-                                people[0]["email"] = email_val
-                                if phone_val:
-                                    people[0]["phone"] = phone_val
-                                reg_entry.people = people
-                    except Exception:
-                        pass
-
-                meeting_id = f"mt_{uuid.uuid4().hex[:8]}"
-                meeting = Meeting(
-                    id=meeting_id,
-                    prospect=prospect_name,
-                    mission=mission_name,
-                    date=date_val,
-                    time=time_val,
-                    duration="15 min",
-                    status="upcoming",
-                    channel="voice",
-                    format="video",
-                    platform="Google Meet",
-                    host="AI Voice Rep (Sam)",
-                    attendee=f"{prospect_name} <{email_val}>" if email_val else prospect_name,
-                    dial_in=phone_val or getattr(call_record, "caller", None),
-                    prep=f"Email: {email_val or 'Not provided'} | Phone: {phone_val or 'Direct'} | Notes: {notes_val}",
-                    call_transcript=call_record.transcript if call_record else []
-                )
-                db.add(meeting)
-
-                sched_item = ScheduleItem(
+                db.add(ScheduleItem(
                     id=f"s_{uuid.uuid4().hex[:6]}",
-                    day=date_val,
-                    time=time_val,
+                    day=spoken_label,
+                    time=booked.get("time") or time_val,
                     prospect=prospect_name,
                     mission=mission_name,
-                    window="09:00–17:30",
-                    status="scheduled"
-                )
-                db.add(sched_item)
+                    window=hours_label,
+                    status="scheduled",
+                ))
                 await db.commit()
 
+            meeting_id = booked.get("bookingId")
+            mail = booked.get("emailConfirmationSent") or {}
             await call_hub.broadcast("call_updated", {
                 "callId": call_id,
                 "booked": True,
                 "meetingId": meeting_id,
-                "date": date_val,
-                "time": time_val,
-                "email": email_val
+                "date": booked.get("date"),
+                "time": booked.get("time"),
+                "hostTimezone": booked.get("hostTimezone"),
+                "prospectTime": booked.get("prospectTime"),
+                "email": email_val,
             })
 
             elapsed = (time.time() - start_time) * 1000
             await log_process_event(
                 subsystem="calendar",
                 process_name="xai_tool_meeting_booked",
-                message=f"Meeting successfully booked for {prospect_name} on {date_val} at {time_val}.",
+                message=f"Meeting booked for {prospect_name} on {spoken_date} at {spoken_time}. Email sent={mail.get('attendee')}.",
                 level="SUCCESS",
                 duration_ms=elapsed,
-                details={"callId": call_id, "meetingId": meeting_id, "date": date_val, "time": time_val}
+                details={"callId": call_id, "meetingId": meeting_id, "date": booked.get("date"), "time": booked.get("time"), "email": email_val, "mail": mail},
             )
 
+            mail_line = "Calendar invite emailed." if mail.get("attendee") else (
+                "Meeting is on our calendar. Invite email could not send — Gmail is not connected with an app password."
+            )
             return {
                 "success": True,
                 "meeting_id": meeting_id,
-                "date": date_val,
-                "time": time_val,
-                "message": f"The meeting has been confirmed for {date_val} at {time_val}. A calendar invite has been reserved."
+                "date": spoken_label,
+                "time": spoken_time,
+                "video_link": booked.get("videoLink"),
+                "email_sent": bool(mail.get("attendee")),
+                "message": f"Confirmed {spoken_label} at {spoken_time}. {mail_line} Tell them they will get the Meet link. Do not mention timezones.",
             }
 
         elif name == "check_calendar_availability":
-            raw_date = args.get("date", "Tomorrow")
-            try:
-                import zoneinfo
-                london_tz = zoneinfo.ZoneInfo("Europe/London")
-                now_uk = datetime.now(london_tz)
-            except Exception:
-                now_uk = datetime.utcnow() + timedelta(hours=1)
+            from app.services.calendar_service import calendar_service, parse_spoken_date
 
-            date_val = raw_date.strip()
-            date_val = re.sub(r"\b202[0-5]\b", str(now_uk.year), date_val)
-            is_today = False
-            if not date_val or date_val.lower() in ["tomorrow", "tmrw"]:
-                date_val = (now_uk + timedelta(days=1)).strftime("%A, %d %b %Y")
-            elif date_val.lower() in ["today"]:
-                date_val = now_uk.strftime("%A, %d %b %Y")
-                is_today = True
-
-            cur_hour = now_uk.hour
-            cur_minute = now_uk.minute
-            if is_today:
-                slots = []
-                if cur_hour < 11:
-                    slots.append("11:30 AM")
-                if cur_hour < 14:
-                    slots.append("02:30 PM")
-                if cur_hour < 16:
-                    slots.append("04:30 PM")
-                if cur_hour < 17:
-                    slots.append("05:15 PM")
-                if not slots:
-                    tomorrow_name = (now_uk + timedelta(days=1)).strftime("%A, %d %b %Y")
+            raw_date = args.get("date", "tomorrow")
+            want_week = str(args.get("range") or "").lower() in ("week", "this week", "next week") or "week" in str(raw_date).lower()
+            async with AsyncSessionLocal() as db:
+                host_tz, p_tz, _, _ = await _resolve_call_clocks(
+                    db, call_id=call_id, prospect_id=prospect_id
+                )
+                p_now = now_in(p_tz)
+                if want_week:
+                    start = parse_spoken_date(raw_date, p_now)
+                    week = await calendar_service.get_week_availability(db, start, days=5, prospect_tz=p_tz)
+                    days_out = []
+                    for d in week:
+                        days_out.append({
+                            "date": d["label"],
+                            "iso": d["date"],
+                            "slots": [s["display"] for s in d["open"][:6]],
+                            "openCount": d["openCount"],
+                        })
                     return {
-                        "available_slots": ["10:30 AM", "02:00 PM", "04:30 PM"],
-                        "date": tomorrow_name,
-                        "current_uk_time": now_uk.strftime("%I:%M %p"),
-                        "message": f"Our working hours for today are nearly wrapped up (it is currently {now_uk.strftime('%I:%M %p')} in the UK). The earliest available slots are tomorrow ({tomorrow_name}) at 10:30 AM or 02:00 PM."
+                        "current_time": p_now.strftime("%I:%M %p").lstrip("0") + " on " + p_now.strftime("%A, %d %B %Y"),
+                        "range": "week",
+                        "days": days_out,
+                        "message": "Offer only these spoken times. Never mention timezones. If empty for a day, skip it.",
                     }
-            else:
-                slots = ["10:30 AM", "02:00 PM", "04:15 PM"]
 
-            return {
-                "available_slots": slots,
-                "date": date_val,
-                "current_uk_time": now_uk.strftime("%I:%M %p"),
-                "message": f"For {date_val}, we have available slots at: {', '.join(slots)}."
-            }
+                target = parse_spoken_date(raw_date, p_now)
+                date_iso = target.strftime("%Y-%m-%d")
+                date_label = target.strftime("%A, %d %B %Y")
+                slots = await calendar_service.get_available_slots(db, date_iso, prospect_tz=p_tz)
+                open_slots = [s.get("spoken") or s.get("displayTime") for s in slots if s.get("offerable", s.get("available"))]
+                if not slots:
+                    nxt = await calendar_service.get_week_availability(db, target + timedelta(days=1), days=3, prospect_tz=p_tz)
+                    nxt_line = "; ".join(
+                        f"{d['label']}: {', '.join(s['display'] for s in d['open'][:3]) or 'none'}"
+                        for d in nxt
+                    )
+                    return {
+                        "available_slots": [],
+                        "date": date_label,
+                        "current_time": p_now.strftime("%I:%M %p").lstrip("0"),
+                        "message": f"{date_label} is outside working days. Next openings: {nxt_line}. Do not mention timezones.",
+                    }
+                if not open_slots:
+                    nxt = await calendar_service.get_week_availability(db, target + timedelta(days=1), days=3, prospect_tz=p_tz)
+                    nxt_line = "; ".join(
+                        f"{d['weekday']}: {', '.join(s['display'] for s in d['open'][:3]) or 'none'}"
+                        for d in nxt
+                    )
+                    return {
+                        "available_slots": [],
+                        "date": date_label,
+                        "current_time": p_now.strftime("%I:%M %p").lstrip("0"),
+                        "message": f"No free slots on {date_label}. Offer nearby: {nxt_line}. Say the window is packed, not that we are closed in another country.",
+                    }
+                return {
+                    "available_slots": open_slots[:8],
+                    "date": date_label,
+                    "iso": date_iso,
+                    "current_time": p_now.strftime("%I:%M %p").lstrip("0"),
+                    "message": f"For {date_label} we can do: {', '.join(open_slots[:6])}. Offer two of these. Speak only these times. Never mention timezones.",
+                }
 
         else:
             return {"error": f"Unknown tool: {name}"}
@@ -909,6 +1009,15 @@ async def join_xai_call_session(
             )
             db.add(call_obj)
             await db.commit()
+        try:
+            _, p_tz_join, _, _ = await _resolve_call_clocks(
+                db, call_id=local_call_id, prospect_id=prospect_id, caller_number=caller_number
+            )
+            if call_obj:
+                call_obj.prospect_timezone = p_tz_join
+                await db.commit()
+        except Exception as tz_err:
+            logger.debug(f"Could not stamp call timezone: {tz_err}")
 
     # Link aliases in media_stream_hub so audio stream & takeover always route to this call
     try:
@@ -955,7 +1064,11 @@ async def join_xai_call_session(
     # Real WebSocket Connection to xAI
     headers = {"Authorization": f"Bearer {api_key}"}
     system_instructions = await build_xai_system_instructions(
-        caller_number, prospect_name, hold_opening=sip_first and not is_inbound_call and not audio_bridge
+        caller_number,
+        prospect_name,
+        hold_opening=sip_first and not is_inbound_call and not audio_bridge,
+        prospect_id=prospect_id,
+        call_id=local_call_id,
     )
     tools_list = get_xai_tool_definitions()
 
@@ -1048,11 +1161,15 @@ async def join_xai_call_session(
                 logger.info(f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source} (voice={active_voice})...")
 
                 try:
-                    london_tz = zoneinfo.ZoneInfo("Europe/London")
-                    now_greeting = datetime.now(london_tz)
+                    from app.services.timezone_service import now_in as _now_in
+                    async with AsyncSessionLocal() as g_db:
+                        _, p_tz_g, _, _ = await _resolve_call_clocks(
+                            g_db, call_id=local_call_id, prospect_id=prospect_id, caller_number=caller_number
+                        )
+                    now_greeting = _now_in(p_tz_g)
                 except Exception:
                     now_greeting = datetime.utcnow() + timedelta(hours=1)
-                current_time_str = now_greeting.strftime("%I:%M %p")
+                current_time_str = now_greeting.strftime("%I:%M %p").lstrip("0")
                 current_date_str = now_greeting.strftime("%A, %d %B %Y")
 
                 is_inbound = is_inbound_call
@@ -1064,7 +1181,7 @@ async def join_xai_call_session(
                 if is_inbound:
                     greeting_instruction = (
                         f"You are {rep_name}, the AI representative at {comp_name}, answering an incoming phone call. "
-                        f"The current time in London is {current_time_str} on {current_date_str}. "
+                        f"The current time is {current_time_str} on {current_date_str}. "
                         f"Speak FIRST immediately! Say warmly, naturally, with conversational human tone: "
                         f"'Hello, thanks for calling {comp_name}! This is {rep_name}. How can I help you today?' "
                         f"Do not wait for the caller to speak first. Keep it relaxed and friendly."
@@ -1073,7 +1190,7 @@ async def join_xai_call_session(
                     greeting_line = f"Hi {target_first_name}" if target_first_name != "there" else "Hi there"
                     greeting_instruction = (
                         f"You are calling {target_first_name} as {rep_name} from {comp_name} on an outbound business call. "
-                        f"The current time in London is {current_time_str} on {current_date_str}. "
+                        f"The current time is {current_time_str} on {current_date_str}. "
                         f"The person just picked up. Speak FIRST immediately! Say warmly and naturally: "
                         f"'{greeting_line}, this is {rep_name} calling from {comp_name}. How's your day going?' "
                         f"Do not wait for the other person to speak. Do not repeat if you already started this line."

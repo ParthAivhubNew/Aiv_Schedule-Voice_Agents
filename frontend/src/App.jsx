@@ -122,7 +122,7 @@ import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
 import { CalcomAdminModal } from "./admin/CalcomAdminModal";
-import { getActiveAiCredentials, resolveImageCredentials } from "./tokens";
+import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel } from "./tokens";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -821,16 +821,39 @@ const CALL_HOUR_POLICIES = [
     weekdayEnd: "21:00",
     blurb: "UK B2B live calls: 08:00–21:00 weekdays, 09:00–18:00 weekends. Extra evening hours you can use without compliance risk.",
   },
+  {
+    id: "custom",
+    label: "Custom hours",
+    weekdayStart: "",
+    weekdayEnd: "",
+    blurb: "Set start and end yourself. Still inside PECR (weekdays 08:00–21:00). Use this when 09:00–17:30 is too tight or too wide.",
+  },
 ];
 
 function pecrPolicy(id) {
   return CALL_HOUR_POLICIES.find((p) => p.id === id) || CALL_HOUR_POLICIES[0];
 }
 
-function applyCallHourPolicy(id) {
+function applyCallHourPolicy(id, current = {}) {
+  if (id === "custom") {
+    return {
+      callHoursPolicy: "custom",
+      weekdayStart: current.weekdayStart || "09:00",
+      weekdayEnd: current.weekdayEnd || "17:30",
+    };
+  }
   const p = pecrPolicy(id);
   return { callHoursPolicy: p.id, weekdayStart: p.weekdayStart, weekdayEnd: p.weekdayEnd };
 }
+
+const WEEKDAY_HOUR_OPTIONS = Array.from({ length: 27 }, (_, i) => {
+  const m = 8 * 60 + i * 30;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+});
+const LUNCH_HOUR_OPTIONS = Array.from({ length: 9 }, (_, i) => {
+  const m = 11 * 60 + i * 30;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+});
 
 const INITIAL_MEETINGS = [];
 const INITIAL_SCHEDULE = [];
@@ -4507,7 +4530,7 @@ function BookingPanel({ meeting, companyName }) {
 
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk }}>
-          <Calendar size={13} color={C.slate} /> {meeting.date} · {meeting.time}
+          <Calendar size={13} color={C.slate} /> {meetingTimeLabel(meeting)}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk }}>
           <FormatIcon size={13} color={C.slate} />
@@ -4748,7 +4771,7 @@ function MeetingsView({ notifications, setNotifications, companyName, meetings, 
                         </span>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontFamily: FONT_MONO, fontSize: 12, color: C.textInk }}>
-                        <Calendar size={12} color={C.slate} /> {m.date} · {m.time}
+                        <Calendar size={12} color={C.slate} /> {meetingTimeLabel(m)}
                       </div>
                       {m.outcome && (
                         <div style={{ marginTop: 8, fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>{m.outcome}</div>
@@ -5337,12 +5360,19 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {CALL_HOUR_POLICIES.map((p) => {
                     const active = (profile.callHoursPolicy || "respectful") === p.id;
+                    const range = p.id === "custom"
+                      ? `${profile.weekdayStart || "09:00"}–${profile.weekdayEnd || "17:30"}`
+                      : `${p.weekdayStart}–${p.weekdayEnd}`;
                     return (
                       <button
                         key={p.id}
                         onClick={() => {
-                          const next = applyCallHourPolicy(p.id);
-                          setProfile((pr) => ({ ...pr, ...next }));
+                          const next = applyCallHourPolicy(p.id, profile);
+                          setProfile((pr) => {
+                            const merged = { ...pr, ...next };
+                            try { localStorage.setItem("aivhub_company_profile", JSON.stringify(merged)); } catch (_) {}
+                            return merged;
+                          });
                         }}
                         style={{
                           textAlign: "left", padding: "11px 13px", borderRadius: 9, cursor: "pointer",
@@ -5350,23 +5380,58 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                         }}
                       >
                         <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.textInk }}>
-                          {p.label} · {p.weekdayStart}–{p.weekdayEnd} weekdays
+                          {p.label} · {range} weekdays
                         </div>
                         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, marginTop: 4, lineHeight: 1.4 }}>{p.blurb}</div>
                       </button>
                     );
                   })}
                 </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate }}>Window</span>
+                  <select
+                    value={profile.weekdayStart || "09:00"}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setProfile((p) => {
+                        const next = { ...p, weekdayStart: v, callHoursPolicy: "custom" };
+                        try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
+                        return next;
+                      });
+                    }}
+                    style={{ flex: 1, minWidth: 110, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
+                  >
+                    {WEEKDAY_HOUR_OPTIONS.filter((t) => t < (profile.weekdayEnd || "21:00")).map((t) => <option key={t}>{t}</option>)}
+                  </select>
+                  <span style={{ color: C.slateLight }}>–</span>
+                  <select
+                    value={profile.weekdayEnd || "17:30"}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setProfile((p) => {
+                        const next = { ...p, weekdayEnd: v, callHoursPolicy: "custom" };
+                        try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
+                        return next;
+                      });
+                    }}
+                    style={{ flex: 1, minWidth: 110, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
+                  >
+                    {WEEKDAY_HOUR_OPTIONS.filter((t) => t > (profile.weekdayStart || "08:00")).map((t) => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 6 }}>
+                  Changing start/end switches the policy to Custom. Hard stop is PECR 08:00–21:00 weekdays.
+                </div>
               </div>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Lunch break of the people we call</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <select value={profile.lunchStart || "12:00"} onChange={(e) => update("lunchStart", e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}>
-                    {["12:00", "12:30", "13:00"].map((t) => <option key={t}>{t}</option>)}
+                    {LUNCH_HOUR_OPTIONS.filter((t) => t < (profile.lunchEnd || "15:00")).map((t) => <option key={t}>{t}</option>)}
                   </select>
                   <span style={{ color: C.slateLight }}>–</span>
                   <select value={profile.lunchEnd || "13:00"} onChange={(e) => update("lunchEnd", e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}>
-                    {["13:00", "13:30", "14:00"].map((t) => <option key={t}>{t}</option>)}
+                    {LUNCH_HOUR_OPTIONS.filter((t) => t > (profile.lunchStart || "11:00")).map((t) => <option key={t}>{t}</option>)}
                   </select>
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>No voice, WhatsApp, SMS, or email is sent in this window — so nobody is disturbed at lunch.</div>
@@ -10534,8 +10599,10 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                   key={p.id}
                   onClick={() => {
                     setCallHoursPolicy(p.id);
-                    setWindowStart(p.weekdayStart);
-                    setWindowEnd(p.weekdayEnd);
+                    if (p.weekdayStart && p.weekdayEnd) {
+                      setWindowStart(p.weekdayStart);
+                      setWindowEnd(p.weekdayEnd);
+                    }
                   }}
                   style={{
                     padding: "6px 10px", borderRadius: 7, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600,
@@ -10558,11 +10625,11 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
             <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>Lunch — do not disturb</span>
             <select value={lunchStart} onChange={(e) => setLunchStart(e.target.value)} style={{ padding: "6px 9px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5 }}>
-              {["12:00", "12:30", "13:00"].map((t) => <option key={t}>{t}</option>)}
+              {LUNCH_HOUR_OPTIONS.filter((t) => t < lunchEnd).map((t) => <option key={t}>{t}</option>)}
             </select>
             <span style={{ color: C.slateLight }}>–</span>
             <select value={lunchEnd} onChange={(e) => setLunchEnd(e.target.value)} style={{ padding: "6px 9px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5 }}>
-              {["13:00", "13:30", "14:00"].map((t) => <option key={t}>{t}</option>)}
+              {LUNCH_HOUR_OPTIONS.filter((t) => t > lunchStart).map((t) => <option key={t}>{t}</option>)}
             </select>
           </div>
 

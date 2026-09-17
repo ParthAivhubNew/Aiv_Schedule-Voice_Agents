@@ -48,10 +48,14 @@ class SettingsPayload(BaseModel):
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
     working_days: Optional[List[str]] = None
+    working_hours_by_day: Optional[Dict[str, Any]] = None
+    slot_step_minutes: Optional[int] = None
+    flex_minutes: Optional[int] = None
     buffer_before: Optional[int] = None
     buffer_after: Optional[int] = None
     auto_email_attendee: Optional[bool] = None
     auto_email_host: Optional[bool] = None
+    prospect_timezone_override: Optional[str] = None
 
 @router.get("/overview")
 async def get_overview(db: AsyncSession = Depends(get_db)):
@@ -92,6 +96,10 @@ async def list_bookings(db: AsyncSession = Depends(get_db)):
         "mission": m.mission,
         "date": m.date,
         "time": m.time,
+        "hostTimezone": m.host_timezone or "Europe/London",
+        "prospectTimezone": m.prospect_timezone or m.host_timezone or "Europe/London",
+        "prospectDate": m.prospect_date or m.date,
+        "prospectTime": m.prospect_time or m.time,
         "duration": m.duration,
         "status": m.status,
         "fit": m.fit,
@@ -152,10 +160,14 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
         "working_hours_start": st.working_hours_start,
         "working_hours_end": st.working_hours_end,
         "working_days": st.working_days,
+        "working_hours_by_day": st.working_hours_by_day or {},
+        "slot_step_minutes": st.slot_step_minutes or 15,
+        "flex_minutes": st.flex_minutes or 0,
         "buffer_before": st.buffer_before,
         "buffer_after": st.buffer_after,
         "auto_email_attendee": st.auto_email_attendee,
-        "auto_email_host": st.auto_email_host
+        "auto_email_host": st.auto_email_host,
+        "prospect_timezone_override": st.prospect_timezone_override or "",
     }
 
 @router.post("/settings")
@@ -176,10 +188,14 @@ async def update_settings(payload: SettingsPayload, db: AsyncSession = Depends(g
             "working_hours_start": st.working_hours_start,
             "working_hours_end": st.working_hours_end,
             "working_days": st.working_days,
+            "working_hours_by_day": st.working_hours_by_day or {},
+            "slot_step_minutes": st.slot_step_minutes or 15,
+            "flex_minutes": st.flex_minutes or 0,
             "buffer_before": st.buffer_before,
             "buffer_after": st.buffer_after,
             "auto_email_attendee": st.auto_email_attendee,
-            "auto_email_host": st.auto_email_host
+            "auto_email_host": st.auto_email_host,
+            "prospect_timezone_override": st.prospect_timezone_override or "",
         }
     }
 

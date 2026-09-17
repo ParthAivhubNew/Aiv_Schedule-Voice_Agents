@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { CalendarCheck, Video, Phone, MapPin, Check, ExternalLink, ChevronRight, X, Sparkles, MessageSquare } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, meetingTimeLabel } from "../tokens";
 import { TopBar } from "../components/TopBar";
 import { Badge, FitScore } from "../components/Badges";
 
@@ -23,7 +23,7 @@ export function MeetingDetailModal({ meeting, onClose, onOutcome, companyName })
               {companyName || "AIVHub"} × {meeting.prospect}
             </div>
             <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-              {meeting.date} at {meeting.time} ({meeting.duration}) · Synced via Cal.com
+              {meetingTimeLabel(meeting)} ({meeting.duration}) · Synced via Cal.com
             </div>
           </div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.slate }}><X size={18} /></button>
@@ -156,7 +156,7 @@ export function MeetingsView({ notifications, setNotifications, companyName, mee
                 <CalendarCheck size={18} color={C.cobalt} />
                 <div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>
-                    {m.date} at {m.time}
+                    {meetingTimeLabel(m)}
                   </div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate }}>
                     Duration: {m.duration} · {m.platform || "Google Meet"}

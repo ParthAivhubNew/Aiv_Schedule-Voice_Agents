@@ -1,16 +1,115 @@
 import httpx
 import logging
 import uuid
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+import asyncio
+import smtplib
+import zoneinfo
+import re
+from datetime import datetime, timedelta, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from typing import Dict, Any, Optional, List, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 
 from app.config import settings
 from app.models.models import Meeting, MeetingEventType, CalcomSetting, Notification
+from app.services.timezone_service import (
+    combine_local,
+    convert_local,
+    decorate_slots,
+    display_hhmm,
+    now_in,
+    resolve_prospect_timezone,
+    short_label,
+    stamp_from_host,
+    to_utc,
+    tzinfo,
+)
 
 logger = logging.getLogger("calendar_service")
+
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def now_uk() -> datetime:
+    try:
+        return datetime.now(zoneinfo.ZoneInfo("Europe/London"))
+    except Exception:
+        return datetime.utcnow() + timedelta(hours=1)
+
+
+def parse_spoken_date(raw: Optional[str], now: Optional[datetime] = None) -> datetime:
+    """Turn 'tomorrow', 'Friday', 'next week', '2026-09-18' into a UK-local date."""
+    stamp = now or now_uk()
+    s = (raw or "").strip().lower()
+    s = re.sub(r"\b202[0-5]\b", str(stamp.year), s)
+    if not s or s in ("tomorrow", "tmrw", "tommorow"):
+        return stamp + timedelta(days=1)
+    if s in ("today", "tonight", "this afternoon", "this morning"):
+        return stamp
+    if "next week" in s:
+        return stamp + timedelta(days=(7 - stamp.weekday()) or 7)
+    for i, name in enumerate(WEEKDAYS):
+        if name in s:
+            delta = (i - stamp.weekday()) % 7
+            if "next" in s and delta == 0:
+                delta = 7
+            elif delta == 0 and "today" not in s and stamp.hour >= 17:
+                delta = 7
+            return stamp + timedelta(days=delta)
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%A, %d %b %Y", "%A, %d %B %Y"):
+        try:
+            parsed = datetime.strptime(raw.strip(), fmt)
+            return parsed.replace(tzinfo=stamp.tzinfo) if stamp.tzinfo else parsed
+        except Exception:
+            continue
+    return stamp + timedelta(days=1)
+
+
+def _date_aliases(target: datetime) -> List[str]:
+    return [
+        target.strftime("%Y-%m-%d"),
+        target.strftime("%A, %d %b %Y"),
+        target.strftime("%A, %d %B %Y"),
+        target.strftime("%A %d %B %Y"),
+    ]
+
+
+def hours_for_day(setting, day_name: str) -> tuple:
+    """Return (core_start, core_end, bookable_end, flex_minutes) for a weekday name."""
+    by_day = setting.working_hours_by_day if isinstance(getattr(setting, "working_hours_by_day", None), dict) else {}
+    spec = {}
+    if isinstance(by_day, dict):
+        spec = by_day.get(day_name) or by_day.get(day_name[:3]) or {}
+        if not isinstance(spec, dict):
+            spec = {}
+    start = spec.get("start") or setting.working_hours_start or "09:00"
+    end = spec.get("end") or setting.working_hours_end or "17:30"
+    flex = int(getattr(setting, "flex_minutes", 0) or 0)
+    try:
+        eh, em = map(int, str(end).split(":"))
+    except Exception:
+        eh, em = 17, 30
+    total = eh * 60 + em + max(0, flex)
+    if total > 23 * 60 + 45:
+        total = 23 * 60 + 45
+    bookable_end = f"{total // 60:02d}:{total % 60:02d}"
+    return start, end, bookable_end, flex
+
+
+def _norm_time(raw: Optional[str]) -> str:
+    t = (raw or "").strip().upper().replace(".", "")
+    for fmt in ("%H:%M", "%I:%M %p", "%I %p", "%H%M"):
+        try:
+            return datetime.strptime(t, fmt).strftime("%H:%M")
+        except Exception:
+            continue
+    return t[:5] if len(t) >= 5 else (t or "14:00")
+
 
 # Default Event Types seeded if none exist
 DEFAULT_EVENT_TYPES = [
@@ -86,11 +185,16 @@ class CalendarService:
             "host_email", "host_name", "api_key", "base_url",
             "default_event_type_slug", "default_duration", "default_platform",
             "timezone", "working_hours_start", "working_hours_end",
-            "working_days", "buffer_before", "buffer_after",
-            "auto_email_attendee", "auto_email_host"
+            "working_days", "working_hours_by_day", "slot_step_minutes", "flex_minutes",
+            "buffer_before", "buffer_after",
+            "auto_email_attendee", "auto_email_host",
+            "prospect_timezone_override",
         ]:
             if field in data:
-                setattr(setting, field, data[field])
+                val = data[field]
+                if field == "prospect_timezone_override" and not str(val or "").strip():
+                    val = None
+                setattr(setting, field, val)
 
         await db.commit()
         await db.refresh(setting)
@@ -265,12 +369,37 @@ class CalendarService:
         await db.commit()
         return True
 
-    async def get_available_slots(self, db: AsyncSession, date_str: str, event_type_slug: str = "15-min-discovery") -> List[Dict[str, Any]]:
+    async def host_and_prospect_tz(
+        self,
+        db: AsyncSession,
+        phone: Optional[str] = None,
+        mission_tz: Optional[str] = None,
+        call_override: Optional[str] = None,
+    ) -> Tuple[str, str]:
+        setting = await self.get_or_create_settings(db)
+        host_tz = setting.timezone or "Europe/London"
+        p_tz = resolve_prospect_timezone(
+            phone=phone,
+            mission_tz=mission_tz,
+            override=call_override or setting.prospect_timezone_override,
+            host_tz=host_tz,
+        )
+        return host_tz, p_tz
+
+    async def get_available_slots(
+        self,
+        db: AsyncSession,
+        date_str: str,
+        event_type_slug: str = "15-min-discovery",
+        prospect_tz: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Returns list of available booking slots for the given date.
         Uses Cal.com API if configured, otherwise computes open slots based on working hours and existing DB meetings.
+        Times on each slot are host-local. If prospect_tz is set, also attach spoken prospect-local times.
         """
         setting = await self.get_or_create_settings(db)
+        host_tz = setting.timezone or "Europe/London"
         
         # 1. Try Cal.com API if connected
         if setting.api_key:
@@ -295,7 +424,7 @@ class CalendarService:
         try:
             target_date = datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
-            target_date = datetime.utcnow()
+            target_date = parse_spoken_date(date_str)
             date_str = target_date.strftime("%Y-%m-%d")
 
         day_name = target_date.strftime("%A")
@@ -304,41 +433,121 @@ class CalendarService:
         if day_name not in working_days:
             return []  # Weekend or non-working day
 
-        # Parse working hours
-        start_h, start_m = map(int, (setting.working_hours_start or "09:00").split(":"))
-        end_h, end_m = map(int, (setting.working_hours_end or "17:30").split(":"))
+        start_s, core_end, bookable_end, _flex = hours_for_day(setting, day_name)
+        start_h, start_m = map(int, (start_s or "09:00").split(":"))
+        end_h, end_m = map(int, (bookable_end or core_end or "17:30").split(":"))
 
         # Find event type duration
         res = await db.execute(select(MeetingEventType).where(MeetingEventType.slug == event_type_slug))
         ev_type = res.scalars().first()
         duration_minutes = ev_type.length if ev_type else setting.default_duration or 15
 
-        # Query existing bookings on this date
-        m_res = await db.execute(select(Meeting).where(Meeting.date == date_str))
+        aliases = _date_aliases(target_date)
+        m_res = await db.execute(select(Meeting).where(Meeting.date.in_(aliases)))
         existing_meetings = m_res.scalars().all()
-        booked_times = {m.time.strip() for m in existing_meetings if m.status != "cancelled"}
+        booked_times = {_norm_time(m.time) for m in existing_meetings if m.status not in ("cancelled", "not_fit")}
 
-        current_dt = datetime(target_date.year, target_date.month, target_date.day, start_h, start_m)
-        end_dt = datetime(target_date.year, target_date.month, target_date.day, end_h, end_m)
+        zone = tzinfo(host_tz)
+        current_dt = datetime(target_date.year, target_date.month, target_date.day, start_h, start_m, tzinfo=zone)
+        end_dt = datetime(target_date.year, target_date.month, target_date.day, end_h, end_m, tzinfo=zone)
 
-        step_minutes = 30 if duration_minutes >= 30 else 15
+        step_minutes = int(getattr(setting, "slot_step_minutes", 0) or 0)
+        if step_minutes not in (15, 30, 45, 60):
+            step_minutes = 30 if duration_minutes >= 30 else 15
         slots = []
 
-        now_utc = datetime.utcnow()
+        host_now = now_in(host_tz)
         while current_dt + timedelta(minutes=duration_minutes) <= end_dt:
             time_str = current_dt.strftime("%H:%M")
-            is_past = (target_date.date() == now_utc.date() and current_dt.time() <= now_utc.time())
+            is_past = current_dt <= host_now
             is_booked = time_str in booked_times
 
             slots.append({
                 "time": time_str,
-                "displayTime": current_dt.strftime("%I:%M %p"),
+                "displayTime": current_dt.strftime("%I:%M %p").lstrip("0"),
                 "available": not is_booked and not is_past,
                 "reason": "Already Booked" if is_booked else ("Past Time" if is_past else "Available")
             })
             current_dt += timedelta(minutes=step_minutes)
 
+        if prospect_tz:
+            slots = decorate_slots(slots, date_str, host_tz, prospect_tz)
         return slots
+
+    async def get_week_availability(
+        self,
+        db: AsyncSession,
+        start: Optional[datetime] = None,
+        days: int = 5,
+        event_type_slug: str = "15-min-discovery",
+        prospect_tz: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Open slots for the next N working days, using host calendar + working hours."""
+        setting = await self.get_or_create_settings(db)
+        host_tz = setting.timezone or "Europe/London"
+        stamp = start or now_in(host_tz)
+        out = []
+        scanned = 0
+        day = stamp
+        while len(out) < days and scanned < 14:
+            scanned += 1
+            date_iso = day.strftime("%Y-%m-%d")
+            slots = await self.get_available_slots(db, date_iso, event_type_slug, prospect_tz=prospect_tz)
+            key = "offerable" if prospect_tz else "available"
+            open_slots = [s for s in slots if s.get(key, s.get("available"))]
+            if slots:
+                out.append({
+                    "date": date_iso,
+                    "label": day.strftime("%A, %d %B %Y"),
+                    "weekday": day.strftime("%A"),
+                    "open": [{
+                        "time": s.get("prospectTime") or s["time"],
+                        "hostTime": s.get("hostTime") or s["time"],
+                        "display": s.get("spoken") or s.get("displayTime") or s["time"],
+                    } for s in open_slots[:8]],
+                    "openCount": len(open_slots),
+                })
+            day = day + timedelta(days=1)
+        return out
+
+    async def get_availability_brief(
+        self,
+        db: AsyncSession,
+        days: int = 5,
+        prospect_tz: Optional[str] = None,
+    ) -> str:
+        """Plain-language calendar snapshot for the live voice prompt."""
+        setting = await self.get_or_create_settings(db)
+        host_tz = setting.timezone or "Europe/London"
+        p_tz = prospect_tz or host_tz
+        host_now = now_in(host_tz)
+        p_now = now_in(p_tz)
+        week = await self.get_week_availability(db, host_now, days=days, prospect_tz=p_tz)
+        hours = f"{setting.working_hours_start or '09:00'}–{setting.working_hours_end or '17:30'}"
+        by_day = setting.working_hours_by_day if isinstance(getattr(setting, "working_hours_by_day", None), dict) else {}
+        day_bits = []
+        for dname, spec in (by_day or {}).items():
+            if isinstance(spec, dict) and (spec.get("start") or spec.get("end")):
+                day_bits.append(f"{dname} {spec.get('start') or setting.working_hours_start}–{spec.get('end') or setting.working_hours_end}")
+        flex = int(getattr(setting, "flex_minutes", 0) or 0)
+        flex_line = f" Flex +{flex} min after close if they ask just past it." if flex else ""
+        hours_line = hours if not day_bits else f"{hours} default; " + "; ".join(day_bits)
+        lines = [
+            f"INTERNAL (never speak timezone names, never say UK/GMT/IST/'your time'/'our time'): host diary {host_tz}.",
+            f"Current local clock for speech: {p_now.strftime('%I:%M %p').lstrip('0')} on {p_now.strftime('%A, %d %B %Y')}.",
+            f"We sit {hours_line}.{flex_line} If their ask falls outside, say that window is packed and offer nearby times from the list. Stay easy-going.",
+            "Offer only these spoken times (do not invent):",
+        ]
+        for d in week:
+            if d["open"]:
+                shown = ", ".join(s["display"] for s in d["open"][:5])
+                extra = f" (+{d['openCount'] - 5} more)" if d["openCount"] > 5 else ""
+                lines.append(f"- {d['label']}: {shown}{extra}")
+            else:
+                lines.append(f"- {d['label']}: no free slots — offer another day")
+        if not week:
+            lines.append("- Calendar empty of working days. Offer next weekday morning or afternoon and then check again.")
+        return "\n".join(lines)
 
     async def create_booking(
         self,
@@ -353,15 +562,62 @@ class CalendarService:
         notes: str = "",
         mission_name: str = "Direct Booking",
         format_type: str = "video",
-        platform: str = "Google Meet"
+        platform: str = "Google Meet",
+        prospect_timezone: Optional[str] = None,
+        prospect_phone: Optional[str] = None,
+        time_is_prospect_local: bool = False,
+        enforce_hours: bool = True,
+        mission_tz: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Creates a confirmed booking with Google Meet link, persists to DB,
         syncs to Cal.com API if configured, and dispatches automated email records.
+        date_str/time_str are host-local unless time_is_prospect_local is True.
         """
         setting = await self.get_or_create_settings(db)
         resolved_host_email = host_email or setting.host_email or "admin@aivhub.io"
         resolved_host_name = setting.host_name or "Jitendra S."
+        host_tz = setting.timezone or "Europe/London"
+        p_tz = resolve_prospect_timezone(
+            phone=prospect_phone,
+            mission_tz=mission_tz,
+            override=prospect_timezone or setting.prospect_timezone_override,
+            host_tz=host_tz,
+        )
+
+        raw_date = (date_str or "").strip()
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date[:10] if len(raw_date) >= 10 else ""):
+            date_iso = raw_date[:10]
+        else:
+            stamp = now_in(p_tz if time_is_prospect_local else host_tz)
+            date_iso = parse_spoken_date(raw_date, stamp).strftime("%Y-%m-%d")
+        time_norm = _norm_time(time_str)
+
+        if time_is_prospect_local and p_tz != host_tz:
+            try:
+                date_iso, time_norm = convert_local(date_iso, time_norm, p_tz, host_tz)
+            except Exception as conv_err:
+                logger.warning(f"Prospect-to-host convert failed: {conv_err}")
+
+        if enforce_hours:
+            slots = await self.get_available_slots(db, date_iso, event_type_slug)
+            open_times = [s["time"] for s in slots if s.get("available")]
+            if time_norm not in open_times:
+                alts = open_times[:6]
+                return {
+                    "success": False,
+                    "error": "outside_hours_or_taken",
+                    "date": date_iso,
+                    "time": time_norm,
+                    "availableSlots": alts,
+                    "hostTimezone": host_tz,
+                    "prospectTimezone": p_tz,
+                    "message": "That time is not free on our calendar.",
+                }
+
+        stamp = stamp_from_host(date_iso, time_norm, host_tz, p_tz)
+        date_str = stamp["date"]
+        time_str = stamp["time"]
 
         # Fetch event type if duration not supplied
         if not duration_minutes:
@@ -382,7 +638,7 @@ class CalendarService:
         if setting.api_key:
             try:
                 headers = {"Authorization": f"Bearer {setting.api_key}", "Content-Type": "application/json"}
-                start_iso = f"{date_str}T{time_str}:00Z"
+                start_iso = to_utc(date_str, time_str, host_tz).strftime("%Y-%m-%dT%H:%M:%SZ")
                 payload = {
                     "eventTypeId": 1,
                     "start": start_iso,
@@ -415,6 +671,11 @@ class CalendarService:
             mission=mission_name,
             date=date_str,
             time=time_str,
+            host_timezone=stamp["host_timezone"],
+            prospect_timezone=stamp["prospect_timezone"],
+            prospect_date=stamp["prospect_date"],
+            prospect_time=stamp["prospect_time"],
+            starts_at_utc=stamp["starts_at_utc"],
             duration=f"{duration_minutes} min",
             status="upcoming",
             fit=92,
@@ -438,7 +699,7 @@ class CalendarService:
         # 3. Create In-App Notification
         notif = Notification(
             id=f"notif_{uuid.uuid4().hex[:8]}",
-            text=f"Confirmed Meeting booked with {prospect_name} ({attendee_email}) on {date_str} at {time_str} via {platform}.",
+            text=f"Confirmed meeting with {prospect_name} ({attendee_email}) on {date_str} at {time_str} {short_label(host_tz)} via {platform}.",
             type="success",
             time="Just now"
         )
@@ -446,6 +707,14 @@ class CalendarService:
 
         await db.commit()
         await db.refresh(meeting)
+
+        email_result = {"attendee": False, "host": False, "error": None}
+        if setting.auto_email_attendee or setting.auto_email_host:
+            try:
+                email_result = await self.send_booking_emails(db, meeting, google_meet_url)
+            except Exception as mail_err:
+                logger.warning(f"Booking email send failed: {mail_err}")
+                email_result["error"] = str(mail_err)[:240]
 
         # 4. Structured Process Log for Audit
         try:
@@ -482,13 +751,18 @@ class CalendarService:
             "hostName": resolved_host_name,
             "date": date_str,
             "time": time_str,
+            "hostTimezone": stamp["host_timezone"],
+            "prospectTimezone": stamp["prospect_timezone"],
+            "prospectDate": stamp["prospect_date"],
+            "prospectTime": stamp["prospect_time"],
             "duration": f"{duration_minutes} min",
             "videoLink": google_meet_url,
             "platform": platform,
             "provider": provider,
             "emailConfirmationSent": {
-                "attendee": setting.auto_email_attendee,
-                "host": setting.auto_email_host
+                "attendee": bool(email_result.get("attendee")),
+                "host": bool(email_result.get("host")),
+                "error": email_result.get("error"),
             }
         }
 
@@ -578,19 +852,37 @@ class CalendarService:
 
         old_date = meeting.date
         old_time = meeting.time
-        meeting.date = new_date
-        meeting.time = new_time
+        setting = await self.get_or_create_settings(db)
+        host_tz = meeting.host_timezone or setting.timezone or "Europe/London"
+        p_tz = meeting.prospect_timezone or host_tz
+        slots = await self.get_available_slots(db, new_date, meeting.event_type_slug or "15-min-discovery")
+        open_times = [s["time"] for s in slots if s.get("available")]
+        new_time_n = _norm_time(new_time)
+        if new_time_n not in open_times:
+            return {
+                "success": False,
+                "error": "outside_hours_or_taken",
+                "availableSlots": open_times[:6],
+                "message": "That time is not free on our calendar.",
+            }
+        stamp = stamp_from_host(new_date, new_time_n, host_tz, p_tz)
+        meeting.date = stamp["date"]
+        meeting.time = stamp["time"]
+        meeting.host_timezone = stamp["host_timezone"]
+        meeting.prospect_timezone = stamp["prospect_timezone"]
+        meeting.prospect_date = stamp["prospect_date"]
+        meeting.prospect_time = stamp["prospect_time"]
+        meeting.starts_at_utc = stamp["starts_at_utc"]
         meeting.status = "upcoming"
         if reason:
             prior_prep = meeting.prep or ""
             meeting.prep = f"{prior_prep}\n[Rescheduled from {old_date} {old_time} to {new_date} {new_time}. Reason: {reason}]".strip()
 
         # If Cal.com API key is configured and calcom booking exists
-        setting = await self.get_or_create_settings(db)
         if setting.api_key and meeting.calcom_booking_id and not meeting.calcom_booking_id.startswith("cal_"):
             try:
                 headers = {"Authorization": f"Bearer {setting.api_key}", "Content-Type": "application/json"}
-                start_iso = f"{new_date}T{new_time}:00Z"
+                start_iso = to_utc(new_date, new_time_n, host_tz).strftime("%Y-%m-%dT%H:%M:%SZ")
                 async with httpx.AsyncClient(timeout=4.0) as client:
                     await client.patch(
                         f"{setting.base_url.rstrip('/')}/bookings/{meeting.calcom_booking_id}",
@@ -632,18 +924,19 @@ class CalendarService:
         }
 
     def generate_ics(self, meeting: Meeting) -> str:
-        """Generates standard iCalendar (.ics) format string for the meeting."""
+        """Generates iCalendar with host-local time converted to UTC so clients show their own zone."""
         try:
-            start_dt = datetime.strptime(f"{meeting.date} {meeting.time}", "%Y-%m-%d %H:%M")
+            host_tz = meeting.host_timezone or "Europe/London"
+            start_local = combine_local(meeting.date, meeting.time, host_tz)
             dur = 15
             if meeting.duration:
                 dur_str = "".join([c for c in meeting.duration if c.isdigit()])
                 if dur_str:
                     dur = int(dur_str)
-            end_dt = start_dt + timedelta(minutes=dur)
-            dtstart = start_dt.strftime("%Y%m%dT%H%M00Z")
-            dtend = end_dt.strftime("%Y%m%dT%H%M00Z")
-            dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M00Z")
+            end_local = start_local + timedelta(minutes=dur)
+            dtstart = start_local.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            dtend = end_local.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         except Exception:
             dtstart = datetime.utcnow().strftime("%Y%m%dT%H%M00Z")
             dtend = (datetime.utcnow() + timedelta(minutes=15)).strftime("%Y%m%dT%H%M00Z")
@@ -675,7 +968,119 @@ class CalendarService:
         ]
         return "\r\n".join(ics_lines)
 
+    def _public_config(self, cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        data = dict(cfg or {})
+        has_pw = bool(data.get("smtp_password"))
+        data.pop("smtp_password", None)
+        data["hasPassword"] = has_pw
+        return data
 
+    async def _primary_mail_account(self, db: AsyncSession):
+        from app.models.models import Connection
+        result = await db.execute(select(Connection).where(Connection.group_name == "Communication Accounts"))
+        rows = result.scalars().all()
+        connected = [c for c in rows if c.status == "connected" and (c.config or {}).get("email") and (c.config or {}).get("smtp_password")]
+        if not connected:
+            return None
+        primary = [c for c in connected if (c.config or {}).get("is_primary")]
+        return primary[0] if primary else connected[0]
+
+    def _smtp_send_sync(self, host, port, use_tls, username, password, from_addr, to_addrs, msg_bytes) -> None:
+        port = int(port or 587)
+        with smtplib.SMTP(host, port, timeout=20) as smtp:
+            smtp.ehlo()
+            if use_tls:
+                smtp.starttls()
+                smtp.ehlo()
+            smtp.login(username, password)
+            smtp.sendmail(from_addr, to_addrs, msg_bytes)
+
+    async def send_outbound_email(
+        self,
+        db: AsyncSession,
+        to_email: str,
+        subject: str,
+        html_body: str,
+        text_body: Optional[str] = None,
+        ics_text: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        acc = await self._primary_mail_account(db)
+        if not acc:
+            return {"ok": False, "error": "No Gmail/SMTP account with an app password. Connect it in Communication Accounts."}
+        cfg = acc.config or {}
+        from_addr = cfg.get("email")
+        password = cfg.get("smtp_password")
+        host = cfg.get("host") or ("smtp.gmail.com" if cfg.get("provider") == "google" else "smtp.office365.com")
+        port = int(cfg.get("port") or 587)
+        use_tls = cfg.get("use_tls", True)
+        sender_name = cfg.get("sender_name") or "AIVHub"
+        if not from_addr or not password:
+            return {"ok": False, "error": "Gmail connected but app password missing."}
+
+        msg = MIMEMultipart("mixed")
+        msg["Subject"] = subject
+        msg["From"] = f"{sender_name} <{from_addr}>"
+        msg["To"] = to_email
+        alt = MIMEMultipart("alternative")
+        alt.attach(MIMEText(text_body or html_body.replace("<br>", "\n"), "plain"))
+        alt.attach(MIMEText(html_body, "html"))
+        msg.attach(alt)
+        if ics_text:
+            part = MIMEBase("text", "calendar", method="REQUEST")
+            part.set_payload(ics_text)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename="invite.ics")
+            msg.add_header("Content-Class", "urn:content-classes:calendarmessage")
+            msg.attach(part)
+
+        try:
+            await asyncio.to_thread(
+                self._smtp_send_sync,
+                host, port, use_tls, from_addr, password, from_addr, [to_email], msg.as_string(),
+            )
+            return {"ok": True, "from": from_addr, "to": to_email}
+        except Exception as err:
+            logger.warning(f"SMTP send failed: {err}")
+            return {"ok": False, "error": str(err)[:300]}
+
+    async def send_booking_emails(self, db: AsyncSession, meeting: Meeting, video_link: str) -> Dict[str, Any]:
+        setting = await self.get_or_create_settings(db)
+        ics = self.generate_ics(meeting)
+        result = {"attendee": False, "host": False, "error": None}
+        p_date = meeting.prospect_date or meeting.date
+        p_time = display_hhmm(meeting.prospect_time or meeting.time)
+        host_label = short_label(meeting.host_timezone or "Europe/London")
+        attendee_when = f"{p_date} at {p_time}"
+        host_when = f"{meeting.date} at {display_hhmm(meeting.time)} {host_label}"
+        if meeting.prospect_timezone and meeting.prospect_timezone != (meeting.host_timezone or "Europe/London"):
+            host_when = f"{host_when} (attendee sees {p_time})"
+        subject = f"Meeting confirmed — {attendee_when}"
+        html = (
+            f"<p>Hi {meeting.prospect},</p>"
+            f"<p>You're booked with {meeting.host} for a {meeting.duration} call.</p>"
+            f"<p><b>When:</b> {attendee_when}<br>"
+            f"<b>Where:</b> <a href='{video_link}'>{video_link}</a></p>"
+            f"<p>A calendar invite is attached.</p>"
+            f"<p>— {meeting.host}</p>"
+        )
+        if setting.auto_email_attendee and meeting.attendee_email:
+            sent = await self.send_outbound_email(db, meeting.attendee_email, subject, html, ics_text=ics)
+            result["attendee"] = bool(sent.get("ok"))
+            if not sent.get("ok"):
+                result["error"] = sent.get("error")
+        if setting.auto_email_host and meeting.host_email:
+            host_html = (
+                f"<p>Hi {meeting.host},</p>"
+                f"<p>Discovery booked with {meeting.prospect} ({meeting.attendee_email}).</p>"
+                f"<p><b>Diary:</b> {host_when}<br>"
+                f"<b>Where:</b> <a href='{video_link}'>{video_link}</a></p>"
+                f"<p>A calendar invite is attached.</p>"
+            )
+            sent_h = await self.send_outbound_email(db, meeting.host_email, f"Host copy: {meeting.date} {meeting.time} {host_label}", host_html, ics_text=ics)
+            result["host"] = bool(sent_h.get("ok"))
+            if not sent_h.get("ok") and not result["error"]:
+                result["error"] = sent_h.get("error")
+        return result
 
     async def get_communication_accounts(self, db: AsyncSession) -> List[Dict[str, Any]]:
         """Retrieves all connected communication accounts (Gmail, Outlook, SMTP, Zoom)."""
@@ -692,17 +1097,20 @@ class CalendarService:
                     "id": "comm_google_default",
                     "group_name": "Communication Accounts",
                     "name": "Google / Gmail & Calendar",
-                    "status": "connected",
-                    "api_key_masked": "oauth_token_active",
+                    "status": "not_configured",
+                    "api_key_masked": None,
                     "config": {
                         "provider": "google",
-                        "email": "admin@aivhub.io",
-                        "sender_name": "Admin Operator",
+                        "email": "",
+                        "sender_name": "",
+                        "host": "smtp.gmail.com",
+                        "port": 587,
+                        "use_tls": True,
                         "sync_calendar": True,
                         "send_invites": True,
                         "video_provider": "google_meet",
                         "is_primary": True,
-                        "connected_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+                        "connected_at": None
                     }
                 },
                 {
@@ -768,12 +1176,16 @@ class CalendarService:
 
         out = []
         for c in conns:
+            cfg = dict(c.config or {})
+            has_pw = bool(cfg.get("smtp_password"))
+            cfg.pop("smtp_password", None)
+            cfg["hasPassword"] = has_pw
             out.append({
                 "id": c.id,
                 "name": c.name,
                 "status": c.status,
                 "apiKeyMasked": c.api_key_masked,
-                "config": c.config or {}
+                "config": cfg
             })
         return out
 
@@ -794,6 +1206,10 @@ class CalendarService:
         cfg = account_data.get("config", {})
         if "provider" not in cfg:
             cfg["provider"] = provider
+        if account_data.get("password"):
+            cfg["smtp_password"] = account_data.get("password")
+        if account_data.get("apiKey") and not cfg.get("smtp_password"):
+            cfg["smtp_password"] = account_data.get("apiKey")
         if "connected_at" not in cfg or not cfg["connected_at"]:
             cfg["connected_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
 
@@ -840,6 +1256,10 @@ class CalendarService:
         await db.commit()
         await db.refresh(conn)
 
+        public_cfg = dict(conn.config or {})
+        public_cfg.pop("smtp_password", None)
+        public_cfg["hasPassword"] = bool((conn.config or {}).get("smtp_password"))
+
         return {
             "success": True,
             "account": {
@@ -847,7 +1267,7 @@ class CalendarService:
                 "name": conn.name,
                 "status": conn.status,
                 "apiKeyMasked": conn.api_key_masked,
-                "config": conn.config
+                "config": public_cfg
             }
         }
 
@@ -873,7 +1293,7 @@ class CalendarService:
         return True
 
     async def test_communication_account(self, db: AsyncSession, account_id: str) -> Dict[str, Any]:
-        """Tests connectivity and verification of an email/calendar communication account."""
+        """Real SMTP login test for Gmail / Outlook / custom SMTP."""
         from app.models.models import Connection
         result = await db.execute(select(Connection).where(Connection.id == account_id))
         conn = result.scalars().first()
@@ -881,19 +1301,51 @@ class CalendarService:
             return {"success": False, "error": "Account not found"}
 
         cfg = conn.config or {}
-        email = cfg.get("email") or "admin@aivhub.io"
+        email = (cfg.get("email") or "").strip()
+        password = (cfg.get("smtp_password") or "").strip()
         provider = cfg.get("provider") or "google"
+        host = cfg.get("host") or ("smtp.gmail.com" if provider == "google" else "smtp.office365.com" if provider == "outlook" else "smtp.gmail.com")
+        port = int(cfg.get("port") or 587)
+        use_tls = cfg.get("use_tls", True)
 
-        return {
-            "success": True,
-            "accountId": account_id,
-            "provider": provider,
-            "email": email,
-            "latencyMs": 42,
-            "calendarSync": cfg.get("sync_calendar", True),
-            "outboundEmail": cfg.get("send_invites", True),
-            "message": f"Successfully verified communication channel with {email} via {provider.upper()} API."
-        }
+        if not email:
+            return {"success": False, "error": "Email address is required."}
+        if not password:
+            return {
+                "success": False,
+                "error": "Gmail needs a 16-character App Password (Google Account → Security → 2-Step Verification → App passwords). Normal Gmail password will fail.",
+            }
+
+        start = datetime.utcnow()
+        try:
+            def _login():
+                with smtplib.SMTP(host, port, timeout=18) as smtp:
+                    smtp.ehlo()
+                    if use_tls:
+                        smtp.starttls()
+                        smtp.ehlo()
+                    smtp.login(email, password)
+            await asyncio.to_thread(_login)
+            latency = int((datetime.utcnow() - start).total_seconds() * 1000)
+            conn.status = "connected"
+            await db.commit()
+            return {
+                "success": True,
+                "accountId": account_id,
+                "provider": provider,
+                "email": email,
+                "latencyMs": latency,
+                "calendarSync": cfg.get("sync_calendar", True),
+                "outboundEmail": cfg.get("send_invites", True),
+                "message": f"SMTP login OK for {email} via {host}:{port}. Ready to send meeting invites.",
+            }
+        except Exception as err:
+            conn.status = "error"
+            await db.commit()
+            hint = str(err)
+            if "Application-specific password" in hint or "Username and Password not accepted" in hint or "535" in hint:
+                hint = "Gmail rejected the password. Turn on 2-Step Verification, create an App Password, paste that 16-character code (not your normal Gmail password)."
+            return {"success": False, "error": hint[:400], "email": email, "provider": provider}
 
 
 calendar_service = CalendarService()

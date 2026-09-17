@@ -74,7 +74,9 @@ async def run_openai_realtime(
     except Exception as err:
         logger.warning(f"[OPENAI] LiveCall link failed: {err}")
 
-    instructions = await build_xai_system_instructions(caller_number, prospect_name, hold_opening=False)
+    instructions = await build_xai_system_instructions(
+        caller_number, prospect_name, hold_opening=False, prospect_id=None, call_id=local_id
+    )
     ws_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -109,18 +111,18 @@ async def run_openai_realtime(
             now = datetime.now(london_tz)
         except Exception:
             now = datetime.utcnow() + timedelta(hours=1)
-        clock = now.strftime("%I:%M %p")
+        clock = now.strftime("%I:%M %p").lstrip("0")
         day = now.strftime("%A, %d %B %Y")
         if is_inbound:
             line = (
-                f"Speak FIRST immediately. London time is {clock} on {day}. "
-                f"Say warmly: 'Hello, thanks for calling! How can I help you today?'"
+                f"Speak FIRST immediately. It is {clock} on {day}. "
+                f"Say warmly: 'Hello, thanks for calling! How can I help you today?' Do not mention timezones."
             )
         else:
             hi = f"Hi {first}" if first != "there" else "Hi there"
             line = (
-                f"The person just picked up. Speak FIRST immediately. London time is {clock} on {day}. "
-                f"Say warmly: '{hi}, this is me calling. How's your day going?'"
+                f"The person just picked up. Speak FIRST immediately. It is {clock} on {day}. "
+                f"Say warmly: '{hi}, this is me calling. How's your day going?' Do not mention timezones."
             )
         await ws.send(json.dumps({
             "type": "response.create",

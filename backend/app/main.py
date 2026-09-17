@@ -113,13 +113,43 @@ async def lifespan(app: FastAPI):
             ("attendee_email", "VARCHAR"),
             ("calcom_booking_id", "VARCHAR"),
             ("event_type_slug", "VARCHAR DEFAULT '15-min-discovery'"),
-            ("cancellation_reason", "TEXT")
+            ("cancellation_reason", "TEXT"),
+            ("host_timezone", "VARCHAR DEFAULT 'Europe/London'"),
+            ("prospect_timezone", "VARCHAR"),
+            ("prospect_date", "VARCHAR"),
+            ("prospect_time", "VARCHAR"),
+            ("starts_at_utc", "TIMESTAMP"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE meetings ADD COLUMN IF NOT EXISTS {col} {col_type};"))
             except Exception:
                 try:
                     await conn.execute(text(f"ALTER TABLE meetings ADD COLUMN {col} {col_type};"))
+                except Exception:
+                    pass
+
+        for col, col_type in [
+            ("prospect_timezone_override", "VARCHAR"),
+            ("working_hours_by_day", "JSON"),
+            ("slot_step_minutes", "INTEGER DEFAULT 15"),
+            ("flex_minutes", "INTEGER DEFAULT 0"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE calcom_settings ADD COLUMN IF NOT EXISTS {col} {col_type};"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE calcom_settings ADD COLUMN {col} {col_type};"))
+                except Exception:
+                    pass
+
+        for col, col_type in [
+            ("prospect_timezone", "VARCHAR"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE live_calls ADD COLUMN IF NOT EXISTS {col} {col_type};"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE live_calls ADD COLUMN {col} {col_type};"))
                 except Exception:
                     pass
     await seed_database()
