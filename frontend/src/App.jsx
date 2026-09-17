@@ -150,12 +150,75 @@ const INITIAL_BUILTIN_PROVIDERS = [
 ];
 
 const VOICE_LAYERS = [
-  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI Grok-2", oss: "DeepSeek V4 Flash", options: ["xAI Grok-2", "xAI Grok-4.6", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek V4 Flash", "Gemini 2.0 Flash"] },
-  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "ElevenLabs Turbo", oss: "Kokoro (self-hosted)", options: ["ElevenLabs Turbo", "Cartesia Sonic", "Kokoro (self-hosted)", "PlayHT 2.0", "Amazon Polly"] },
-  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "Deepgram Nova-3", oss: "Faster-Whisper (self-hosted)", options: ["Deepgram Nova-3", "Faster-Whisper (self-hosted)", "OpenAI Whisper", "AssemblyAI"] },
-  { key: "voice", label: "Voice Orchestration & Interruption Engine", desc: "Manages audio buffers, turn-taking arbitration, and silence detection", paid: "Vapi Voice AI", oss: "LiveKit (self-hosted)", options: ["Vapi Voice AI", "xAI Voice Agent", "Retell AI", "LiveKit (self-hosted)", "Bland AI"] },
+  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI Grok-2", oss: "DeepSeek V4 Flash", options: ["xAI Grok (speech-to-speech)", "xAI Grok-2", "xAI Grok-4.6", "OpenAI Realtime", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek V4 Flash", "Gemini 2.0 Flash"] },
+  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "ElevenLabs Turbo", oss: "Kokoro (self-hosted)", options: ["xAI Voice Agent", "OpenAI Realtime", "ElevenLabs Turbo", "Cartesia Sonic", "Kokoro (self-hosted)", "PlayHT 2.0", "Amazon Polly"] },
+  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "Deepgram Nova-3", oss: "Faster-Whisper (self-hosted)", options: ["xAI Voice Agent", "OpenAI Realtime", "Deepgram Nova-3", "Faster-Whisper (self-hosted)", "OpenAI Whisper", "AssemblyAI"] },
+  { key: "voice", label: "Voice Orchestration & Interruption Engine", desc: "Manages audio buffers, turn-taking arbitration, and silence detection", paid: "Vapi Voice AI", oss: "LiveKit (self-hosted)", options: ["xAI Grok (speech-to-speech)", "xAI Voice Agent", "OpenAI Realtime", "Vapi Voice AI", "Retell AI", "LiveKit (self-hosted)", "Bland AI"] },
   { key: "telephony", label: "Telephony Carrier & SIP Trunk", desc: "PSTN inbound numbers, caller ID preservation, and carrier routing", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "xAI Voice Number", "Telnyx", "Plivo", "Vonage"] },
 ];
+
+function prettyProvider(raw, fallback) {
+  const s = String(raw || "").trim();
+  if (!s) return fallback;
+  const map = {
+    xai: "xAI Grok (speech-to-speech)",
+    openai: "OpenAI Realtime",
+    groq: "Groq Llama 3.3 70B",
+    anthropic: "Claude 3.5 Sonnet",
+    deepseek: "DeepSeek-V3",
+    deepgram: "Deepgram Nova-3",
+    elevenlabs: "ElevenLabs Turbo",
+    cartesia: "Cartesia Sonic",
+    whisper: "OpenAI Whisper",
+    telnyx: "Telnyx",
+    twilio: "Twilio",
+  };
+  return map[s.toLowerCase()] || s;
+}
+
+function liveStackLabels(hub) {
+  const engine = String(hub?.liveEngine || "").toLowerCase();
+  const engineLabel =
+    engine === "xai" ? "xAI Grok (speech-to-speech)"
+    : engine === "openai" ? "OpenAI Realtime"
+    : engine === "modular" ? "Modular pipeline"
+    : engine === "simulation" ? "Simulation"
+    : hub?.activeEngine || "—";
+  if (engine === "xai" || engine === "openai") {
+    return {
+      engine: engineLabel,
+      llm: engineLabel,
+      stt: engineLabel,
+      tts: engineLabel,
+      carrier: hub?.activeCarrier || "—",
+      voice: hub?.voiceName || "—",
+      note: hub?.liveNote || "",
+    };
+  }
+  return {
+    engine: engineLabel,
+    llm: prettyProvider(hub?.llmProvider, hub?.llmName || "—"),
+    stt: prettyProvider(hub?.sttProvider, hub?.sttName || "—"),
+    tts: prettyProvider(hub?.ttsProvider, hub?.ttsName || "—"),
+    carrier: hub?.activeCarrier || "—",
+    voice: hub?.voiceName || "—",
+    note: hub?.liveNote || "",
+  };
+}
+
+function voiceLayersFromHub(hub, prevLayers) {
+  const prev = prevLayers && typeof prevLayers === "object" ? prevLayers : {};
+  if (!hub) return prev;
+  const labels = liveStackLabels(hub);
+  return {
+    ...prev,
+    llm: labels.llm !== "—" ? labels.llm : prev.llm,
+    tts: labels.tts !== "—" ? labels.tts : prev.tts,
+    stt: labels.stt !== "—" ? labels.stt : prev.stt,
+    voice: labels.engine !== "—" ? labels.engine : prev.voice,
+    telephony: labels.carrier !== "—" ? labels.carrier : prev.telephony,
+  };
+}
 
 const LEADGEN_LAYERS = [
   { key: "researchLlm", label: "Web Search & Account Discovery LLM", desc: "Discovers target accounts matching ICP criteria across sectors", paid: "DeepSeek-V3", oss: "Groq Llama 3.3 70B", options: ["DeepSeek-V3", "Claude 3.5 Sonnet", "GPT-4o", "Gemini 2.0 Flash", "Groq Llama 3.3 70B"] },
@@ -5267,7 +5330,7 @@ const SOURCE_TYPES = [
   { id: "Manual text", label: "Direct Text / Notes", icon: PenLine, placeholder: "Paste raw objection rebuttals, customer Q&As, or pricing rules here...", hint: "Paste custom scripts or internal knowledge directly into the AI's memory." },
 ];
 
-function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false }) {
+function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false, voiceName, setVoiceName }) {
   const [tab, setTab] = useState("identity");
   const [saved, setSaved] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
@@ -5296,10 +5359,23 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
       await api.updateProfile(profile);
       await api.saveServices(services);
       await api.saveFaqs(faq);
-      setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, services & FAQs saved to database", time: "just now", unread: true, type: "success" }, ...ns]);
+      if (voiceName) {
+        try {
+          await api.selectVoice({
+            voice_id: voiceName,
+            label: voiceName === "rex" ? "Rex (Sam / male)" : voiceName,
+            provider: "xai",
+          });
+        } catch (_) {}
+      }
+      if (typeof setNotifications === "function") {
+        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, services & FAQs saved to database", time: "just now", unread: true, type: "success" }, ...ns]);
+      }
     } catch (err) {
       console.warn("Backend updateProfile warning:", err);
-      setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Company profile changes saved locally", time: "just now", unread: true, type: "info" }, ...ns]);
+      if (typeof setNotifications === "function") {
+        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Company profile changes saved locally", time: "just now", unread: true, type: "info" }, ...ns]);
+      }
     }
     setTimeout(() => setSaved(false), 1800);
   };
@@ -5422,39 +5498,91 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
     return next;
   });
 
+  const renderProfileTabs = (mode) => (
+    <div style={mode === "pills"
+      ? { display: "flex", gap: 8, flexWrap: "wrap" }
+      : { display: "flex", flexDirection: "column", gap: 2 }
+    }>
+      {PROFILE_TABS.map((t) => {
+        const Icon = t.icon;
+        const active = tab === t.id;
+        const pill = mode === "pills";
+        return (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            style={pill ? {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 16px",
+              borderRadius: 8,
+              border: `1px solid ${active ? C.ink : C.border}`,
+              background: active ? C.ink : "#fff",
+              color: active ? "#fff" : C.slate,
+              fontFamily: FONT_BODY,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+            } : {
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              padding: "9px 11px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              textAlign: "left",
+              background: active ? C.cobaltSoft : "transparent",
+              color: active ? C.cobaltDeep : C.slate,
+              fontFamily: FONT_BODY,
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            <Icon size={15} /> {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
       {!embedded && <TopBar title="Company Profile" subtitle="Everything the AI knows about your company when it's on a call" notifications={notifications} setNotifications={setNotifications} />}
-      <div style={{ padding: embedded ? 0 : "20px 32px", display: "grid", gridTemplateColumns: "200px 1fr", gap: 24 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {PROFILE_TABS.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 9, padding: "9px 11px", borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
-                  background: active ? C.cobaltSoft : "transparent", color: active ? C.cobaltDeep : C.slate, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600,
-                }}
-              >
-                <Icon size={15} /> {t.label}
-              </button>
-            );
-          })}
-        </div>
+      <div style={embedded
+        ? { padding: 0, display: "flex", flexDirection: "column", gap: 14 }
+        : { padding: "20px 32px", display: "grid", gridTemplateColumns: "200px 1fr", gap: 24 }
+      }>
+        {renderProfileTabs(embedded ? "pills" : "rail")}
 
-        <div style={{ width: "100%", maxWidth: (tab === "services" || tab === "knowledge") ? 1040 : 760, transition: "max-width 0.25s ease" }}>
+        <div style={{ width: "100%", maxWidth: embedded ? "100%" : ((tab === "services" || tab === "knowledge") ? 1040 : 760), transition: "max-width 0.25s ease" }}>
           {tab === "identity" && (
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={Users} title="Company identity" desc="Basic facts the AI introduces itself with and uses to explain who it's calling on behalf of." />
               <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="Your company" />
-              <Field label="One-line pitch" value={profile.pitch} onChange={(v) => update("pitch", v)} placeholder="What you sell — used verbatim on calls" />
+              <Field label="One-line pitch" value={profile.pitch} onChange={(v) => update("pitch", v)} placeholder="What you sell — used verbatim on calls" textarea />
               <Field label="Industry" value={profile.industry || ""} onChange={(v) => update("industry", v)} placeholder="Industry" />
               <Field label="Website" value={profile.website || ""} onChange={(v) => update("website", v)} placeholder="https://" hint="Also added automatically as a knowledge source." />
               <Field label="LinkedIn / other social links" value={profile.social || ""} onChange={(v) => update("social", v)} placeholder="linkedin.com/company/…" />
               <Field label="Caller persona name" value={profile.callerName} onChange={(v) => update("callerName", v)} placeholder="Name the agent uses" hint="The name the AI introduces itself as on calls." />
+              {typeof setVoiceName === "function" && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Call voice</div>
+                  <select
+                    value={voiceName || "rex"}
+                    onChange={(e) => setVoiceName(e.target.value)}
+                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
+                  >
+                    <option value="rex">Rex — Sam (male)</option>
+                    <option value="leo">Leo (male)</option>
+                    <option value="ara">Ara (female)</option>
+                    <option value="eve">Eve (female)</option>
+                  </select>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Spoken name and pitch come from this profile. This only picks the xAI voice.</div>
+                </div>
+              )}
               <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…" />
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Working timezone</div>
@@ -7488,7 +7616,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 </span>
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#94A3B8", marginTop: 2 }}>
-                Provider-agnostic speech-to-speech carrier bridge with dynamic pgvector RAG context.
+                {hubData.liveNote || "Provider-agnostic speech-to-speech carrier bridge with dynamic pgvector RAG context."}
               </div>
             </div>
           </div>
@@ -7537,6 +7665,30 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: "#CBD5E1", marginTop: 4 }}>{hubData.xaiFqdn}:5060</div>
           </div>
         </div>
+
+        {(() => {
+          const labels = liveStackLabels(hubData);
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, paddingTop: 4 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Live engine</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: "#FDE68A", marginTop: 4 }}>{labels.engine}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>LLM</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: "#F8FAFC", marginTop: 4 }}>{labels.llm}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>STT</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: "#F8FAFC", marginTop: 4 }}>{labels.stt}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>TTS</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: "#F8FAFC", marginTop: 4 }}>{labels.tts}</div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Live Ping Result Banner */}
         {pingResult && (
@@ -8505,7 +8657,7 @@ function LeadRadarView({ notifications, setNotifications, onLaunchMission }) {
 
 const LAYERS = VOICE_LAYERS;
 
-function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile, onNavigateView }) {
+function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile, onNavigateView, embedded = false }) {
   const [activeTab, setActiveTab] = useState("telephony-hub");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -8517,6 +8669,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   // ── Credentials: loaded live from backend with template fallback ──
   const [credsState, setCredsState] = useState(CONNECTIONS);
   const [rowState, setRowState] = useState({});
+  const [liveHub, setLiveHub] = useState(null);
+  const liveLabels = liveHub ? liveStackLabels(liveHub) : null;
 
   useEffect(() => {
     async function loadConns() {
@@ -8539,6 +8693,18 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               }),
             }));
           });
+        }
+      } catch (_) {}
+      try {
+        const hub = await api.getTelephonyHub();
+        if (hub) {
+          setLiveHub(hub);
+          if (setCommonAi) {
+            setCommonAi((prev) => ({
+              ...prev,
+              voiceLayers: voiceLayersFromHub(hub, prev.voiceLayers),
+            }));
+          }
         }
       } catch (_) {}
     }
@@ -8662,8 +8828,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 
   return (
     <>
-      <TopBar title="Connections & Providers" subtitle="Layer routing, API keys and live credential testing" notifications={notifications} setNotifications={setNotifications} />
-      <div style={{ padding: "20px 32px" }}>
+      {!embedded && <TopBar title="Connections & Providers" subtitle="Layer routing, API keys and live credential testing" notifications={notifications} setNotifications={setNotifications} />}
+      <div style={{ padding: embedded ? 0 : "20px 32px" }}>
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
@@ -8715,6 +8881,15 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         {/* TAB 1: Layer Routing */}
         {activeTab === "routing" && (
           <>
+            {liveLabels && (
+              <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#1E40AF", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Live on server</div>
+                <div style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>
+                  {liveLabels.engine} · LLM {liveLabels.llm} · STT {liveLabels.stt} · TTS {liveLabels.tts} · {liveLabels.carrier}
+                </div>
+                {liveHub.liveNote ? <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{liveHub.liveNote}</div> : null}
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
               {[
                 { id: "paid", title: "Paid / Managed", desc: "Best-in-class APIs. Fastest to run, no infra." },
@@ -8736,7 +8911,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               {LAYERS.map((l) => {
                 const val = custom[l.key] || l.paid;
                 const oss = isOss(val);
-                const options = l.key === "llm" ? allLlmOptions : l.options;
+                const baseOpts = l.key === "llm" ? allLlmOptions : l.options;
+                const options = baseOpts.includes(val) ? baseOpts : [val, ...baseOpts];
                 return (
                   <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
                     <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
@@ -11359,6 +11535,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [calSaving, setCalSaving] = useState(false);
   const [calSavedNotice, setCalSavedNotice] = useState(null);
   const [showCalApiKey, setShowCalApiKey] = useState(false);
+  const [liveHub, setLiveHub] = useState(null);
 
   const panelOpen = embedded || isOpen;
 
@@ -11373,6 +11550,20 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         .then((res) => setCalStatus(res))
         .catch(() => {});
     }
+  }, [tab, panelOpen]);
+
+  useEffect(() => {
+    if (!panelOpen || tab !== "voice") return;
+    api.getTelephonyHub()
+      .then((hub) => {
+        if (!hub) return;
+        setLiveHub(hub);
+        setCommonAi((prev) => ({
+          ...prev,
+          voiceLayers: voiceLayersFromHub(hub, prev.voiceLayers),
+        }));
+      })
+      .catch(() => {});
   }, [tab, panelOpen]);
 
   const handleTestCalcom = async () => {
@@ -12816,6 +13007,16 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   Type any custom model name or pick from suggestions
                 </span>
               </div>
+
+              {liveHub && (
+                <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "12px 16px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#1E40AF", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Live on server</div>
+                  <div style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>
+                    {liveStackLabels(liveHub).engine} · LLM {liveStackLabels(liveHub).llm} · STT {liveStackLabels(liveHub).stt} · TTS {liveStackLabels(liveHub).tts} · {liveStackLabels(liveHub).carrier}
+                  </div>
+                  {liveHub.liveNote ? <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{liveHub.liveNote}</div> : null}
+                </div>
+              )}
 
               {renderPluginAiFeaturesList("voice", VOICE_LAYERS, safeCommonAi.voiceLayers, updateVoiceLayer)}
               {renderCustomConnectionsSection("voice", VOICE_LAYERS)}
@@ -23473,15 +23674,14 @@ function CallingEditionRoot(props) {
     <CallingWorkspace
       {...props}
       aiKeysPanel={
-        <CommonAiConfigModal
+        <ProviderConfigView
           embedded
-          isOpen
-          onClose={() => {}}
+          notifications={[]}
+          setNotifications={() => {}}
           commonAi={props.commonAi}
           setCommonAi={props.setCommonAi}
-          initialTab="voice"
-          scopePlugin="voice"
-          operator={props.operator}
+          profile={props.profile}
+          setProfile={props.setProfile}
         />
       }
       onUseClassic={() => {
@@ -23863,6 +24063,15 @@ export default function App() {
         if (f && Array.isArray(f) && f.length) {
           setFaq(f);
           try { localStorage.setItem("aivhub_faq", JSON.stringify(f)); } catch (_) {}
+        }
+      } catch (_) {}
+      try {
+        const hub = await api.getTelephonyHub();
+        if (hub) {
+          setCommonAi((prev) => ({
+            ...prev,
+            voiceLayers: voiceLayersFromHub(hub, prev.voiceLayers),
+          }));
         }
       } catch (_) {}
     }

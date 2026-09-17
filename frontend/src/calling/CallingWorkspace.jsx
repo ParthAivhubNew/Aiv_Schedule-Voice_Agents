@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import {
@@ -1065,8 +1065,8 @@ export function CallingWorkspace({
     booked: ["Booked", "Where, what kind, join URL. Bell fires when added and when time hits."],
     logs: ["Call logs", "Saved when a call ends or a meeting books. Same backend as classic."],
     schedule: ["Schedule a call", "Park a callback or meeting without an Excel list."],
-    ai: ["AI config", "Keys for chat and Find missing. Voice model lives here."],
-    company: ["Company profile", "Same profile classic uses on calls: identity, knowledge, services, FAQ."],
+    ai: ["AI config", "Same Connections & Providers as classic. Live engine, models, and keys load from the server."],
+    company: ["Company profile", "Identity, knowledge, services, FAQ. Same record classic uses on calls."],
   };
 
   return (
@@ -1593,36 +1593,37 @@ export function CallingWorkspace({
 
           {page === "ai" && (
             <div>
-              {aiKeysPanel || (
+              {isValidElement(aiKeysPanel)
+                ? cloneElement(aiKeysPanel, { notifications, setNotifications })
+                : (aiKeysPanel || (
                 <div style={card()}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, marginBottom: 8 }}>Open platform AI keys</div>
                   <div style={{ color: C.slate, fontSize: 13, marginBottom: 12 }}>Chat and Find missing use the Voice AI keys. Paste them in the common config.</div>
                   <button type="button" onClick={() => onOpenCommonAi && onOpenCommonAi()} style={{ height: 40, padding: "0 16px", border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Open AI config</button>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
           {page === "company" && (
-            <div style={{ display: "grid", gap: 14 }}>
-              <div style={{ ...card(), maxWidth: 520 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Call voice</div>
-                <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Spoken name and pitch come from Company profile below. This only picks the voice.</div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
-                  Voice
-                  <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} style={{ ...fieldStyle(), marginTop: 6 }}>
-                    <option value="rex">Rex — Sam (male)</option>
-                    <option value="leo">Leo (male)</option>
-                    <option value="ara">Ara (female)</option>
-                    <option value="eve">Eve (female)</option>
-                  </select>
-                </label>
-                <button type="button" disabled={busy === "save"} onClick={saveSetup} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: 180, marginTop: 12 }}>
-                  {busy === "save" ? "Saving…" : "Save voice"}
-                </button>
-              </div>
-              {companyPanel || (
-                <div style={{ ...card(), maxWidth: 520, display: "grid", gap: 12 }}>
+            <div>
+              {isValidElement(companyPanel)
+                ? cloneElement(companyPanel, { notifications, setNotifications, voiceName, setVoiceName })
+                : (
+                <div style={{ display: "grid", gap: 14, maxWidth: 640 }}>
+                  <div style={card()}>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Call voice</div>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
+                      Voice
+                      <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} style={{ ...fieldStyle(), marginTop: 6 }}>
+                        <option value="rex">Rex — Sam (male)</option>
+                        <option value="leo">Leo (male)</option>
+                        <option value="ara">Ara (female)</option>
+                        <option value="eve">Eve (female)</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div style={{ ...card(), display: "grid", gap: 12 }}>
                   {[
                     ["name", "Company name", "Saved company profile. Agent uses this on calls."],
                     ["pitch", "Pitch", draft.name ? `On calls, say “${draft.name}” as one word.` : "What you sell. Uses the saved Company Profile."],
@@ -1643,6 +1644,7 @@ export function CallingWorkspace({
                   <button type="button" disabled={busy === "save"} onClick={saveSetup} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: 160 }}>
                     {busy === "save" ? "Saving…" : "Save"}
                   </button>
+                  </div>
                 </div>
               )}
             </div>

@@ -284,6 +284,12 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     stt_provider = None
     tts_provider = None
     llm_provider = None
+    stt_name = None
+    tts_name = None
+    llm_name = None
+    stt_model = None
+    tts_model = None
+    llm_model = None
     try:
         from app.services.voice_plugin_plan import resolve_voice_plan
         plan = await resolve_voice_plan()
@@ -292,6 +298,12 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         stt_provider = plan.stt.provider if plan.stt else None
         tts_provider = plan.tts.provider if plan.tts else None
         llm_provider = plan.llm.provider if plan.llm else None
+        stt_name = ((plan.stt.extra or {}).get("display_name") if plan.stt else None) or stt_provider
+        tts_name = ((plan.tts.extra or {}).get("display_name") if plan.tts else None) or tts_provider
+        llm_name = ((plan.llm.extra or {}).get("display_name") if plan.llm else None) or llm_provider
+        stt_model = plan.stt.model if plan.stt else None
+        tts_model = plan.tts.model if plan.tts else None
+        llm_model = plan.llm.model if plan.llm else None
     except Exception as plan_err:
         logger.warning(f"Could not resolve live voice plan: {plan_err}")
 
@@ -312,6 +324,12 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "sttProvider": stt_provider,
         "ttsProvider": tts_provider,
         "llmProvider": llm_provider,
+        "sttName": stt_name,
+        "ttsName": tts_name,
+        "llmName": llm_name,
+        "sttModel": stt_model,
+        "ttsModel": tts_model,
+        "llmModel": llm_model,
         "phoneNumber": active_phone,
         "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
         "voiceName": configured_voice,

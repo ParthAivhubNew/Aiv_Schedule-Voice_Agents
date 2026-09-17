@@ -125,9 +125,10 @@ async def resolve_voice_plan() -> VoicePlan:
             api_key=_key_from(stt_conn),
             base_url=_cfg(stt_conn).get("base_url") or "",
             model=_cfg(stt_conn).get("model") or "nova-2",
+            extra={"display_name": stt_conn.name or ""},
         )
     elif settings.DEEPGRAM_API_KEY:
-        stt = PluginCreds(provider="deepgram", api_key=settings.DEEPGRAM_API_KEY.strip(), model="nova-2")
+        stt = PluginCreds(provider="deepgram", api_key=settings.DEEPGRAM_API_KEY.strip(), model="nova-2", extra={"display_name": "Deepgram Nova-2"})
 
     tts = None
     if tts_conn and _key_from(tts_conn):
@@ -136,11 +137,12 @@ async def resolve_voice_plan() -> VoicePlan:
             api_key=_key_from(tts_conn),
             voice_id=_cfg(tts_conn).get("voice_id") or "",
             model=_cfg(tts_conn).get("model") or "",
+            extra={"display_name": tts_conn.name or ""},
         )
     elif settings.ELEVENLABS_API_KEY:
-        tts = PluginCreds(provider="elevenlabs", api_key=settings.ELEVENLABS_API_KEY.strip())
+        tts = PluginCreds(provider="elevenlabs", api_key=settings.ELEVENLABS_API_KEY.strip(), extra={"display_name": "ElevenLabs"})
     elif settings.CARTESIA_API_KEY:
-        tts = PluginCreds(provider="cartesia", api_key=settings.CARTESIA_API_KEY.strip())
+        tts = PluginCreds(provider="cartesia", api_key=settings.CARTESIA_API_KEY.strip(), extra={"display_name": "Cartesia"})
 
     llm = None
     if llm_conn and _key_from(llm_conn):
@@ -149,6 +151,7 @@ async def resolve_voice_plan() -> VoicePlan:
             api_key=_key_from(llm_conn),
             base_url=_cfg(llm_conn).get("base_url") or "",
             model=_cfg(llm_conn).get("model") or "",
+            extra={"display_name": llm_conn.name or ""},
         )
 
     openai_key = (engine_cfg.get("api_key") or settings.OPENAI_API_KEY or "").strip()
