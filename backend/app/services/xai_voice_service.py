@@ -348,6 +348,14 @@ def verify_xai_webhook_signature(
 # ----------------------------------------------------------------------
 # 2. DYNAMIC SYSTEM PROMPT & TOOL DEFINITIONS
 # ----------------------------------------------------------------------
+def _spoken_pitch(raw: Optional[str], company: str) -> str:
+    """Keep Company Profile pitch wording. Do not rewrite into a generic dashboard line."""
+    text = re.sub(r"\s+", " ", (raw or "").strip())
+    if not text:
+        return f"I'm calling from {company}"
+    return text.rstrip(".,;:")
+
+
 async def _resolve_call_clocks(
     db,
     call_id: Optional[str] = None,
@@ -444,10 +452,16 @@ async def build_xai_system_instructions(
 
     company_name = profile.name if profile else "AIVHub"
     caller_name = profile.caller_name if profile else "Sam"
-    pitch = profile.pitch if (profile and profile.pitch) else "AIVHUB turns your scattered business data into real-time dashboards, AI-powered insights, and actionable decisions all in one platform."
+    pitch = (profile.pitch or "").strip() if profile else ""
     tone = profile.tone if profile else "Warm, charismatic, articulate, consultative, natural"
     disclosure = profile.disclosure if profile else "This call may be recorded for quality purposes."
-    
+    industry = (profile.industry if profile and profile.industry else "").strip()
+    website = (profile.website if profile and profile.website else "").strip()
+    social = (profile.social if profile and profile.social else "").strip()
+    legal_name = (profile.legal_name if profile and profile.legal_name else company_name).strip()
+    caller_id = (profile.caller_id if profile and profile.caller_id else "").strip()
+    spoken_pitch = _spoken_pitch(pitch, company_name)
+
     catalog_lines = []
     for s in services[:5]:
         catalog_lines.append(f"- {s.name}: {s.desc} (Ideal for: {s.ideal})")
@@ -505,8 +519,25 @@ HUMAN CONVERSATIONAL FLOW & NATURAL CADENCE RULES (MANDATORY):
 5. ADAPTABLE & UNHURRIED: If interrupted, instantly pivot to what they just said. Do not repeat previous sentences or stick rigidly to a script.
 
 {opening_block}
-- When they reply:
-  "The reason for my call—we help businesses connect scattered operational data into live dashboards and AI insights. Just wanted to see if you'd be open to a quick 15-minute walkthrough sometime this week?"
+- The Company Profile one-line pitch is the SPINE, not the whole speech. Stay true to it. Never contradict it. Never invent a second value prop.
+- After they reply to the greeting, one short turn: hook from that pitch, then ask for a 15-minute walkthrough.
+  "The reason for my call—{spoken_pitch}. Open to a quick 15-minute walkthrough this week?"
+- If they lean in ("tell me more", "how does it work", "who is it for"): call query_knowledge_base. Enrich from crawled website, docs, FAQs, and listed services. Speak 1–2 sentences. You are expanding the same pitch, not rewriting it.
+- Do not parrot the one-liner on every turn. Do not dump URLs. Do not use generic "dashboards / scattered data" language unless those words are in the pitch or in the knowledge search.
+
+COMPANY FACTS (from Company Profile — ground truth, not optional colour):
+- Trading as: {company_name}. Legal name: {legal_name}.
+- Industry: {industry or "not set"}.
+- Website: {website or "not set"}.
+- LinkedIn / social: {social or "not set"}.
+- Number they see on caller ID: {caller_id or "not set"}.
+How to use these:
+- Every claim about who you are or what you sell must come from pitch, industry, services, FAQs, or query_knowledge_base. Never invent products.
+- If they ask what you do: start from the one-line pitch, then enrich from services + query_knowledge_base (website/docs). Still 1–2 sentences.
+- Pricing, plans, features, case studies, integrations: MUST call query_knowledge_base first. Speak only what FAQs, services, or crawled website/docs return.
+- If they ask for the site or LinkedIn: say it in spoken form. Offer to email the link with the invite.
+- If a detail is still missing after search: say it is not on this call and a specialist will confirm on the walkthrough — or offer to email what is on the site. Do not guess.
+- Industry only if it helps ("we work in {industry}") — never dump the whole fact list.
 
 CRITICAL MEETING BOOKING (FLEXIBLE — NOT RIGID):
 1. Goal: book a 15-minute discovery when they are willing. You are a coordinator, not a form.
@@ -528,8 +559,11 @@ OBJECTION & HESITATION HANDLING (EMPATHETIC & HUMAN):
   "Happy to do that! What email should I ping it over to?"
 - If they ask "Are you an AI?":
   "I am an AI assistant working directly with our executive team at {company_name}! I can answer questions and get you booked with our specialists—how does that sound?"
-- If they ask about detailed pricing:
-  "Pricing scales with your data sources and team size. We walk through it on a short call. What window this week is easiest for you?"
+- If they ask about pricing, cost, plans, or how much:
+  You MUST call query_knowledge_base with their question before you speak a number or a pricing model.
+  Only repeat figures, plan names, or ranges found in FAQs, services, or that search (website and uploaded docs).
+  If nothing is found: "I don't have a published figure on this call — happiest to cover it on the walkthrough, or I can email what's on our site."
+  NEVER invent pricing. NEVER say "it scales with your data sources" or any other made-up model.
 
 TEMPORAL GROUND TRUTH (EXACT — DO NOT DRIFT):
 - EXACT NOW (speak this clock, never name a timezone): {current_time_str} ({day_part}) on {current_date_str}.
@@ -544,6 +578,12 @@ OUR LIVE CALENDAR (SOURCE OF TRUTH):
 
 Company Pitch:
 {pitch}
+
+Company identity (same facts as the profile screen):
+- Industry: {industry or "not set"}
+- Website: {website or "not set"}
+- LinkedIn / social: {social or "not set"}
+- Legal name: {legal_name}
 
 Key Services & Capabilities:
 {catalog_text}
@@ -565,7 +605,7 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "name": "query_knowledge_base",
-            "description": "Searches company documentation, verified knowledge, pricing details, and service FAQs whenever the caller asks specific business or technical questions.",
+            "description": "Required before answering pricing, plans, features, integrations, or anything that should come from the company website, FAQs, or uploaded docs. Returns only crawled/verified text. Do not answer those topics from memory.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -648,8 +688,12 @@ async def execute_xai_tool(
     try:
         if name == "query_knowledge_base":
             query = args.get("query", "")
+            q_low = query.lower()
+            want_price = any(w in q_low for w in ("price", "pricing", "cost", "plan", "fee", "quote", "how much"))
+            top_k = 5 if want_price else 3
+            min_score = 0.28 if want_price else 0.40
             async with AsyncSessionLocal() as db:
-                results = await search_knowledge(db, query=query, top_k=3, min_score=0.40)
+                results = await search_knowledge(db, query=query, top_k=top_k, min_score=min_score)
                 faqs_res = await db.execute(select(FAQ))
                 all_faqs = faqs_res.scalars().all()
                 matching_faqs = []
@@ -673,7 +717,7 @@ async def execute_xai_tool(
             if not extracted_chunks:
                 return {
                     "found": False,
-                    "summary": "No specific document matched this exact query. Inform the caller we will have a specialist confirm details during our demo."
+                    "summary": "Nothing in crawled website, FAQs, or docs matched. Do not invent an answer. Say we don't have a published figure on this call and offer the walkthrough or an email from the site."
                 }
 
             return {

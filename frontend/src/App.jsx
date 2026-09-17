@@ -5387,41 +5387,45 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                     );
                   })}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate }}>Window</span>
-                  <select
-                    value={profile.weekdayStart || "09:00"}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setProfile((p) => {
-                        const next = { ...p, weekdayStart: v, callHoursPolicy: "custom" };
-                        try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
-                        return next;
-                      });
-                    }}
-                    style={{ flex: 1, minWidth: 110, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
-                  >
-                    {WEEKDAY_HOUR_OPTIONS.filter((t) => t < (profile.weekdayEnd || "21:00")).map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                  <span style={{ color: C.slateLight }}>–</span>
-                  <select
-                    value={profile.weekdayEnd || "17:30"}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setProfile((p) => {
-                        const next = { ...p, weekdayEnd: v, callHoursPolicy: "custom" };
-                        try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
-                        return next;
-                      });
-                    }}
-                    style={{ flex: 1, minWidth: 110, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
-                  >
-                    {WEEKDAY_HOUR_OPTIONS.filter((t) => t > (profile.weekdayStart || "08:00")).map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 6 }}>
-                  Changing start/end switches the policy to Custom. Hard stop is PECR 08:00–21:00 weekdays.
-                </div>
+                {(profile.callHoursPolicy || "respectful") === "custom" && (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate }}>Window</span>
+                      <select
+                        value={profile.weekdayStart || "09:00"}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setProfile((p) => {
+                            const next = { ...p, weekdayStart: v, callHoursPolicy: "custom" };
+                            try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
+                            return next;
+                          });
+                        }}
+                        style={{ flex: 1, minWidth: 110, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
+                      >
+                        {WEEKDAY_HOUR_OPTIONS.filter((t) => t < (profile.weekdayEnd || "21:00")).map((t) => <option key={t}>{t}</option>)}
+                      </select>
+                      <span style={{ color: C.slateLight }}>–</span>
+                      <select
+                        value={profile.weekdayEnd || "17:30"}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setProfile((p) => {
+                            const next = { ...p, weekdayEnd: v, callHoursPolicy: "custom" };
+                            try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
+                            return next;
+                          });
+                        }}
+                        style={{ flex: 1, minWidth: 110, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
+                      >
+                        {WEEKDAY_HOUR_OPTIONS.filter((t) => t > (profile.weekdayStart || "08:00")).map((t) => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 6 }}>
+                      Hard stop is PECR 08:00–21:00 weekdays.
+                    </div>
+                  </>
+                )}
               </div>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Lunch break of the people we call</div>
@@ -5446,16 +5450,44 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           {tab === "knowledge" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-                  <SectionIntro
-                    icon={BookOpen}
-                    title="Knowledge sources & vector database"
-                    desc="Websites, PDFs, documents, or objection playbooks. The crawler automatically extracts text, splits it into semantic chunks, and indexes it with pgvector for instant sub-second recall during calls."
-                  />
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "4px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, color: "#065f46" }}>
-                    <Sparkles size={12} /> pgvector RAG Active
-                  </div>
-                </div>
+                {(() => {
+                  const ragFailed = sources.filter((s) => s.status === "failed").length;
+                  const ragCrawling = sources.some((s) => s.status === "crawling" || resyncingId === s.id);
+                  const ragChunks = sources.reduce((n, s) => n + (Number(s.chunkCount) || 0), 0);
+                  const ragLive = sources.filter((s) => s.status !== "failed" && s.status !== "crawling").length;
+                  const ragTone = ragCrawling
+                    ? { bg: "#FFFBEB", bd: "#FDE68A", fg: "#92400E", label: "Indexing sources", sub: "Crawler is splitting pages into chunks for on-call search." }
+                    : ragLive && !ragFailed
+                      ? { bg: "#ECFDF5", bd: "#A7F3D0", fg: "#065F46", label: "Knowledge live on calls", sub: `${ragLive} source${ragLive === 1 ? "" : "s"} · ${ragChunks} chunk${ragChunks === 1 ? "" : "s"} · pitch, pricing and product answers come from these pages.` }
+                      : ragLive && ragFailed
+                        ? { bg: "#FFF7ED", bd: "#FED7AA", fg: "#9A3412", label: "Knowledge partial", sub: `${ragLive} live · ${ragFailed} failed · Re-crawl the failed URL so the agent is not answering from a thin index.` }
+                        : ragFailed
+                          ? { bg: "#FEF2F2", bd: "#FECACA", fg: "#991B1B", label: "Knowledge offline", sub: "All sources failed. Re-crawl before expecting website answers on a call." }
+                          : { bg: "#F8FAFC", bd: C.border, fg: C.slate, label: "No sources indexed", sub: "Add your website or docs. The agent only enriches the pitch from what you index here." };
+                  return (
+                    <>
+                      <SectionIntro
+                        icon={BookOpen}
+                        title="Knowledge sources & vector database"
+                        desc="Websites, PDFs, documents, or objection playbooks. The crawler extracts text, chunks it, and indexes it for recall on live calls. The one-line pitch is the spine — this index is how the AI fills in product, pricing, and proof."
+                      />
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, margin: "14px 0 18px", padding: "12px 14px", borderRadius: 12, background: ragTone.bg, border: `1px solid ${ragTone.bd}` }}>
+                        <span style={{
+                          width: 10, height: 10, borderRadius: 99, marginTop: 4, flexShrink: 0,
+                          background: ragTone.fg,
+                          boxShadow: ragCrawling || ragLive ? `0 0 0 4px ${ragTone.bd}` : "none",
+                        }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: ragTone.fg, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            {ragTone.label}
+                            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", opacity: 0.8 }}>pgvector</span>
+                          </div>
+                          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: ragTone.fg, opacity: 0.85, marginTop: 3, lineHeight: 1.45 }}>{ragTone.sub}</div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {sources.map((s) => {
@@ -5933,7 +5965,6 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
                 <SectionIntro icon={HelpCircle} title="Call disclosure & script basics" desc="Required opening line, plus the general tone every call should follow." />
                 <Field label="Call recording disclosure script" value={profile.disclosure} onChange={(v) => update("disclosure", v)} placeholder="This call may be recorded for quality and training purposes." textarea />
-                <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save changes</button>
               </div>
 
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
@@ -5949,15 +5980,14 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                     </div>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-                  <button onClick={addFaq} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", flex: 1, justifyContent: "center" }}>
-                    <PlusCircle size={13} /> Add a question
-                  </button>
-                  <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-                    Save questions
-                  </button>
-                </div>
+                <button onClick={addFaq} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center", marginTop: 12 }}>
+                  <PlusCircle size={13} /> Add a question
+                </button>
               </div>
+
+              <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}>
+                Save
+              </button>
             </div>
           )}
 
@@ -23005,14 +23035,14 @@ export default function App() {
         if (Notification.permission === "granted") {
           new Notification("📞 Inbound Call in Progress", {
             body: `${callerName} is on call with AI Operator. Click to jump to call.`,
-            icon: "/favicon.ico",
+            icon: "/favicon.png",
           });
         } else if (Notification.permission !== "denied") {
           Notification.requestPermission().then((p) => {
             if (p === "granted") {
               new Notification("📞 Inbound Call in Progress", {
                 body: `${callerName} is on call with AI Operator. Click to jump to call.`,
-                icon: "/favicon.ico",
+                icon: "/favicon.png",
               });
             }
           });
