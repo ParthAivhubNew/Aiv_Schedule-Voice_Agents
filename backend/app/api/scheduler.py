@@ -467,10 +467,49 @@ async def create_email_endpoint(payload: Dict[str, Any], db: AsyncSession = Depe
     return {"status": "ok", "id": email.id}
 
 
+PLATFORM_TITLES = {
+    "linkedin": "LinkedIn",
+    "x": "X",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "threads": "Threads",
+}
+
+
+def _apply_live_profile(acc: SocialAccount, test: Dict[str, Any]) -> None:
+    acc.last_tested_at = datetime.utcnow().isoformat()
+    if test.get("ok"):
+        acc.status = "connected"
+        acc.last_error = ""
+        if test.get("handle"):
+            acc.handle = test["handle"]
+            plat = (acc.platform or "").strip().lower()
+            acc.label = f"{PLATFORM_TITLES.get(plat, plat.title())} · {test['handle']}"
+        if test.get("accountId") and not acc.account_id:
+            acc.account_id = test["accountId"]
+    else:
+        # Keep the row. Cards show Reconnect — do not pretend the account vanished.
+        acc.status = "expired" if (acc.access_token or "").strip() else "error"
+        acc.last_error = test.get("error") or ""
+
+
 @router.get("/accounts")
-async def list_accounts(db: AsyncSession = Depends(get_db)):
+async def list_accounts(refresh: bool = False, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SocialAccount).order_by(SocialAccount.created_at.desc()))
     accounts = result.scalars().all()
+    if refresh:
+        changed = False
+        for acc in accounts:
+            if not (acc.access_token or "").strip():
+                continue
+            try:
+                test = await test_account(acc)
+                _apply_live_profile(acc, test)
+                changed = True
+            except Exception:
+                logger.exception("Live name refresh failed for %s", acc.id)
+        if changed:
+            await db.commit()
     return [account_public_dict(a) for a in accounts]
 
 
@@ -625,20 +664,7 @@ async def test_account_endpoint(account_id: str, db: AsyncSession = Depends(get_
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
     test = await test_account(acc)
-    acc.last_tested_at = datetime.utcnow().isoformat()
-    if test.get("ok"):
-        acc.status = "connected"
-        acc.last_error = ""
-        if test.get("handle"):
-            acc.handle = test["handle"]
-            plat = (acc.platform or "").strip().lower()
-            titles = {"linkedin": "LinkedIn", "x": "X", "facebook": "Facebook", "instagram": "Instagram", "threads": "Threads"}
-            acc.label = f"{titles.get(plat, plat.title())} · {test['handle']}"
-        if test.get("accountId") and not acc.account_id:
-            acc.account_id = test["accountId"]
-    else:
-        acc.status = "error"
-        acc.last_error = test.get("error") or ""
+    _apply_live_profile(acc, test)
     await db.commit()
     return {"status": "ok" if test.get("ok") else "error", "test": test, "account": account_public_dict(acc)}
 

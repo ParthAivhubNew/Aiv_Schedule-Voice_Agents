@@ -18,6 +18,8 @@ import {
   Share2,
   Sparkles,
   Trash2,
+  BookOpen,
+  Globe,
   X,
 } from "lucide-react";
 import { AppChrome } from "../components/AppChrome";
@@ -38,6 +40,7 @@ const LS_PLAN = "aivhub_social_v2_plan";
 const LS_CHAT = "aivhub_social_v2_chat";
 const LS_THREADS = "aivhub_social_v2_threads";
 const LS_PINS = "aivhub_social_v2_pins";
+const LS_CHAT_W = "aivhub_social_v2_chat_w";
 
 const WELCOME = {
   id: "c0",
@@ -344,22 +347,200 @@ function defaultPublicApiUrl() {
   return "";
 }
 
+function SimpleCompanyKnowledge({ profile, setProfile, knowledgeSources, setKnowledgeSources, showToast }) {
+  const [draft, setDraft] = useState({
+    name: (profile && profile.name) || "",
+    pitch: (profile && profile.pitch) || "",
+    industry: (profile && profile.industry) || "",
+    website: (profile && profile.website) || "",
+    social: (profile && profile.social) || "",
+    tone: (profile && profile.tone) || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [newSrc, setNewSrc] = useState({ name: "", value: "" });
+  const sources = Array.isArray(knowledgeSources) ? knowledgeSources : [];
+
+  useEffect(() => {
+    setDraft({
+      name: (profile && profile.name) || "",
+      pitch: (profile && profile.pitch) || "",
+      industry: (profile && profile.industry) || "",
+      website: (profile && profile.website) || "",
+      social: (profile && profile.social) || "",
+      tone: (profile && profile.tone) || "",
+    });
+  }, [profile]);
+
+  useEffect(() => {
+    api.getSources()
+      .then((s) => { if (Array.isArray(s) && setKnowledgeSources) setKnowledgeSources(s); })
+      .catch(() => {});
+  }, [setKnowledgeSources]);
+
+  const setField = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+
+  const saveProfile = async () => {
+    const next = { ...(profile || {}), ...draft };
+    if (setProfile) setProfile(next);
+    try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
+    setSaving(true);
+    try {
+      await api.updateProfile(next);
+      showToast("Company knowledge saved. Posts use this profile.");
+    } catch (e) {
+      showToast(e.message || "Saved locally only.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addSource = async () => {
+    if (!newSrc.name.trim() || !newSrc.value.trim()) {
+      showToast("Source title and URL/notes required.");
+      return;
+    }
+    const item = { id: "k_" + Date.now(), name: newSrc.name.trim(), type: "Website URL", value: newSrc.value.trim(), status: "crawling", synced: "just now", chunkCount: 0 };
+    if (setKnowledgeSources) {
+      setKnowledgeSources((xs) => {
+        const next = [item, ...(xs || [])];
+        try { localStorage.setItem("aivhub_sources", JSON.stringify(next)); } catch (_) {}
+        return next;
+      });
+    }
+    setNewSrc({ name: "", value: "" });
+    setAdding(false);
+    try {
+      await api.addSource(item);
+      showToast("Indexing “" + item.name + "”.");
+      window.setTimeout(async () => {
+        try {
+          const fresh = await api.getSources();
+          if (Array.isArray(fresh) && setKnowledgeSources) setKnowledgeSources(fresh);
+        } catch (_) {}
+      }, 3500);
+    } catch (e) {
+      showToast(e.message || "Could not add source.");
+    }
+  };
+
+  const removeSource = async (id) => {
+    if (setKnowledgeSources) {
+      setKnowledgeSources((xs) => {
+        const next = (xs || []).filter((s) => s.id !== id);
+        try { localStorage.setItem("aivhub_sources", JSON.stringify(next)); } catch (_) {}
+        return next;
+      });
+    }
+    try { await api.deleteSource(id); } catch (_) {}
+  };
+
+  const field = (label, key, extra) => (
+    <div style={{ marginBottom: extra && extra.textarea ? 12 : 10 }}>
+      <label style={labelStyle}>{label}</label>
+      {extra && extra.textarea ? (
+        <textarea
+          value={draft[key] || ""}
+          onChange={(e) => setField(key, e.target.value)}
+          rows={3}
+          placeholder={extra.placeholder || ""}
+          style={{ width: "100%", boxSizing: "border-box", padding: 10, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, resize: "vertical" }}
+        />
+      ) : (
+        <input
+          value={draft[key] || ""}
+          onChange={(e) => setField(key, e.target.value)}
+          placeholder={(extra && extra.placeholder) || ""}
+          style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
+        />
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <BookOpen size={16} color={C.teal} />
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>Company knowledge</div>
+      </div>
+      <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 14 }}>
+        Same identity and RAG sources as Voice. Plan AI writes from this, not a stock angle.
+      </div>
+      {field("Company name", "name", { placeholder: "AIVHub" })}
+      {field("Pitch", "pitch", { textarea: true, placeholder: "What you actually sell, in one short paragraph." })}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {field("Industry", "industry", { placeholder: "Business intelligence" })}
+        {field("Website", "website", { placeholder: "https://aivhub.com" })}
+      </div>
+      {field("LinkedIn / social", "social", { placeholder: "linkedin.com/company/…" })}
+      {field("Tone", "tone", { placeholder: "Professional, concise, no slogans" })}
+      <button type="button" onClick={saveProfile} disabled={saving} style={{ ...priBtn, background: C.teal, height: 38, marginBottom: 18 }}>
+        {saving ? "Saving…" : "Save company knowledge"}
+      </button>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>Knowledge sources ({sources.length})</div>
+        {!adding ? (
+          <button type="button" onClick={() => setAdding(true)} style={{ ...secBtn, height: 32 }}>
+            <Plus size={13} /> Add source
+          </button>
+        ) : null}
+      </div>
+      {adding ? (
+        <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+          <input
+            value={newSrc.name}
+            onChange={(e) => setNewSrc((s) => ({ ...s, name: e.target.value }))}
+            placeholder="Source title"
+            style={{ width: "100%", boxSizing: "border-box", marginBottom: 8, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
+          />
+          <input
+            value={newSrc.value}
+            onChange={(e) => setNewSrc((s) => ({ ...s, value: e.target.value }))}
+            placeholder="https://… or notes to index"
+            style={{ width: "100%", boxSizing: "border-box", marginBottom: 8, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={addSource} style={{ ...priBtn, height: 32, background: C.teal }}>Index</button>
+            <button type="button" onClick={() => setAdding(false)} style={{ ...secBtn, height: 32 }}>Cancel</button>
+          </div>
+        </div>
+      ) : null}
+      {sources.length ? sources.map((s) => (
+        <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${C.border}` }}>
+          <Globe size={14} color={C.teal} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>{s.name}</div>
+            <div style={{ fontSize: 12, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.value || s.type}</div>
+          </div>
+          <button type="button" onClick={() => removeSource(s.id)} style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center" }} title="Remove">
+            <Trash2 size={13} />
+          </button>
+        </div>
+      )) : (
+        <div style={{ fontSize: 12.5, color: C.slate }}>No sources yet. Add the company site so posts ground in real pages.</div>
+      )}
+    </div>
+  );
+}
+
 function SimpleAccountsPage({
   accounts,
   connecting,
   onConnect,
   onDisconnect,
-  onRefreshAccount,
   showToast,
   aiKeysPanel,
+  profile,
+  setProfile,
+  knowledgeSources,
+  setKnowledgeSources,
 }) {
   const [oauthApps, setOauthApps] = useState([]);
   const [setupPlat, setSetupPlat] = useState("linkedin");
   const [setupForm, setSetupForm] = useState({ clientId: "", clientSecret: "", configId: "" });
   const [publicBaseUrl, setPublicBaseUrl] = useState(defaultPublicApiUrl);
   const [savingApp, setSavingApp] = useState(false);
-  const [refreshingId, setRefreshingId] = useState("");
-  const didRefresh = useRef(false);
 
   const loadApps = useCallback(() => {
     api.getSocialOauthApps()
@@ -368,18 +549,6 @@ function SimpleAccountsPage({
   }, []);
 
   useEffect(() => { loadApps(); }, [loadApps]);
-
-  useEffect(() => {
-    if (didRefresh.current) return;
-    const ids = (accounts || []).filter((a) => a.id && a.status === "connected").map((a) => a.id);
-    if (!ids.length || !onRefreshAccount) return;
-    didRefresh.current = true;
-    (async () => {
-      for (const id of ids) {
-        try { await onRefreshAccount(id); } catch (_) {}
-      }
-    })();
-  }, [accounts, onRefreshAccount]);
 
   const appFor = (plat) => oauthApps.find((a) => a.platform === plat) || {};
   const chFor = (id) => CHANNELS.find((c) => c.id === id) || { id, label: id, color: C.ink, soft: HUB_PAPER, mark: id.slice(0, 2) };
@@ -437,55 +606,91 @@ function SimpleAccountsPage({
     return h || lab;
   };
 
-  const refreshOne = async (id) => {
-    if (!onRefreshAccount || refreshingId) return;
-    setRefreshingId(id);
-    try {
-      await onRefreshAccount(id);
-      showToast("Name updated from the network.");
-    } catch (e) {
-      showToast(e.message || "Could not refresh name");
-    } finally {
-      setRefreshingId("");
-    }
+  const accountsFor = (id) => (accounts || []).filter((a) => String(a.platform || "").toLowerCase() === id);
+  const statusLabel = (a) => {
+    if (!a) return "";
+    if (a.status === "connected") return "Live";
+    if (a.status === "expired") return "Needs reconnect";
+    if (a.status === "error") return a.lastError ? "Error" : "Needs reconnect";
+    return a.status || "Saved";
   };
-
-  const connected = (accounts || []).filter((a) => a.status === "connected");
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Accounts & AI</div>
         <div style={{ fontSize: 13, color: C.slate, marginBottom: 20, lineHeight: 1.45 }}>
-          Connect posting accounts here. Admin pastes Client ID + Secret once per network, then anyone clicks Connect and logs in.
+          Connect posting accounts here. Admin pastes Client ID + Secret once per network, then anyone clicks Connect and logs in. Account names update from the network on each login.
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 22 }}>
+        <SimpleCompanyKnowledge
+          profile={profile}
+          setProfile={setProfile}
+          knowledgeSources={knowledgeSources}
+          setKnowledgeSources={setKnowledgeSources}
+          showToast={showToast}
+        />
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12, marginBottom: 22 }}>
           {CHANNELS.map((ch) => {
             const app = appFor(ch.id);
-            const linked = connected.find((a) => String(a.platform || "").toLowerCase() === ch.id);
+            const rows = accountsFor(ch.id);
+            const liveCount = rows.filter((a) => a.status === "connected").length;
+            const hasAny = rows.length > 0;
             return (
-              <div key={ch.id} style={{ background: "#fff", border: `1px solid ${linked ? C.teal : C.border}`, borderRadius: 14, padding: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <div key={ch.id} style={{ background: "#fff", border: `1px solid ${liveCount ? C.teal : hasAny ? "#F59E0B" : C.border}`, borderRadius: 14, padding: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: hasAny ? 12 : 10 }}>
                   <div style={{ width: 34, height: 34, borderRadius: 9, background: ch.soft, color: ch.color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>
                     {ch.mark}
                   </div>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{ch.label}</div>
-                    <div style={{ fontSize: 11, color: linked ? C.teal : C.slate }}>
-                      {linked ? `Connected ${displayName(linked)}` : app.configured ? "Ready to connect" : "App not set up"}
+                    <div style={{ fontSize: 11, color: liveCount ? C.teal : hasAny ? "#B45309" : C.slate }}>
+                      {liveCount
+                        ? liveCount + " connected"
+                        : hasAny
+                          ? "Needs reconnect"
+                          : app.configured ? "Ready to connect" : "App not set up"}
                     </div>
                   </div>
                 </div>
-                {linked ? (
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button type="button" onClick={() => refreshOne(linked.id)} disabled={refreshingId === linked.id} style={{ ...secBtn, flex: 1, justifyContent: "center" }}>
-                      {refreshingId === linked.id ? "Refreshing…" : "Refresh name"}
+                {hasAny ? (
+                  <>
+                    {rows.map((acc) => {
+                      const live = acc.status === "connected";
+                      return (
+                        <div key={acc.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {displayName(acc) || ch.label}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: live ? C.teal : "#B45309" }}>{statusLabel(acc)}</div>
+                          </div>
+                          {!live ? (
+                            <button
+                              type="button"
+                              onClick={() => onConnect(ch.id)}
+                              disabled={connecting === ch.id}
+                              style={{ ...priBtn, height: 30, padding: "0 10px", fontSize: 11, background: ch.color }}
+                            >
+                              {connecting === ch.id ? "…" : "Reconnect"}
+                            </button>
+                          ) : null}
+                          <button type="button" onClick={() => onDisconnect(acc.id)} style={{ ...secBtn, height: 30, padding: "0 10px", fontSize: 11 }}>
+                            Disconnect
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => onConnect(ch.id)}
+                      disabled={connecting === ch.id}
+                      style={{ ...priBtn, width: "100%", justifyContent: "center", background: ch.color }}
+                    >
+                      {connecting === ch.id ? "Opening…" : "Add account"}
                     </button>
-                    <button type="button" onClick={() => onDisconnect(linked.id)} style={{ ...secBtn, flex: 1, justifyContent: "center" }}>
-                      Disconnect
-                    </button>
-                  </div>
+                  </>
                 ) : (
                   <button
                     type="button"
@@ -542,6 +747,9 @@ function SimpleAccountsPage({
                 placeholder={setupApp.hasConfigId ? "saved — paste to replace" : "From Facebook Login for Business → Configurations"}
                 style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
               />
+              <div style={{ fontSize: 12, color: C.slate, marginTop: 8, lineHeight: 1.45 }}>
+                If Facebook shows “Login is currently unavailable for this app”: turn on Facebook Login for Business, paste the matching Configuration ID, add this callback URL, and add your Facebook user as Admin/Tester while the app is in Development. That wrench popup is Meta, not AIVHub logout. Saved pages below stay until you Reconnect or Remove.
+              </div>
             </div>
           ) : null}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
@@ -570,25 +778,6 @@ function SimpleAccountsPage({
           </div>
         </div>
 
-        {(accounts || []).length ? (
-          <div style={{ marginBottom: 22 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Connected accounts</div>
-            {(accounts || []).map((a) => {
-              const ch = chFor(String(a.platform || "").toLowerCase());
-              return (
-                <div key={a.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
-                  <Plug size={14} color={C.teal} />
-                  <span style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>{ch.label} {displayName(a) ? "· " + displayName(a) : ""}</span>
-                  <button type="button" onClick={() => refreshOne(a.id)} disabled={refreshingId === a.id} style={{ ...secBtn, height: 32 }}>
-                    {refreshingId === a.id ? "Refreshing…" : "Refresh name"}
-                  </button>
-                  <button type="button" onClick={() => onDisconnect(a.id)} style={{ ...secBtn, height: 32 }}>Remove</button>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
-
         {aiKeysPanel ? (
           <div style={{ marginTop: 8 }}>
             {aiKeysPanel}
@@ -609,6 +798,9 @@ export function SocialWorkspace({
   onBackToHub,
   onLogout,
   profile,
+  setProfile,
+  knowledgeSources,
+  setKnowledgeSources,
   commonAi,
   onOpenCommonAi,
   onUseClassic,
@@ -655,6 +847,11 @@ export function SocialWorkspace({
   const datePickRef = useRef(null);
   const enriching = useRef(new Set());
   const repeatGenerate = useRef("");
+  const chatDrag = useRef(null);
+  const [chatW, setChatW] = useState(() => {
+    const n = Number(readJson(LS_CHAT_W, 380));
+    return Number.isFinite(n) ? Math.min(720, Math.max(280, n)) : 380;
+  });
   const [focusDate, setFocusDate] = useState("");
   const [focusPostId, setFocusPostId] = useState("");
   const [imageBusy, setImageBusy] = useState("");
@@ -668,11 +865,36 @@ export function SocialWorkspace({
     window.setTimeout(() => setToast(""), 3200);
   };
 
+  const startChatResize = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    chatDrag.current = { startX: e.clientX, startW: chatW };
+    const move = (ev) => {
+      if (!chatDrag.current) return;
+      const max = Math.max(320, (window.innerWidth || 1200) - 280);
+      const next = chatDrag.current.startW + (chatDrag.current.startX - ev.clientX);
+      setChatW(Math.min(720, Math.min(max, Math.max(280, next))));
+    };
+    const up = () => {
+      chatDrag.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
   useEffect(() => { writeJson(LS_POSTS, posts); }, [posts]);
   useEffect(() => { writeJson(LS_PLAN, plan); }, [plan]);
   useEffect(() => { writeJson(LS_CHAT, chat); }, [chat]);
   useEffect(() => { writeJson(LS_THREADS, threads); }, [threads]);
   useEffect(() => { writeJson(LS_PINS, pinnedDates); }, [pinnedDates]);
+  useEffect(() => { writeJson(LS_CHAT_W, chatW); }, [chatW]);
   useEffect(() => {
     setChat((cs) => {
       const next = cleanSavedChat(cs);
@@ -684,18 +906,18 @@ export function SocialWorkspace({
     if (chatEnd.current) chatEnd.current.scrollIntoView({ behavior: "smooth" });
   }, [chat, typing]);
 
-  const refreshAccounts = useCallback(() => {
-    api.getSocialAccounts()
+  const refreshAccounts = useCallback((syncNames = false) => {
+    api.getSocialAccounts(syncNames)
       .then((data) => { if (Array.isArray(data)) setAccounts(data); })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    refreshAccounts();
+    refreshAccounts(true);
     const onMsg = (e) => {
       const d = e && e.data;
       if (!d || d.type !== "aivhub-social-oauth") return;
-      refreshAccounts();
+      refreshAccounts(true);
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
@@ -1556,11 +1778,6 @@ export function SocialWorkspace({
     }
   };
 
-  const refreshAccount = async (id) => {
-    await api.testSocialAccount(id);
-    refreshAccounts();
-  };
-
   return (
     <div style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
       <AppChrome />
@@ -1675,9 +1892,12 @@ export function SocialWorkspace({
             connecting={connecting}
             onConnect={connectOauth}
             onDisconnect={disconnectAccount}
-            onRefreshAccount={refreshAccount}
             showToast={showToast}
             aiKeysPanel={aiKeysPanel}
+            profile={profile}
+            setProfile={setProfile}
+            knowledgeSources={knowledgeSources}
+            setKnowledgeSources={setKnowledgeSources}
           />
         ) : (
         <>
@@ -1822,7 +2042,38 @@ export function SocialWorkspace({
             ) : null}
           </div>
 
-          <div style={{ width: 380, flex: "0 0 380px", minWidth: 300, borderLeft: `1px solid ${C.border}`, background: "#fff", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", position: "relative" }}>
+          <div
+            style={{
+              width: chatW,
+              flex: `0 0 ${chatW}px`,
+              minWidth: 280,
+              borderLeft: `1px solid ${C.border}`,
+              background: "#fff",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
+              overflow: "hidden",
+              position: "relative",
+            }}
+          >
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize Plan AI"
+              title="Drag to resize chat"
+              onMouseDown={startChatResize}
+              onDoubleClick={() => setChatW(380)}
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 8,
+                cursor: "col-resize",
+                zIndex: 6,
+                background: "transparent",
+              }}
+            />
             <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.border}`, flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
               <Sparkles size={14} color={C.teal} />
               <div style={{ flex: 1, minWidth: 0 }}>

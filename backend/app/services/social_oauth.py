@@ -522,36 +522,41 @@ async def upsert_oauth_account(db: AsyncSession, payload: Dict[str, Any]) -> Opt
         return None
     plat = payload["platform"]
     account_id = payload.get("account_id") or ""
+    handle = (payload.get("handle") or "").strip()
     existing = None
     if account_id:
         res = await db.execute(
             select(SocialAccount).where(SocialAccount.platform == plat, SocialAccount.account_id == account_id)
         )
         existing = res.scalars().first()
-    if not existing:
+    if not existing and handle:
         res = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == plat, SocialAccount.is_default == True)  # noqa: E712
+            select(SocialAccount).where(SocialAccount.platform == plat, SocialAccount.handle == handle)
         )
         existing = res.scalars().first()
+    created = False
     if not existing:
         existing = SocialAccount(id=f"soc_{plat}_{secrets.token_hex(4)}", platform=plat, extra={})
         db.add(existing)
+        created = True
     existing.access_token = payload.get("access_token") or existing.access_token
     existing.refresh_token = payload.get("refresh_token") or existing.refresh_token or ""
     existing.account_id = account_id or existing.account_id
-    existing.handle = payload.get("handle") or existing.handle
+    existing.handle = handle or existing.handle
     existing.label = payload.get("label") or existing.label
     extra = dict(existing.extra) if isinstance(existing.extra, dict) else {}
     extra.update(payload.get("extra") or {})
     extra["connectedAt"] = int(time.time())
     extra["authType"] = extra.get("authType") or "oauth2"
     existing.extra = extra
-    existing.is_default = True
     others = await db.execute(
         select(SocialAccount).where(SocialAccount.platform == plat, SocialAccount.id != existing.id)
     )
-    for o in others.scalars().all():
-        o.is_default = False
+    other_rows = others.scalars().all()
+    if created:
+        existing.is_default = not any(bool(o.is_default) for o in other_rows)
+    elif not other_rows:
+        existing.is_default = True
     test = await test_account(existing)
     existing.last_tested_at = datetime.utcnow().isoformat()
     if test.get("ok") or existing.access_token:

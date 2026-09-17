@@ -147,7 +147,7 @@ export const api = {
   }),
   getEmails: () => apiRequest('/scheduler/emails'),
   createEmail: (payload) => apiRequest('/scheduler/emails', { method: 'POST', body: payload }),
-  getSocialAccounts: () => apiRequest('/scheduler/accounts'),
+  getSocialAccounts: (refresh = false) => apiRequest(`/scheduler/accounts${refresh ? '?refresh=true' : ''}`),
   saveSocialAccount: (payload) => apiRequest('/scheduler/accounts', { method: 'POST', body: payload }),
   testSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}/test`, { method: 'POST' }),
   deleteSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}`, { method: 'DELETE' }),
