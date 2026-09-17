@@ -12091,46 +12091,48 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           </button>
         </div>
 
-        {/* Plugin Tabs: from a plugin, only that plugin. Hub shows all. */}
-        <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
-          {[
-            { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
-            { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
-            { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
-            { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
-            { id: "calcom", label: "Calendar & Cal.com", icon: CalendarCheck, color: "#10B981" },
-            { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
-          ].filter((t) => !scopePlugin || t.id === scopePlugin).map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "13px 18px",
-                  borderRadius: "8px 8px 0 0",
-                  border: "none",
-                  borderBottom: active ? `3px solid ${t.color || C.cobalt}` : "3px solid transparent",
-                  background: "transparent",
-                  color: active ? (t.color || C.cobalt) : C.slate,
-                  fontFamily: FONT_BODY,
-                  fontSize: 13,
-                  fontWeight: active ? 700 : 500,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <Icon size={15} color={active ? (t.color || C.cobalt) : C.slate} />
-                <span>{t.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* Plugin tabs only when opened from Hub (all plugins). In-plugin: header title is enough. */}
+        {!scopePlugin ? (
+          <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
+            {[
+              { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
+              { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
+              { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
+              { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
+              { id: "calcom", label: "Calendar & Cal.com", icon: CalendarCheck, color: "#10B981" },
+              { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
+            ].map((t) => {
+              const Icon = t.icon;
+              const active = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "13px 18px",
+                    borderRadius: "8px 8px 0 0",
+                    border: "none",
+                    borderBottom: active ? `3px solid ${t.color || C.cobalt}` : "3px solid transparent",
+                    background: "transparent",
+                    color: active ? (t.color || C.cobalt) : C.slate,
+                    fontFamily: FONT_BODY,
+                    fontSize: 13,
+                    fontWeight: active ? 700 : 500,
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Icon size={15} color={active ? (t.color || C.cobalt) : C.slate} />
+                  <span>{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
 
         {/* Tab Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
@@ -12138,27 +12140,29 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {/* TAB 1: LEAD GENERATION */}
           {tab === "leadgen" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ background: "#F5F3FF", border: `1px solid #DDD6FE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Search size={18} color="#8B5CF6" />
-                  <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      Lead Generation AI Configuration
-                    </div>
-                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers autonomous account discovery, decision-maker extraction, and live website dossiers.
+              {!scopePlugin ? (
+                <div style={{ background: "#F5F3FF", border: `1px solid #DDD6FE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Search size={18} color="#8B5CF6" />
+                    <div>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                        Lead Generation AI Configuration
+                      </div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                        Powers autonomous account discovery, decision-maker extraction, and live website dossiers.
+                      </div>
                     </div>
                   </div>
+                  {onNavigateToPlugin && (
+                    <button
+                      onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
+                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                    >
+                      Open Plugin <ChevronRight size={13} />
+                    </button>
+                  )}
                 </div>
-                {onNavigateToPlugin && (
-                  <button
-                    onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    Open Plugin <ChevronRight size={13} />
-                  </button>
-                )}
-              </div>
+              ) : null}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
@@ -12178,27 +12182,29 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {/* TAB 2: POST SCHEDULER */}
           {tab === "scheduler" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ background: "#F0FDF4", border: `1px solid #BBF7D0`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <CalendarDays size={18} color={C.teal} />
-                  <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      Post Scheduler AI Configuration
-                    </div>
-                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers multi-channel post drafting, topic ideation, image rendering, and editorial planning.
+              {!scopePlugin ? (
+                <div style={{ background: "#F0FDF4", border: `1px solid #BBF7D0`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <CalendarDays size={18} color={C.teal} />
+                    <div>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                        Post Scheduler AI Configuration
+                      </div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                        Powers multi-channel post drafting, topic ideation, image rendering, and editorial planning.
+                      </div>
                     </div>
                   </div>
+                  {onNavigateToPlugin && (
+                    <button
+                      onClick={() => { onNavigateToPlugin("scheduler"); onClose(); }}
+                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                    >
+                      Open Plugin <ChevronRight size={13} />
+                    </button>
+                  )}
                 </div>
-                {onNavigateToPlugin && (
-                  <button
-                    onClick={() => { onNavigateToPlugin("scheduler"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    Open Plugin <ChevronRight size={13} />
-                  </button>
-                )}
-              </div>
+              ) : null}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
@@ -12489,27 +12495,29 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {/* TAB 3: EMAIL OUTREACH */}
           {tab === "email" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ background: "#FFFBEB", border: `1px solid #FDE68A`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Mail size={18} color="#F59E0B" />
-                  <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      Email Outreach AI Configuration
-                    </div>
-                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers cold sequence generation, reply classification, spam detection, and content repurposing.
+              {!scopePlugin ? (
+                <div style={{ background: "#FFFBEB", border: `1px solid #FDE68A`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Mail size={18} color="#F59E0B" />
+                    <div>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                        Email Outreach AI Configuration
+                      </div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                        Powers cold sequence generation, reply classification, spam detection, and content repurposing.
+                      </div>
                     </div>
                   </div>
+                  {onNavigateToPlugin && (
+                    <button
+                      onClick={() => { onNavigateToPlugin("emailoutreach"); onClose(); }}
+                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                    >
+                      Open Plugin <ChevronRight size={13} />
+                    </button>
+                  )}
                 </div>
-                {onNavigateToPlugin && (
-                  <button
-                    onClick={() => { onNavigateToPlugin("emailoutreach"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    Open Plugin <ChevronRight size={13} />
-                  </button>
-                )}
-              </div>
+              ) : null}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
@@ -12529,27 +12537,29 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           {/* TAB 4: AI VOICE ASSISTANT */}
           {tab === "voice" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ background: "#EFF6FF", border: `1px solid #BFDBFE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <PhoneCall size={18} color={C.cobalt} />
-                  <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      AI Voice Assistant Configuration
-                    </div>
-                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers real-time phone conversations, ultra-low latency TTS, acoustic STT, and PSTN carrier dialing.
+              {!scopePlugin ? (
+                <div style={{ background: "#EFF6FF", border: `1px solid #BFDBFE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <PhoneCall size={18} color={C.cobalt} />
+                    <div>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
+                        AI Voice Assistant Configuration
+                      </div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
+                        Powers real-time phone conversations, ultra-low latency TTS, acoustic STT, and PSTN carrier dialing.
+                      </div>
                     </div>
                   </div>
+                  {onNavigateToPlugin && (
+                    <button
+                      onClick={() => { onNavigateToPlugin("voice"); onClose(); }}
+                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                    >
+                      Open Plugin <ChevronRight size={13} />
+                    </button>
+                  )}
                 </div>
-                {onNavigateToPlugin && (
-                  <button
-                    onClick={() => { onNavigateToPlugin("voice"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    Open Plugin <ChevronRight size={13} />
-                  </button>
-                )}
-              </div>
+              ) : null}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
