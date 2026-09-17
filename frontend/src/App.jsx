@@ -11072,7 +11072,7 @@ function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick }) {
 
 /* ---------------------------------- Common AI Configuration Modal & Views ---------------------------------- */
 
-function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin, operator, onOpenCalcomAdmin, scopePlugin = null }) {
+function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin, operator, onOpenCalcomAdmin, scopePlugin = null, embedded = false }) {
   const [tab, setTab] = useState(initialTab || "leadgen");
   const [dirty, setDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -11120,8 +11120,10 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [calSavedNotice, setCalSavedNotice] = useState(null);
   const [showCalApiKey, setShowCalApiKey] = useState(false);
 
+  const panelOpen = embedded || isOpen;
+
   useEffect(() => {
-    if (tab === "calcom" && isOpen) {
+    if (tab === "calcom" && panelOpen) {
       api.getCalcomSettings()
         .then((res) => {
           if (res) setCalSettings((prev) => ({ ...prev, ...res }));
@@ -11131,7 +11133,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         .then((res) => setCalStatus(res))
         .catch(() => {});
     }
-  }, [tab, isOpen]);
+  }, [tab, panelOpen]);
 
   const handleTestCalcom = async () => {
     setCalTesting(true);
@@ -11193,12 +11195,12 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   }, [isDragging]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!panelOpen) return;
     if (scopePlugin) setTab(scopePlugin);
     else if (initialTab) setTab(initialTab);
-  }, [isOpen, initialTab, scopePlugin]);
+  }, [panelOpen, initialTab, scopePlugin]);
 
-  if (!isOpen) return null;
+  if (!panelOpen) return null;
 
   const safeCommonAi = {
     ...INITIAL_COMMON_AI_CONFIG,
@@ -12036,25 +12038,28 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const voiceLlmProviderId = getProviderIdForModel(safeCommonAi.voiceLayers?.llm || "xAI Grok-2");
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.65)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px" }}>
+    <div style={embedded
+      ? { position: "relative", background: "transparent", display: "block", padding: 0 }
+      : { position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.65)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px" }
+    }>
       <div style={{
         background: "#fff",
-        borderRadius: 18,
-        width: 980,
-        maxWidth: "96vw",
-        maxHeight: "90vh",
+        borderRadius: embedded ? 16 : 18,
+        width: embedded ? "100%" : 980,
+        maxWidth: embedded ? "100%" : "96vw",
+        maxHeight: embedded ? "none" : "90vh",
         display: "flex",
         flexDirection: "column",
-        overflow: "hidden",
-        boxShadow: "0 28px 64px rgba(0,0,0,0.28)",
+        overflow: embedded ? "visible" : "hidden",
+        boxShadow: embedded ? "none" : "0 28px 64px rgba(0,0,0,0.28)",
         border: `1px solid ${C.border}`,
-        transform: `translate(${position.x}px, ${position.y}px)`,
-        transition: isDragging ? "none" : "transform 0.05s ease-out"
+        transform: embedded ? "none" : `translate(${position.x}px, ${position.y}px)`,
+        transition: isDragging && !embedded ? "none" : "transform 0.05s ease-out"
       }}>
         
         {/* Header (Movable by dragging) */}
         <div
-          onMouseDown={handleMouseDownHeader}
+          onMouseDown={embedded ? undefined : handleMouseDownHeader}
           style={{
             display: "flex",
             alignItems: "center",
@@ -12062,7 +12067,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             padding: "16px 26px",
             borderBottom: `1px solid ${C.border}`,
             background: HUB_PAPER,
-            cursor: isDragging ? "grabbing" : "grab",
+            cursor: embedded ? "default" : (isDragging ? "grabbing" : "grab"),
             userSelect: "none"
           }}
         >
@@ -12086,9 +12091,11 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               </div>
             </div>
           </div>
+          {!embedded ? (
           <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, padding: 6, borderRadius: 6 }}>
             <X size={20} />
           </button>
+          ) : <div />}
         </div>
 
         {/* Plugin tabs only when opened from Hub (all plugins). In-plugin: header title is enough. */}
@@ -12135,7 +12142,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         ) : null}
 
         {/* Tab Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
+        <div style={{ flex: embedded ? "0 0 auto" : 1, overflowY: embedded ? "visible" : "auto", padding: "24px 28px" }}>
           
           {/* TAB 1: LEAD GENERATION */}
           {tab === "leadgen" && (
@@ -13161,6 +13168,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             <span>{dirty ? "Saved & synchronized across plugins" : "All plugin models in sync"}</span>
           </div>
 
+          {!embedded ? (
           <button
             onClick={onClose}
             style={{
@@ -13177,6 +13185,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           >
             Done
           </button>
+          ) : null}
         </div>
 
       </div>
@@ -23137,6 +23146,18 @@ function SchedulerEditionRoot(props) {
   return (
     <SocialWorkspaceGate
       {...props}
+      aiKeysPanel={
+        <CommonAiConfigModal
+          embedded
+          isOpen
+          onClose={() => {}}
+          commonAi={props.commonAi}
+          setCommonAi={props.setCommonAi}
+          initialTab="scheduler"
+          scopePlugin="scheduler"
+          operator={props.operator}
+        />
+      }
       onUseClassic={() => {
         setSchedulerEdition("classic");
         setEdition("classic");

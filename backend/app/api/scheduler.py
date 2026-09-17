@@ -626,7 +626,10 @@ async def test_account_endpoint(account_id: str, db: AsyncSession = Depends(get_
         acc.status = "connected"
         acc.last_error = ""
         if test.get("handle"):
-            acc.handle = acc.handle or test["handle"]
+            acc.handle = test["handle"]
+            plat = (acc.platform or "").strip().lower()
+            titles = {"linkedin": "LinkedIn", "x": "X", "facebook": "Facebook", "instagram": "Instagram", "threads": "Threads"}
+            acc.label = f"{titles.get(plat, plat.title())} · {test['handle']}"
         if test.get("accountId") and not acc.account_id:
             acc.account_id = test["accountId"]
     else:

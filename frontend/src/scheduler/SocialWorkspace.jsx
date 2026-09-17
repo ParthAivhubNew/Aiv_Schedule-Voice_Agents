@@ -46,11 +46,11 @@ const WELCOME = {
 };
 
 const CHANNELS = [
-  { id: "linkedin", label: "LinkedIn" },
-  { id: "x", label: "X" },
-  { id: "facebook", label: "Facebook" },
-  { id: "instagram", label: "Instagram" },
-  { id: "threads", label: "Threads" },
+  { id: "linkedin", label: "LinkedIn", color: "#0A66C2", soft: "#E8F1FA", mark: "in" },
+  { id: "x", label: "X", color: "#111827", soft: "#EFEFEF", mark: "X" },
+  { id: "facebook", label: "Facebook", color: "#1877F2", soft: "#E7F0FE", mark: "f" },
+  { id: "instagram", label: "Instagram", color: "#E4405F", soft: "#FDECEE", mark: "Ig" },
+  { id: "threads", label: "Threads", color: "#000000", soft: "#F4F4F5", mark: "@" },
 ];
 
 function companyPayload(profile) {
@@ -222,6 +222,269 @@ class SimpleBoundary extends React.Component {
   }
 }
 
+function defaultPublicApiUrl() {
+  try {
+    const o = window.location.origin || "";
+    if (o && !o.includes("localhost") && !o.includes("127.0.0.1")) return o.replace(/\/$/, "");
+  } catch (_) {}
+  return "";
+}
+
+function SimpleAccountsPage({
+  accounts,
+  connecting,
+  onConnect,
+  onDisconnect,
+  onRefreshAccount,
+  showToast,
+  aiKeysPanel,
+}) {
+  const [oauthApps, setOauthApps] = useState([]);
+  const [setupPlat, setSetupPlat] = useState("linkedin");
+  const [setupForm, setSetupForm] = useState({ clientId: "", clientSecret: "", configId: "" });
+  const [publicBaseUrl, setPublicBaseUrl] = useState(defaultPublicApiUrl);
+  const [savingApp, setSavingApp] = useState(false);
+  const [refreshingId, setRefreshingId] = useState("");
+  const didRefresh = useRef(false);
+
+  const loadApps = useCallback(() => {
+    api.getSocialOauthApps()
+      .then((data) => setOauthApps(data.apps || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { loadApps(); }, [loadApps]);
+
+  useEffect(() => {
+    if (didRefresh.current) return;
+    const ids = (accounts || []).filter((a) => a.id && a.status === "connected").map((a) => a.id);
+    if (!ids.length || !onRefreshAccount) return;
+    didRefresh.current = true;
+    (async () => {
+      for (const id of ids) {
+        try { await onRefreshAccount(id); } catch (_) {}
+      }
+    })();
+  }, [accounts, onRefreshAccount]);
+
+  const appFor = (plat) => oauthApps.find((a) => a.platform === plat) || {};
+  const chFor = (id) => CHANNELS.find((c) => c.id === id) || { id, label: id, color: C.ink, soft: HUB_PAPER, mark: id.slice(0, 2) };
+
+  const resolvedPublicBase = () => {
+    const typed = (publicBaseUrl || "").trim().replace(/\/$/, "");
+    if (typed) return typed;
+    const savedCb = appFor(setupPlat).callbackUrl || "";
+    const saved = String(savedCb).replace(/\/api\/scheduler\/oauth\/[^/]+\/callback.*$/, "");
+    if (saved && !saved.includes("127.0.0.1") && !saved.includes("localhost")) return saved;
+    try {
+      const o = (window.location.origin || "").replace(/\/$/, "");
+      if (o && !o.includes("localhost") && !o.includes("127.0.0.1")) return o;
+    } catch (_) {}
+    return "http://127.0.0.1:8000";
+  };
+
+  const callbackFor = (plat) => `${resolvedPublicBase()}/api/scheduler/oauth/${plat}/callback`;
+  const setupApp = appFor(setupPlat);
+  const setupLabel = chFor(setupPlat).label;
+
+  const saveApp = async () => {
+    if (!setupForm.clientId.trim() || !setupForm.clientSecret.trim()) {
+      showToast("Client ID and Client Secret required.");
+      return;
+    }
+    const base = resolvedPublicBase();
+    if (!/^https?:\/\//i.test(base)) {
+      showToast("Public API URL must start with https:// or http://");
+      return;
+    }
+    setSavingApp(true);
+    try {
+      await api.saveSocialOauthApp({
+        platform: setupPlat,
+        clientId: setupForm.clientId.trim(),
+        clientSecret: setupForm.clientSecret.trim(),
+        configId: setupForm.configId.trim(),
+        redirectUri: `${base}/api/scheduler/oauth/${setupPlat}/callback`,
+      });
+      setSetupForm({ clientId: "", clientSecret: "", configId: "" });
+      setPublicBaseUrl(base);
+      loadApps();
+      showToast(setupLabel + " app saved. Register the callback URL, then Connect.");
+    } catch (e) {
+      showToast(e.message || "Could not save app");
+    } finally {
+      setSavingApp(false);
+    }
+  };
+
+  const displayName = (a) => {
+    const h = String((a && a.handle) || "").trim();
+    const lab = String((a && a.label) || "").replace(/^(LinkedIn|X|Facebook|Instagram|Threads)\s*[·•-]\s*/i, "").trim();
+    return h || lab;
+  };
+
+  const refreshOne = async (id) => {
+    if (!onRefreshAccount || refreshingId) return;
+    setRefreshingId(id);
+    try {
+      await onRefreshAccount(id);
+      showToast("Name updated from the network.");
+    } catch (e) {
+      showToast(e.message || "Could not refresh name");
+    } finally {
+      setRefreshingId("");
+    }
+  };
+
+  const connected = (accounts || []).filter((a) => a.status === "connected");
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
+      <div style={{ maxWidth: 980, margin: "0 auto" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Accounts & AI</div>
+        <div style={{ fontSize: 13, color: C.slate, marginBottom: 20, lineHeight: 1.45 }}>
+          Connect posting accounts here. Admin pastes Client ID + Secret once per network, then anyone clicks Connect and logs in.
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 22 }}>
+          {CHANNELS.map((ch) => {
+            const app = appFor(ch.id);
+            const linked = connected.find((a) => String(a.platform || "").toLowerCase() === ch.id);
+            return (
+              <div key={ch.id} style={{ background: "#fff", border: `1px solid ${linked ? C.teal : C.border}`, borderRadius: 14, padding: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: ch.soft, color: ch.color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>
+                    {ch.mark}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{ch.label}</div>
+                    <div style={{ fontSize: 11, color: linked ? C.teal : C.slate }}>
+                      {linked ? `Connected ${displayName(linked)}` : app.configured ? "Ready to connect" : "App not set up"}
+                    </div>
+                  </div>
+                </div>
+                {linked ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button" onClick={() => refreshOne(linked.id)} disabled={refreshingId === linked.id} style={{ ...secBtn, flex: 1, justifyContent: "center" }}>
+                      {refreshingId === linked.id ? "Refreshing…" : "Refresh name"}
+                    </button>
+                    <button type="button" onClick={() => onDisconnect(linked.id)} style={{ ...secBtn, flex: 1, justifyContent: "center" }}>
+                      Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onConnect(ch.id)}
+                    disabled={connecting === ch.id}
+                    style={{ ...priBtn, width: "100%", justifyContent: "center", background: ch.color }}
+                  >
+                    {connecting === ch.id ? "Opening…" : "Connect " + ch.label}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>OAuth app (admin, once)</div>
+          <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 14 }}>
+            Paste Client ID + Secret from the platform developer portal. Operators then only click Connect.
+          </div>
+          <label style={labelStyle}>Public API URL (no path)</label>
+          <input
+            value={publicBaseUrl}
+            onChange={(e) => setPublicBaseUrl(e.target.value)}
+            placeholder="https://app.aivhub.com"
+            style={{ width: "100%", boxSizing: "border-box", marginBottom: 12, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
+          />
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+            {CHANNELS.map((ch) => (
+              <button
+                key={ch.id}
+                type="button"
+                onClick={() => setSetupPlat(ch.id)}
+                style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: setupPlat === ch.id ? C.ink : HUB_PAPER, color: setupPlat === ch.id ? "#fff" : C.ink, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+              >
+                {ch.label}{appFor(ch.id).configured ? " ✓" : ""}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
+            Callback URL to register on {setupLabel}:
+            {(setupPlat === "facebook" || setupPlat === "instagram" ? ["facebook", "instagram"] : [setupPlat]).map((p) => (
+              <code key={p} style={{ display: "block", marginTop: 4, padding: "8px 10px", background: HUB_PAPER, borderRadius: 8, color: C.ink, wordBreak: "break-all" }}>
+                {callbackFor(p)}
+              </code>
+            ))}
+          </div>
+          {(setupPlat === "facebook" || setupPlat === "instagram") ? (
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Facebook Login for Business — Configuration ID</label>
+              <input
+                value={setupForm.configId}
+                onChange={(e) => setSetupForm((f) => ({ ...f, configId: e.target.value }))}
+                placeholder={setupApp.hasConfigId ? "saved — paste to replace" : "From Facebook Login for Business → Configurations"}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
+              />
+            </div>
+          ) : null}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
+            <div>
+              <label style={labelStyle}>Client ID</label>
+              <input
+                value={setupForm.clientId}
+                onChange={(e) => setSetupForm((f) => ({ ...f, clientId: e.target.value }))}
+                placeholder={setupApp.clientIdHint || "client id"}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Client secret</label>
+              <input
+                type="password"
+                value={setupForm.clientSecret}
+                onChange={(e) => setSetupForm((f) => ({ ...f, clientSecret: e.target.value }))}
+                placeholder={setupApp.hasSecret ? "•••• saved" : "secret"}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
+              />
+            </div>
+            <button type="button" onClick={saveApp} disabled={savingApp} style={{ ...priBtn, height: 38, background: C.teal, whiteSpace: "nowrap" }}>
+              {savingApp ? "Saving…" : "Save app"}
+            </button>
+          </div>
+        </div>
+
+        {(accounts || []).length ? (
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Connected accounts</div>
+            {(accounts || []).map((a) => {
+              const ch = chFor(String(a.platform || "").toLowerCase());
+              return (
+                <div key={a.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                  <Plug size={14} color={C.teal} />
+                  <span style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>{ch.label} {displayName(a) ? "· " + displayName(a) : ""}</span>
+                  <button type="button" onClick={() => refreshOne(a.id)} disabled={refreshingId === a.id} style={{ ...secBtn, height: 32 }}>
+                    {refreshingId === a.id ? "Refreshing…" : "Refresh name"}
+                  </button>
+                  <button type="button" onClick={() => onDisconnect(a.id)} style={{ ...secBtn, height: 32 }}>Remove</button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {aiKeysPanel ? (
+          <div style={{ marginTop: 8 }}>
+            {aiKeysPanel}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function looksLikeSlopPost(p) {
   const t = `${(p && p.headline) || ""} ${(p && p.caption) || ""}`;
   return /ERP dump|NetSuite export tab|Ops teams still close the week in spreadsheets|Friday close still lives|Scattered data in/i.test(t);
@@ -235,6 +498,7 @@ export function SocialWorkspace({
   commonAi,
   onOpenCommonAi,
   onUseClassic,
+  aiKeysPanel,
 }) {
   const [posts, setPosts] = useState(() => {
     const saved = readJson(LS_POSTS, []);
@@ -266,7 +530,7 @@ export function SocialWorkspace({
   const [typing, setTyping] = useState(false);
   const [toast, setToast] = useState("");
   const [selectedId, setSelectedId] = useState(null);
-  const [gearOpen, setGearOpen] = useState(false);
+  const [page, setPage] = useState("plan");
   const [accounts, setAccounts] = useState([]);
   const [connecting, setConnecting] = useState("");
   const [publishing, setPublishing] = useState("");
@@ -638,7 +902,7 @@ export function SocialWorkspace({
     if (!p || p.status === "posted" || publishing) return;
     const ch = String(p.channel || "linkedin").toLowerCase();
     if (!connected.some((a) => String(a.platform || "").toLowerCase() === ch)) {
-      setGearOpen(true);
+      setPage("accounts");
       showToast("Connect " + ch + " first.");
       return;
     }
@@ -968,16 +1232,37 @@ export function SocialWorkspace({
     try {
       const res = await api.startSocialOauth(plat, window.location.origin);
       if (!res?.authUrl) {
-        showToast(res?.error || "Save app credentials in classic Accounts first, or paste a token there.");
+        const err = res?.error || "";
+        setPage("accounts");
+        showToast(
+          err.includes("not configured") || err.includes("Client ID")
+            ? "Paste Client ID + Secret in OAuth app below, Save app, then Connect."
+            : err || "Connect failed. Save Client ID + Secret first."
+        );
         return;
       }
       const popup = window.open(res.authUrl, "aivhub-oauth-" + plat, "width=620,height=780");
       if (!popup) window.location.href = res.authUrl;
     } catch (e) {
+      setPage("accounts");
       showToast(e.message || "Connect failed");
     } finally {
       setConnecting("");
     }
+  };
+
+  const disconnectAccount = async (id) => {
+    try {
+      await api.deleteSocialAccount(id);
+      refreshAccounts();
+    } catch (e) {
+      showToast(e.message || "Remove failed");
+    }
+  };
+
+  const refreshAccount = async (id) => {
+    await api.testSocialAccount(id);
+    refreshAccounts();
   };
 
   return (
@@ -998,6 +1283,28 @@ export function SocialWorkspace({
           <LayoutGrid size={14} /> All plugins
         </button>
 
+        <button
+          type="button"
+          onClick={() => { setPage("plan"); setApprovalOpen(false); }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            margin: "0 4px",
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "none",
+            background: page === "plan" && !approvalOpen ? "#1E2230" : "transparent",
+            color: "#fff",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <CalendarDays size={15} />
+          <span>Calendar</span>
+        </button>
         <button
           type="button"
           onClick={() => openApprovals()}
@@ -1025,14 +1332,36 @@ export function SocialWorkspace({
             </span>
           ) : null}
         </button>
+        <button
+          type="button"
+          onClick={() => { setApprovalOpen(false); setPage("accounts"); }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            margin: "0 4px",
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "none",
+            background: page === "accounts" && !approvalOpen ? "#1E2230" : "transparent",
+            color: "#fff",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <Plug size={15} />
+          <span>Accounts & AI</span>
+        </button>
         <div style={{ flex: 1 }} />
 
         <button
           type="button"
-          onClick={() => setGearOpen(true)}
+          onClick={() => { setSchedulerEdition("classic"); if (onUseClassic) onUseClassic(); }}
           style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 4px 4px", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
         >
-          <Settings2 size={14} /> Accounts & AI
+          <History size={14} /> Use classic scheduler
         </button>
         <button
           type="button"
@@ -1044,6 +1373,18 @@ export function SocialWorkspace({
       </div>
 
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {page === "accounts" ? (
+          <SimpleAccountsPage
+            accounts={accounts}
+            connecting={connecting}
+            onConnect={connectOauth}
+            onDisconnect={disconnectAccount}
+            onRefreshAccount={refreshAccount}
+            showToast={showToast}
+            aiKeysPanel={aiKeysPanel}
+          />
+        ) : (
+        <>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink }}>
@@ -1412,6 +1753,8 @@ export function SocialWorkspace({
             </div>
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {approvalOpen && (
@@ -1533,55 +1876,6 @@ export function SocialWorkspace({
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-
-      {gearOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.35)", zIndex: 50, display: "flex", justifyContent: "flex-end" }} onClick={() => setGearOpen(false)}>
-          <div style={{ width: 400, height: "100%", background: "#fff", padding: 22, overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Accounts & AI</div>
-              <button type="button" onClick={() => setGearOpen(false)} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
-            </div>
-            <div style={{ fontSize: 12, color: C.slate, marginBottom: 12 }}>Connect a channel before Approve & post.</div>
-            {(connected.length ? connected : [{ id: "none", platform: "none" }]).map((a) => (
-              a.platform === "none" ? (
-                <div key="none" style={{ fontSize: 13, color: C.slate, marginBottom: 12 }}>No accounts connected yet.</div>
-              ) : (
-                <div key={a.id} style={{ padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                  <Plug size={14} color={C.teal} />
-                  <span style={{ fontWeight: 700, fontSize: 13, textTransform: "capitalize" }}>{a.platform}</span>
-                  <span style={{ fontSize: 12, color: C.slate }}>{a.handle || a.label || ""}</span>
-                </div>
-              )
-            ))}
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.slateLight, margin: "16px 0 8px" }}>CONNECT</div>
-            {CHANNELS.map((ch) => (
-              <button
-                key={ch.id}
-                type="button"
-                onClick={() => connectOauth(ch.id)}
-                disabled={connecting === ch.id}
-                style={{ ...secBtn, width: "100%", justifyContent: "center", marginBottom: 6 }}
-              >
-                {connecting === ch.id ? "Opening…" : "Connect " + ch.label}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => { if (onOpenCommonAi) onOpenCommonAi(); }}
-              style={{ ...secBtn, width: "100%", justifyContent: "center", marginTop: 12 }}
-            >
-              <Settings2 size={14} /> AI keys
-            </button>
-            <button
-              type="button"
-              onClick={() => { setSchedulerEdition("classic"); if (onUseClassic) onUseClassic(); }}
-              style={{ ...secBtn, width: "100%", justifyContent: "center", marginTop: 8, color: C.slate }}
-            >
-              Use classic scheduler
-            </button>
           </div>
         </div>
       )}

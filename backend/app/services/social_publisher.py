@@ -244,7 +244,7 @@ async def _test_linkedin(account, token: str) -> Dict[str, Any]:
             name = data.get("name") or data.get("given_name") or "LinkedIn"
             if sub and not (account.account_id or "").strip():
                 account.account_id = sub
-            account.handle = account.handle or name
+            account.handle = name
             return {"ok": True, "handle": name, "accountId": account.account_id, "raw": {"sub": sub}}
         # Legacy me
         res2 = await client.get("https://api.linkedin.com/v2/me", headers=headers)
@@ -253,7 +253,10 @@ async def _test_linkedin(account, token: str) -> Dict[str, Any]:
             lid = data.get("id") or ""
             if lid and not (account.account_id or "").strip():
                 account.account_id = lid
-            return {"ok": True, "handle": account.handle or lid, "accountId": lid}
+            loc = f"{data.get('localizedFirstName') or ''} {data.get('localizedLastName') or ''}".strip()
+            name = loc or account.handle or lid
+            account.handle = name
+            return {"ok": True, "handle": name, "accountId": lid}
         return {"ok": False, "error": f"LinkedIn {res.status_code}: {res.text[:240]}"}
 
 

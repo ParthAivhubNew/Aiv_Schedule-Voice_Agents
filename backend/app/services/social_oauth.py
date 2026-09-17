@@ -558,7 +558,7 @@ async def upsert_oauth_account(db: AsyncSession, payload: Dict[str, Any]) -> Opt
         existing.status = "connected" if test.get("ok") else "connected"
         existing.last_error = "" if test.get("ok") else (test.get("error") or "")
         if test.get("handle"):
-            existing.handle = existing.handle or test["handle"]
+            existing.handle = test["handle"]
         if test.get("accountId") and not existing.account_id:
             existing.account_id = test["accountId"]
     else:
