@@ -10,19 +10,50 @@ import httpx
 logger = logging.getLogger("post_writer")
 
 TOPIC_BANK = {
-    "Operations": [
-        {"title": "Why ops teams lose 2 days/week to manual spreadsheets", "angle": "Highlight the cost of fragmented data across departments.", "hook": "Are spreadsheets running your dispatch line, or slowing it down?"},
-        {"title": "Real-time dispatch vs. end-of-shift reporting", "angle": "Show the competitive advantage of sub-minute visibility.", "hook": "By the time the spreadsheet is updated, the shift is already over."}
-    ],
-    "Technology": [
-        {"title": "Connecting legacy ERPs with modern BI dashboards", "angle": "Explain non-invasive data pipelines without complete system overhauls.", "hook": "You don't need a 2-year ERP migration to get clean metrics today."},
-        {"title": "Predictive maintenance benchmarks for manufacturing", "angle": "Quantify downtime prevention with sensor-driven telemetry.", "hook": "What does one hour of unplanned line downtime cost your plant?"}
-    ],
-    "Growth": [
-        {"title": "Scaling mid-market manufacturing without adding headcount", "angle": "Leverage automated reporting to maximize existing supervisor output.", "hook": "Growth doesn't require doubling your back-office reporting staff."},
-        {"title": "Case study: 35% throughput increase in Manchester logistics", "angle": "Real-world ROI breakdown of live operational intelligence.", "hook": "How one regional carrier eliminated delivery bottlenecks in 30 days."}
+    "General": [
+        {"title": "Company update", "angle": "Write from the company profile and the user's post plan.", "hook": ""}
     ]
 }
+
+def linkedin_craft_brief(company_name: str = "", company_pitch: str = "", company_context: str = "") -> str:
+    brand = (company_name or "").strip()
+    mention = (
+        f"Mention {brand} once, naturally, only if it earns the sentence."
+        if brand else
+        "Do not invent a company name, website, or product. If no company facts were supplied, write educational content with no brand mention."
+    )
+    facts = "\n".join(x for x in (
+        f"Company: {brand}" if brand else "",
+        f"Offering: {company_pitch.strip()}" if (company_pitch or "").strip() else "",
+        (company_context or "").strip(),
+    ) if x)
+    brand_visual = f"Discreet {brand} wordmark if useful." if brand else "No invented logo or wordmark."
+    return f"""You write high-engagement LinkedIn posts. Company facts below are the ONLY business details you may use. Never invent offerings, URLs, customers, or metrics.
+
+{    facts or "No company profile supplied."}
+
+{mention}
+Write about the USER'S POST PLAN, grounded in this profile. Do not switch to a stock industry angle. Do not invent a different business.
+
+Goal: reach, comments, brand awareness, site visits, qualified leads. Do NOT write a sales ad.
+
+Mix: ~70% educational/insight, ~20% thought leadership, ~10% product.
+
+ONE complete LinkedIn post:
+- Strong 1–2 line hook that creates curiosity.
+- Address the problem in the user's plan (or the company's real customer problem from the profile if the plan is thin).
+- Explain how this company's actual offering helps — using only profile facts.
+- One useful insight, framework, question, or practical takeaway.
+- Short paragraphs for LinkedIn mobile.
+- Human, knowledgeable, confident, conversational.
+- Avoid generic corporate language.
+- End with an engaging question that invites comments.
+- 3–6 relevant hashtags (not stuffed into the body).
+- 120–220 words for hook + body (exclude hashtags).
+
+Image: premium, modern, enterprise-ready. ONE clear idea from THIS post. Strong hierarchy. Minimal text (headline max 8 words). {brand_visual} Visual must match the user's plan and the company, not a generic stock industry scene. No stock-photo look. No cluttered fake dashboard UI. No excessive icons. No cliché robots unless the plan is specifically about AI. Readable in 2 seconds on LinkedIn scroll. Clean space for headline overlay. Format 4:5 (1080x1350) or 1:1.
+
+Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today's fast-paced world, slogan closers, fake statistics."""
 
 IMAGE_STYLES = {
     "modern_saas": "modern sleek SaaS vector illustration, clean UI gradients, professional tech graphics, high quality, 4k",
@@ -41,17 +72,216 @@ ASPECT_RATIOS = {
 }
 
 IMAGE_SCENE_VARIANTS = [
-    "Photoreal editorial: shift supervisor with clipboard on a production line, shallow depth of field, no readable fake UI text, no logos",
-    "Photoreal editorial: small dispatch team at dawn around a wall board of routes and KPIs, industrial lighting, no logos",
-    "Photoreal editorial: planners in a glass-walled ops room overlooking warehouse activity, abstract screens only, no fake UI text",
-    "Photoreal editorial: maintenance lead reviewing sensor alerts on a tablet beside running equipment, cinematic, no logos",
-    "Photoreal editorial: mid-market control room with people at desks and large abstract data walls, warehouse visible through glass, no fake UI text",
+    "Premium 4:5 LinkedIn visual: dark navy desk, one clean abstract executive chart in teal light, generous negative space, no readable fake UI, discreet brand wordmark only if a company name was supplied",
+    "Premium 4:5 LinkedIn visual: connected data nodes flowing into a single glass panel, studio lighting, enterprise SaaS, no cluttered dashboard, no stock handshake",
+    "Premium 4:5 LinkedIn visual: split of messy printed reports vs one calm insight surface, high-end editorial graphic, minimal type, no fake spreadsheet cells",
+    "Premium 4:5 LinkedIn visual: leadership table with one shared abstract live view, cinematic soft light, no robots, no icon soup",
+    "Premium 4:5 LinkedIn visual: asking a question of data — luminous query line into a simple chart, modern BI brand, empty space for headline",
 ]
 
 
 def pick_image_scene(topic: str) -> str:
     key = sum(ord(c) for c in (topic or "")) or 42
     return IMAGE_SCENE_VARIANTS[key % len(IMAGE_SCENE_VARIANTS)]
+
+
+_SLOP_LINE = re.compile(
+    r"(?im)^\s*(Not because\b.*|"
+    r"The fix isn['’]t\b.*|"
+    r"Most (?:ops |operations )?teams still\b.*|"
+    r"Scattered data in\.\s*Real-time decisions out\.?|"
+    r"The floor already moved\.?\s*The pack did not\.?|"
+    r"That hour is not\b.*)\s*$"
+)
+_SLOP_INLINE = [
+    re.compile(r"(?i)Not because they[^.!\n]*?(?:—|–|--)\s*because[^.!\n]*[.!]?", re.S),
+    re.compile(r"(?i)The fix isn['’]t another[^.!\n]*[.!]?\s*It['’]s[^.!\n]*[.!]?", re.S),
+    re.compile(r"(?i)Scattered data in\.\s*Real-time decisions out\.?", re.I),
+    re.compile(r"(?i)The floor already moved\.?\s*The pack did not\.?", re.I),
+    re.compile(r"(?i)That hour is not[^.!\n]*[.!]?\s*It is[^.!\n]*[.!]?", re.I),
+    re.compile(r"(?i)(?:^|\n)Not [^.!\n]{8,70}[.!]\s*It(?:'s| is)[^.!\n]{8,80}[.!]", re.M),
+]
+
+
+def strip_ai_slop(text: str) -> str:
+    """Kill slogan contrast lines models love. Keep the rest."""
+    if not text:
+        return text
+    cleaned = text
+    for pat in _SLOP_INLINE:
+        cleaned = pat.sub("", cleaned)
+    kept = []
+    for line in cleaned.splitlines():
+        if _SLOP_LINE.match(line):
+            continue
+        kept.append(line)
+    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return cleaned or text
+
+
+def image_prompt_from_copy(caption: str, topic: str = "", company: str = "") -> str:
+    scene = re.sub(r"\s+", " ", (caption or topic or "")).strip()[:220]
+    if not scene:
+        scene = "one clear idea from the user's post plan"
+    return linkedin_image_prompt(
+        {"imageConcept": scene, "imageHeadline": "One view. Better decisions."},
+        topic or scene,
+        company or "",
+    )
+
+
+def company_hashtag(name: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9]", "", name or "")
+    if len(slug) < 2:
+        return ""
+    return "#" + slug[:32]
+
+
+def normalize_hashtags(raw, company: str = "") -> List[str]:
+    tags: List[str] = []
+    if isinstance(raw, str):
+        raw = [p for p in re.split(r"[\s,]+", raw) if p]
+    for t in raw or []:
+        t = str(t).strip()
+        if not t:
+            continue
+        if not t.startswith("#"):
+            t = "#" + t.lstrip("#")
+        if t.lower() not in [x.lower() for x in tags]:
+            tags.append(t)
+    brand = company_hashtag(company)
+    if brand and brand.lower() not in [x.lower() for x in tags]:
+        tags.append(brand)
+    for t in ("#Leadership", "#Analytics", "#Operations"):
+        if len(tags) >= 3:
+            break
+        if t.lower() not in [x.lower() for x in tags]:
+            tags.append(t)
+    return tags[:6]
+
+
+def assemble_linkedin_post(payload: Dict[str, Any]) -> str:
+    hook = strip_ai_slop(str(payload.get("hook") or "")).strip()
+    body = strip_ai_slop(str(payload.get("copy") or payload.get("linkedin_copy") or "")).strip()
+    if hook and body:
+        head = hook[:48].lower()
+        text = body if body.lower().startswith(head) else hook + "\n\n" + body
+    else:
+        text = body or hook
+    tags = normalize_hashtags(payload.get("hashtags"), company=str(payload.get("_company") or ""))
+    tag_line = " ".join(tags)
+    if tag_line and tag_line not in text:
+        text = text.rstrip() + "\n\n" + tag_line
+    return text.strip()
+
+
+def linkedin_image_prompt(payload: Dict[str, Any], topic: str, company: str) -> str:
+    existing = (payload.get("imagePrompt") or payload.get("image_prompt") or "").strip()
+    if len(existing) > 120:
+        return existing
+    headline = (payload.get("imageHeadline") or payload.get("image_headline") or "One source of truth").strip()
+    concept = (payload.get("imageConcept") or payload.get("image_concept") or topic or "").strip().rstrip(".")
+    brand = (company or "").strip()
+    brand_line = (
+        f"Small discreet {brand} wordmark bottom-right. "
+        if brand else
+        "No invented logo or company wordmark. "
+    )
+    for_line = f" for {brand}" if brand else ""
+    return (
+        f"LinkedIn 4:5 portrait 1080x1350, premium enterprise visual{for_line}. "
+        f"ONE idea: {concept}. Composition: strong hierarchy, generous negative space, subject upper-center, "
+        f"headline overlay max 8 words in clean sans-serif: '{headline}'. "
+        f"{brand_line}Palette: deep navy, teal, warm white. "
+        "Match the user's plan and the company. No readable fake UI text, "
+        "no cluttered dashboards, no stock handshake, no icon soup, no robots unless the plan is about AI. "
+        "Photoreal + editorial graphic hybrid, studio lighting, 8k, understandable in two seconds while scrolling."
+    )
+
+
+def _user_angle(topic: str, pitch: str = "") -> str:
+    """Pull the human thought out of a post plan. Skip instruction chrome."""
+    skip = re.compile(
+        r"(?i)^(create a |post must|output format|company:|website:|core offering:|"
+        r"goal$|goal:|target audience|generate one|content direction|image generation|"
+        r"prefer topics|important$|use approximately|\*\*post title|\*\*hook|"
+        r"\*\*linkedin|\*\*hashtags|\*\*image |increase linkedin|business owners|"
+        r"70%|start with a strong|look premium|visual should|also cover|audience:|"
+        r"craft:|mix:|image:|goal:)"
+    )
+    prefix = re.compile(
+        r"(?i)^(angle for this post:|angle:|topic:|post plan:|thought:|headline:)\s*"
+    )
+    kept = []
+    for raw in (topic or "").splitlines():
+        ln = re.sub(r"^[\s\-*#]+", "", raw).strip().strip("*")
+        ln = prefix.sub("", ln).strip()
+        if not ln or len(ln) < 18:
+            continue
+        if skip.match(ln):
+            continue
+        kept.append(ln)
+    if kept:
+        prefer = [ln for ln in kept if re.match(r"(?i)^(why |how |what |hidden |dashboard|turning |ai \+|real-time|data |common |before |executive )", ln)]
+        return (prefer[0] if prefer else kept[0])[:220]
+    blob = prefix.sub("", re.sub(r"\s+", " ", (topic or "").strip()))
+    if blob:
+        return blob[:220]
+    return (pitch or "what this company actually does for customers")[:220]
+
+
+def _fallback_linkedin_package(topic: str, company: str, pitch: str = "") -> Dict[str, Any]:
+    brand = (company or "").strip()
+    offering = (pitch or "").strip()
+    angle = _user_angle(topic, offering)
+    who = brand or "this company"
+    short_offer = (offering.split(",")[0] if offering else "").strip() or "the work in the company profile"
+    hook = angle.rstrip(".")
+    if hook:
+        hook = hook[0].upper() + hook[1:]
+    if hook and not hook.lower().startswith(("why ", "what ", "how ", "if ", "the ")):
+        hook = f"{hook}."
+    elif hook and hook.lower().startswith("why ") and not hook.endswith("?"):
+        hook = hook + "?"
+    product_line = (
+        f"That is the work {who} is built for: {short_offer.lower()}, so the room looks at one picture instead of five files."
+        if brand else
+        f"A shared live view of {short_offer.lower()} beats another export."
+    )
+    extra_tags = []
+    low = (angle + " " + (topic or "")).lower()
+    if "excel" in low or "spreadsheet" in low:
+        extra_tags += ["#Excel", "#DataAnalytics"]
+    if "dashboard" in low or "analytics" in low or "intelligence" in low:
+        extra_tags += ["#BusinessIntelligence"]
+    copy = (
+        f"{hook}\n\n"
+        "The cost shows up in the room. Different versions of the same answer. "
+        "A number that was right yesterday and fuzzy today. People debate the source instead of the next step.\n\n"
+        f"{product_line} No brochure. Just a shorter path from the messy source to a decision you can defend.\n\n"
+        "A useful test: if this workflow still needs a hero file or more than one person to assemble the pack, "
+        "you are paying a hidden tax before any decision gets made. The meeting should start at the insight, not the hunt.\n\n"
+        "What part of this still lives in a file only one person can explain?"
+    )
+    headline_words = [w for w in re.sub(r"[^A-Za-z0-9 ]+", " ", angle).split() if w][:8]
+    chosen = {
+        "postTitle": angle[:80],
+        "hook": hook,
+        "copy": copy,
+        "hashtags": extra_tags or ["#Leadership", "#Operations"],
+        "imageConcept": f"Premium uncluttered visual of this idea: {angle}. Matches {who}.",
+        "imageHeadline": " ".join(headline_words) or "One source of truth",
+        "_company": brand,
+    }
+    chosen["hashtags"] = normalize_hashtags(chosen.get("hashtags"), company=brand)
+    chosen["image_prompt"] = linkedin_image_prompt(chosen, topic, brand)
+    chosen["imagePrompt"] = chosen["image_prompt"]
+    chosen["cta"] = chosen["copy"].strip().split("\n")[-1]
+    chosen["first_comment"] = "Curious how your team handles this today."
+    chosen["alt_text"] = f"{chosen.get('imageHeadline')}: {chosen.get('imageConcept')}"
+    chosen["recommended_time"] = "Tue 09:30"
+    return chosen
 
 
 def create_topic_image_prompt(title: str, angle: str = "", theme: str = "Operations", style: str = "modern_saas") -> str:
@@ -431,9 +661,20 @@ async def generate_image_with_provider(
 
     # Free fallback only when no ChatGPT/OpenAI (or other paid) image key exists
     fallback_url = generate_image_url(clean_prompt, style=style, width=w, height=h, aspect_ratio=aspect_ratio)
+    image_url = fallback_url
+    try:
+        from app.services.social_publisher import fetch_image_bytes
+        from app.services.media_store import store_image_bytes
+        raw, mime = await fetch_image_bytes(fallback_url)
+        if raw:
+            rel = store_image_bytes(raw, mime)
+            if rel:
+                image_url = rel
+    except Exception as img_err:
+        logger.warning(f"Could not cache generated image locally: {img_err}")
     resp = {
         "status": "ok",
-        "imageUrl": fallback_url,
+        "imageUrl": image_url,
         "imagePrompt": clean_prompt,
         "provider": "pollinations",
         "model": "flux",
@@ -479,10 +720,11 @@ def parse_chat_intent(text: str) -> Dict[str, Any]:
 
 async def generate_complete_social_package(
     topic: str,
-    company_name: str = "AIVHub",
-    company_pitch: str = "AI-powered business intelligence dashboards",
+    company_name: str = "",
+    company_pitch: str = "",
     company_context: str = "",
     linkedin_directive: str = "",
+    existing_copy: str = "",
     api_key: Optional[str] = None,
     provider: Optional[str] = None,
     model: Optional[str] = None,
@@ -492,7 +734,7 @@ async def generate_complete_social_package(
     image_model: Optional[str] = None,
     image_base_url: Optional[str] = None,
     style: str = "modern_saas",
-    aspect_ratio: str = "16:9",
+    aspect_ratio: str = "4:5",
     adapt_per_channel: bool = False,
     db: Any = None
 ) -> Dict[str, Any]:
@@ -509,57 +751,79 @@ async def generate_complete_social_package(
     """
     from app.services.llm_gateway import call_open_chat_llm
 
-    clean_topic = topic.strip() or "Why ops teams lose 2 days/week to manual spreadsheets"
-    kb_block = (company_context or "").strip()
-    li_rules = (linkedin_directive or "").strip() or (
-        "Short lines. One specific scene or number in line 1. No numbered lists. "
-        "No 'three things' framing. Max 1 hashtag in the post body. "
-        "One honest question at the end. No product pitch in the first half."
+    user_plan = (topic or "").strip()
+    brand = (company_name or "").strip()
+    kb_bits = []
+    if brand:
+        kb_bits.append(f"Company: {brand}")
+    if (company_pitch or "").strip():
+        kb_bits.append(f"Offering: {company_pitch.strip()}")
+    if (company_context or "").strip():
+        kb_bits.append(company_context.strip())
+    kb_block = "\n".join(kb_bits)
+    clean_topic = user_plan or (company_pitch or "").strip() or "Write about this company's actual offering from the profile. Do not invent another business."
+    li_rules = (linkedin_directive or "").strip() or linkedin_craft_brief(brand, company_pitch, company_context)
+    draft = (existing_copy or "").strip()
+    draft_block = (
+        f"\nExisting draft (KEEP names, files, meetings, numbers. Thicken only. Do not replace the scene):\n{draft}\n"
+        if draft
+        else ""
     )
-    scene_hint = pick_image_scene(clean_topic)
 
+    plan_hint = clean_topic.replace('"', "'")[:280]
     if adapt_per_channel:
         copy_schema = f'''
-  "copy": "Canonical post body (140-200 words) about THIS topic: {clean_topic}.",
-  "linkedin_copy": "LinkedIn version of the same idea.",
-  "facebook_copy": "Facebook version of the same idea, conversational.",
-  "instagram_copy": "Instagram caption of the same idea, line breaks, 3-5 hashtags at end.",
-  "threads_copy": "Short take of the same idea under 400 chars.",
+  "copy": "Canonical LinkedIn body 120-220 words about the user's plan ({plan_hint}). Educational first. {company_name} once, naturally.",
+  "linkedin_copy": "Same LinkedIn post body without hashtags.",
+  "facebook_copy": "Facebook version, conversational.",
+  "instagram_copy": "Instagram caption, line breaks, hashtags at end.",
+  "threads_copy": "Short take under 400 chars.",
   "x_copy": "Tweet under 240 chars, same claim."'''
     else:
         copy_schema = f'''
-  "copy": "ONE post used on every selected channel (140-200 words). Must be clearly about: {clean_topic}. Do NOT swap in a different story. Do NOT repeat the topic title as line 1. Open with a scene or one number from this topic. Short paragraphs. NO numbered lists. One question at the end. Max 1 emoji. Mention {company_name} at most once."'''
+  "copy": "LinkedIn body 120-220 words about the user's plan ({plan_hint}). Short mobile paragraphs. No hashtags in this field. {company_name} once if it earns a sentence. No fake stats."'''
 
     # 1. Attempt LLM generation if credentials available
-    system_prompt = f"""You are a sharp B2B ghostwriter for {company_name} ({company_pitch}).
-Write like an ops director who has lived on a plant floor — not a marketing brochure.
+    system_prompt = f"""{li_rules}
 
-The user topic is the assignment. Every sentence must serve that topic. Do not write a generic Thursday-pack post unless the topic is about late reporting packs.
+You ghostwrite for this company using ONLY the profile facts. Sound like a practitioner a peer would stop scrolling to read.
 
-Company facts (use only these; do not invent metrics or customers):
-{kb_block or "No extra facts supplied — use plausible industry detail but no fake case studies or percentages."}
+USER POST PLAN (this is the thought to write — do not replace it with a stock angle):
+{clean_topic[:4000]}
+{draft_block}
+Company profile (use only these facts; do not invent metrics, customers, systems, URLs, or offerings):
+{kb_block or "No extra facts supplied."}
 
-Voice: {li_rules}
+If the plan is detailed, execute that plan. If the plan is a short thought, expand it using the profile. Never switch industry.
 
-Banned phrases: delve, game-changer, revolutionary, in today's fast-paced world, most leaders don't realize, three things we keep seeing, unlock, leverage synergy.
+Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today's fast-paced world, slogan closers, fake statistics.
 
-Return ONLY valid JSON with these keys:
+Return ONLY valid JSON:
 {{
-  "hook": "First visible line. Specific to the topic, slightly uncomfortable, no cliché.",
+  "postTitle": "Short internal title",
+  "hook": "1-2 line curiosity hook",
 {copy_schema}
-  "hashtags": ["#Tag1", "#Tag2"],
-  "cta": "A question a reader of THIS topic would actually answer.",
-  "first_comment": "Useful follow-up (not a sales pitch).",
-  "image_prompt": "Photoreal editorial photo that illustrates THIS topic ({clean_topic}). {scene_hint}",
-  "alt_text": "Plain-language image description matching the topic",
+  "hashtags": ["#Tag1", "#Tag2", "#Tag3"],
+  "cta": "The closing question already in the post",
+  "first_comment": "Useful follow-up, not a sales pitch",
+  "imageConcept": "One concise paragraph describing the visual",
+  "imageHeadline": "Max 8 words on the image",
+  "image_prompt": "Production-ready 4:5 LinkedIn prompt: composition, lighting, style, typography placement, {company_name} branding, 1080x1350. No fake UI.",
+  "alt_text": "Plain-language image description",
   "recommended_time": "Tue 09:30"
 }}"""
+    user_msg = (
+        "Write one complete LinkedIn post + matching image brief.\n"
+        "About the user's post plan. Grounded in the company profile. 120-220 words, 3-6 hashtags."
+        if not draft else
+        "Rewrite the draft. Keep names and numbers. Keep 120-220 words, 3-6 hashtags. Stay on the user's plan."
+    )
 
     llm_payload = None
     generation_source = "fallback"
     try:
         res = await call_open_chat_llm(
-            messages=[{"role": "user", "content": f"Topic (write ONLY about this): {clean_topic}\nAudience: operators and plant leaders."}],
+            messages=[{"role": "user", "content": user_msg}],
             system_prompt=system_prompt,
             api_key=api_key,
             provider=provider,
@@ -580,42 +844,38 @@ Return ONLY valid JSON with these keys:
     except Exception as e:
         logger.warning(f"LLM package generation fallback triggered: {e}")
 
-    # 2. Intelligent deterministic fallback if LLM is unavailable
+    # 2. Fallback: craft brief + company profile facts only.
     if not llm_payload:
-        clean_headline = clean_topic.replace("Why ", "").replace("How ", "").strip()
-        body = (
-            f"{clean_headline[0].upper() + clean_headline[1:] if clean_headline else clean_topic}.\n\n"
-            f"This is not a slogan. It is the work: {clean_headline}.\n\n"
-            f"If your team still treats this as a slide instead of a shift problem, the process is the product — and it is slow.\n\n"
-            f"What would you change first if this were true on your floor tomorrow?\n\n"
-            f"#Operations"
-        )
-        llm_payload = {
-            "hook": clean_headline[:120] or "The floor already moved. The pack did not.",
-            "copy": body,
-            "linkedin_copy": body,
-            "facebook_copy": body,
-            "instagram_copy": body,
-            "threads_copy": body[:400],
-            "x_copy": (clean_headline[:200] + " What would you change first?")[:240],
-            "hashtags": ["#Operations"],
-            "cta": "What would you change first if this were true on your floor tomorrow?",
-            "first_comment": "Curious how you close this today — pack, board, or walk-around?",
-            "alt_text": f"Editorial photo illustrating {clean_headline}.",
-            "recommended_time": "Tuesday 09:30 AM",
-            "image_prompt": f"Photoreal editorial photo that illustrates: {clean_topic}. {scene_hint}",
-        }
+        llm_payload = _fallback_linkedin_package(clean_topic, brand, company_pitch)
+        if draft and len(draft) >= 80:
+            llm_payload["copy"] = strip_ai_slop(draft)
+            llm_payload["hook"] = draft.split("\n")[0][:180]
 
-    canonical = (llm_payload.get("copy") or llm_payload.get("linkedin_copy") or "").strip()
-    if canonical and not adapt_per_channel:
-        llm_payload["copy"] = canonical
-        llm_payload["linkedin_copy"] = canonical
-        llm_payload["facebook_copy"] = canonical
-        llm_payload["instagram_copy"] = canonical
-        llm_payload["threads_copy"] = canonical[:400]
-        llm_payload["x_copy"] = (llm_payload.get("x_copy") or canonical)[:240]
-    elif canonical:
-        llm_payload["copy"] = canonical
+    for k in ("copy", "linkedin_copy", "facebook_copy", "instagram_copy", "threads_copy", "x_copy", "hook", "cta", "postTitle", "imageHeadline", "imageConcept"):
+        if llm_payload.get(k):
+            llm_payload[k] = strip_ai_slop(str(llm_payload.get(k)))
+
+    llm_payload["_company"] = brand
+    llm_payload["hashtags"] = normalize_hashtags(llm_payload.get("hashtags"), company=brand)
+    llm_payload["postTitle"] = (llm_payload.get("postTitle") or clean_topic)[:80]
+    llm_payload["imageHeadline"] = (llm_payload.get("imageHeadline") or llm_payload.get("image_headline") or "")[:80]
+    llm_payload["imageConcept"] = llm_payload.get("imageConcept") or llm_payload.get("image_concept") or clean_topic
+    llm_payload["image_concept"] = llm_payload["imageConcept"]
+    llm_payload["image_headline"] = llm_payload["imageHeadline"]
+
+    canonical_body = (llm_payload.get("copy") or llm_payload.get("linkedin_copy") or "").strip()
+    llm_payload["copy"] = canonical_body
+    assembled = assemble_linkedin_post(llm_payload)
+    if not adapt_per_channel:
+        llm_payload["linkedin_copy"] = assembled
+        llm_payload["facebook_copy"] = assembled
+        llm_payload["instagram_copy"] = assembled
+        llm_payload["threads_copy"] = assembled[:400]
+        llm_payload["x_copy"] = (llm_payload.get("x_copy") or llm_payload.get("hook") or assembled)[:240]
+        llm_payload["copy"] = assembled
+    else:
+        llm_payload["linkedin_copy"] = assemble_linkedin_post({**llm_payload, "copy": llm_payload.get("linkedin_copy") or canonical_body})
+        llm_payload["copy"] = assembled
     llm_payload["adaptPerChannel"] = bool(adapt_per_channel)
 
     # Generate Image with Provider & Key
@@ -626,10 +886,8 @@ Return ONLY valid JSON with these keys:
         model=image_model,
         base_url=image_base_url or base_url,
     )
-    img_prompt = llm_payload.get("image_prompt") or create_topic_image_prompt(clean_topic, style=style)
-    if clean_topic and clean_topic.lower()[:24] not in (img_prompt or "").lower():
-        img_prompt = f"{clean_topic}. {img_prompt}"
-    width, height = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
+    img_prompt = linkedin_image_prompt(llm_payload, clean_topic, brand)
+    width, height = ASPECT_RATIOS.get(aspect_ratio, (1080, 1350))
     img_res = await generate_image_with_provider(
         prompt=img_prompt,
         provider=img_creds.get("provider") or image_provider,
@@ -645,6 +903,7 @@ Return ONLY valid JSON with these keys:
 
     llm_payload["imageUrl"] = img_res.get("imageUrl")
     llm_payload["imagePrompt"] = img_prompt
+    llm_payload["image_prompt"] = img_prompt
     llm_payload["imageProvider"] = img_res.get("provider")
     llm_payload["imageModel"] = img_res.get("model")
     llm_payload["style"] = style

@@ -123,9 +123,6 @@ import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
 import { CalcomAdminModal } from "./admin/CalcomAdminModal";
 import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel } from "./tokens";
-import { SocialWorkspaceGate } from "./scheduler/SocialWorkspace";
-import { EDITION_EVENT, getSchedulerEdition, setSchedulerEdition } from "./scheduler/schedulerEdition";
-import { humanizeAiReply } from "./scheduler/chatClean";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -163,14 +160,12 @@ const LEADGEN_LAYERS = [
   { key: "intentScoring", label: "Autonomous ICP & Intent Fit Scorer", desc: "Calculates account priority and purchase readiness scores", paid: "DeepSeek-V3", oss: "Groq Llama 3.3 70B", options: ["DeepSeek-V3", "GPT-4o-mini", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet"] },
 ];
 
-const LOCAL_BGE_EMBEDDINGS = "BAAI/bge-small-en-v1.5 (local CPU)";
-
 const SCHEDULER_LAYERS = [
   { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "Claude 3.5 Sonnet", oss: "Ollama Llama 3.2 (Local)", options: ["Claude 3.5 Sonnet", "xAI Grok-2", "GPT-4o", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Llama 3.2 (Local)"] },
   { key: "topicResearch", label: "Topic Research & Trend Discovery", desc: "Monitors industry trends to formulate timely editorial hooks", paid: "xAI Grok-2", oss: "Gemini 2.0 Flash", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o", "Claude 3.5 Sonnet", "DeepSeek-V3"] },
   { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "Pollinations FLUX (Free)", oss: "Pollinations FLUX", options: ["Pollinations FLUX (Free)", "OpenAI DALL-E 3", "Stability SDXL", "Fal.ai FLUX.1 Pro", "Custom Image API"] },
   { key: "chatPlanner", label: "Plan Chat Editorial Assistant", desc: "Refines campaign concepts and schedules interactively", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
-  { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Crawl, voice RAG, and scheduler knowledge search all run this local FastEmbed model. No cloud embed API is called.", paid: LOCAL_BGE_EMBEDDINGS, oss: LOCAL_BGE_EMBEDDINGS, options: [LOCAL_BGE_EMBEDDINGS], runtimeLocked: true },
+  { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Indexes brand voice guidelines, product guides, and playbooks", paid: "OpenAI text-embedding-3", oss: "Ollama nomic-embed (Local)", options: ["OpenAI text-embedding-3", "Gemini Embedding", "Ollama nomic-embed (Local)"] },
 ];
 
 const EMAIL_LAYERS = [
@@ -203,12 +198,12 @@ const INITIAL_COMMON_AI_CONFIG = {
   schedulerMode: "custom",
   temperature: 0.8,
   personaPrompt: "Write authoritative, crisp B2B content that teaches actionable lessons without fluff or corporate buzzwords. Speak directly to C-suite and operations leaders.",
-  prohibitedWords: "delve, in today's fast-paced world, game-changer, revolutionary, synergy, leverage, unlock, not because, the fix isn't, most teams still, scattered data in",
+  prohibitedWords: "delve, in today's fast-paced world, game-changer, revolutionary, synergy, leverage",
 
   // Per-channel tone directives for Post Scheduler
   customConnections: [],
   channelDirectives: {
-    linkedin: "LinkedIn craft: 120-220 words, 70% educational / 20% thought leadership / 10% product. Hook, real data problem, modern analytics, mention the company once from profile facts only, one takeaway, comment question, 3-6 hashtags. Rotate angles. No fake stats, no ad voice. Matching 4:5 premium visual, one idea, minimal text.",
+    linkedin: "Ops-leader voice. One scene or number in line 1. Short paragraphs. No numbered lists. Max 1 hashtag. One honest question at end. No brochure tone.",
     x: "Punchy, bold hook. Short sentences, high-contrast perspective, strong CTA, zero filler hashtags.",
     facebook: "Community-driven, engaging story angle, conversational tone, open-ended question at the end.",
     instagram: "Visual storytelling caption, aesthetic bullet points, conversational tone, 5-8 niche hashtags.",
@@ -218,7 +213,7 @@ const INITIAL_COMMON_AI_CONFIG = {
   futurePlugins: [
     { id: "leadHunter", name: "CRM Lead Hunter", icon: Search, reqs: "1 Research LLM + 1 Web Data Extractor", assigned: { researchLlm: "Gemini 2.0 Flash", extractor: "Groq Llama 3.3 70B" }, status: "ready" },
     { id: "emailOutreach", name: "Cold Email Sequencer", icon: Mail, reqs: "1 Copywriter LLM + 1 Spam Classifier", assigned: { writerLlm: "Claude 3.5 Sonnet", classifier: "GPT-4o-mini" }, status: "ready" },
-    { id: "supportBot", name: "24/7 Tier-1 Helpdesk Bot", icon: Bot, reqs: "1 Fast Low-Latency LLM + Knowledge RAG", assigned: { botLlm: "Groq Llama 3.3 70B", rag: LOCAL_BGE_EMBEDDINGS }, status: "ready" },
+    { id: "supportBot", name: "24/7 Tier-1 Helpdesk Bot", icon: Bot, reqs: "1 Fast Low-Latency LLM + Knowledge RAG", assigned: { botLlm: "Groq Llama 3.3 70B", rag: "OpenAI text-embedding-3" }, status: "ready" },
   ],
 
   // Master Subscription & Token Quota
@@ -11072,7 +11067,7 @@ function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick }) {
 
 /* ---------------------------------- Common AI Configuration Modal & Views ---------------------------------- */
 
-function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin, operator, onOpenCalcomAdmin, scopePlugin = null }) {
+function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin, operator, onOpenCalcomAdmin }) {
   const [tab, setTab] = useState(initialTab || "leadgen");
   const [dirty, setDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -11193,10 +11188,10 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   }, [isDragging]);
 
   useEffect(() => {
-    if (!isOpen) return;
-    if (scopePlugin) setTab(scopePlugin);
-    else if (initialTab) setTab(initialTab);
-  }, [isOpen, initialTab, scopePlugin]);
+    if (isOpen && initialTab) {
+      setTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -11207,11 +11202,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
       ? commonAi.providers
       : INITIAL_COMMON_AI_CONFIG.providers,
     leadgenLayers: { ...INITIAL_COMMON_AI_CONFIG.leadgenLayers, ...(commonAi?.leadgenLayers || {}) },
-    schedulerLayers: {
-      ...INITIAL_COMMON_AI_CONFIG.schedulerLayers,
-      ...(commonAi?.schedulerLayers || {}),
-      embeddings: LOCAL_BGE_EMBEDDINGS,
-    },
+    schedulerLayers: { ...INITIAL_COMMON_AI_CONFIG.schedulerLayers, ...(commonAi?.schedulerLayers || {}) },
     emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(commonAi?.emailLayers || {}) },
     voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(commonAi?.voiceLayers || {}) },
     customConnections: Array.isArray(commonAi?.customConnections) ? commonAi.customConnections : [],
@@ -11306,7 +11297,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   };
 
   const updateSchedulerLayer = (key, val) => {
-    if (key === "embeddings") return;
     setCommonAi((prev) => {
       const nextSchedLayers = { ...((prev && prev.schedulerLayers) || {}), [key]: val };
       const nextSchedAi = {
@@ -11855,65 +11845,9 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {layers.map((layer) => {
-          const currentModel = layer.runtimeLocked ? (layer.paid || currentValues[layer.key]) : (currentValues[layer.key] || layer.paid);
+          const currentModel = currentValues[layer.key] || layer.paid;
           const currentDisplayName = visibleNames[layer.key] || layer.label;
-          const isCustomModel = !layer.runtimeLocked && !layer.options.includes(currentModel);
-
-          if (layer.runtimeLocked) {
-            return (
-              <div
-                key={layer.key}
-                style={{
-                  background: HUB_PAPER,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 10,
-                  padding: "12px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 16,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 200 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.ink }}>
-                      {layer.label}
-                    </span>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: C.tealSoft, color: C.teal }}>
-                      Runtime
-                    </span>
-                    <Lock size={12} color={C.slate} />
-                  </div>
-                  <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>
-                    {layer.desc}
-                  </div>
-                </div>
-                <div style={{ width: 280, flexShrink: 0 }}>
-                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: C.slate, marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                    In use
-                  </label>
-                  <div
-                    style={{
-                      height: 36,
-                      padding: "0 10px",
-                      borderRadius: 7,
-                      border: `1px solid ${C.border}`,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      fontFamily: FONT_MONO,
-                      background: "#F4F5F7",
-                      color: C.ink,
-                      display: "flex",
-                      alignItems: "center",
-                    }}
-                    title="This is the model the backend actually loads. It is not selectable."
-                  >
-                    {currentModel}
-                  </div>
-                </div>
-              </div>
-            );
-          }
+          const isCustomModel = !layer.options.includes(currentModel);
 
           return (
             <div
@@ -12072,17 +12006,10 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             </div>
             <div>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: "-0.01em" }}>
-                {scopePlugin === "scheduler" ? "Post Scheduler AI keys"
-                  : scopePlugin === "voice" ? "Voice AI keys"
-                  : scopePlugin === "email" ? "Email Outreach AI keys"
-                  : scopePlugin === "leadgen" ? "Lead Generation AI keys"
-                  : scopePlugin === "calcom" ? "Calendar AI keys"
-                  : "AI Plugin Configuration"}
+                AI Plugin Configuration
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                {scopePlugin
-                  ? "Models and keys for this plugin only. Hub AI Configuration still has every plugin."
-                  : "Configure models, connect custom API keys, and manage capabilities for each workspace plugin"}
+                Configure models, connect custom API keys, and manage capabilities for each workspace plugin
               </div>
             </div>
           </div>
@@ -12091,7 +12018,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           </button>
         </div>
 
-        {/* Plugin Tabs: from a plugin, only that plugin. Hub shows all. */}
+        {/* Plugin Tabs: Clean, spaced, no numbers */}
         <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
           {[
             { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
@@ -12100,7 +12027,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
             { id: "calcom", label: "Calendar & Cal.com", icon: CalendarCheck, color: "#10B981" },
             { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
-          ].filter((t) => !scopePlugin || t.id === scopePlugin).map((t) => {
+          ].map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
             return (
@@ -13634,22 +13561,6 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-
-          <div style={{ background: "#F4F5F7", border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Lock size={14} color={C.teal} />
-                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>Knowledge Base Embeddings (RAG)</span>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: C.tealSoft, color: C.teal }}>Runtime</span>
-              </div>
-              <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>
-                Crawl, voice RAG, and scheduler search_knowledge all load this local FastEmbed model. The old OpenAI / Gemini dropdown never reached the backend.
-              </div>
-            </div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700, color: C.ink, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", whiteSpace: "nowrap" }}>
-              {LOCAL_BGE_EMBEDDINGS}
-            </div>
-          </div>
 
           {/* CARD 1: AI Chat, Planning & Copywriting Key */}
           <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, boxShadow: C.shadowCard }}>
@@ -16458,7 +16369,7 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
           <PluginCard
             icon={CalendarDays}
             title="Post Scheduler"
-            blurb="Chat a plan. See it on the calendar. Approve, then post."
+            blurb="Plan, write, and publish to LinkedIn, X, Facebook, Instagram, and Threads. Canvas + Visual Director chat. Real account tokens."
             accent={C.teal}
             ready={true}
             onClick={() => onPick("scheduler")}
@@ -18451,7 +18362,7 @@ function schedulerViewFromHash() {
   }
 }
 
-function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, commonAi, setCommonAi, onOpenCommonAi, onUseSimple }) {
+function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, commonAi, setCommonAi, onOpenCommonAi }) {
   const company = companyFromProfile(profile, knowledgeSources);
   const [view, setView] = useState(() => {
     try {
@@ -18513,9 +18424,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
   };
 
   const navigateSch = (nextView) => {
-    const mapped = (nextView === "approval" || nextView === "inbox") ? "month" : nextView;
     setSchHistory((prev) => [...prev, view]);
-    setView(mapped);
+    setView(nextView);
   };
 
   const openImageStudioForPost = (postId) => {
@@ -18968,7 +18878,6 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       const adapt = !!basePost.adaptPerChannel;
       const res = await api.generateSocialPackage({
         topic: topicText || basePost.topicHeadline || basePost.theme,
-        existingCopy: basePost.copy || basePost.caption || "",
         style: imgConf.imageStyle || "modern_saas",
         aspect_ratio: imgConf.imageAspectRatio || "16:9",
         apiKey: creds.apiKey,
@@ -19165,7 +19074,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     for (const np of enriched) persistPost(np);
     if (enriched.length) setPosts((ps) => [...enriched, ...ps]);
     const mailed = mailDuePosts(enriched);
-    setView("month");
+    setView("approval");
     return { n: enriched.length, mailed, posted: 0 };
   };
 
@@ -19174,12 +19083,12 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     const dueIds = new Set(dueSlots.map((s) => s.postId));
     const moving = posts.filter((p) => p.status === "scheduled" && (dueIds.has(p.id) || isSlotDue({ dateMs: p.dateMs, time: p.time })));
     if (!moving.length) {
-      setView("month");
+      setView("approval");
       return 0;
     }
     setPosts((ps) => ps.map((p) => (moving.some((m) => m.id === p.id) ? { ...p, status: "awaiting_approval", emailSent: true, approvalVia: ["app", "email"] } : p)));
     setEmails((es) => [...moving.map((p) => makeApprovalEmail({ ...p, status: "awaiting_approval" }, operator)), ...es]);
-    setView("month");
+    setView("approval");
     return moving.length;
   };
 
@@ -19291,12 +19200,12 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       const ids = posts.filter((p) => p.status === "awaiting_approval").map((p) => p.id);
       if (!ids.length) {
         pushAi("Nothing waiting. Due posts show up here and in email when their time comes.");
-        setView("month");
+        setView("approval");
         return;
       }
       setPosts((ps) => ps.map((p) => (ids.includes(p.id) ? { ...p, status: "approved" } : p)));
       setEmails((es) => es.map((e) => (ids.includes(e.postId) ? { ...e, status: "approved" } : e)));
-      setView("month");
+      setView("approval");
       pushAi("Approved " + ids.length + " from this app. Say “publish” to go live.");
       return;
     }
@@ -19305,12 +19214,12 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       const first = posts.find((p) => p.status === "awaiting_approval");
       if (!first) {
         pushAi("Nothing waiting on approval.");
-        setView("month");
+        setView("approval");
         return;
       }
       setPosts((ps) => ps.map((p) => (p.id === first.id ? { ...p, status: "approved" } : p)));
       setEmails((es) => es.map((e) => (e.postId === first.id ? { ...e, status: "approved" } : e)));
-      setView("month");
+      setView("approval");
       pushAi("Approved in this app — " + (first.topicHeadline || first.theme) + ". Same result as approving from email. Say “publish” when you want it live.");
       return;
     }
@@ -19319,7 +19228,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       const ready = posts.filter((p) => p.status === "approved");
       if (!ready.length) {
         pushAi("Approve in Approvals first, then say publish — nothing posts from chat until it is approved.");
-        setView("month");
+        setView("approval");
         return;
       }
       pushAi("Publishing " + ready.length + " approved post" + (ready.length === 1 ? "" : "s") + " to every selected connected channel…");
@@ -19336,7 +19245,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
       setPosts((ps) => ps.map((p) => (p.id === first.id ? { ...p, status: "rejected" } : p)));
       setEmails((es) => es.map((e) => (e.postId === first.id ? { ...e, status: "rejected" } : e)));
       setSlots((ss) => ss.map((s) => (s.postId === first.id ? { ...s, postId: null } : s)));
-      setView("month");
+      setView("approval");
       pushAi("Rejected. Slot is free to write again in this software.");
       return;
     }
@@ -19348,7 +19257,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         return;
       }
       regenerate(first);
-      setView("month");
+      setView("approval");
       pushAi("Regenerated in this software from the next topic + company knowledge.");
       return;
     }
@@ -19432,7 +19341,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
           }
         }
         if (res && res.reply) {
-          pushAi(humanizeAiReply(res.reply, !!(res.topics && res.topics.length)));
+          pushAi(res.reply);
         } else if (res && res.error) {
           pushAi("⚠️ " + res.error);
         } else {
@@ -19818,7 +19727,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     setPosts((ps) => [post, ...ps.filter((p) => p.slotId !== slot.id)]);
     mailDuePosts([post]);
     closePanel();
-    setView("month");
+    setView(post.status === "awaiting_approval" ? "approval" : "month");
   };
 
   const approveFromEmail = (email) => {
@@ -19836,6 +19745,8 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
     { id: "topics", label: "Topic library", icon: Search, count: topics.length },
     { id: "images", label: "AI Image Studio", icon: ImageIcon },
     { id: "month", label: "Calendar", icon: CalendarDays },
+    { id: "approval", label: "Approvals", icon: CheckCircle2, count: awaiting.length + approved.length },
+    { id: "inbox", label: "Email inbox", icon: Mail, count: unreadMail },
     { id: "published", label: "Published", icon: ArrowUpRight },
     { id: "company", label: "Company knowledge", icon: BookOpen },
     { id: "channels", label: "Accounts", icon: Plug, count: (socialAccounts || []).filter((a) => a.status === "connected").length },
@@ -20080,31 +19991,6 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
           );
         })}
         <div style={{ marginTop: "auto", padding: "12px 10px", borderTop: `1px solid ${C.inkLine}` }}>
-          {onUseSimple && (
-            <button
-              type="button"
-              onClick={onUseSimple}
-              style={{
-                marginBottom: 12,
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                padding: "8px",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.16)",
-                background: "rgba(12,140,125,0.18)",
-                color: "#D7F3EE",
-                fontFamily: FONT_BODY,
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              Use new scheduler
-            </button>
-          )}
           <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#5B6070", marginBottom: 8 }}>Logged in as</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ width: 26, height: 26, borderRadius: 999, background: C.teal, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700 }}>{initialsFromName(operator.name)}</div>
@@ -21681,7 +21567,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
                     const slot = slots.find((s) => s.id === panel.id);
                     if (!slot) return;
                     const post = posts.find((p) => p.slotId === slot.id || p.id === slot.postId);
-                    if (post) { closePanel(); setView("month"); }
+                    if (post) { closePanel(); setView("approval"); }
                     else writeOneSlot(slot);
                   }}
                   style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
@@ -23078,63 +22964,6 @@ function UniversalCallNotificationBanner({ activeCalls, currentPlugin, onJumpToV
   );
 }
 
-function SchedulerEditionRoot(props) {
-  const [edition, setEdition] = useState(() => getSchedulerEdition());
-  useEffect(() => {
-    const sync = () => setEdition(getSchedulerEdition());
-    window.addEventListener("hashchange", sync);
-    window.addEventListener(EDITION_EVENT, sync);
-    return () => {
-      window.removeEventListener("hashchange", sync);
-      window.removeEventListener(EDITION_EVENT, sync);
-    };
-  }, []);
-  if (edition === "classic") {
-    const goSimple = () => {
-      setSchedulerEdition("simple");
-      setEdition("simple");
-    };
-    return (
-      <div style={{ height: "100%", position: "relative" }}>
-        <PostSchedulerPlugin {...props} onUseSimple={goSimple} />
-        <button
-          type="button"
-          onClick={goSimple}
-          title="Back to simple workspace"
-          style={{
-            position: "fixed",
-            right: 18,
-            bottom: 18,
-            zIndex: 4000,
-            height: 36,
-            padding: "0 12px",
-            borderRadius: 9,
-            border: "1px solid #E4E1D9",
-            background: "#fff",
-            color: "#12141C",
-            fontSize: 12,
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: "Inter, sans-serif",
-            boxShadow: "0 8px 24px rgba(18,20,28,0.16)",
-          }}
-        >
-          Use new scheduler
-        </button>
-      </div>
-    );
-  }
-  return (
-    <SocialWorkspaceGate
-      {...props}
-      onUseClassic={() => {
-        setSchedulerEdition("classic");
-        setEdition("classic");
-      }}
-    />
-  );
-}
-
 export default function App() {
   const [operator, setOperator] = useState(() => {
     try {
@@ -23428,11 +23257,7 @@ export default function App() {
           ? parsed.providers
           : INITIAL_COMMON_AI_CONFIG.providers,
         leadgenLayers: { ...INITIAL_COMMON_AI_CONFIG.leadgenLayers, ...(parsed.leadgenLayers || {}) },
-        schedulerLayers: {
-          ...INITIAL_COMMON_AI_CONFIG.schedulerLayers,
-          ...(parsed.schedulerLayers || {}),
-          embeddings: LOCAL_BGE_EMBEDDINGS,
-        },
+        schedulerLayers: { ...INITIAL_COMMON_AI_CONFIG.schedulerLayers, ...(parsed.schedulerLayers || {}) },
         emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(parsed.emailLayers || {}) },
         voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(parsed.voiceLayers || {}) },
         customConnections: Array.isArray(parsed.customConnections) ? parsed.customConnections : [],
@@ -23450,7 +23275,6 @@ export default function App() {
   const [calcomInitialTab, setCalcomInitialTab] = useState("overview");
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [commonAiTab, setCommonAiTab] = useState("leadgen");
-  const [commonAiScope, setCommonAiScope] = useState(null);
 
   // Sync commonAi changes to localStorage
   useEffect(() => {
@@ -23542,7 +23366,7 @@ export default function App() {
           onPick={setPlugin}
           onLogout={handleLogout}
           commonAi={commonAi}
-          onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); }}
+          onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setShowCommonAiModal(true); }}
           onOpenTeamUsers={() => setShowTeamModal(true)}
           onOpenProfileSettings={() => setShowProfileModal(true)}
           onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "overview"); setShowCalcomAdminModal(true); }}
@@ -23570,7 +23394,7 @@ export default function App() {
           )}
 
           {p === "scheduler" && (
-            <SchedulerEditionRoot
+            <PostSchedulerPlugin
               operator={operator}
               onBackToHub={handleBackToHub}
               onLogout={handleLogout}
@@ -23582,7 +23406,7 @@ export default function App() {
               setServices={setServices}
               commonAi={commonAi}
               setCommonAi={setCommonAi}
-              onOpenCommonAi={() => { setCommonAiTab("scheduler"); setCommonAiScope("scheduler"); setShowCommonAiModal(true); }}
+              onOpenCommonAi={() => { setCommonAiTab("scheduler"); setShowCommonAiModal(true); }}
             />
           )}
 
@@ -23611,7 +23435,7 @@ export default function App() {
               setFaq={setFaq}
               commonAi={commonAi}
               setCommonAi={setCommonAi}
-              onOpenCommonAi={() => { setCommonAiTab("voice"); setCommonAiScope("voice"); setShowCommonAiModal(true); }}
+              onOpenCommonAi={() => { setCommonAiTab("voice"); setShowCommonAiModal(true); }}
               returnPlugin={returnPlugin}
               onReturnToPlugin={handleReturnToPlugin}
             />
@@ -23624,7 +23448,7 @@ export default function App() {
               onLogout={handleLogout}
               profile={profile}
               commonAi={commonAi}
-              onOpenCommonAi={() => { setCommonAiTab("calcom"); setCommonAiScope("calcom"); setShowCommonAiModal(true); }}
+              onOpenCommonAi={() => { setCommonAiTab("calcom"); setShowCommonAiModal(true); }}
             />
           )}
         </div>
@@ -23643,16 +23467,14 @@ export default function App() {
 
       <CommonAiConfigModal
         isOpen={showCommonAiModal}
-        onClose={() => { setShowCommonAiModal(false); setCommonAiScope(null); }}
+        onClose={() => setShowCommonAiModal(false)}
         commonAi={commonAi}
         setCommonAi={setCommonAi}
         initialTab={commonAiTab}
-        scopePlugin={commonAiScope}
         operator={operator}
         onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "overview"); setShowCalcomAdminModal(true); }}
         onNavigateToPlugin={(pId) => {
           setShowCommonAiModal(false);
-          setCommonAiScope(null);
           setPlugin(pId);
         }}
       />

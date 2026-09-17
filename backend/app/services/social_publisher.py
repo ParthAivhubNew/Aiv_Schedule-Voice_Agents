@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 import urllib.parse
 import uuid
@@ -82,6 +83,7 @@ def copy_for_platform(post, platform: str) -> str:
             "threads": getattr(post, "threads_copy", None),
         }.get(p)
     body = (channel_copy or getattr(post, "copy", None) or getattr(post, "linkedin_copy", None) or "").strip()
+    body = scrub_image_urls_from_text(body)
 
     if p == "x":
         return (body or hook)[:280]
@@ -107,24 +109,68 @@ def copy_for_platform(post, platform: str) -> str:
     return "\n\n".join(parts).strip()
 
 
+_IMG_URL_IN_TEXT = re.compile(
+    r"https?://\S*(?:pollinations\.ai|licdn\.com|/api/scheduler/media/|oaidalleapiprodscus)\S*",
+    re.I,
+)
+
+
+def scrub_image_urls_from_text(text: str) -> str:
+    cleaned = _IMG_URL_IN_TEXT.sub("", text or "")
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _mime_from_bytes(raw: bytes, hinted: str = "") -> str:
+    if raw.startswith(b"\x89PNG"):
+        return "image/png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    hint = (hinted or "").split(";")[0].strip().lower()
+    if hint.startswith("image/") and "html" not in hint:
+        return hint
+    return ""
+
+
 async def fetch_image_bytes(url: Optional[str]) -> Tuple[Optional[bytes], str]:
-    if not url or url.startswith("data:"):
-        if url and url.startswith("data:"):
-            try:
-                header, b64 = url.split(",", 1)
-                mime = "image/png"
-                if "image/jpeg" in header:
-                    mime = "image/jpeg"
-                return base64.b64decode(b64), mime
-            except Exception:
-                return None, "image/png"
+    if not url:
         return None, "image/png"
+    if url.startswith("data:"):
+        try:
+            header, b64 = url.split(",", 1)
+            raw = base64.b64decode(b64)
+            mime = _mime_from_bytes(raw, header)
+            return (raw, mime or "image/png") if raw and len(raw) > 200 else (None, "image/png")
+        except Exception:
+            return None, "image/png"
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        from app.services.media_store import local_media_bytes, store_image_bytes
+        local, local_mime = local_media_bytes(url)
+        if local and len(local) > 200:
+            return local, _mime_from_bytes(local, local_mime) or local_mime
+    except Exception:
+        pass
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        }
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=True, headers=headers) as client:
             res = await client.get(url)
-            if res.status_code == 200 and res.content:
-                mime = res.headers.get("content-type", "image/png").split(";")[0]
-                return res.content, mime or "image/png"
+            if res.status_code == 200 and res.content and len(res.content) > 200:
+                mime = _mime_from_bytes(res.content, res.headers.get("content-type", ""))
+                if not mime:
+                    logger.warning("Fetched URL was not an image")
+                    return None, "image/png"
+                try:
+                    from app.services.media_store import store_image_bytes
+                    store_image_bytes(res.content, mime)
+                except Exception:
+                    pass
+                return res.content, mime
     except Exception as e:
         logger.warning(f"Could not fetch image bytes: {e}")
     return None, "image/png"
@@ -341,7 +387,7 @@ async def _publish_linkedin(account, token: str, text: str, image_url: Optional[
         "X-Restli-Protocol-Version": "2.0.0",
     }
     share: Dict[str, Any] = {
-        "shareCommentary": {"text": text[:3000]},
+        "shareCommentary": {"text": scrub_image_urls_from_text(text)[:3000]},
         "shareMediaCategory": "NONE",
     }
     media_urn = None
@@ -351,13 +397,12 @@ async def _publish_linkedin(account, token: str, text: str, image_url: Optional[
             share["shareMediaCategory"] = "IMAGE"
             share["media"] = [{
                 "status": "READY",
-                "description": {"text": text[:200]},
+                "description": {"text": (share["shareCommentary"]["text"] or "")[:200]},
                 "media": media_urn,
                 "title": {"text": "Post image"},
             }]
         else:
-            # Keep the public image URL in the post if binary upload fails
-            share["shareCommentary"]["text"] = (text + f"\n\n{image_url}")[:3000]
+            logger.warning("LinkedIn image upload failed — posting text only, no image URL in caption.")
 
     body = {
         "author": author,
@@ -414,7 +459,10 @@ async def _linkedin_upload_image(token: str, author: str, image_url: str) -> Opt
             put = await client.put(
                 upload_url,
                 content=raw,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": mime or "image/png"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/octet-stream",
+                },
             )
             if put.status_code in (200, 201, 204):
                 return asset

@@ -10,8 +10,8 @@ from app.services.post_writer import (
     create_topic_image_prompt,
     generate_image_with_provider,
     generate_complete_social_package,
+    strip_ai_slop,
     ASPECT_RATIOS,
-    TOPIC_BANK,
 )
 from app.services.social_publisher import (
     account_public_dict,
@@ -28,12 +28,14 @@ from app.services.social_oauth import (
     finish_oauth,
     callback_html,
 )
-from typing import Dict, Any, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
 import uuid
 import logging
 import time
 import random
+import re
+import json
 
 logger = logging.getLogger("scheduler_api")
 
@@ -245,7 +247,7 @@ async def generate_package_endpoint(payload: Dict[str, Any], request: Request, d
         or ""
     )
     style = payload.get("style") or payload.get("imageStyle") or "modern_saas"
-    aspect_ratio = payload.get("aspect_ratio") or payload.get("aspectRatio") or "16:9"
+    aspect_ratio = payload.get("aspect_ratio") or payload.get("aspectRatio") or "4:5"
 
     api_key = payload.get("apiKey") or payload.get("api_key")
     provider = payload.get("provider")
@@ -256,10 +258,11 @@ async def generate_package_endpoint(payload: Dict[str, Any], request: Request, d
     image_model = payload.get("image_model") or payload.get("imageModel")
     image_base_url = payload.get("image_base_url") or payload.get("imageBaseUrl")
 
-    company_name = "AIVHub"
-    company_pitch = "AI-powered business intelligence dashboards"
-    company_context = ""
+    company_name = (payload.get("companyName") or payload.get("company_name") or "").strip()
+    company_pitch = (payload.get("companyPitch") or payload.get("company_pitch") or "").strip()
+    company_context = (payload.get("companyContext") or payload.get("company_context") or "").strip()
     linkedin_directive = (payload.get("linkedinDirective") or payload.get("linkedin_directive") or "").strip()
+    existing_copy = (payload.get("existingCopy") or payload.get("existing_copy") or payload.get("caption") or "").strip()
     try:
         prof_res = await db.execute(select(CompanyProfile).limit(1))
         profile = prof_res.scalars().first()
@@ -279,7 +282,7 @@ async def generate_package_endpoint(payload: Dict[str, Any], request: Request, d
             for h in hits:
                 title = (h.get("title") or "Note").strip()
                 content = (h.get("content") or "").strip().replace("\n", " ")[:420]
-                if content:
+                if _usable_kb_text(content):
                     kb_lines.append(f"- {title}: {content}")
             if kb_lines:
                 company_context = (company_context + "\n\nKnowledge base:\n" + "\n".join(kb_lines)).strip()
@@ -292,6 +295,7 @@ async def generate_package_endpoint(payload: Dict[str, Any], request: Request, d
         company_pitch=company_pitch,
         company_context=company_context,
         linkedin_directive=linkedin_directive,
+        existing_copy=existing_copy,
         api_key=api_key,
         provider=provider,
         model=model,
@@ -712,18 +716,13 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         post.image_url = image_url
         await db.commit()
         await db.refresh(post)
-    hosted_ok = bool(
-        image_url
-        and not str(image_url).startswith("data:")
-        and "pollinations.ai" not in str(image_url).lower()
-    )
-    if not hosted_ok:
+    if not (post.image_url or "").strip():
         from app.services.post_writer import create_topic_image_prompt
         prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
         img = await generate_image_with_provider(
             prompt=prompt,
             style="modern_saas",
-            aspect_ratio="16:9",
+            aspect_ratio="4:5",
             model=payload.get("model") or payload.get("image_model") or payload.get("imageModel"),
             provider=payload.get("image_provider") or payload.get("imageProvider") or payload.get("provider"),
             db=db,
@@ -790,6 +789,97 @@ async def publish_due_endpoint(request: Request, db: AsyncSession = Depends(get_
     return {"status": "ok", "published": published, "skipped": skipped}
 
 
+_PLAN_FENCE_RE = re.compile(r"```(?:plan|json)\s*([\s\S]*?)```", re.I)
+_JUNK_KB_RE = re.compile(
+    r"SQL_ERROR|fillBuffer|errorType|\"format\"\s*:\s*\"sjson\"|hierarchies|traceid",
+    re.I,
+)
+
+
+def _usable_kb_text(text: str) -> bool:
+    t = (text or "").strip()
+    if len(t) < 24:
+        return False
+    if _JUNK_KB_RE.search(t):
+        return False
+    if t.startswith("{") and ("error" in t.lower() or "traceid" in t.lower()):
+        return False
+    return True
+
+
+def _spoken_reply(text: str, had_plan: bool) -> str:
+    raw = str(text or "")
+    spoken = _PLAN_FENCE_RE.sub("", raw).strip()
+    spoken = re.sub(r"```[\s\S]*?```", "", spoken).strip()
+    if not _usable_kb_text(spoken) or _JUNK_KB_RE.search(spoken):
+        if had_plan:
+            return "Draft is on the calendar. Change the image or caption, then approve to post."
+        return "Give me the business topic and the date to publish. I will draft caption and image for you to edit."
+    if re.search(r"real scene for this day|draft onto this date|file, meeting, or system", spoken, re.I):
+        if had_plan:
+            return "Pinned. Write the post plan, then generate. I will use the company profile."
+        return "Pinned. Write what the post should be about, then Generate draft."
+    if len(spoken) > 900:
+        spoken = spoken[:880].rstrip() + "…"
+    return spoken or (
+        "Draft is on the calendar. Change the image or caption, then approve to post."
+        if had_plan
+        else "Tell me the topic and when it should go out."
+    )
+
+
+def _extract_plan_from_text(text: str) -> Optional[Dict[str, Any]]:
+    raw = str(text or "")
+    blob = None
+    m = _PLAN_FENCE_RE.search(raw)
+    if m:
+        blob = m.group(1).strip()
+    else:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start and '"posts"' in raw[start:end + 1]:
+            blob = raw[start:end + 1]
+    if not blob:
+        return None
+    try:
+        data = json.loads(blob)
+    except Exception:
+        return None
+    posts = data.get("posts") if isinstance(data, dict) else None
+    if not isinstance(posts, list) or not posts:
+        return None
+    cleaned: List[Dict[str, Any]] = []
+    for i, p in enumerate(posts):
+        if not isinstance(p, dict):
+            continue
+        date = str(p.get("date") or "").strip()
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+            date = (datetime.utcnow() + timedelta(days=i)).strftime("%Y-%m-%d")
+        channel = str(p.get("channel") or "linkedin").strip().lower()
+        if channel in ("twitter", "tweet"):
+            channel = "x"
+        cleaned.append({
+            "id": p.get("id") or f"v2_{uuid.uuid4().hex[:10]}",
+            "date": date,
+            "time": str(p.get("time") or "09:00")[:5],
+            "channel": channel,
+            "channels": p.get("channels") or [channel],
+            "headline": str(p.get("headline") or p.get("title") or "Draft post")[:180],
+            "caption": strip_ai_slop(str(p.get("caption") or p.get("captionDraft") or p.get("copy") or "")),
+            "imagePrompt": str(p.get("imagePrompt") or p.get("image_prompt") or p.get("headline") or ""),
+        })
+    if not cleaned:
+        return None
+    channels = data.get("channels") if isinstance(data.get("channels"), list) else []
+    if not channels:
+        channels = list({x["channel"] for x in cleaned})
+    return {
+        "rangeLabel": str(data.get("rangeLabel") or data.get("label") or ""),
+        "channels": channels,
+        "posts": cleaned,
+    }
+
+
 @router.post("/chat-plan")
 async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
     prompt = payload.get("text") or payload.get("message") or ""
@@ -813,8 +903,14 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
         logger.warning(f"Could not load company profile: {prof_err}")
         profile = None
 
-    company_name = profile.name if profile else "AIVHub"
-    company_pitch = profile.pitch if profile else "AI-powered business intelligence dashboards"
+    company_name = (profile.name if profile and profile.name else "") or (payload.get("companyName") or payload.get("company_name") or "").strip()
+    company_pitch = (profile.pitch if profile and profile.pitch else "") or (payload.get("companyPitch") or payload.get("company_pitch") or "").strip()
+    company_context = (payload.get("companyContext") or payload.get("company_context") or "").strip()
+    if profile:
+        bits = [profile.pitch or "", getattr(profile, "industry", None) or "", getattr(profile, "website", None) or ""]
+        extra = "\n".join(x for x in bits if x).strip()
+        if extra:
+            company_context = (extra + ("\n" + company_context if company_context else "")).strip()
 
     chat_msgs = []
     if messages:
@@ -824,12 +920,78 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
 
     from app.services.llm_gateway import call_open_chat_llm
 
-    system_prompt = f"""You are an elite Social Media Content Strategist, Copywriter, Visual Director, and Open AI Assistant for {company_name}.
-Value Proposition: {company_pitch}.
-You help craft compelling social copy, refine hooks, ideate campaigns, describe image prompts, and answer ANY general or strategic questions.
-If the user asks to generate or change a visual, describe a concrete image prompt they can render, including style, lighting, and composition.
-If the user asks to schedule posts or plan topics, provide engaging post ideas with hooks and hashtags.
-If the user asks general questions or discusses strategy, respond conversationally with high intelligence and clarity."""
+    return_plan = bool(payload.get("returnPlan") or payload.get("return_plan"))
+    current_plan = payload.get("currentPlan") or payload.get("current_plan") or {}
+    chat_only = bool(payload.get("chatOnly", False))
+    target_date = str(payload.get("targetDate") or payload.get("target_date") or "").strip()
+    focus_post_id = str(payload.get("focusPostId") or payload.get("focus_post_id") or "").strip()
+    selected_channels = payload.get("selectedChannels") or payload.get("selected_channels") or []
+    if not isinstance(selected_channels, list):
+        selected_channels = [selected_channels] if selected_channels else []
+    selected_channels = [str(c).strip().lower() for c in selected_channels if str(c).strip()]
+    pinned_dates = payload.get("pinnedDates") or payload.get("pinned_dates") or []
+    if not isinstance(pinned_dates, list):
+        pinned_dates = [pinned_dates] if pinned_dates else []
+    pinned_dates = [str(d).strip() for d in pinned_dates if str(d).strip()]
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+
+    facts = "\n".join(x for x in (
+        ("Company: " + company_name) if company_name else "",
+        ("Value: " + company_pitch) if company_pitch else "",
+        company_context,
+    ) if x)
+
+    system_prompt = f"""You are Plan AI, the editorial partner{" for " + company_name if company_name else ""} inside AIVHub Post Scheduler.
+You are a direct chat window with scheduler skills: plan dates, write captions, revise a focused post, describe images, answer strategy. You are connected to this company's profile, knowledge search, the current calendar, pinned dates, and selected channels.
+
+{facts or "Use only company facts supplied. Never invent a brand, URL, offering, or statistic."}
+
+If the user asks to generate or change a visual, describe a concrete photo (people, place, light). No fake UI text.
+If they pin a date, do not ask for a file, meeting, or system. Use their post plan and the company profile.
+If they ask a question (strategy, mix, caption feedback), answer plainly in chat. Do not invent calendar posts unless they asked to plan, draft, generate, schedule, or change posts.
+If they want a calendar / plan / captions, write captions that could ship today."""
+
+    if return_plan:
+        kb_note = ""
+        try:
+            from app.services.rag_service import search_knowledge
+            hits = await search_knowledge(db, prompt or company_pitch, top_k=3, min_score=0.38)
+            if hits:
+                bits = []
+                for h in hits:
+                    content = (h.get("content") or "").strip().replace("\n", " ")[:280]
+                    if _usable_kb_text(content):
+                        bits.append(f"- {(h.get('title') or 'Note')}: {content}")
+                if bits:
+                    kb_note = "Company knowledge (do not invent beyond this):\n" + "\n".join(bits)
+        except Exception:
+            kb_note = ""
+
+        system_prompt += f"""
+
+Today is {today}. When the user wants a posting calendar, a month/week plan, or to change dates/captions/channels, you MUST end your reply with a fenced JSON block tagged plan.
+
+```plan
+{{"rangeLabel": "September 2026", "channels": ["linkedin"], "posts": [{{"date": "2026-09-21", "time": "09:00", "channel": "linkedin", "headline": "short internal title", "caption": "120-220 word LinkedIn post, hook first, question last, 3-6 hashtags at end", "imagePrompt": "premium 4:5 LinkedIn visual, one idea, no fake UI"}}]}}
+```
+
+Caption rules (every post in the JSON):
+- Write about what the user asked for, using only company profile facts. Never invent a brand, URL, offering, or statistic.
+- 70% educational, 20% thought leadership, 10% product. Mention the company once, naturally, only from the profile.
+- 120–220 words. Short mobile paragraphs. Strong 1–2 line hook. The user's problem. How THIS company helps. One practical takeaway. End with a comment question. 3–6 hashtags.
+- Do not rotate a stock topic bank. If the user gave a thought, that is the post.
+- No fake statistics. No generic corporate language. No exaggerated claims.
+- Banned: "delve", "game-changer", "revolutionary", slogan closers.
+- Return the FULL updated posts array on revisions (not a delta). Keep posts the user did not mention.
+- Real ISO dates (YYYY-MM-DD). One post is enough when they describe one scene.
+- Spoken reply: 1–3 short sentences. Never paste JSON, SQL errors, sjson, fillBuffer, trace dumps, or DevTools objects. Ignore knowledge that looks like an error log.
+{("Pinned calendar day: " + target_date + ". New or edited posts MUST use this date unless they name another.") if target_date else ""}
+{("Pinned dates: " + ", ".join(pinned_dates) + ". Prefer these dates.") if pinned_dates else ""}
+{("Selected channels: " + ", ".join(selected_channels) + ". Use these platforms unless the user names others.") if selected_channels else ""}
+{("Revise post id " + focus_post_id + " in place. Keep its id.") if focus_post_id else ""}
+{kb_note}
+Current calendar JSON: {json.dumps(current_plan)[:8000]}
+"""
 
     try:
         llm_res = await call_open_chat_llm(
@@ -849,36 +1011,35 @@ If the user asks general questions or discusses strategy, respond conversational
             "reply": f"⚠️ LLM Call Error: {llm_err}",
         }
 
-    reply_text = llm_res.get("reply", "")
+    reply_raw = llm_res.get("reply", "")
+    structured_plan = _extract_plan_from_text(reply_raw) if return_plan else None
+    reply_text = _spoken_reply(reply_raw, bool(structured_plan and structured_plan.get("posts")))
     if not reply_text:
-        reply_text = f"I'm ready to help plan your content strategy for {company_name}. What topics or channels would you like to explore?"
-
-    chat_only = bool(payload.get("chatOnly", False))
+        reply_text = f"Tell me the topic and the date to post for {company_name}."
     topics_data = []
 
-    if not chat_only:
+    if not chat_only and not return_plan:
         parsed = parse_chat_intent(prompt)
         if parsed["intent"] == "plan_schedule" or "schedule" in prompt.lower() or "post" in prompt.lower():
             try:
-                theme_keys = list(TOPIC_BANK.keys())
                 days = parsed["days"]
                 channels = parsed["channels"]
+                seed = (prompt or company_pitch or company_name or "Company update").strip()
                 for i in range(min(3, len(days))):
-                    theme = theme_keys[i % len(theme_keys)]
-                    chosen_topic = random.choice(TOPIC_BANK[theme])
                     channel = channels[i % len(channels)]
-                    img_prompt = create_topic_image_prompt(chosen_topic["title"], chosen_topic["angle"], theme, image_style)
+                    title = seed[:120]
+                    img_prompt = create_topic_image_prompt(title, seed, "General", image_style)
                     t_id = f"top_{uuid.uuid4().hex[:8]}"
                     topics_data.append({
                         "id": t_id,
-                        "theme": theme,
-                        "title": chosen_topic["title"],
-                        "headline": chosen_topic["title"],
-                        "angle": chosen_topic["angle"],
-                        "hook": chosen_topic["hook"],
+                        "theme": "General",
+                        "title": title,
+                        "headline": title,
+                        "angle": seed[:280],
+                        "hook": title,
                         "source": "AI Strategist",
                         "freshness": "Today",
-                        "query": theme,
+                        "query": seed[:80],
                         "saved": True,
                         "imagePrompt": img_prompt,
                         "imageUrl": "",
@@ -891,8 +1052,9 @@ If the user asks general questions or discusses strategy, respond conversational
     return {
         "status": "ok" if llm_res.get("success", True) else "error",
         "reply": reply_text,
+        "plan": structured_plan,
         "topics": topics_data,
-        "posts": [],
+        "posts": (structured_plan or {}).get("posts") or [],
         "postsCreated": [],
         "model": llm_res.get("model", model),
         "provider": llm_res.get("provider", provider),

@@ -6,7 +6,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from app.config import settings
 
@@ -55,6 +55,34 @@ def safe_media_path(filename: str) -> Optional[Path]:
         return None
     path = MEDIA_DIR / name
     return path if path.is_file() else None
+
+
+def store_image_bytes(raw: bytes, mime: str = "image/jpeg") -> Optional[str]:
+    if not raw or len(raw) < 200:
+        return None
+    ext = "jpg"
+    lower = (mime or "").lower()
+    if "png" in lower:
+        ext = "png"
+    elif "webp" in lower:
+        ext = "webp"
+    fid = uuid.uuid4().hex[:16]
+    path = MEDIA_DIR / f"{fid}.{ext}"
+    path.write_bytes(raw)
+    return f"{MEDIA_URL_PREFIX}/{fid}.{ext}"
+
+
+def local_media_bytes(image_url: Optional[str]) -> Tuple[Optional[bytes], str]:
+    raw = (image_url or "").strip()
+    m = re.search(r"/api/scheduler/media/([a-fA-F0-9]{8,32}\.(jpg|jpeg|png|webp))$", raw, re.I)
+    name = m.group(1) if m else Path(raw).name
+    path = safe_media_path(name)
+    if not path:
+        return None, "image/jpeg"
+    blob = path.read_bytes()
+    ext = path.suffix.lower()
+    mime = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+    return blob, mime
 
 
 def persist_image_url(image_url: Optional[str], public_base: Optional[str] = None) -> Optional[str]:

@@ -126,7 +126,7 @@ export function PluginHub({ operator = { name: "Jitendra S.", role: "Admin" }, o
           <PluginCard
             icon={CalendarDays}
             title="Post scheduler"
-            blurb="Chat a plan, write posts, generate visuals, then publish to connected LinkedIn / X / Facebook / Instagram / Threads accounts."
+            blurb="Chat a plan. See it on the calendar. Approve, then post."
             accent={C.teal}
             ready={true}
             onClick={() => onPick("scheduler")}
