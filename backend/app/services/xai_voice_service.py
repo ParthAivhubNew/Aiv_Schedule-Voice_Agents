@@ -372,12 +372,22 @@ def verify_xai_webhook_signature(
 # 2. DYNAMIC SYSTEM PROMPT & TOOL DEFINITIONS
 # ----------------------------------------------------------------------
 def _spoken_brand(name: Optional[str]) -> str:
-    """How the voice should say the company. AIVHub must be one word, no pause."""
-    raw = (name or "AIVHub").strip() or "AIVHub"
+    """How the voice should say the saved company name. No built-in brand fallback."""
+    raw = (name or "").strip()
+    if not raw:
+        return "the company"
     compact = re.sub(r"[\s\-]+", "", raw)
     if compact.lower() == "aivhub":
         return "Aivhub"
     return raw
+
+
+def _brand_speech_hint(spoken: str, written: Optional[str] = None) -> str:
+    compact = re.sub(r"[\s\-]+", "", f"{spoken} {written or ''}").lower()
+    hint = f'Say "{spoken}" as one word.'
+    if "aivhub" in compact:
+        hint += " Never pause between AIV and Hub."
+    return hint
 
 
 def _spoken_pitch(raw: Optional[str], company: str) -> str:
@@ -482,12 +492,20 @@ async def build_xai_system_instructions(
     services = _knowledge_cache.get("services") or []
     faqs = _knowledge_cache.get("faqs") or []
 
-    company_name = profile.name if profile else "AIVHub"
-    spoken_company = _spoken_brand(company_name)
-    caller_name = profile.caller_name if profile else "Sam"
+    company_name = (profile.name or "").strip() if profile else ""
+    if not company_name:
+        company_name = "the company"
+    spoken_company = _spoken_brand(profile.name if profile else "")
+    caller_name = (profile.caller_name or "").strip() if profile else ""
+    if not caller_name:
+        caller_name = "the caller"
     pitch = (profile.pitch or "").strip() if profile else ""
-    tone = profile.tone if profile else "Warm, charismatic, articulate, consultative, natural"
-    disclosure = profile.disclosure if profile else "This call may be recorded for quality purposes."
+    tone = (profile.tone or "").strip() if profile else ""
+    if not tone:
+        tone = "Warm, professional, natural"
+    disclosure = (profile.disclosure or "").strip() if profile else ""
+    if not disclosure:
+        disclosure = "This call may be recorded for quality purposes."
     industry = (profile.industry if profile and profile.industry else "").strip()
     website = (profile.website if profile and profile.website else "").strip()
     social = (profile.social if profile and profile.social else "").strip()
@@ -498,7 +516,7 @@ async def build_xai_system_instructions(
     catalog_lines = []
     for s in services[:5]:
         catalog_lines.append(f"- {s.name}: {s.desc} (Ideal for: {s.ideal})")
-    catalog_text = "\n".join(catalog_lines) if catalog_lines else "- BI Dashboard Platform: Real-time operational dashboards pulling from existing systems (Ideal for mid-market ops teams, 50-500 staff)."
+    catalog_text = "\n".join(catalog_lines) if catalog_lines else "No services saved in Company Profile yet. Do not invent products."
 
     faq_lines = []
     for f in faqs[:10]:
@@ -536,10 +554,11 @@ async def build_xai_system_instructions(
   "Hi {target_first_name}, this is {caller_name} from {spoken_company}. How's your day going?"
 """
 
+    brand_hint = _brand_speech_hint(spoken_company, company_name)
     instructions = f"""You are {caller_name}, a male executive representative calling on behalf of {spoken_company} (written "{company_name}").
 HOW TO SAY THE COMPANY NAME (MANDATORY):
-- Speak it as one word: "{spoken_company}".
-- Never pause between AIV and Hub. Never say "A.I.V. Hub" or "A I V Hub".
+- {brand_hint}
+- Use the saved Company Profile name and pitch only. Do not substitute another brand.
 Tone & Personality: {tone}. You sound like a warm, confident man on a business call — never a female voice, never a rigid telemarketer.
 
 HUMAN CONVERSATIONAL FLOW & NATURAL CADENCE RULES (MANDATORY):
@@ -1233,23 +1252,24 @@ async def join_xai_call_session(
             user_spoke = False
 
             profile_rep = _knowledge_cache.get("profile") if "_knowledge_cache" in globals() else None
-            rep_name = profile_rep.caller_name if profile_rep and profile_rep.caller_name else "Sam"
-            comp_name = profile_rep.name if profile_rep and profile_rep.name else "AIVHub"
+            rep_name = (profile_rep.caller_name or "").strip() if profile_rep and profile_rep.caller_name else "the caller"
+            comp_name = (profile_rep.name or "").strip() if profile_rep and profile_rep.name else ""
             spoken_comp = _spoken_brand(comp_name)
+            brand_hint = _brand_speech_hint(spoken_comp, comp_name)
             greeting_line = f"Hi {target_first_name}" if target_first_name != "there" else "Hi there"
             inbound_greeting_instruction = (
                 f"You are {rep_name} at {spoken_comp}, answering an incoming phone call. "
                 f"Speak FIRST immediately, warm and human: "
                 f"'Hello, thanks for calling {spoken_comp}! This is {rep_name}. How can I help you today?' "
-                f"Say {spoken_comp} as one word. Never pause between AIV and Hub."
+                f"{brand_hint}"
             )
             outbound_greeting_instruction = (
                 f"You are calling {target_first_name} as {rep_name} from {spoken_comp}. "
                 f"The person just picked up. Speak FIRST immediately, like a real person already on the line. "
                 f"Say this ONCE only, natural and unhurried: "
                 f"'{greeting_line}, this is {rep_name} calling from {spoken_comp}. How's your day going?' "
-                f"Say {spoken_comp} as one word — never pause between AIV and Hub. "
-                f"Do not wait. Do not restart or repeat this greeting."
+                f"{brand_hint} "
+                f"Do not wait. Do not restart or repeat this greeting. Use only the saved company name and pitch."
             )
 
             async def dispatch_opening_greeting(trigger_source: str, force: bool = False):

@@ -440,13 +440,13 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
                 extra, title, description = await _ingest_html(resp.text, phones, emails, socials)
                 parsed = urllib.parse.urlparse(str(resp.url))
                 origin = f"{parsed.scheme}://{parsed.netloc}"
-                need_more_socials = "linkedin" not in socials or len(socials) < 2
-                follow = _pick_follow_pages(extra, origin, parsed.netloc) if need_more_socials else []
-                if need_more_socials and not follow:
-                    for guess in ("/contact", "/contact-us", "/about"):
-                        follow = [urllib.parse.urljoin(origin + "/", guess)]
-                        break
-                for abs_url in follow[:1]:
+                follow = _pick_follow_pages(extra, origin, parsed.netloc) if extra else []
+                guesses = [urllib.parse.urljoin(origin + "/", g) for g in ("contact", "contact-us", "about", "about-us")]
+                seen = set()
+                for abs_url in follow + guesses:
+                    if abs_url in seen or len(seen) >= 3:
+                        continue
+                    seen.add(abs_url)
                     try:
                         extra_resp = await client.get(abs_url)
                         if extra_resp.status_code == 200:
@@ -470,38 +470,54 @@ async def enrich_prospect_intelligence(
     domain: Optional[str] = None,
     existing_notes: Optional[str] = None,
     deep: bool = True,
+    place: Optional[str] = None,
+    person: Optional[str] = None,
 ) -> Dict[str, Any]:
     target_company = company or name
     snippets: List[Dict[str, str]] = []
     scraped_info: Dict[str, Any] = {}
+    loc = " ".join([p for p in [place or "", person or ""] if p]).strip()
 
-    if not deep and domain:
+    host = ""
+    if domain:
+        raw = domain.strip()
+        if not raw.startswith("http"):
+            raw = "https://" + raw
+        host = urllib.parse.urlparse(raw).netloc.replace("www.", "")
+
+    if domain:
         scraped_info = await crawl_homepage_contacts(domain)
-    elif not deep:
-        scraped_info = {}
-    else:
-        search_terms = []
-        if existing_notes:
-            search_terms.append(f"{existing_notes} LinkedIn company")
-        if domain:
-            search_terms.append(f"site:{domain} contact phone email")
-        search_terms.append(f'"{target_company}" site:linkedin.com/company')
-        if deep:
-            search_terms.append(f'"{target_company}" contact email phone website')
-            search_terms.append(f'site:reddit.com "{target_company}"')
-        search_results = await asyncio.gather(*[search_duckduckgo(q, max_results=3) for q in search_terms])
+
+    search_terms = []
+    if host:
+        search_terms.append(f"site:{host} contact email")
+    place_bit = (place or "").strip()
+    if target_company and not str(target_company).isdigit():
+        q = f'"{target_company}"'
+        if place_bit:
+            q += f" {place_bit}"
+        q += " email contact"
+        search_terms.append(q)
+        if person:
+            search_terms.append(f'"{person}" "{target_company}" {place_bit}'.strip())
+        if deep and not host:
+            search_terms.append(f'"{target_company}" site:linkedin.com/company')
+    if existing_notes and not person:
+        search_terms.append(f"{existing_notes} {target_company} LinkedIn")
+
+    if search_terms:
+        search_results = await asyncio.gather(*[search_duckduckgo(q, max_results=3) for q in search_terms[:4]])
         for res in search_results:
             snippets.extend(res)
-        if domain:
-            scraped_info = await crawl_homepage_contacts(domain)
-        elif snippets:
-            for s in snippets:
-                url = s.get("url") or ""
-                if url and not any(skip in url for skip in ["duckduckgo", "wikipedia", "youtube", "linkedin.com", "reddit.com", "facebook.com", "twitter.com", "x.com"]):
-                    parsed = urllib.parse.urlparse(url)
-                    if parsed.netloc:
-                        scraped_info = await crawl_homepage_contacts(parsed.netloc)
-                        break
+
+    if not scraped_info and snippets:
+        for s in snippets:
+            url = s.get("url") or ""
+            if url and not any(skip in url for skip in ["duckduckgo", "wikipedia", "youtube", "linkedin.com", "reddit.com", "facebook.com", "twitter.com", "x.com"]):
+                parsed = urllib.parse.urlparse(url)
+                if parsed.netloc:
+                    scraped_info = await crawl_homepage_contacts(parsed.netloc)
+                    break
 
     socials = dict(scraped_info.get("socials") or {})
     reddit_mentions = []
@@ -647,22 +663,25 @@ async def fill_contact_gaps(
     targets = []
     for row in rows:
         contact = str(row.get("contact") or "").strip()
-        name = str(row.get("name") or row.get("company") or contact).strip()
-        if not name:
+        name = str(row.get("company") or row.get("name") or contact).strip()
+        if name.isdigit():
+            name = str(row.get("company") or contact).strip()
+        if not name or name.isdigit():
             continue
         missing = _row_missing_fields(row)
         if not missing:
             continue
         targets.append((row, name, missing))
 
-    sem = asyncio.Semaphore(2)
+    sem = asyncio.Semaphore(4)
 
     async def enrich_one(row, name, missing):
         domain = str(row.get("source") or row.get("site") or row.get("domain") or row.get("website") or "").strip()
-        if domain and " " in domain and not domain.startswith("http"):
+        if domain and (" " in domain or domain.lower() == "public web search") and not domain.startswith("http"):
             domain = ""
         person = str(row.get("contact") or "").strip()
         phone = str(row.get("phone") or "").strip()
+        town = " ".join(str(x).strip() for x in [row.get("town"), row.get("postcode")] if x).strip()
         query_company = name if not _is_person_name(name) else ""
         query_name = query_company or person or name
         try:
@@ -672,10 +691,12 @@ async def fill_contact_gaps(
                         name=query_name,
                         company=query_company or query_name,
                         domain=domain or None,
-                        existing_notes=(f"{person} {phone}").strip() or None,
+                        existing_notes=(f"{person} {phone} {row.get('sector') or ''}").strip() or None,
                         deep=True,
+                        place=town or None,
+                        person=person or None,
                     ),
-                    timeout=18,
+                    timeout=28,
                 )
         except Exception as err:
             logger.warning(f"Gap fill failed for '{name}': {err}")
@@ -716,9 +737,13 @@ async def fill_contact_gaps(
                 if slug:
                     linkedin = f"https://www.linkedin.com/company/{slug}"
             website = ""
+            raw_domain = str(data.get("domain") or domain or "").strip()
+            if raw_domain and raw_domain.lower() != "public web search" and " " not in raw_domain:
+                website = raw_domain if raw_domain.startswith("http") else f"https://{raw_domain.lstrip('/')}"
+            skip_hosts = ["linkedin.com", "facebook.com", "twitter.com", "x.com", "reddit.com", "duckduckgo", "wikipedia", "youtube.com"]
             for url in (data.get("citations") or []):
                 low = str(url or "").lower()
-                if not url or any(s in low for s in ["linkedin.com", "facebook.com", "twitter.com", "x.com", "reddit.com", "duckduckgo", "wikipedia"]):
+                if not url or any(s in low for s in skip_hosts):
                     continue
                 website = url
                 break

@@ -161,11 +161,9 @@ async def discover_accounts(req: DiscoverAccountsRequest):
 @router.post("/fill-gaps")
 async def fill_gaps(req: FillGapsRequest):
     """Fill missing phone/email/person on an uploaded contact list. Does not invent numbers."""
+    n = min(max(int(req.max_rows or 4), 1), 8)
     try:
-        fills = await asyncio.wait_for(
-            fill_contact_gaps(req.contacts or [], max_rows=min(req.max_rows or 50, 50)),
-            timeout=25,
-        )
+        fills = await fill_contact_gaps(req.contacts or [], max_rows=n)
         proposed = [f for f in fills if f.get("status") == "proposed"]
         empty = [f for f in fills if f.get("status") == "unenrichable"]
         return {
@@ -173,14 +171,6 @@ async def fill_gaps(req: FillGapsRequest):
             "fills": fills,
             "proposedCount": len(proposed),
             "unenrichableCount": len(empty),
-        }
-    except asyncio.TimeoutError:
-        return {
-            "success": True,
-            "fills": [],
-            "proposedCount": 0,
-            "unenrichableCount": 0,
-            "timedOut": True,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

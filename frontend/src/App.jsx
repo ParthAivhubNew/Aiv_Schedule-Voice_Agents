@@ -1487,28 +1487,38 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
     return "View Details →";
   };
 
+  const hasUnread = unread > 0;
+
   return (
     <div style={{ position: "relative" }}>
+      <style>{`
+        @keyframes aivhubBellPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(52,87,213,0.45); transform: scale(1); }
+          50% { box-shadow: 0 0 0 8px rgba(52,87,213,0); transform: scale(1.06); }
+        }
+      `}</style>
       <button
         onClick={() => setOpen((o) => !o)}
-        title="Notifications"
+        title={hasUnread ? `${unread} unread` : "Notifications"}
         style={{
-          width: 36,
-          height: 36,
-          borderRadius: 9,
-          border: `1px solid ${unread > 0 ? C.cobalt : C.border}`,
-          background: unread > 0 ? C.cobaltSoft : "#fff",
+          width: 40,
+          height: 40,
+          borderRadius: 10,
+          border: hasUnread ? `2px solid ${C.cobalt}` : `1px solid ${C.border}`,
+          background: hasUnread ? C.cobalt : "#fff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           cursor: "pointer",
           position: "relative",
+          color: hasUnread ? "#fff" : C.slate,
+          animation: hasUnread ? "aivhubBellPulse 1.6s ease-in-out infinite" : "none",
         }}
       >
-        <Bell size={16} color={unread > 0 ? C.cobalt : C.slate} />
-        {unread > 0 && (
-          <span style={{ position: "absolute", top: 4, right: 4, minWidth: 15, height: 15, borderRadius: 999, background: C.red, color: "#fff", fontSize: 9.5, fontFamily: FONT_BODY, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", boxShadow: "0 2px 4px rgba(0,0,0,0.18)" }}>
-            {unread}
+        <Bell size={16} color={hasUnread ? "#fff" : C.slate} />
+        {hasUnread && (
+          <span style={{ position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 999, background: C.redSolid || C.red, color: "#fff", fontSize: 10, fontFamily: FONT_BODY, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px", border: "2px solid #fff", boxShadow: "0 2px 4px rgba(0,0,0,0.18)" }}>
+            {unread > 9 ? "9+" : unread}
           </span>
         )}
       </button>
@@ -5414,13 +5424,13 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           {tab === "identity" && (
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={Users} title="Company identity" desc="Basic facts the AI introduces itself with and uses to explain who it's calling on behalf of." />
-              <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="AIVHub" />
-              <Field label="One-line pitch" value={profile.pitch} onChange={(v) => update("pitch", v)} placeholder="AI-powered business intelligence dashboards for mid-market operations teams" />
-              <Field label="Industry" value={profile.industry || ""} onChange={(v) => update("industry", v)} placeholder="Business intelligence / data consulting" />
-              <Field label="Website" value={profile.website || ""} onChange={(v) => update("website", v)} placeholder="https://aivhub.io" hint="Also added automatically as a knowledge source." />
-              <Field label="LinkedIn / other social links" value={profile.social || ""} onChange={(v) => update("social", v)} placeholder="linkedin.com/company/aivhub" />
-              <Field label="Caller persona name" value={profile.callerName} onChange={(v) => update("callerName", v)} placeholder="Sam" hint="The name the AI introduces itself as on calls." />
-              <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44 20 7946 0912" />
+              <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="Your company" />
+              <Field label="One-line pitch" value={profile.pitch} onChange={(v) => update("pitch", v)} placeholder="What you sell — used verbatim on calls" />
+              <Field label="Industry" value={profile.industry || ""} onChange={(v) => update("industry", v)} placeholder="Industry" />
+              <Field label="Website" value={profile.website || ""} onChange={(v) => update("website", v)} placeholder="https://" hint="Also added automatically as a knowledge source." />
+              <Field label="LinkedIn / other social links" value={profile.social || ""} onChange={(v) => update("social", v)} placeholder="linkedin.com/company/…" />
+              <Field label="Caller persona name" value={profile.callerName} onChange={(v) => update("callerName", v)} placeholder="Name the agent uses" hint="The name the AI introduces itself as on calls." />
+              <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…" />
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Working timezone</div>
                 <select
@@ -6074,9 +6084,9 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           {tab === "compliance" && (
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={ShieldCheck} title="Compliance & legal" desc="Details needed for UK outbound-calling rules — shown to admins only, never spoken on calls." />
-              <Field label="Registered legal company name" value={profile.legalName || ""} onChange={(v) => update("legalName", v)} placeholder="AIVHub Ltd" />
-              <Field label="ICO registration reference" value={profile.icoRef || ""} onChange={(v) => update("icoRef", v)} placeholder="ZA123456" />
-              <Field label="Data protection contact" value={profile.dpoContact || ""} onChange={(v) => update("dpoContact", v)} placeholder="privacy@aivhub.io" />
+              <Field label="Registered legal company name" value={profile.legalName || ""} onChange={(v) => update("legalName", v)} placeholder="Legal entity name" />
+              <Field label="ICO registration reference" value={profile.icoRef || ""} onChange={(v) => update("icoRef", v)} placeholder="ICO reference" />
+              <Field label="Data protection contact" value={profile.dpoContact || ""} onChange={(v) => update("dpoContact", v)} placeholder="privacy@company.com" />
               <Field label="Do-not-call list handling notes" value={profile.dncNotes || ""} onChange={(v) => update("dncNotes", v)} placeholder="Opt-outs logged immediately and excluded from all future missions." textarea />
               <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save changes</button>
             </div>
@@ -23436,6 +23446,18 @@ function CallingEditionRoot(props) {
   return (
     <CallingWorkspace
       {...props}
+      aiKeysPanel={
+        <CommonAiConfigModal
+          embedded
+          isOpen
+          onClose={() => {}}
+          commonAi={props.commonAi}
+          setCommonAi={props.setCommonAi}
+          initialTab="voice"
+          scopePlugin="voice"
+          operator={props.operator}
+        />
+      }
       onUseClassic={() => {
         setCallingEdition("classic");
         setEdition("classic");

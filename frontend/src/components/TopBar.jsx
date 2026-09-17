@@ -7,9 +7,16 @@ export function NotificationBell({ notifications = [], setNotifications }) {
   const bellRef = useRef(null);
 
   const unreadCount = notifications.filter((n) => n.unread).length;
+  const hasUnread = unreadCount > 0;
 
   const markAllRead = () => {
+    if (!setNotifications) return;
     setNotifications((ns) => ns.map((n) => ({ ...n, unread: false })));
+  };
+
+  const markOneRead = (id) => {
+    if (!setNotifications) return;
+    setNotifications((ns) => ns.map((n) => (n.id === id ? { ...n, unread: false } : n)));
   };
 
   useEffect(() => {
@@ -22,36 +29,53 @@ export function NotificationBell({ notifications = [], setNotifications }) {
 
   return (
     <div ref={bellRef} style={{ position: "relative" }}>
+      <style>{`
+        @keyframes aivhubBellPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(52,87,213,0.45); transform: scale(1); }
+          50% { box-shadow: 0 0 0 8px rgba(52,87,213,0); transform: scale(1.06); }
+        }
+      `}</style>
       <button
         onClick={() => setOpen((o) => !o)}
+        title={hasUnread ? `${unreadCount} unread` : "Notifications"}
         style={{
-          width: 38,
-          height: 38,
+          width: 40,
+          height: 40,
           borderRadius: 10,
-          border: `1px solid ${C.border}`,
-          background: C.paperSoft,
+          border: hasUnread ? `2px solid ${C.cobalt}` : `1px solid ${C.border}`,
+          background: hasUnread ? C.cobalt : C.paperSoft,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           cursor: "pointer",
           position: "relative",
-          color: C.slate,
+          color: hasUnread ? "#fff" : C.slate,
+          animation: hasUnread ? "aivhubBellPulse 1.6s ease-in-out infinite" : "none",
         }}
       >
         <Bell size={16} />
-        {unreadCount > 0 && (
+        {hasUnread && (
           <span
             style={{
               position: "absolute",
-              top: 7,
-              right: 7,
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: C.gradientSunset,
-              boxShadow: "0 0 8px rgba(255,84,226,0.8)",
+              top: -4,
+              right: -4,
+              minWidth: 18,
+              height: 18,
+              padding: "0 5px",
+              borderRadius: 99,
+              background: C.redSolid,
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 800,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "2px solid #fff",
             }}
-          />
+          >
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
         )}
       </button>
 
@@ -100,6 +124,7 @@ export function NotificationBell({ notifications = [], setNotifications }) {
               notifications.map((n) => (
                 <div
                   key={n.id}
+                  onClick={() => markOneRead(n.id)}
                   style={{
                     display: "flex",
                     gap: 10,
@@ -107,6 +132,7 @@ export function NotificationBell({ notifications = [], setNotifications }) {
                     borderRadius: 10,
                     background: n.unread ? "rgba(75,115,255,0.12)" : "rgba(255,255,255,0.03)",
                     border: `1px solid ${n.unread ? "rgba(75,115,255,0.25)" : "transparent"}`,
+                    cursor: n.unread ? "pointer" : "default",
                   }}
                 >
                   <div style={{ marginTop: 2 }}>
