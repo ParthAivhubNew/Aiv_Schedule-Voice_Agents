@@ -1249,7 +1249,7 @@ const NAV_GROUPS = [
   ]},
 ];
 
-function Sidebar({ view, setView, companyName, callerName, timezone, operatorName, operatorRole, onBackToHub, onLogout, activeCallCount = 0 }) {
+function Sidebar({ view, setView, companyName, callerName, timezone, operatorName, operatorRole, onBackToHub, onLogout, activeCallCount = 0, onUseSimple }) {
   const who = operatorName || "Jitendra S.";
   const role = operatorRole || "Admin";
   return (
@@ -1357,6 +1357,31 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
       ))}
 
       <div style={{ marginTop: "auto", padding: "12px 10px", borderTop: `1px solid ${C.inkLine}` }}>
+        {onUseSimple && (
+          <button
+            type="button"
+            onClick={onUseSimple}
+            style={{
+              marginBottom: 12,
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "8px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.16)",
+              background: "rgba(12,140,125,0.18)",
+              color: "#D7F3EE",
+              fontFamily: FONT_BODY,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Use new calling
+          </button>
+        )}
         <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#5B6070", marginBottom: 2 }}>
           AI speaks as <span style={{ color: "#C8CCD6", fontWeight: 600 }}>{callerName}</span>, on behalf of {companyName}
         </div>
@@ -5242,7 +5267,7 @@ const SOURCE_TYPES = [
   { id: "Manual text", label: "Direct Text / Notes", icon: PenLine, placeholder: "Paste raw objection rebuttals, customer Q&As, or pricing rules here...", hint: "Paste custom scripts or internal knowledge directly into the AI's memory." },
 ];
 
-function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq }) {
+function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false }) {
   const [tab, setTab] = useState("identity");
   const [saved, setSaved] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
@@ -5399,8 +5424,8 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 
   return (
     <>
-      <TopBar title="Company Profile" subtitle="Everything the AI knows about your company when it's on a call" notifications={notifications} setNotifications={setNotifications} />
-      <div style={{ padding: "20px 32px", display: "grid", gridTemplateColumns: "200px 1fr", gap: 24 }}>
+      {!embedded && <TopBar title="Company Profile" subtitle="Everything the AI knows about your company when it's on a call" notifications={notifications} setNotifications={setNotifications} />}
+      <div style={{ padding: embedded ? 0 : "20px 32px", display: "grid", gridTemplateColumns: "200px 1fr", gap: 24 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {PROFILE_TABS.map((t) => {
             const Icon = t.icon;
@@ -22125,7 +22150,7 @@ function SchSolid({ children, onClick }) {
 
 /* ---------------------------------- app shell ---------------------------------- */
 
-function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, faq, setFaq, commonAi, setCommonAi, onOpenCommonAi, returnPlugin, onReturnToPlugin }) {
+function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, faq, setFaq, commonAi, setCommonAi, onOpenCommonAi, returnPlugin, onReturnToPlugin, onUseSimple }) {
   const [view, setView] = useState(() => {
     try {
       const hash = window.location.hash.replace(/^#\/?/, "");
@@ -22958,6 +22983,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         operatorRole={operator && operator.role}
         onBackToHub={onBackToHub}
         onLogout={onLogout}
+        onUseSimple={onUseSimple}
         activeCallCount={activeCalls.length}
       />
 
@@ -23415,7 +23441,7 @@ function CallingEditionRoot(props) {
     };
     return (
       <div style={{ height: "100%", position: "relative" }}>
-        <VoiceOperatorApp {...props} />
+        <VoiceOperatorApp {...props} onUseSimple={goSimple} />
         <button
           type="button"
           onClick={goSimple}
@@ -23424,18 +23450,18 @@ function CallingEditionRoot(props) {
             position: "fixed",
             right: 18,
             bottom: 18,
-            zIndex: 4000,
-            height: 36,
-            padding: "0 12px",
-            borderRadius: 9,
-            border: "1px solid #E4E1D9",
-            background: "#fff",
-            color: "#12141C",
-            fontSize: 12,
+            zIndex: 9999,
+            height: 40,
+            padding: "0 16px",
+            borderRadius: 10,
+            border: "none",
+            background: "#0C8C7D",
+            color: "#fff",
+            fontSize: 13,
             fontWeight: 700,
             cursor: "pointer",
             fontFamily: "Inter, sans-serif",
-            boxShadow: "0 8px 24px rgba(18,20,28,0.16)",
+            boxShadow: "0 10px 28px rgba(12,140,125,0.35)",
           }}
         >
           Use new calling
@@ -23462,6 +23488,21 @@ function CallingEditionRoot(props) {
         setCallingEdition("classic");
         setEdition("classic");
       }}
+      companyPanel={
+        <CompanyProfileView
+          embedded
+          profile={props.profile}
+          setProfile={props.setProfile}
+          notifications={[]}
+          setNotifications={() => {}}
+          sources={props.knowledgeSources}
+          setSources={props.setKnowledgeSources}
+          services={props.services}
+          setServices={props.setServices}
+          faq={props.faq}
+          setFaq={props.setFaq}
+        />
+      }
     />
   );
 }

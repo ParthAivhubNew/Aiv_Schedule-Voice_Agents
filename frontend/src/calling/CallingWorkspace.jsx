@@ -16,7 +16,6 @@ import {
   Plug,
   Radio,
   Send,
-  Settings2,
   Sparkles,
   Upload,
   Video,
@@ -27,6 +26,7 @@ import {
   RotateCcw,
   Check,
   X,
+  Users,
 } from "lucide-react";
 import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
@@ -42,11 +42,17 @@ const PAGES = [
   { id: "logs", label: "Logs", icon: FileText },
   { id: "schedule", label: "Schedule", icon: PhoneCall },
   { id: "ai", label: "AI config", icon: Plug },
-  { id: "setup", label: "Setup", icon: Settings2 },
+  { id: "company", label: "Company", icon: Users },
 ];
 
 const EXTRA_SLOTS = ["Phone", "Email", "Website", "LinkedIn", "Contact"];
 const SIMPLE_PAGES = new Set(PAGES.map((p) => p.id));
+
+function callingPageId(raw) {
+  const id = String(raw || "");
+  if (id === "setup") return "company";
+  return SIMPLE_PAGES.has(id) ? id : "";
+}
 const ALERT_KEY = "aivhub_meeting_alerted";
 const LS_CHAT = "aivhub_calling_v1_chat";
 const LS_THREADS = "aivhub_calling_v1_threads";
@@ -390,12 +396,16 @@ export function CallingWorkspace({
   commonAi,
   aiKeysPanel,
   onOpenCommonAi,
+  companyPanel,
 }) {
   const [page, setPage] = useState(() => {
     try {
       const hash = window.location.hash.replace(/^#\/?/, "");
       const parts = hash.split("/");
-      if (parts[0] === "voice" && SIMPLE_PAGES.has(parts[1])) return parts[1];
+      if (parts[0] === "voice") {
+        const next = callingPageId(parts[1]);
+        if (next) return next;
+      }
     } catch (_) {}
     return "list";
   });
@@ -467,7 +477,10 @@ export function CallingWorkspace({
       try {
         const hash = window.location.hash.replace(/^#\/?/, "");
         const parts = hash.split("/");
-        if (parts[0] === "voice" && SIMPLE_PAGES.has(parts[1])) setPage(parts[1]);
+        if (parts[0] === "voice") {
+          const next = callingPageId(parts[1]);
+          if (next) setPage(next);
+        }
       } catch (_) {}
     };
     window.addEventListener("hashchange", onHash);
@@ -1003,11 +1016,13 @@ export function CallingWorkspace({
   const saveSetup = async () => {
     setBusy("save");
     try {
-      const next = { ...(profile || {}), ...draft };
-      await api.updateProfile(next);
-      if (setProfile) setProfile(next);
+      if (!companyPanel) {
+        const next = { ...(profile || {}), ...draft };
+        await api.updateProfile(next);
+        if (setProfile) setProfile(next);
+      }
       await api.selectVoice({ voice_id: voiceName, label: voiceName === "rex" ? "Rex (Sam / male)" : voiceName, provider: "xai" });
-      showToast("Setup saved.");
+      showToast(companyPanel ? "Voice saved." : "Setup saved.");
     } catch (e) {
       showToast(e.message || "Save failed");
     } finally {
@@ -1051,7 +1066,7 @@ export function CallingWorkspace({
     logs: ["Call logs", "Saved when a call ends or a meeting books. Same backend as classic."],
     schedule: ["Schedule a call", "Park a callback or meeting without an Excel list."],
     ai: ["AI config", "Keys for chat and Find missing. Voice model lives here."],
-    setup: ["Setup", "Company name, caller ID, Sam voice (Rex)."],
+    company: ["Company profile", "Same profile classic uses on calls: identity, knowledge, services, FAQ."],
   };
 
   return (
@@ -1588,38 +1603,48 @@ export function CallingWorkspace({
             </div>
           )}
 
-          {page === "setup" && (
-            <div style={{ maxWidth: 520, display: "grid", gap: 12 }}>
-              {[
-                ["name", "Company name", "Saved company profile. Agent uses this on calls."],
-                ["pitch", "Pitch", draft.name ? `On calls, say “${draft.name}” as one word. Pitch text comes from Company Profile — not a built-in brand.` : "What you sell. Uses the saved Company Profile. Agent says the company name as one word."],
-                ["website", "Website", "From Company Profile."],
-                ["callerId", "Caller ID", "Number shown to the prospect. From Company Profile."],
-                ["timezone", "Timezone", "Call windows and meetings use this zone."],
-              ].map(([k, label, hint]) => (
-                <label key={k} style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
-                  {label}
-                  {k === "pitch" ? (
-                    <textarea value={draft[k] || ""} onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))} rows={4} placeholder="Saved pitch — edit here or in Company Profile" style={{ ...fieldStyle(), height: "auto", padding: 10, marginTop: 6, resize: "vertical" }} />
-                  ) : (
-                    <input value={draft[k] || ""} onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))} placeholder="" style={{ ...fieldStyle(), marginTop: 6 }} />
-                  )}
-                  <div style={{ fontWeight: 500, color: C.slateLight, marginTop: 4, fontSize: 11.5 }}>{hint}</div>
+          {page === "company" && (
+            <div style={{ display: "grid", gap: 14 }}>
+              <div style={{ ...card(), maxWidth: 520 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Call voice</div>
+                <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Spoken name and pitch come from Company profile below. This only picks the voice.</div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
+                  Voice
+                  <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} style={{ ...fieldStyle(), marginTop: 6 }}>
+                    <option value="rex">Rex — Sam (male)</option>
+                    <option value="leo">Leo (male)</option>
+                    <option value="ara">Ara (female)</option>
+                    <option value="eve">Eve (female)</option>
+                  </select>
                 </label>
-              ))}
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
-                Voice
-                <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} style={{ ...fieldStyle(), marginTop: 6 }}>
-                  <option value="rex">Rex — Sam (male)</option>
-                  <option value="leo">Leo (male)</option>
-                  <option value="ara">Ara (female)</option>
-                  <option value="eve">Eve (female)</option>
-                </select>
-              </label>
-              <button type="button" disabled={busy === "save"} onClick={saveSetup} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: 160 }}>
-                {busy === "save" ? "Saving…" : "Save"}
-              </button>
-              <div style={{ fontSize: 12, color: C.slate }}>Signed in as {operator?.username || operator?.name || "operator"}.</div>
+                <button type="button" disabled={busy === "save"} onClick={saveSetup} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: 180, marginTop: 12 }}>
+                  {busy === "save" ? "Saving…" : "Save voice"}
+                </button>
+              </div>
+              {companyPanel || (
+                <div style={{ ...card(), maxWidth: 520, display: "grid", gap: 12 }}>
+                  {[
+                    ["name", "Company name", "Saved company profile. Agent uses this on calls."],
+                    ["pitch", "Pitch", draft.name ? `On calls, say “${draft.name}” as one word.` : "What you sell. Uses the saved Company Profile."],
+                    ["website", "Website", "From Company Profile."],
+                    ["callerId", "Caller ID", "Number shown to the prospect."],
+                    ["timezone", "Timezone", "Call windows and meetings use this zone."],
+                  ].map(([k, label, hint]) => (
+                    <label key={k} style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
+                      {label}
+                      {k === "pitch" ? (
+                        <textarea value={draft[k] || ""} onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))} rows={4} style={{ ...fieldStyle(), height: "auto", padding: 10, marginTop: 6, resize: "vertical" }} />
+                      ) : (
+                        <input value={draft[k] || ""} onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))} style={{ ...fieldStyle(), marginTop: 6 }} />
+                      )}
+                      <div style={{ fontWeight: 500, color: C.slateLight, marginTop: 4, fontSize: 11.5 }}>{hint}</div>
+                    </label>
+                  ))}
+                  <button type="button" disabled={busy === "save"} onClick={saveSetup} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: 160 }}>
+                    {busy === "save" ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
