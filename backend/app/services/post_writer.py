@@ -725,6 +725,7 @@ async def generate_complete_social_package(
     company_context: str = "",
     linkedin_directive: str = "",
     existing_copy: str = "",
+    existing_headline: str = "",
     api_key: Optional[str] = None,
     provider: Optional[str] = None,
     model: Optional[str] = None,
@@ -766,14 +767,19 @@ async def generate_complete_social_package(
     clean_topic = user_plan or (company_pitch or "").strip() or "Write about this company's actual offering from the profile. Do not invent another business."
     li_rules = (linkedin_directive or "").strip() or linkedin_craft_brief(brand, company_pitch, company_context)
     draft = (existing_copy or "").strip()
+    headline = (existing_headline or "").strip()
     note = (revision_note or "").strip()
-    draft_block = (
-        f"\nExisting draft (KEEP names, files, meetings, numbers unless the revision asks to change them):\n{draft}\n"
-        if draft
-        else ""
-    )
+    draft_block = ""
+    if headline:
+        draft_block += f"\nExisting headline (this is the visible post title — revise it when the request mentions headline/title, or when a rewrite would make it stale):\n{headline}\n"
+    if draft:
+        draft_block += f"\nExisting draft (KEEP names, files, meetings, numbers unless the revision asks to change them):\n{draft}\n"
     if note:
-        draft_block += f"\nREVISION REQUEST (apply this to hook, body, headline, hashtags, CTA — not a new topic):\n{note}\n"
+        draft_block += (
+            "\nREVISION REQUEST (apply this to headline, hook, body, hashtags, CTA — not a new topic). "
+            "If the request is only about the headline, keep hook/body/hashtags unless they asked to change those too:\n"
+            f"{note}\n"
+        )
 
     plan_hint = clean_topic.replace('"', "'")[:280]
     if adapt_per_channel:
@@ -805,7 +811,7 @@ Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today'
 
 Return ONLY valid JSON:
 {{
-  "postTitle": "Short internal title",
+  "postTitle": "Visible post headline, max 8 words. Revise it when the user asks to change the headline/title, and whenever a rewrite makes the old headline stale.",
   "hook": "1-2 line curiosity hook",
 {copy_schema}
   "hashtags": ["#Tag1", "#Tag2", "#Tag3"],
@@ -820,8 +826,9 @@ Return ONLY valid JSON:
     if note:
         user_msg = (
             "Revise the existing draft using the revision request. Return the FULL post JSON "
-            "(hook, copy, hashtags, postTitle, cta). Stay on the same topic and company facts. "
-            "Do not invent a new angle. Do not change the image concept unless the request is about the image."
+            "(postTitle, hook, copy, hashtags, cta). Update postTitle when the request mentions "
+            "headline/title, or when the rewrite would make the old headline stale. Stay on the same "
+            "topic and company facts. Do not invent a new angle. Do not change the image concept unless the request is about the image."
         )
     elif draft:
         user_msg = "Rewrite the draft. Keep names and numbers. Keep 120-220 words, 3-6 hashtags. Stay on the user's plan."
@@ -869,7 +876,7 @@ Return ONLY valid JSON:
 
     llm_payload["_company"] = brand
     llm_payload["hashtags"] = normalize_hashtags(llm_payload.get("hashtags"), company=brand)
-    llm_payload["postTitle"] = (llm_payload.get("postTitle") or clean_topic)[:80]
+    llm_payload["postTitle"] = (llm_payload.get("postTitle") or headline or clean_topic)[:80]
     llm_payload["imageHeadline"] = (llm_payload.get("imageHeadline") or llm_payload.get("image_headline") or "")[:80]
     llm_payload["imageConcept"] = llm_payload.get("imageConcept") or llm_payload.get("image_concept") or clean_topic
     llm_payload["image_concept"] = llm_payload["imageConcept"]

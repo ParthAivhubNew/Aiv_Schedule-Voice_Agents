@@ -263,6 +263,7 @@ async def generate_package_endpoint(payload: Dict[str, Any], request: Request, d
     company_context = (payload.get("companyContext") or payload.get("company_context") or "").strip()
     linkedin_directive = (payload.get("linkedinDirective") or payload.get("linkedin_directive") or "").strip()
     existing_copy = (payload.get("existingCopy") or payload.get("existing_copy") or payload.get("caption") or "").strip()
+    existing_headline = (payload.get("existingHeadline") or payload.get("existing_headline") or payload.get("headline") or "").strip()
     try:
         prof_res = await db.execute(select(CompanyProfile).limit(1))
         profile = prof_res.scalars().first()
@@ -296,6 +297,7 @@ async def generate_package_endpoint(payload: Dict[str, Any], request: Request, d
         company_context=company_context,
         linkedin_directive=linkedin_directive,
         existing_copy=existing_copy,
+        existing_headline=existing_headline,
         api_key=api_key,
         provider=provider,
         model=model,

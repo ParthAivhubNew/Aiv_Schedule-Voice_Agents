@@ -63,6 +63,47 @@ function companyPayload(profile) {
   };
 }
 
+function MiniChat({ messages, emptyHint, hint, busyLabel, value, onChange, onSubmit, disabled, placeholder }) {
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginBottom: 10, background: HUB_PAPER }}>
+      {hint ? <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>{hint}</div> : null}
+      <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: 8 }}>
+        {!(messages || []).length ? (
+          <div style={{ fontSize: 12, color: C.slateLight }}>{emptyHint}</div>
+        ) : (messages || []).map((m) => (
+          <div key={m.id} style={{ marginBottom: 6, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{
+              maxWidth: "90%",
+              padding: "6px 9px",
+              borderRadius: 8,
+              background: m.who === "user" ? C.ink : "#fff",
+              color: m.who === "user" ? "#fff" : C.textInk,
+              fontSize: 12,
+              lineHeight: 1.4,
+              border: m.who === "user" ? "none" : `1px solid ${C.border}`,
+            }}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {busyLabel ? <div style={{ fontSize: 12, color: C.teal }}>{busyLabel}</div> : null}
+      </div>
+      <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} style={{ display: "flex", gap: 6 }}>
+        <input
+          value={value || ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          disabled={disabled}
+          style={{ flex: 1, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13 }}
+        />
+        <button type="submit" disabled={disabled || !(value || "").trim()} style={{ ...priBtn, height: 36, background: C.teal }}>
+          <Send size={14} /> Apply
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function assembleCaption(pkg, fallback) {
   if (!pkg) return fallback || "";
   const hook = stripAiSlop(pkg.hook || "");
@@ -768,7 +809,8 @@ export function SocialWorkspace({
           const hadCopy = (p.caption || "").trim().length >= 60;
           const res = await api.generateSocialPackage({
             topic: p.plan || p.headline,
-            existingCopy: p.caption || "",
+            existingCopy: [p.headline, p.caption].filter(Boolean).join("\n\n"),
+            existingHeadline: p.headline || "",
             revisionNote,
             skipImage,
             linkedinDirective: (commonAi && commonAi.channelDirectives && commonAi.channelDirectives.linkedin) || "",
@@ -795,17 +837,21 @@ export function SocialWorkspace({
             const caption = (src === "llm" && assembled)
               ? assembled
               : ((revisionNote || hadCopy) && !assembled ? row.caption : (assembled || row.caption || ""));
+            const nextHeadline = (pkg && (pkg.postTitle || pkg.hook)) || row.headline;
             const next = {
               ...row,
               enriching: false,
               caption,
-              headline: (pkg && (pkg.postTitle || pkg.hook)) || row.headline,
+              headline: nextHeadline,
               hook: (pkg && pkg.hook) || row.hook,
               hashtags: (pkg && pkg.hashtags) || row.hashtags,
               imageConcept: (pkg && (pkg.imageConcept || pkg.image_concept)) || row.imageConcept,
               imageHeadline: (pkg && (pkg.imageHeadline || pkg.image_headline)) || row.imageHeadline,
               imageUrl: skipImage ? row.imageUrl : ((pkg && pkg.imageUrl) || row.imageUrl),
               imagePrompt: skipImage ? row.imagePrompt : ((pkg && (pkg.imagePrompt || pkg.image_prompt)) || row.imagePrompt),
+              copyChat: revisionNote
+                ? [...(row.copyChat || []), { id: "cpa_" + Date.now() + "_" + row.id, who: "ai", text: "Updated the headline and caption from that note." }]
+                : (row.copyChat || []),
             };
             persistPost(next);
             return next;
@@ -1845,11 +1891,8 @@ export function SocialWorkspace({
               ) : reviewList.map((p) => (
                 <div key={p.id} id={"appr_" + p.id} style={{ background: "#fff", border: `1px solid ${selectedId === p.id ? C.teal : C.border}`, borderRadius: 14, padding: 16, marginBottom: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{p.headline}</div>
-                      <div style={{ fontSize: 12, color: C.slate, marginTop: 3 }}>
-                        {dayLabel(p.date)} · {p.time} · {p.channel} · {statusLabel(p.status)}
-                      </div>
+                    <div style={{ fontSize: 12, color: C.slate }}>
+                      {dayLabel(p.date)} · {p.time} · {p.channel} · {statusLabel(p.status)}
                     </div>
                     <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(p.status) }}>{statusLabel(p.status)}</span>
                   </div>
@@ -1861,119 +1904,53 @@ export function SocialWorkspace({
                     </div>
                   )}
                   {p.status === "posted" ? (
-                    <div style={{ fontSize: 13, color: C.slate, whiteSpace: "pre-wrap" }}>{p.caption}</div>
+                    <>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{p.headline}</div>
+                      <div style={{ fontSize: 13, color: C.slate, whiteSpace: "pre-wrap" }}>{p.caption}</div>
+                    </>
                   ) : (
                     <>
+                      <MiniChat
+                        messages={p.imageChat}
+                        hint="Image chat — sits under the picture. Same visual on every channel unless you ask for a different one."
+                        emptyHint="e.g. “Spreadsheet on the left monitor, no fake dashboard UI.”"
+                        busyLabel={imageBusy === p.id ? "Redrawing…" : ""}
+                        value={imageNote[p.id] || ""}
+                        onChange={(v) => setImageNote((m) => ({ ...m, [p.id]: v }))}
+                        onSubmit={() => sendImageChat(p)}
+                        disabled={imageBusy === p.id}
+                        placeholder="Describe the image change…"
+                      />
+                      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                        <button type="button" onClick={() => regenImage(p)} disabled={imageBusy === p.id} style={secBtn}>
+                          <ImageIcon size={14} /> {imageBusy === p.id ? "Generating…" : (p.imageUrl ? "Regenerate image" : "Generate image")}
+                        </button>
+                      </div>
                       <label style={labelStyle}>Headline</label>
                       <input
                         value={p.headline || ""}
                         onChange={(e) => revertTouched(p.id, { headline: e.target.value })}
                         style={{ width: "100%", boxSizing: "border-box", height: 36, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 10 }}
                       />
-                      <label style={labelStyle}>Image chat</label>
-                      <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginBottom: 10, background: HUB_PAPER }}>
-                        <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
-                          Tell the visual what to change. Same image on every channel unless you ask for a different one (e.g. “different image for Instagram”).
-                        </div>
-                        <div style={{ maxHeight: 140, overflowY: "auto", marginBottom: 8 }}>
-                          {(p.imageChat || []).length === 0 ? (
-                            <div style={{ fontSize: 12, color: C.slateLight }}>e.g. “Spreadsheet on the left monitor, no fake dashboard UI.”</div>
-                          ) : (p.imageChat || []).map((m) => (
-                            <div key={m.id} style={{ marginBottom: 6, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
-                              <div style={{
-                                maxWidth: "90%",
-                                padding: "6px 9px",
-                                borderRadius: 8,
-                                background: m.who === "user" ? C.ink : "#fff",
-                                color: m.who === "user" ? "#fff" : C.textInk,
-                                fontSize: 12,
-                                lineHeight: 1.4,
-                                border: m.who === "user" ? "none" : `1px solid ${C.border}`,
-                              }}>
-                                {m.text}
-                              </div>
-                            </div>
-                          ))}
-                          {imageBusy === p.id ? <div style={{ fontSize: 12, color: C.teal }}>Redrawing…</div> : null}
-                        </div>
-                        <form
-                          onSubmit={(e) => { e.preventDefault(); sendImageChat(p); }}
-                          style={{ display: "flex", gap: 6 }}
-                        >
-                          <input
-                            value={imageNote[p.id] || ""}
-                            onChange={(e) => setImageNote((m) => ({ ...m, [p.id]: e.target.value }))}
-                            placeholder="Describe the change…"
-                            disabled={imageBusy === p.id}
-                            style={{ flex: 1, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13 }}
-                          />
-                          <button type="submit" disabled={imageBusy === p.id || !(imageNote[p.id] || "").trim()} style={{ ...priBtn, height: 36, background: C.teal }}>
-                            <Send size={14} /> Apply
-                          </button>
-                        </form>
-                      </div>
-                      <label style={labelStyle}>Image prompt</label>
-                      <textarea
-                        value={p.imagePrompt || ""}
-                        onChange={(e) => revertTouched(p.id, { imagePrompt: e.target.value })}
-                        rows={2}
-                        style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box", marginBottom: 8 }}
-                      />
-                      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => regenImage(p)} disabled={imageBusy === p.id} style={secBtn}>
-                          <ImageIcon size={14} /> {imageBusy === p.id ? "Generating…" : (p.imageUrl ? "Regenerate image" : "Generate image")}
-                        </button>
-                      </div>
-                      <label style={labelStyle}>Caption chat</label>
-                      <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginBottom: 10, background: HUB_PAPER }}>
-                        <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
-                          Tell AI how to change hook, body, headline, hashtags. Same copy on every channel unless you ask for a unique version. Image stays unless you use Image chat.
-                        </div>
-                        <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: 8 }}>
-                          {(p.copyChat || []).length === 0 ? (
-                            <div style={{ fontSize: 12, color: C.slateLight }}>e.g. “Shorter hook. Softer CTA. Keep the Excel scene. Drop two hashtags.”</div>
-                          ) : (p.copyChat || []).map((m) => (
-                            <div key={m.id} style={{ marginBottom: 6, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
-                              <div style={{
-                                maxWidth: "90%",
-                                padding: "6px 9px",
-                                borderRadius: 8,
-                                background: m.who === "user" ? C.ink : "#fff",
-                                color: m.who === "user" ? "#fff" : C.textInk,
-                                fontSize: 12,
-                                lineHeight: 1.4,
-                                border: m.who === "user" ? "none" : `1px solid ${C.border}`,
-                              }}>
-                                {m.text}
-                              </div>
-                            </div>
-                          ))}
-                          {copyBusy === p.id || p.enriching ? <div style={{ fontSize: 12, color: C.teal }}>Rewriting copy…</div> : null}
-                        </div>
-                        <form
-                          onSubmit={(e) => { e.preventDefault(); sendCopyChat(p); }}
-                          style={{ display: "flex", gap: 6 }}
-                        >
-                          <input
-                            value={copyNote[p.id] || ""}
-                            onChange={(e) => setCopyNote((m) => ({ ...m, [p.id]: e.target.value }))}
-                            placeholder="How should the caption change?"
-                            disabled={copyBusy === p.id || p.enriching}
-                            style={{ flex: 1, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13 }}
-                          />
-                          <button type="submit" disabled={copyBusy === p.id || p.enriching || !(copyNote[p.id] || "").trim()} style={{ ...priBtn, height: 36, background: C.teal }}>
-                            <Send size={14} /> Apply
-                          </button>
-                        </form>
-                      </div>
                       <label style={labelStyle}>Post copy</label>
                       <textarea
                         value={p.caption || ""}
                         onChange={(e) => revertTouched(p.id, { caption: e.target.value })}
                         rows={6}
-                        style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
+                        style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box", marginBottom: 10 }}
                       />
-                      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                      <MiniChat
+                        messages={p.copyChat}
+                        hint="Post text chat — under the copy. Changes headline, hook, body, and hashtags together. Image stays unless you use the chat above the picture."
+                        emptyHint="e.g. “Shorter headline. Softer CTA. Drop two hashtags.”"
+                        busyLabel={copyBusy === p.id || p.enriching ? "Rewriting headline and caption…" : ""}
+                        value={copyNote[p.id] || ""}
+                        onChange={(v) => setCopyNote((m) => ({ ...m, [p.id]: v }))}
+                        onSubmit={() => sendCopyChat(p)}
+                        disabled={copyBusy === p.id || p.enriching}
+                        placeholder="Change headline, hook, body, or hashtags…"
+                      />
+                      <div style={{ display: "flex", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
                         <button type="button" onClick={() => fillPackages([p], { skipImage: true })} disabled={p.enriching} style={secBtn}>
                           <Sparkles size={14} /> Rewrite caption
                         </button>
