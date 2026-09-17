@@ -1713,6 +1713,7 @@ function TasksView({
   onOpenTask,
   onWatchLive,
   onNewOutreach,
+  onLaunchLiveBatch,
 }) {
   const [taskTab, setTaskTab] = useState("all"); // "all" | "active" | "scheduled" | "completed"
   const [showWizard, setShowWizard] = useState(false);
@@ -2076,6 +2077,7 @@ function TasksView({
           isOpen={showWizard}
           onClose={() => setShowWizard(false)}
           onCreateTask={handleCreateTask}
+          onLaunchLiveBatch={onLaunchLiveBatch}
           companyName={companyName}
           companyCallerId={callerId}
         />
@@ -2086,7 +2088,7 @@ function TasksView({
 
 /* ---------------------------------- 4-Step Batch Task Wizard Modal ---------------------------------- */
 
-function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, companyCallerId }) {
+function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch, companyName, companyCallerId }) {
   const [step, setStep] = useState(1); // 1: Mapping, 2: Scripting, 3: Dialing & Smart Timing, 4: Pre-Flight Cockpit & Test Call
   const fileInputRef = useRef(null);
 
@@ -2109,11 +2111,15 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, comp
   ];
 
   // Step 1: Upload & Mapping State
-  const [fileName, setFileName] = useState("UK_Logistics_Operations_Leads.xlsx");
-  const [fileSize, setFileSize] = useState("28.4 KB");
-  const [totalRows, setTotalRows] = useState(240);
+  const [fileName, setFileName] = useState("");
+  const [fileSize, setFileSize] = useState("");
+  const [totalRows, setTotalRows] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [uploadSuccess, setUploadSuccess] = useState(true);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [liveFileReady, setLiveFileReady] = useState(false);
+  const [parseError, setParseError] = useState("");
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState("");
   const [mappings, setMappings] = useState({
     phone: "Mobile / Direct Phone",
     name: "Contact Full Name",
@@ -2131,7 +2137,7 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, comp
   );
 
   // Step 3: Concurrency & Smart Timing State
-  const [concurrency, setConcurrency] = useState(8);
+  const [concurrency, setConcurrency] = useState(20);
   const [callPolicy, setCallPolicy] = useState("respectful"); // "respectful" | "pecr_max" | "core_peak" | "custom"
   const [customStartTime, setCustomStartTime] = useState("08:30");
   const [customEndTime, setCustomEndTime] = useState("18:30");
@@ -2147,13 +2153,7 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, comp
   const [testCallSuccess, setTestCallSuccess] = useState(false);
 
   // Sample contacts parsed from file
-  const [parsedContacts, setParsedContacts] = useState([
-    { id: "c1", selected: true, name: "James Whitfield", company: "Acme Logistics Ltd", title: "Ops Director", phone: "+44 161 496 0123", valid: true },
-    { id: "c2", selected: true, name: "Sarah Jenkins", company: "Northern Freight Co", title: "Head of Supply Chain", phone: "+44 161 220 4471", valid: true },
-    { id: "c3", selected: true, name: "David Hughes", company: "Manchester Transport Group", title: "Managing Director", phone: "+44 161 883 2200", valid: true },
-    { id: "c4", selected: true, name: "Tom Radcliffe", company: "Pennine Distribution", title: "Operations Lead", phone: "+44 161 998 3345", valid: true },
-    { id: "c5", selected: true, name: "Emma Watson", company: "Green Mile Logistics", title: "VP Logistics", phone: "+44 161 552 9081", valid: true },
-  ]);
+  const [parsedContacts, setParsedContacts] = useState([]);
 
   if (!isOpen) return null;
 
@@ -2189,16 +2189,53 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, comp
     const sizeKb = (file.size / 1024).toFixed(1) + " KB";
     setFileName(name);
     setFileSize(sizeKb);
-    setUploadSuccess(true);
-    setTotalRows(Math.floor(Math.random() * 80) + 160);
-    setTaskTitle(name.replace(/\.[^/.]+$/, "").replace(/_/g, " ") + " Campaign");
+    setParseError("");
+    setLaunchError("");
+    setUploadSuccess(false);
+    setLiveFileReady(false);
+    parseSpreadsheetFile(
+      file,
+      ({ headers, records }) => {
+        const contacts = contactsFromSpreadsheetRecords(headers, records);
+        if (!contacts.length) {
+          setParseError("No dialable phone numbers in this file. Need a Name and Mobile Phone column.");
+          setParsedContacts([]);
+          setTotalRows(0);
+          setUploadSuccess(false);
+          setLiveFileReady(false);
+          return;
+        }
+        setParsedContacts(contacts);
+        setTotalRows(contacts.length);
+        setUploadSuccess(true);
+        setLiveFileReady(true);
+        setTaskTitle(name.replace(/\.[^/.]+$/, "").replace(/_/g, " ") + " Campaign");
+        const phoneH = guessColumn(headers, "phone");
+        const nameH = guessColumn(headers, "name") || guessColumn(headers, "contact");
+        setMappings((m) => ({
+          ...m,
+          phone: phoneH || m.phone,
+          name: nameH || m.name,
+        }));
+      },
+      (err) => {
+        setParseError(err || "Could not read spreadsheet");
+        setUploadSuccess(false);
+        setLiveFileReady(false);
+        setParsedContacts([]);
+        setTotalRows(0);
+      }
+    );
   };
 
   const loadSampleDataset = (name, rows) => {
     setFileName(name);
-    setFileSize("34.2 KB");
+    setFileSize("demo");
     setTotalRows(rows);
     setUploadSuccess(true);
+    setLiveFileReady(false);
+    setParsedContacts([]);
+    setParseError("Sample lists are demo-only. Upload a real spreadsheet to place live phone calls.");
     setTaskTitle(name.replace(/\.[^/.]+$/, "").replace(/_/g, " ") + " Campaign");
   };
 
@@ -2211,7 +2248,37 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, comp
     }, 1400);
   };
 
-  const handleLaunch = () => {
+  const handleLaunch = async () => {
+    const liveRows = parsedContacts.filter((c) => c.selected && c.valid && digitsInPhone(c.phone).length >= 7);
+    if (onLaunchLiveBatch && liveFileReady && liveRows.length) {
+      setLaunching(true);
+      setLaunchError("");
+      try {
+        await onLaunchLiveBatch({
+          rows: liveRows.map((c) => ({
+            name: c.company || c.name,
+            contact: c.name,
+            phone: c.phone,
+            website: "",
+          })),
+          concurrency,
+          title: taskTitle,
+          windowStart: windowTimes.start,
+          windowEnd: windowTimes.end,
+          timezone: "Europe/London",
+        });
+        onClose();
+      } catch (err) {
+        setLaunchError((err && err.message) || "Failed to start live outbound calls.");
+      } finally {
+        setLaunching(false);
+      }
+      return;
+    }
+    if (onLaunchLiveBatch) {
+      setLaunchError("Upload a spreadsheet with real phone numbers first. Sample lists do not place live calls.");
+      return;
+    }
     const created = {
       id: "task_" + Date.now(),
       title: taskTitle,
@@ -2401,6 +2468,26 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, comp
                   📁 Manufacturing SMEs (180 rows)
                 </button>
               </div>
+
+              {parseError && (
+                <div style={{ fontSize: 12.5, color: "#B45309", background: C.amberSoft, borderRadius: 8, padding: "8px 12px" }}>
+                  {parseError}
+                </div>
+              )}
+
+              {liveFileReady && parsedContacts.length > 0 && (
+                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
+                    Live numbers ready — {parsedContacts.length} will be dialed
+                  </div>
+                  {parsedContacts.slice(0, 8).map((c) => (
+                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0", borderBottom: `1px solid ${C.border}` }}>
+                      <span>{c.name}</span>
+                      <span style={{ fontFamily: FONT_MONO, color: C.slate }}>{c.phone}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Column Mapping Grid */}
               <div>
@@ -2862,12 +2949,17 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, companyName, comp
                 Continue →
               </button>
             ) : (
-              <button
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                {launchError ? <div style={{ fontSize: 11.5, color: "#B91C1C", maxWidth: 360, textAlign: "right" }}>{launchError}</div> : null}
+                <button
                 onClick={handleLaunch}
-                style={{ padding: "9px 24px", borderRadius: 8, background: C.green, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(12,140,125,0.25)" }}
+                disabled={launching || !liveFileReady}
+                title={!liveFileReady ? "Upload a spreadsheet with phone numbers first" : "Places real outbound calls"}
+                style={{ padding: "9px 24px", borderRadius: 8, background: launching || !liveFileReady ? C.slateLight : C.green, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: launching || !liveFileReady ? "default" : "pointer", boxShadow: launching || !liveFileReady ? "none" : "0 4px 12px rgba(12,140,125,0.25)" }}
               >
-                🚀 Launch Batch Task ({totalRows} Contacts)
+                {launching ? "Placing live calls…" : `🚀 Launch live outbound (${totalRows} contacts)`}
               </button>
+              </div>
             )}
           </div>
         </div>
@@ -9191,7 +9283,7 @@ const ISSUE_META = {
 /* -------- call-window math: will N companies actually finish today? -------- */
 
 const AVG_CALL_MINUTES = 3; // rough estimate used for capacity planning only
-const CONCURRENCY_OPTIONS = [1, 5, 10, 20];
+const CONCURRENCY_OPTIONS = [1, 3, 5, 10, 20, 30];
 
 function timeToMinutes(hhmm) {
   const [h, m] = (hhmm || "00:00").split(":").map(Number);
@@ -9387,6 +9479,36 @@ function parseSpreadsheetFile(file, onDone, onError) {
   }
 
   onError("Unsupported file type — upload a .csv, .xlsx, or .xls file");
+}
+
+function digitsInPhone(raw) {
+  return String(raw || "").replace(/\D/g, "");
+}
+
+function contactsFromSpreadsheetRecords(headers, records) {
+  const nameH = guessColumn(headers, "name") || guessColumn(headers, "contact") || (headers[0] || "");
+  const phoneH = guessColumn(headers, "phone") || "";
+  const contactH = guessColumn(headers, "contact") || nameH;
+  const companyH = guessColumn(headers, "name") || "";
+  const titleH = headers.find((h) => /title|role|position/i.test(String(h || ""))) || "";
+  return (records || [])
+    .map((row, i) => {
+      const name = String((contactH && row[contactH]) || (nameH && row[nameH]) || "").trim();
+      const company = String((companyH && row[companyH]) || "").trim();
+      const phone = String((phoneH && row[phoneH]) || "").trim();
+      const title = String((titleH && row[titleH]) || "").trim();
+      const valid = digitsInPhone(phone).length >= 7 && Boolean(name || company);
+      return {
+        id: "pc_" + i,
+        selected: valid,
+        name: name || company || `Row ${i + 1}`,
+        company: company && company !== name ? company : "",
+        title,
+        phone,
+        valid,
+      };
+    })
+    .filter((c) => c.valid);
 }
 
 function ImportReviewScreen({
@@ -9682,7 +9804,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
   const [importRows, setImportRows] = useState([]); // mapped preview rows, editable
   const [importFilter, setImportFilter] = useState("all"); // all | issues | duplicates
   const [bulkChannel, setBulkChannel] = useState("voice");
-  const [concurrency, setConcurrency] = useState(5);
+  const [concurrency, setConcurrency] = useState(20);
 
   const parsed = prompt.length > 8;
 
@@ -10746,7 +10868,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
             cursor: canSubmit ? "pointer" : "default",
           }}
         >
-          Confirm & start mission
+          Confirm & start live calls
         </button>
       </div>
     </div>
@@ -22574,132 +22696,123 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     setView("live");
   };
 
-  const createMission = (payload) => {
-    setShowNew(false);
-
-    if (payload.tab === "manual" && payload.rows.length) {
-      const CHANNEL_LABEL = { voice: "voice call", whatsapp: "WhatsApp", sms: "SMS", email: "email", auto: "AI-chosen channel" };
-      const concurrency = payload.concurrency || 5;
-      const fallbacks = payload.noAnswerFallbacks || ["whatsapp", "sms", "email"];
-      const fallbackNote = fallbacks.length
-        ? ` If no pickup: ${fallbacks.map((c) => CHANNEL_LABEL[c] || c).join(" → ")}.`
-        : "";
-      const callbackAdds = [];
-      let dialIndex = 0;
-      const stamp = Date.now();
-      const missionTitle = `Uploaded list — ${payload.rows.length} companies`;
-      const missionId = "m_" + stamp;
-      const prospects = payload.rows.map((r, i) => {
-        const match = r.identityMatch || findIdentityMatch(r, registry, callLog);
-        const effChannel = r.channel || payload.channel;
-        const channelNote = r.fallback && r.fallback !== "none"
-          ? `Contact via ${CHANNEL_LABEL[effChannel]}, then ${CHANNEL_LABEL[r.fallback]} if no reply`
-          : `Contact via ${CHANNEL_LABEL[effChannel] || effChannel}`;
-        const note = (r.source ? `Research source: ${r.source}. ` : "No research source provided — will call cold. ") + channelNote + fallbackNote;
-        const pid = "up_" + stamp + "_" + i;
-
-        if (match && match.blockDefault) {
-          if (match.issueCode === "callback_pending" && match.requestedFollowUp) {
-            callbackAdds.push({
-              id: "s_" + stamp + "_" + i,
-              day: match.requestedFollowUp.day,
-              time: match.requestedFollowUp.time,
-              prospect: match.canonicalName,
-              mission: missionTitle,
-              window: `${payload.windowStart}–${payload.windowEnd}`,
-              status: "queued",
-              honored: true,
-              deferred: !!(match.requestedFollowUp && /\d{4}/.test(match.requestedFollowUp.day)),
-              honoredQuote: match.requestedFollowUp.exactWords,
-            });
-            return {
-              id: pid,
-              name: r.name,
-              status: "retry",
-              channel: effChannel,
-              note: `Not re-dialed cold. They asked: “${match.requestedFollowUp.exactWords}” — callback set for ${match.requestedFollowUp.day} ${match.requestedFollowUp.time}. ${match.reasons[0]}`,
-              time: match.requestedFollowUp.time,
-            };
-          }
-          return {
-            id: pid,
-            name: r.name,
-            status: "skipped",
-            channel: effChannel,
-            note: `Skipped — ${match.note}. ${match.reasons[0] || ""}${match.doNotCall ? " On do-not-call." : ""}`,
-            time: match.lastContactAt || "known",
-          };
-        }
-
-        const status = dialIndex < concurrency ? "calling" : "queued";
-        dialIndex += 1;
-        return {
-          id: pid,
-          name: r.name,
-          status,
-          channel: effChannel,
-          fallback: r.fallback && r.fallback !== "none" ? r.fallback : null,
-          note,
-          time: status === "calling" ? "now" : "waiting in queue",
-        };
-      });
-
-      if (callbackAdds.length) setScheduleItems((its) => [...its, ...callbackAdds]);
-
-      const skipped = prospects.filter((p) => p.status === "skipped" || p.status === "retry").length;
-      const liveNow = prospects.filter((p) => p.status === "calling");
-      const mission = {
-        id: missionId,
-        title: missionTitle,
-        sector: "Mixed",
-        region: "Uploaded list",
-        status: "active",
-        contacted: 0,
-        total: payload.rows.length,
-        meetingsBooked: 0,
-        created: "just now",
-        source: "manual",
-        concurrency,
-        queueEstimate: payload.queueEstimate,
-        callWindow: `${payload.windowStart}–${payload.windowEnd}`,
-        callHoursPolicy: payload.callHoursPolicy || "respectful",
-        timezone: payload.timezone || "Europe/London",
-        lunchStart: payload.lunchStart || "12:00",
-        lunchEnd: payload.lunchEnd || "13:00",
-        noAnswerFallbacks: fallbacks,
-        understood: payload.understood || payload.rows.length,
-        fileRows: payload.fileRows || payload.rows.length,
-        prospects,
-      };
-      setMissions((ms) => [mission, ...ms]);
-      setLiveCalls((cs) => [
-        ...liveNow.map((p, i) =>
-          buildLiveCard({
-            prospect: p.name,
-            missionTitle,
-            missionId,
-            prospectId: p.id,
-            channel: p.channel,
-            index: i,
-          })
-        ),
-        ...cs,
-      ]);
-      setSelectedMissionId(missionId);
-      setLiveFocus({ missionId, missionTitle });
+  const launchLiveOutbound = async ({
+    rows,
+    concurrency,
+    title,
+    windowStart,
+    windowEnd,
+    timezone,
+    lunchStart,
+    lunchEnd,
+  }) => {
+    const prospects = (rows || [])
+      .filter((r) => digitsInPhone(r.phone || r.to_number).length >= 7)
+      .map((r) => ({
+        phone: r.phone || r.to_number,
+        to_number: r.phone || r.to_number,
+        prospect_name: r.contact || r.prospectName || r.name,
+        name: r.name || r.contact,
+        contact: r.contact || r.name,
+        website: r.website || r.source || r.site || "",
+      }));
+    if (!prospects.length) {
       setNotifications((ns) => [
         {
           id: "n_" + Date.now(),
-          text: skipped
-            ? `${payload.rows.length} imported — ${liveNow.length} live now, ${skipped} skipped or set to the time they already asked for. Open Live Activity.`
-            : `${payload.rows.length} companies imported — ${liveNow.length} calls live now, rest queued. Open Live Activity to listen, take over, or book.`,
+          text: "No dialable phone numbers on this list. Add mobiles and try again.",
           time: "just now",
           unread: true,
-          type: "info",
+          type: "error",
         },
         ...ns,
       ]);
-      setView("live");
+      throw new Error("No dialable phone numbers on this list.");
+    }
+    const cap = Math.max(1, Math.min(Number(concurrency) || 20, 30));
+    setNotifications((ns) => [
+      {
+        id: "n_" + Date.now(),
+        text: `Placing live outbound to ${prospects.length} contact${prospects.length === 1 ? "" : "s"} (up to ${Math.min(cap, prospects.length)} lines at once)…`,
+        time: "just now",
+        unread: true,
+        type: "info",
+      },
+      ...ns,
+    ]);
+    const res = await api.dialOutboundBatch({
+      prospects,
+      concurrency: cap,
+      mission_title: title || `Outbound list — ${prospects.length} contacts`,
+      from_number: profile.callerId || undefined,
+      call_window: `${windowStart || profile.weekdayStart || "09:00"}–${windowEnd || profile.weekdayEnd || "17:30"}`,
+      timezone: timezone || profile.timezone || "Europe/London",
+      lunch_start: lunchStart || profile.lunchStart || "12:00",
+      lunch_end: lunchEnd || profile.lunchEnd || "13:00",
+    });
+    const resultRows = res.results || [];
+    setMissions((ms) => [
+      {
+        id: res.mission_id,
+        title: res.title,
+        sector: "Uploaded list",
+        region: "Uploaded list",
+        status: "active",
+        contacted: 0,
+        total: res.total,
+        meetingsBooked: 0,
+        created: "just now",
+        source: "manual",
+        concurrency: res.concurrency,
+        callWindow: `${windowStart || "09:00"}–${windowEnd || "17:30"}`,
+        timezone: timezone || profile.timezone || "Europe/London",
+        lunchStart: lunchStart || "12:00",
+        lunchEnd: lunchEnd || "13:00",
+        prospects: resultRows.map((r) => ({
+          id: r.prospect_id,
+          name: r.name,
+          phone: r.to,
+          status: r.status === "calling" ? "calling" : r.status,
+          note: r.message || r.error || "",
+          time: r.status === "calling" ? "now" : "waiting",
+          channel: "voice",
+        })),
+      },
+      ...ms,
+    ]);
+    setSelectedMissionId(res.mission_id);
+    setLiveFocus({ missionId: res.mission_id, missionTitle: res.title });
+    await refreshLiveCalls();
+    setView("live");
+    setNotifications((ns) => [
+      {
+        id: "n_" + Date.now(),
+        text: res.message || `Live outbound started for ${res.total} contacts.`,
+        time: "just now",
+        unread: true,
+        type: res.failed ? "error" : "success",
+      },
+      ...ns,
+    ]);
+    return res;
+  };
+
+  const createMission = async (payload) => {
+    setShowNew(false);
+
+    const rows = payload.rows || [];
+    const withPhones = rows.filter((r) => digitsInPhone(r.phone).length >= 7);
+    if (withPhones.length) {
+      await launchLiveOutbound({
+        rows: withPhones,
+        concurrency: payload.concurrency || 20,
+        title: `Uploaded list — ${withPhones.length} contacts`,
+        windowStart: payload.windowStart,
+        windowEnd: payload.windowEnd,
+        timezone: payload.timezone,
+        lunchStart: payload.lunchStart,
+        lunchEnd: payload.lunchEnd,
+      });
       return;
     }
 
@@ -22850,6 +22963,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             onOpenTask={openMission}
             onWatchLive={goLive}
             onNewOutreach={() => setShowNew(true)}
+            onLaunchLiveBatch={launchLiveOutbound}
           />
         )}
         {(view === "missionDetail" || view === "taskDetail") && selectedMission && (

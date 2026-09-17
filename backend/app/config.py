@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_PHONE_NUMBER: Optional[str] = None
+    # Parallel outbound: operator concurrency is honored up to this cap.
+    # CPS gap keeps Twilio/Telnyx from rejecting a burst (default ~1 call/sec).
+    OUTBOUND_MAX_CONCURRENCY: int = int(os.getenv("OUTBOUND_MAX_CONCURRENCY", "30"))
+    OUTBOUND_CPS_GAP_SEC: float = float(os.getenv("OUTBOUND_CPS_GAP_SEC", "0.45"))
     
     DEEPGRAM_API_KEY: Optional[str] = None
     ELEVENLABS_API_KEY: Optional[str] = None

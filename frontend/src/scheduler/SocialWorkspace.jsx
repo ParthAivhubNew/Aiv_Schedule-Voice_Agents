@@ -112,8 +112,9 @@ function assembleCaption(pkg, fallback) {
   if (hook && body && !body.toLowerCase().startsWith(hook.slice(0, 40).toLowerCase())) {
     text = hook + "\n\n" + body;
   } else if (!body) text = hook;
+  text = String(text || "").replace(/(?:\s*#\w+)+\s*$/g, "").trim();
   const tags = Array.isArray(pkg.hashtags) ? pkg.hashtags : [];
-  const tagLine = tags.map((t) => (String(t).startsWith("#") ? t : "#" + t)).slice(0, 6).join(" ");
+  const tagLine = tags.map((t) => (String(t).startsWith("#") ? t : "#" + t)).slice(0, 30).join(" ");
   if (tagLine && text && !text.includes(tagLine)) text = String(text).trim() + "\n\n" + tagLine;
   return (text || fallback || "").trim();
 }
@@ -158,6 +159,69 @@ function buildMonthCells(year, month) {
   for (let d = 1; d <= daysIn; d++) cells.push(new Date(year, month, d));
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
+}
+
+function channelsNamedInText(text) {
+  const t = String(text || "").toLowerCase();
+  const hits = [];
+  CHANNELS.forEach((c) => {
+    if (c.id === "x") {
+      if (/(^|[^a-z0-9])(x|twitter)([^a-z0-9]|$)/i.test(t)) hits.push(c.id);
+      return;
+    }
+    if (t.includes(c.id) || t.includes(c.label.toLowerCase())) hits.push(c.id);
+  });
+  return hits;
+}
+
+function normPlan(text) {
+  return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 180);
+}
+
+function sameTaskDrafts(posts, dates, channels, topic) {
+  const fp = normPlan(topic);
+  const dateSet = new Set(dates || []);
+  const chSet = new Set(channels || []);
+  return (posts || []).filter((p) => {
+    if (!p || p.status === "posted") return false;
+    if (dateSet.size && !dateSet.has(p.date)) return false;
+    if (chSet.size && !chSet.has(p.channel)) return false;
+    const other = normPlan(p.plan);
+    if (!fp || !other) return false;
+    if (other === fp) return true;
+    const n = Math.min(fp.length, other.length);
+    if (n < 40) return false;
+    return fp.includes(other.slice(0, 80)) || other.includes(fp.slice(0, 80));
+  });
+}
+
+function copyChatReply(before, after, src) {
+  if (src && src !== "llm") {
+    return "Writer did not return a new draft. Check post-writer keys, then send the note again.";
+  }
+  const sameCaption = String(before.caption || "").trim() === String(after.caption || "").trim();
+  const sameHeadline = String(before.headline || "").trim() === String(after.headline || "").trim();
+  const countTags = (s) => (String(s || "").match(/#[A-Za-z0-9_]+/g) || []).length;
+  const beforeTags = countTags(before.caption);
+  const afterTags = countTags(after.caption);
+  if (sameCaption && sameHeadline) {
+    return "Nothing changed in headline or caption. Say exactly what to change — e.g. “put 15 hashtags at the end”.";
+  }
+  const bits = [];
+  if (!sameHeadline) bits.push("headline now: “" + String(after.headline || "").slice(0, 72) + "”");
+  if (afterTags !== beforeTags) bits.push(afterTags + " hashtags");
+  else if (!sameCaption) bits.push("caption rewritten");
+  return bits.length ? ("Updated: " + bits.join(". ") + ".") : "Updated the post from that note.";
+}
+
+function reuseAskText(existing, dates, channels) {
+  const day = [...new Set((dates || []).map(dayLabel))].join(", ");
+  const ch = (channels || []).map((id) => (CHANNELS.find((c) => c.id === id) || { label: id }).label).join(", ");
+  return (
+    "Already have " + existing.length + " draft" + (existing.length === 1 ? "" : "s")
+    + " for " + day + " on " + ch
+    + ". Open Approvals to edit those, or Generate / Send again only if you want a new set."
+  );
 }
 
 function wantsPerChannelDiff(text) {
@@ -590,6 +654,7 @@ export function SocialWorkspace({
   const inputRef = useRef(null);
   const datePickRef = useRef(null);
   const enriching = useRef(new Set());
+  const repeatGenerate = useRef("");
   const [focusDate, setFocusDate] = useState("");
   const [focusPostId, setFocusPostId] = useState("");
   const [imageBusy, setImageBusy] = useState("");
@@ -806,7 +871,6 @@ export function SocialWorkspace({
           return;
         }
         try {
-          const hadCopy = (p.caption || "").trim().length >= 60;
           const res = await api.generateSocialPackage({
             topic: p.plan || p.headline,
             existingCopy: [p.headline, p.caption].filter(Boolean).join("\n\n"),
@@ -829,35 +893,45 @@ export function SocialWorkspace({
           });
           const pkg = res && res.package;
           const share = shareOpt && !p.uniqueForChannel;
+          const src = pkg ? pkg.generationSource : (revisionNote ? "missing" : "");
           setPosts((rows) => rows.map((row) => {
             const hit = ids.includes(row.id) || (share && p.batchId && row.batchId === p.batchId && !row.uniqueForChannel && row.status !== "posted");
             if (!hit) return row;
-            const src = pkg && pkg.generationSource;
-            const assembled = assembleCaption(pkg, row.caption);
-            const caption = (src === "llm" && assembled)
-              ? assembled
-              : ((revisionNote || hadCopy) && !assembled ? row.caption : (assembled || row.caption || ""));
-            const nextHeadline = (pkg && (pkg.postTitle || pkg.hook)) || row.headline;
+            const usePkg = !revisionNote || src === "llm";
+            const assembled = usePkg ? assembleCaption(pkg, row.caption) : "";
+            const caption = (usePkg && assembled) ? assembled : (row.caption || "");
+            const nextHeadline = (usePkg && pkg && (pkg.postTitle || pkg.hook)) ? (pkg.postTitle || pkg.hook) : row.headline;
             const next = {
               ...row,
               enriching: false,
               caption,
               headline: nextHeadline,
-              hook: (pkg && pkg.hook) || row.hook,
-              hashtags: (pkg && pkg.hashtags) || row.hashtags,
+              hook: (usePkg && pkg && pkg.hook) || row.hook,
+              hashtags: (usePkg && pkg && pkg.hashtags) || row.hashtags,
               imageConcept: (pkg && (pkg.imageConcept || pkg.image_concept)) || row.imageConcept,
               imageHeadline: (pkg && (pkg.imageHeadline || pkg.image_headline)) || row.imageHeadline,
               imageUrl: skipImage ? row.imageUrl : ((pkg && pkg.imageUrl) || row.imageUrl),
               imagePrompt: skipImage ? row.imagePrompt : ((pkg && (pkg.imagePrompt || pkg.image_prompt)) || row.imagePrompt),
               copyChat: revisionNote
-                ? [...(row.copyChat || []), { id: "cpa_" + Date.now() + "_" + row.id, who: "ai", text: "Updated the headline and caption from that note." }]
+                ? [...(row.copyChat || []), { id: "cpa_" + Date.now() + "_" + row.id, who: "ai", text: copyChatReply(row, { caption, headline: nextHeadline }, src) }]
                 : (row.copyChat || []),
             };
             persistPost(next);
             return next;
           }));
-        } catch (_) {
-          setPosts((rows) => rows.map((row) => (ids.includes(row.id) ? { ...row, enriching: false } : row)));
+        } catch (e) {
+          setPosts((rows) => rows.map((row) => {
+            if (!ids.includes(row.id)) return row;
+            const fail = {
+              ...row,
+              enriching: false,
+              copyChat: revisionNote
+                ? [...(row.copyChat || []), { id: "cpx_" + Date.now() + "_" + row.id, who: "ai", text: "Could not update caption: " + (e.message || "writer failed") }]
+                : (row.copyChat || []),
+            };
+            persistPost(fail);
+            return fail;
+          }));
         } finally {
           ids.forEach((id) => enriching.current.delete(id));
           setCopyBusy((cur) => (ids.includes(cur) ? "" : cur));
@@ -1091,7 +1165,23 @@ export function SocialWorkspace({
     }
     const topic = typed;
     const dates = pinnedDates.length ? pinnedDates.slice() : [dateDraft || isoDate(Date.now())];
-    const channels = activeChannels();
+    const named = channelsNamedInText(topic);
+    const channels = named.length ? named : activeChannels();
+    const reuseKey = dates.slice().sort().join(",") + "|" + channels.slice().sort().join(",") + "|" + normPlan(topic);
+    const existing = sameTaskDrafts(posts, dates, channels, topic);
+    if (existing.length && repeatGenerate.current !== reuseKey) {
+      repeatGenerate.current = reuseKey;
+      setSelectedId(existing[0].id);
+      setApprovalOpen(true);
+      const chLabel = channels.map((id) => (CHANNELS.find((c) => c.id === id) || { label: id }).label).join(", ");
+      setChat((cs) => [
+        ...cs,
+        { id: "u_" + Date.now(), who: "user", text: topic + "\n" + dates.map(dayLabel).join(", ") + " · " + chLabel },
+        { id: "a_" + Date.now(), who: "ai", kind: "draft", postId: existing[0].id, text: reuseAskText(existing, dates, channels) },
+      ]);
+      return;
+    }
+    repeatGenerate.current = "";
     const batchId = "b_" + Date.now();
     const perChannel = wantsPerChannelDiff(topic);
     const created = [];
@@ -1159,8 +1249,10 @@ export function SocialWorkspace({
     }
     setDraft("");
     setTopicDraft("");
+    const namedSend = channelsNamedInText(text);
+    const selectedSend = namedSend.length ? namedSend : activeChannels();
     const pinList = pinnedDates.length ? pinnedDates.join(", ") : "";
-    const chList = activeChannels().join(", ");
+    const chList = selectedSend.join(", ");
     let sendText = text;
     if (override && override.reshare) sendText = text;
     else if (focusPostId) sendText = "Revise post " + focusPostId + ": " + text;
@@ -1193,7 +1285,7 @@ export function SocialWorkspace({
       }));
     const currentPlan = {
       rangeLabel: plan.rangeLabel,
-      channels: activeChannels(),
+      channels: selectedSend,
       pinnedDates,
       posts: posts.map((p) => ({
         id: p.id,
@@ -1218,16 +1310,48 @@ export function SocialWorkspace({
       currentPlan,
       targetDate: pinnedDates.length === 1 ? pinnedDates[0] : "",
       pinnedDates,
-      selectedChannels: activeChannels(),
+      selectedChannels: selectedSend,
       focusPostId: focusPostId || "",
       ...companyPayload(profile),
     }).then((res) => {
       setTyping(false);
-      const incoming = (res && res.plan) || extractPlanFromText(res && res.reply) || extractPlanFromText(text);
+      let incoming = (res && res.plan) || extractPlanFromText(res && res.reply) || extractPlanFromText(text);
+      if (incoming && Array.isArray(incoming.posts) && incoming.posts.length && namedSend.length) {
+        const filtered = incoming.posts.filter((p) => namedSend.includes(String(p.channel || "").toLowerCase()));
+        incoming = {
+          ...incoming,
+          channels: namedSend,
+          posts: filtered.length
+            ? filtered
+            : namedSend.map((ch) => ({ ...(incoming.posts[0] || {}), channel: ch, id: undefined })),
+        };
+      }
+      if (incoming && Array.isArray(incoming.posts) && incoming.posts.length) {
+        const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || isoDate(Date.now());
+        const dates = [...new Set(incoming.posts.map((p) => p.date || pinFallback))];
+        const channels = namedSend.length ? namedSend : [...new Set(incoming.posts.map((p) => String(p.channel || "linkedin").toLowerCase()))];
+        const reuseKey = dates.slice().sort().join(",") + "|" + channels.slice().sort().join(",") + "|" + normPlan(text);
+        const existing = sameTaskDrafts(posts, dates, channels, text);
+        if (existing.length && repeatGenerate.current !== reuseKey) {
+          repeatGenerate.current = reuseKey;
+          setSelectedId(existing[0].id);
+          setApprovalOpen(true);
+          setChat((cs) => [
+            ...cs,
+            { id: "a_" + Date.now(), who: "ai", kind: "draft", postId: existing[0].id, text: reuseAskText(existing, dates, channels) },
+          ]);
+          return;
+        }
+        repeatGenerate.current = "";
+      }
       const created = (incoming && Array.isArray(incoming.posts) && incoming.posts.length)
         ? applyPlan(incoming, true, !wantsPerChannelDiff(text))
         : [];
-      const spoken = humanizeAiReply((res && res.reply) || "", created.length > 0);
+      const spoken = created.length
+        ? (created.length > 1 && !wantsPerChannelDiff(text)
+          ? ("Same caption and image for " + created.length + " slots. Open Approvals to edit copy or image, or ask for a different version per channel.")
+          : ("Draft is in Approvals. Edit image or caption there — that is the post that will go out, not this chat."))
+        : humanizeAiReply((res && res.reply) || "", false);
       setChat((cs) => [
         ...cs,
         {

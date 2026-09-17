@@ -138,7 +138,19 @@ def company_hashtag(name: str) -> str:
     return "#" + slug[:32]
 
 
-def normalize_hashtags(raw, company: str = "") -> List[str]:
+def requested_hashtag_count(note: str) -> Optional[int]:
+    t = str(note or "").strip()
+    if not t:
+        return None
+    m = re.search(r"(\d{1,2})\s*hash", t, re.I)
+    if m:
+        return max(1, min(30, int(m.group(1))))
+    if re.search(r"\b(more|extra|add|increase|lot of|lots of)\b.{0,28}\bhash|\bhash.{0,28}\b(more|extra)", t, re.I):
+        return 12
+    return None
+
+
+def normalize_hashtags(raw, company: str = "", max_n: int = 6, pad: bool = True) -> List[str]:
     tags: List[str] = []
     if isinstance(raw, str):
         raw = [p for p in re.split(r"[\s,]+", raw) if p]
@@ -153,12 +165,14 @@ def normalize_hashtags(raw, company: str = "") -> List[str]:
     brand = company_hashtag(company)
     if brand and brand.lower() not in [x.lower() for x in tags]:
         tags.append(brand)
-    for t in ("#Leadership", "#Analytics", "#Operations"):
-        if len(tags) >= 3:
-            break
-        if t.lower() not in [x.lower() for x in tags]:
-            tags.append(t)
-    return tags[:6]
+    cap = max(1, min(30, int(max_n or 6)))
+    if pad:
+        for t in ("#Leadership", "#Analytics", "#Operations"):
+            if len(tags) >= min(3, cap):
+                break
+            if t.lower() not in [x.lower() for x in tags]:
+                tags.append(t)
+    return tags[:cap]
 
 
 def assemble_linkedin_post(payload: Dict[str, Any]) -> str:
@@ -169,7 +183,15 @@ def assemble_linkedin_post(payload: Dict[str, Any]) -> str:
         text = body if body.lower().startswith(head) else hook + "\n\n" + body
     else:
         text = body or hook
-    tags = normalize_hashtags(payload.get("hashtags"), company=str(payload.get("_company") or ""))
+    text = re.sub(r"(?:\s*#\w+)+\s*$", "", text or "").strip()
+    max_n = int(payload.get("_max_hashtags") or 6)
+    pad = not payload.get("_no_pad_hashtags")
+    tags = normalize_hashtags(
+        payload.get("hashtags"),
+        company=str(payload.get("_company") or ""),
+        max_n=max_n,
+        pad=pad,
+    )
     tag_line = " ".join(tags)
     if tag_line and tag_line not in text:
         text = text.rstrip() + "\n\n" + tag_line
@@ -769,6 +791,9 @@ async def generate_complete_social_package(
     draft = (existing_copy or "").strip()
     headline = (existing_headline or "").strip()
     note = (revision_note or "").strip()
+    want_n = requested_hashtag_count(note)
+    max_n = want_n or 6
+    no_pad = want_n is not None
     draft_block = ""
     if headline:
         draft_block += f"\nExisting headline (this is the visible post title — revise it when the request mentions headline/title, or when a rewrite would make it stale):\n{headline}\n"
@@ -806,6 +831,7 @@ Company profile (use only these facts; do not invent metrics, customers, systems
 {kb_block or "No extra facts supplied."}
 
 If the plan is detailed, execute that plan. If the plan is a short thought, expand it using the profile. Never switch industry.
+{f"HASHTAG OVERRIDE: the user asked for {want_n} hashtags. Put exactly {want_n} items in the hashtags array. Do not clamp to 3–6." if want_n else "Default: 3–6 hashtags unless the revision asks for a different count."}
 
 Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today's fast-paced world, slogan closers, fake statistics.
 
@@ -824,11 +850,17 @@ Return ONLY valid JSON:
   "recommended_time": "Tue 09:30"
 }}"""
     if note:
+        tag_rule = (
+            f"Use exactly {want_n} hashtags in the hashtags array. Ignore the usual 3–6 cap for this revision."
+            if want_n
+            else "Keep 3–6 hashtags unless the revision asks for a different count."
+        )
         user_msg = (
             "Revise the existing draft using the revision request. Return the FULL post JSON "
-            "(postTitle, hook, copy, hashtags, cta). Update postTitle when the request mentions "
-            "headline/title, or when the rewrite would make the old headline stale. Stay on the same "
-            "topic and company facts. Do not invent a new angle. Do not change the image concept unless the request is about the image."
+            "(postTitle, hook, copy, hashtags, cta). Apply the note to headline, hook, body, and hashtags. "
+            f"{tag_rule} "
+            "Stay on the same topic and company facts. Do not invent a new angle. "
+            "Do not change the image concept unless the request is about the image."
         )
     elif draft:
         user_msg = "Rewrite the draft. Keep names and numbers. Keep 120-220 words, 3-6 hashtags. Stay on the user's plan."
@@ -875,7 +907,17 @@ Return ONLY valid JSON:
             llm_payload[k] = strip_ai_slop(str(llm_payload.get(k)))
 
     llm_payload["_company"] = brand
-    llm_payload["hashtags"] = normalize_hashtags(llm_payload.get("hashtags"), company=brand)
+    llm_payload["_max_hashtags"] = max_n
+    llm_payload["_no_pad_hashtags"] = no_pad
+    merged_tags = list(llm_payload.get("hashtags") or [])
+    if want_n:
+        merged_tags.extend(re.findall(r"#[A-Za-z0-9_]+", str(llm_payload.get("copy") or "")))
+    llm_payload["hashtags"] = normalize_hashtags(
+        merged_tags,
+        company=brand,
+        max_n=max_n,
+        pad=not no_pad,
+    )
     llm_payload["postTitle"] = (llm_payload.get("postTitle") or headline or clean_topic)[:80]
     llm_payload["imageHeadline"] = (llm_payload.get("imageHeadline") or llm_payload.get("image_headline") or "")[:80]
     llm_payload["imageConcept"] = llm_payload.get("imageConcept") or llm_payload.get("image_concept") or clean_topic

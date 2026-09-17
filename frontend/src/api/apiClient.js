@@ -75,6 +75,7 @@ export const api = {
   confirmBooking: (callId) => apiRequest(`/calls/live/${callId}/confirm-booking`, { method: 'POST' }),
   getCallLogs: () => apiRequest('/calls/logs'),
   dialOutbound: (payload) => apiRequest('/calls/outbound/dial', { method: 'POST', body: payload }),
+  dialOutboundBatch: (payload) => apiRequest('/calls/outbound/batch', { method: 'POST', body: payload }),
   getCarrierPlugins: () => apiRequest('/calls/outbound/carriers'),
 
   // Meetings

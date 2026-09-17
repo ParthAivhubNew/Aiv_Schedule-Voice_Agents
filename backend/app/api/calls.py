@@ -8,6 +8,7 @@ from app.services.call_simulator import extract_requested_time
 from app.services.identity import find_identity_match
 from app.websockets.call_hub import call_hub
 from app.services.telephony_provider import carrier_registry, normalize_phone_number
+from app.services.outbound_dial import drain_mission_queue, launch_outbound_mission, place_outbound_call
 from app.services.xai_voice_service import (
     _run_simulated_xai_session,
     notify_prospect_answered,
@@ -20,6 +21,7 @@ from datetime import datetime, timedelta
 import logging
 import uuid
 import asyncio
+import json
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
@@ -142,9 +144,12 @@ async def end_live_call(call_id: str, db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
+    mission_id = call.mission_id
     await db.commit()
     await call_hub.broadcast("call_ended", {"callId": call.id})
     await call_hub.broadcast("call_updated", {"callId": call.id, "ended": True, "state": "ended", "duration": call.duration})
+    if mission_id:
+        asyncio.create_task(drain_mission_queue(mission_id))
     return {"status": "ok", "callId": call.id, "duration": call.duration}
 
 @router.delete("/live/{call_id}")
@@ -336,6 +341,28 @@ class OutboundDialRequest(BaseModel):
     bridge_sip_uri: Optional[str] = None
 
 
+class BatchDialProspect(BaseModel):
+    to_number: Optional[str] = None
+    phone: Optional[str] = None
+    prospect_name: Optional[str] = None
+    name: Optional[str] = None
+    contact: Optional[str] = None
+    contact_person: Optional[str] = None
+    website: Optional[str] = None
+
+
+class BatchDialRequest(BaseModel):
+    prospects: List[BatchDialProspect] = []
+    concurrency: int = 5
+    mission_title: Optional[str] = None
+    from_number: Optional[str] = None
+    carrier: Optional[str] = None
+    call_window: Optional[str] = "09:00–17:30"
+    timezone: Optional[str] = "Europe/London"
+    lunch_start: Optional[str] = "12:00"
+    lunch_end: Optional[str] = "13:00"
+
+
 @router.get("/outbound/carriers")
 async def get_outbound_carriers(db: AsyncSession = Depends(get_db)):
     """Returns available telephony carrier plugins and the active configured carrier."""
@@ -509,19 +536,7 @@ async def dial_outbound_call(
         # 4. Resolve bridge SIP URI
         bridge_sip = req.bridge_sip_uri or f"sip:{from_clean}@{settings.XAI_SIP_FQDN};transport=tls"
 
-        # Retire any previous hanging/unended calls so Live Activity displays the fresh call cleanly
-        try:
-            prev_active_res = await db.execute(select(LiveCall).where(LiveCall.ended == False))
-            for prev_call in prev_active_res.scalars().all():
-                prev_call.ended = True
-                prev_call.state = "ended"
-            await db.commit()
-        except Exception as retire_err:
-            try:
-                await db.rollback()
-            except Exception:
-                pass
-            logger.warning(f"Failed to retire old calls cleanly: {retire_err}")
+        # Keep other live lines up. Batch campaigns need concurrent PSTN calls.
 
         # 5. Create LiveCall entry
         prospect_label = req.prospect_name.strip() if req.prospect_name else f"Prospect ({to_clean[-4:]})"
@@ -671,6 +686,46 @@ async def dial_outbound_call(
         raise HTTPException(status_code=400, detail=f"Outbound dial failed: {str(top_exc)}")
 
 
+@router.post("/outbound/batch")
+async def dial_outbound_batch(req: BatchDialRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Launch as many simultaneous outbound PSTN calls as the operator set,
+    using the connected telephony provider. Extra contacts wait for a free line.
+    """
+    rows = []
+    for p in req.prospects or []:
+        phone = (p.to_number or p.phone or "").strip()
+        name = (p.prospect_name or p.contact or p.contact_person or p.name or "").strip()
+        rows.append({
+            "to_number": phone,
+            "phone": phone,
+            "prospect_name": name,
+            "name": name or p.name,
+            "contact": p.contact or p.contact_person or name,
+            "website": p.website,
+        })
+    title = (req.mission_title or "").strip() or f"Outbound list — {len(rows)} contacts"
+    try:
+        return await launch_outbound_mission(
+            db,
+            title=title,
+            prospects=rows,
+            concurrency=req.concurrency,
+            from_number=req.from_number,
+            carrier=req.carrier,
+            call_window=req.call_window or "09:00–17:30",
+            timezone=req.timezone or "Europe/London",
+            lunch_start=req.lunch_start or "12:00",
+            lunch_end=req.lunch_end or "13:00",
+            source="manual",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Batch outbound failed: {exc}")
+        raise HTTPException(status_code=400, detail=f"Batch outbound failed: {str(exc)}")
+
+
 @router.post("/twilio/status-callback")
 async def twilio_status_callback(request: Request, db: AsyncSession = Depends(get_db)):
     """
@@ -729,6 +784,8 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
             if sip_code:
                 note += f" SIP Code: {sip_code}."
             matched.transcript = (matched.transcript or []) + [f"System: {note}"]
+        mission_id = matched.mission_id
+        call_ended = call_status in ["completed", "canceled", "failed", "no-answer", "busy"]
         await db.commit()
         await call_hub.broadcast("call_updated", {
             "callId": matched.id,
@@ -736,6 +793,8 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
             "duration": matched.duration,
             "ended": matched.ended
         })
+        if call_ended and mission_id:
+            asyncio.create_task(drain_mission_queue(mission_id))
 
     return {"status": "ok"}
 
