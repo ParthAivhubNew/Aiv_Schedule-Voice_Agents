@@ -759,18 +759,30 @@ export function SocialWorkspace({
   }, [posts]);
 
   const persistPost = (np) => {
-    api.createPost({
+    return api.createPost({
       id: np.id,
       title: np.headline,
       copy: np.caption,
       channels: np.channels || [np.channel],
-      status: np.status === "draft" ? "awaiting_approval" : np.status === "posted" ? "published" : np.status,
+      status: np.status === "draft" ? "awaiting_approval" : np.status === "posted" ? "published" : np.status === "scheduled" ? "scheduled" : np.status,
       slotDateMs: parseIsoDate(np.date),
       time: np.time,
       theme: np.headline,
       imageUrl: np.imageUrl,
       imagePrompt: np.imagePrompt,
-    }).catch(() => {});
+    }).catch(() => null);
+  };
+
+  const syncBatchImage = (batchId, imageUrl, imagePrompt, exceptId) => {
+    if (!batchId || !imageUrl) return;
+    setPosts((ps) => ps.map((row) => {
+      if (row.id === exceptId) return row;
+      if (row.batchId !== batchId || row.uniqueForChannel || row.status === "posted") return row;
+      if (row.imageUrl === imageUrl) return row;
+      const shared = { ...row, imageUrl, imagePrompt: imagePrompt || row.imagePrompt };
+      persistPost(shared);
+      return shared;
+    }));
   };
 
   const applyPlan = (incoming, replaceAll, share = true) => {
@@ -894,31 +906,39 @@ export function SocialWorkspace({
           const pkg = res && res.package;
           const share = shareOpt && !p.uniqueForChannel;
           const src = pkg ? pkg.generationSource : (revisionNote ? "missing" : "");
-          setPosts((rows) => rows.map((row) => {
-            const hit = ids.includes(row.id) || (share && p.batchId && row.batchId === p.batchId && !row.uniqueForChannel && row.status !== "posted");
-            if (!hit) return row;
-            const usePkg = !revisionNote || src === "llm";
-            const assembled = usePkg ? assembleCaption(pkg, row.caption) : "";
-            const caption = (usePkg && assembled) ? assembled : (row.caption || "");
-            const nextHeadline = (usePkg && pkg && (pkg.postTitle || pkg.hook)) ? (pkg.postTitle || pkg.hook) : row.headline;
-            const next = {
-              ...row,
-              enriching: false,
-              caption,
-              headline: nextHeadline,
-              hook: (usePkg && pkg && pkg.hook) || row.hook,
-              hashtags: (usePkg && pkg && pkg.hashtags) || row.hashtags,
-              imageConcept: (pkg && (pkg.imageConcept || pkg.image_concept)) || row.imageConcept,
-              imageHeadline: (pkg && (pkg.imageHeadline || pkg.image_headline)) || row.imageHeadline,
-              imageUrl: skipImage ? row.imageUrl : ((pkg && pkg.imageUrl) || row.imageUrl),
-              imagePrompt: skipImage ? row.imagePrompt : ((pkg && (pkg.imagePrompt || pkg.image_prompt)) || row.imagePrompt),
-              copyChat: revisionNote
-                ? [...(row.copyChat || []), { id: "cpa_" + Date.now() + "_" + row.id, who: "ai", text: copyChatReply(row, { caption, headline: nextHeadline }, src) }]
-                : (row.copyChat || []),
-            };
-            persistPost(next);
-            return next;
-          }));
+          const sharedImageUrl = skipImage ? null : ((pkg && pkg.imageUrl) || null);
+          const sharedImagePrompt = skipImage ? null : ((pkg && (pkg.imagePrompt || pkg.image_prompt)) || null);
+          setPosts((rows) => {
+            const nextRows = rows.map((row) => {
+              const hit = ids.includes(row.id) || (share && p.batchId && row.batchId === p.batchId && !row.uniqueForChannel && row.status !== "posted");
+              if (!hit) return row;
+              const usePkg = !revisionNote || src === "llm";
+              const assembled = usePkg ? assembleCaption(pkg, row.caption) : "";
+              const caption = (usePkg && assembled) ? assembled : (row.caption || "");
+              const nextHeadline = (usePkg && pkg && (pkg.postTitle || pkg.hook)) ? (pkg.postTitle || pkg.hook) : row.headline;
+              const next = {
+                ...row,
+                enriching: false,
+                caption,
+                headline: nextHeadline,
+                hook: (usePkg && pkg && pkg.hook) || row.hook,
+                hashtags: (usePkg && pkg && pkg.hashtags) || row.hashtags,
+                imageConcept: (pkg && (pkg.imageConcept || pkg.image_concept)) || row.imageConcept,
+                imageHeadline: (pkg && (pkg.imageHeadline || pkg.image_headline)) || row.imageHeadline,
+                imageUrl: skipImage ? row.imageUrl : (sharedImageUrl || row.imageUrl),
+                imagePrompt: skipImage ? row.imagePrompt : (sharedImagePrompt || row.imagePrompt),
+                copyChat: revisionNote
+                  ? [...(row.copyChat || []), { id: "cpa_" + Date.now() + "_" + row.id, who: "ai", text: copyChatReply(row, { caption, headline: nextHeadline }, src) }]
+                  : (row.copyChat || []),
+              };
+              persistPost(next);
+              return next;
+            });
+            return nextRows;
+          });
+          if (share && p.batchId && sharedImageUrl) {
+            window.setTimeout(() => syncBatchImage(p.batchId, sharedImageUrl, sharedImagePrompt), 0);
+          }
         } catch (e) {
           setPosts((rows) => rows.map((row) => {
             if (!ids.includes(row.id)) return row;
@@ -1036,6 +1056,9 @@ export function SocialWorkspace({
           return row;
         }));
         persistPost(next);
+        if (p.batchId && !p.uniqueForChannel && !wantsPerChannelDiff(change)) {
+          syncBatchImage(p.batchId, next.imageUrl, next.imagePrompt, p.id);
+        }
       } else {
         showToast((res && res.warning) || "Image generation failed.");
       }
@@ -1075,16 +1098,20 @@ export function SocialWorkspace({
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch, status: p.status === "posted" ? "posted" : "draft" } : p)));
   };
 
-  const approveOne = async (p) => {
-    if (!p || p.status === "posted" || publishing) return;
+  const approveOne = async (p, opts = {}) => {
+    if (!p || p.status === "posted") return { ok: false, reason: "posted" };
+    if (!opts.batch && publishing) return { ok: false, reason: "busy" };
     const ch = String(p.channel || "linkedin").toLowerCase();
     if (!connected.some((a) => String(a.platform || "").toLowerCase() === ch)) {
-      setPage("accounts");
-      showToast("Connect " + ch + " first.");
-      return;
+      if (!opts.quiet) {
+        setPage("accounts");
+        showToast("Connect " + ch + " first.");
+      }
+      return { ok: false, reason: "connect", channel: ch };
     }
-    setPublishing(p.id);
+    if (!opts.batch) setPublishing(p.id);
     try {
+      await persistPost({ ...p, status: p.status || "draft" });
       const nowMs = Date.now();
       const due = parseIsoDate(p.date);
       const [hh, mm] = String(p.time || "09:00").split(":");
@@ -1092,10 +1119,10 @@ export function SocialWorkspace({
       if (dueMs > nowMs + 60000) {
         await api.updatePostStatus(p.id, "scheduled", p.caption, p.imageUrl, p.imagePrompt);
         setPosts((ps) => ps.map((row) => (row.id === p.id ? { ...row, status: "scheduled" } : row)));
-        showToast("Approved. Scheduled " + dayLabel(p.date) + " " + (p.time || "09:00") + ".");
-        return;
+        if (!opts.quiet) showToast("Approved. Scheduled " + dayLabel(p.date) + " " + (p.time || "09:00") + ".");
+        return { ok: true, status: "scheduled" };
       }
-      persistPost({ ...p, status: "approved" });
+      await persistPost({ ...p, status: "approved" });
       const res = await api.publishPost(p.id, {
         title: p.headline,
         copy: p.caption,
@@ -1104,11 +1131,38 @@ export function SocialWorkspace({
       });
       const ok = res && (res.status === "ok" || res.ok || (res.publishResults || []).some((r) => r.ok));
       setPosts((ps) => ps.map((row) => (row.id === p.id ? { ...row, status: ok ? "posted" : row.status, publishResults: res && res.publishResults } : row)));
-      showToast(ok ? "Posted." : "Publish failed. Check Accounts.");
+      if (!opts.quiet) showToast(ok ? "Posted." : "Publish failed. Check Accounts.");
+      return { ok, status: ok ? "posted" : "draft", reason: ok ? undefined : "publish" };
     } catch (e) {
-      showToast("Publish failed: " + (e.message || "error"));
+      if (!opts.quiet) showToast("Publish failed: " + (e.message || "error"));
+      return { ok: false, reason: "error", message: e.message };
     } finally {
-      setPublishing("");
+      if (!opts.batch) setPublishing("");
+    }
+  };
+
+  const approveAllDrafts = async () => {
+    const list = posts.filter((p) => p.status === "draft" || !p.status);
+    if (!list.length) return;
+    setPublishing("all");
+    const missing = [];
+    let okCount = 0;
+    let failCount = 0;
+    for (const p of list) {
+      const res = await approveOne(p, { batch: true, quiet: true });
+      if (res && res.ok) okCount += 1;
+      else if (res && res.reason === "connect") {
+        if (!missing.includes(res.channel)) missing.push(res.channel);
+      } else failCount += 1;
+    }
+    setPublishing("");
+    if (missing.length) {
+      setPage("accounts");
+      showToast("Approved " + okCount + ". Connect " + missing.join(", ") + " for the rest.");
+    } else if (failCount) {
+      showToast("Approved " + okCount + ". " + failCount + " failed — check Accounts or try again.");
+    } else {
+      showToast(okCount + " draft" + (okCount === 1 ? "" : "s") + " approved.");
     }
   };
 
@@ -1137,10 +1191,15 @@ export function SocialWorkspace({
     const el = datePickRef.current;
     if (!el) return;
     try {
-      if (typeof el.showPicker === "function") el.showPicker();
-      else el.click();
+      el.focus();
+      if (typeof el.showPicker === "function") {
+        const p = el.showPicker();
+        if (p && typeof p.catch === "function") p.catch(() => { try { el.click(); } catch (_) {} });
+      } else {
+        el.click();
+      }
     } catch (_) {
-      el.click();
+      try { el.click(); } catch (__) {}
     }
   };
 
@@ -1425,13 +1484,6 @@ export function SocialWorkspace({
     setApprovalOpen(true);
   };
 
-  const approveAllDrafts = async () => {
-    const list = posts.filter((p) => p.status === "draft" || !p.status);
-    for (const p of list) {
-      await approveOne(p);
-    }
-  };
-
   const cta = (() => {
     if (drafts.length) return { label: drafts.length + " in Approvals", disabled: false, action: () => openApprovals(selectedId), tone: "approve" };
     if (readyToSend.length) {
@@ -1459,6 +1511,17 @@ export function SocialWorkspace({
     if (d) return d;
     return String(a.date || "").localeCompare(String(b.date || ""));
   });
+  const waitingList = reviewList.filter((p) => p.status === "draft" || !p.status);
+  const doneList = reviewList.filter((p) => p.status && p.status !== "draft");
+
+  const applyImageToBatch = (p) => {
+    if (!p || !p.imageUrl || !p.batchId) {
+      showToast("Generate an image on this draft first.");
+      return;
+    }
+    syncBatchImage(p.batchId, p.imageUrl, p.imagePrompt, null);
+    showToast("Same image applied to every channel in this set.");
+  };
 
   const connectOauth = async (plat) => {
     setConnecting(plat);
@@ -1913,21 +1976,33 @@ export function SocialWorkspace({
                 <span style={{ ...chipBtn, background: C.paperSoft, borderColor: C.border, color: C.slate, cursor: "default" }} title="Date used when nothing is pinned">
                   {dayLabel(dateDraft)}
                 </span>
-                <button type="button" onClick={openDatePicker} style={chipBtn} title="Open calendar">
-                  <CalendarDays size={12} /> Pick date
-                </button>
-                <input
-                  ref={datePickRef}
-                  type="date"
-                  value={dateDraft}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v) addComposerDate(v);
-                  }}
-                  tabIndex={-1}
-                  aria-hidden="true"
-                  style={{ position: "fixed", left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
-                />
+                <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                  <button type="button" onClick={openDatePicker} style={chipBtn} title="Open calendar">
+                    <CalendarDays size={12} /> Pick date
+                  </button>
+                  <input
+                    ref={datePickRef}
+                    type="date"
+                    value={dateDraft}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v) addComposerDate(v);
+                    }}
+                    aria-label="Pick date"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      opacity: 0.011,
+                      width: "100%",
+                      height: "100%",
+                      border: "none",
+                      padding: 0,
+                      margin: 0,
+                      cursor: "pointer",
+                      zIndex: 2,
+                    }}
+                  />
+                </span>
               </div>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: C.slateLight, marginBottom: 6 }}>CHANNELS</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
@@ -2008,15 +2083,22 @@ export function SocialWorkspace({
               <button type="button" onClick={() => setApprovalOpen(false)} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: 18, background: HUB_PAPER }}>
-              {reviewList.length === 0 ? (
+              {waitingList.length === 0 && doneList.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, color: C.slate }}>
                   No posts yet. Generate a draft first.
                 </div>
-              ) : reviewList.map((p) => (
+              ) : null}
+              {waitingList.length === 0 && doneList.length > 0 ? (
+                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, color: C.slate, marginBottom: 12, fontSize: 13 }}>
+                  No drafts waiting. Scheduled / posted items below.
+                </div>
+              ) : null}
+              {waitingList.map((p) => (
                 <div key={p.id} id={"appr_" + p.id} style={{ background: "#fff", border: `1px solid ${selectedId === p.id ? C.teal : C.border}`, borderRadius: 14, padding: 16, marginBottom: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
                     <div style={{ fontSize: 12, color: C.slate }}>
                       {dayLabel(p.date)} · {p.time} · {p.channel} · {statusLabel(p.status)}
+                      {p.batchId && !p.uniqueForChannel ? " · shared image set" : ""}
                     </div>
                     <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(p.status) }}>{statusLabel(p.status)}</span>
                   </div>
@@ -2027,66 +2109,78 @@ export function SocialWorkspace({
                       {p.enriching || imageBusy === p.id ? "Generating visual…" : "No image yet"}
                     </div>
                   )}
-                  {p.status === "posted" ? (
-                    <>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{p.headline}</div>
-                      <div style={{ fontSize: 13, color: C.slate, whiteSpace: "pre-wrap" }}>{p.caption}</div>
-                    </>
-                  ) : (
-                    <>
-                      <MiniChat
-                        messages={p.imageChat}
-                        hint="Image chat — sits under the picture. Same visual on every channel unless you ask for a different one."
-                        emptyHint="e.g. “Spreadsheet on the left monitor, no fake dashboard UI.”"
-                        busyLabel={imageBusy === p.id ? "Redrawing…" : ""}
-                        value={imageNote[p.id] || ""}
-                        onChange={(v) => setImageNote((m) => ({ ...m, [p.id]: v }))}
-                        onSubmit={() => sendImageChat(p)}
-                        disabled={imageBusy === p.id}
-                        placeholder="Describe the image change…"
-                      />
-                      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => regenImage(p)} disabled={imageBusy === p.id} style={secBtn}>
-                          <ImageIcon size={14} /> {imageBusy === p.id ? "Generating…" : (p.imageUrl ? "Regenerate image" : "Generate image")}
-                        </button>
-                      </div>
-                      <label style={labelStyle}>Headline</label>
-                      <input
-                        value={p.headline || ""}
-                        onChange={(e) => revertTouched(p.id, { headline: e.target.value })}
-                        style={{ width: "100%", boxSizing: "border-box", height: 36, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 10 }}
-                      />
-                      <label style={labelStyle}>Post copy</label>
-                      <textarea
-                        value={p.caption || ""}
-                        onChange={(e) => revertTouched(p.id, { caption: e.target.value })}
-                        rows={6}
-                        style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box", marginBottom: 10 }}
-                      />
-                      <MiniChat
-                        messages={p.copyChat}
-                        hint="Post text chat — under the copy. Changes headline, hook, body, and hashtags together. Image stays unless you use the chat above the picture."
-                        emptyHint="e.g. “Shorter headline. Softer CTA. Drop two hashtags.”"
-                        busyLabel={copyBusy === p.id || p.enriching ? "Rewriting headline and caption…" : ""}
-                        value={copyNote[p.id] || ""}
-                        onChange={(v) => setCopyNote((m) => ({ ...m, [p.id]: v }))}
-                        onSubmit={() => sendCopyChat(p)}
-                        disabled={copyBusy === p.id || p.enriching}
-                        placeholder="Change headline, hook, body, or hashtags…"
-                      />
-                      <div style={{ display: "flex", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => fillPackages([p], { skipImage: true })} disabled={p.enriching} style={secBtn}>
-                          <Sparkles size={14} /> Rewrite caption
-                        </button>
-                        <button type="button" onClick={() => chatThisPost(p)} style={secBtn}>
-                          <MessageSquare size={14} /> Chat in Plan AI
-                        </button>
-                        <button type="button" disabled={!!publishing} onClick={() => approveOne(p)} style={priBtn}>
-                          <Check size={14} /> {publishing === p.id ? "Posting…" : "Approve & post"}
-                        </button>
-                      </div>
-                    </>
-                  )}
+                  <MiniChat
+                    messages={p.imageChat}
+                    hint="Image chat — same visual on every channel in this set unless you ask for a different one."
+                    emptyHint="e.g. “Spreadsheet on the left monitor, no fake dashboard UI.”"
+                    busyLabel={imageBusy === p.id ? "Redrawing…" : ""}
+                    value={imageNote[p.id] || ""}
+                    onChange={(v) => setImageNote((m) => ({ ...m, [p.id]: v }))}
+                    onSubmit={() => sendImageChat(p)}
+                    disabled={imageBusy === p.id}
+                    placeholder="Describe the image change…"
+                  />
+                  <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => regenImage(p)} disabled={imageBusy === p.id} style={secBtn}>
+                      <ImageIcon size={14} /> {imageBusy === p.id ? "Generating…" : (p.imageUrl ? "Regenerate image" : "Generate image")}
+                    </button>
+                    {p.imageUrl && p.batchId && !p.uniqueForChannel ? (
+                      <button type="button" onClick={() => applyImageToBatch(p)} style={secBtn}>
+                        Use this image on all channels
+                      </button>
+                    ) : null}
+                  </div>
+                  <label style={labelStyle}>Headline</label>
+                  <input
+                    value={p.headline || ""}
+                    onChange={(e) => revertTouched(p.id, { headline: e.target.value })}
+                    style={{ width: "100%", boxSizing: "border-box", height: 36, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 10 }}
+                  />
+                  <label style={labelStyle}>Post copy</label>
+                  <textarea
+                    value={p.caption || ""}
+                    onChange={(e) => revertTouched(p.id, { caption: e.target.value })}
+                    rows={6}
+                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box", marginBottom: 10 }}
+                  />
+                  <MiniChat
+                    messages={p.copyChat}
+                    hint="Post text chat — under the copy. Changes headline, hook, body, and hashtags together. Image stays unless you use the chat above the picture."
+                    emptyHint="e.g. “Shorter headline. Softer CTA. Drop two hashtags.”"
+                    busyLabel={copyBusy === p.id || p.enriching ? "Rewriting headline and caption…" : ""}
+                    value={copyNote[p.id] || ""}
+                    onChange={(v) => setCopyNote((m) => ({ ...m, [p.id]: v }))}
+                    onSubmit={() => sendCopyChat(p)}
+                    disabled={copyBusy === p.id || p.enriching}
+                    placeholder="Change headline, hook, body, or hashtags…"
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => fillPackages([p], { skipImage: true })} disabled={p.enriching} style={secBtn}>
+                      <Sparkles size={14} /> Rewrite caption
+                    </button>
+                    <button type="button" onClick={() => chatThisPost(p)} style={secBtn}>
+                      <MessageSquare size={14} /> Chat in Plan AI
+                    </button>
+                    <button type="button" disabled={!!publishing} onClick={() => approveOne(p)} style={priBtn}>
+                      <Check size={14} /> {publishing === p.id ? "Posting…" : "Approve & post"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {doneList.length ? (
+                <div style={{ marginTop: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: C.slateLight }}>
+                  ALREADY HANDLED ({doneList.length})
+                </div>
+              ) : null}
+              {doneList.map((p) => (
+                <div key={p.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 8, opacity: 0.85 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.headline}</div>
+                      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>{dayLabel(p.date)} · {p.time} · {p.channel}</div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(p.status), flexShrink: 0 }}>{statusLabel(p.status)}</span>
+                  </div>
                 </div>
               ))}
             </div>

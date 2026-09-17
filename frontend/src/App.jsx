@@ -354,8 +354,34 @@ class SafeErrorBoundary extends React.Component {
 
 /* ---------------------------------- Company Intelligence & Live Call Dossier Modal ---------------------------------- */
 
-function CompanyDossierModal({ contact, onClose, onWatchLive, onTakeOver, onBookMeeting }) {
+function dash(v) {
+  const s = String(v == null ? "" : v).trim();
+  return s || "";
+}
+
+function CompanyDossierModal({ contact, onClose, onWatchLive, onTakeOver, onBookMeeting, callIsLive }) {
   if (!contact) return null;
+  const company = dash(contact.name);
+  const person = dash(contact.contact) || (company && !dash(contact.phone) ? "" : company);
+  const phone = dash(contact.phone);
+  const email = dash(contact.email);
+  const site = dash(contact.site || contact.source || contact.website);
+  const city = dash(contact.city);
+  const title = dash(contact.title);
+  const notes = dash(contact.notes);
+  const hook = dash(contact.openingHook);
+  const fleet = dash(contact.fleet);
+  const rev = dash(contact.rev);
+  const staff = dash(contact.staff);
+  const stack = dash(contact.stack);
+  const tz = dash(contact.timezone);
+  const facts = [
+    fleet && { label: "Fleet", value: fleet },
+    rev && { label: "Turnover", value: rev },
+    staff && { label: "Staff", value: staff },
+    stack && { label: "Stack", value: stack },
+  ].filter(Boolean);
+  const live = Boolean(callIsLive || contact.status === "calling");
 
   return (
     <div
@@ -364,30 +390,29 @@ function CompanyDossierModal({ contact, onClose, onWatchLive, onTakeOver, onBook
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: "#fff", borderRadius: 16, width: 840, maxWidth: "95vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 56px rgba(0,0,0,0.3)", border: `1px solid ${C.border}`, cursor: "default" }}
+        style={{ background: "#fff", borderRadius: 16, width: 640, maxWidth: "95vw", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 28px 56px rgba(0,0,0,0.3)", border: `1px solid ${C.border}`, cursor: "default" }}
       >
-        
-        {/* Header */}
         <div style={{ padding: "20px 26px", borderBottom: `1px solid ${C.border}`, background: HUB_PAPER, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink }}>
-                {contact.name}
+                {person || company || "Contact"}
               </span>
               <Badge status={contact.status} small />
-              {contact.line && (
-                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: C.tealSoft, color: C.teal }}>
-                  ● Active on Line {contact.line}
-                </span>
-              )}
             </div>
-            <div style={{ fontSize: 13, color: C.slate, marginTop: 4, display: "flex", alignItems: "center", gap: 14 }}>
-              <span>📍 {contact.city || "UK"}</span>
-              <span>🌐 {contact.site || "company.co.uk"}</span>
-              <span>📞 {contact.phone}</span>
+            <div style={{ fontSize: 13, color: C.slate, marginTop: 6, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+              {company && person && company !== person && <span>{company}</span>}
+              {title && <span>{title}</span>}
+              {city && <span>{city}</span>}
+              {phone && <span>{phone}</span>}
+              {email && <span>{email}</span>}
             </div>
+            {site ? (
+              <div style={{ fontSize: 12.5, marginTop: 6 }}>
+                <a href={site.startsWith("http") ? site : `https://${site}`} target="_blank" rel="noreferrer" style={{ color: C.cobalt }}>{site}</a>
+              </div>
+            ) : null}
           </div>
-
           <button
             onClick={onClose}
             style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
@@ -396,81 +421,48 @@ function CompanyDossierModal({ contact, onClose, onWatchLive, onTakeOver, onBook
           </button>
         </div>
 
-        {/* Content Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
-          
-          {/* Key Company Numbers Grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-            <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Fleet Size</div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.cobalt, marginTop: 2 }}>{contact.fleet || "35 Vehicles"}</div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "22px 26px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {facts.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(facts.length, 4)}, 1fr)`, gap: 12 }}>
+              {facts.map((f) => (
+                <div key={f.label} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>{f.label}</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginTop: 2 }}>{f.value}</div>
+                </div>
+              ))}
             </div>
-            <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Annual Turnover</div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.teal, marginTop: 2 }}>{contact.rev || "£16.5M"}</div>
+          )}
+          {tz && (
+            <div style={{ fontSize: 13, color: C.slate }}>Timezone: {tz}</div>
+          )}
+          {notes && (
+            <div style={{ background: C.cobaltSoft, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.cobaltDeep, textTransform: "uppercase", marginBottom: 4 }}>Notes from file</div>
+              <div style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.5 }}>{notes}</div>
             </div>
-            <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Staff Count</div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink, marginTop: 2 }}>{contact.staff || "110"} Staff</div>
+          )}
+          {hook && (
+            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Call hook</div>
+              <div style={{ fontSize: 13, color: C.slate, lineHeight: 1.5 }}>{hook}</div>
             </div>
-            <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Current Stack</div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: C.textInk, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{contact.stack || "Excel, Sage 50"}</div>
-            </div>
-          </div>
-
-          {/* Decision Maker & Contact Info */}
-          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
-              👤 Primary Decision Maker
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{contact.contact}</div>
-                <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>{contact.title} · Direct Executive Line</div>
-                <div style={{ fontSize: 12, color: C.cobalt, marginTop: 4 }}>📱 {contact.phone}</div>
-              </div>
-              <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Timezone & Local Time</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginTop: 2 }}>Europe/London · 16:05 GMT</div>
-                <div style={{ fontSize: 11, color: C.green, marginTop: 2 }}>● Inside Optimal Calling Window</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Lead Context & Uploaded Spreadsheet Notes */}
-          <div style={{ background: C.cobaltSoft, border: `1px solid ${C.cobalt}`, borderRadius: 12, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.cobaltDeep, textTransform: "uppercase", marginBottom: 4 }}>
-              📝 CRM & Spreadsheet Context Notes
-            </div>
-            <div style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.5 }}>
-              {contact.notes || "Lead uploaded from spreadsheet. Mid-market fleet operations team seeking automated dashboard reporting."}
-            </div>
-          </div>
-
-          {/* AI Strategy & Pitch Hook */}
-          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-              🎯 AI Dialogue Strategy & Value Hook
-            </div>
+          )}
+          {!facts.length && !notes && !hook && (
             <div style={{ fontSize: 13, color: C.slate, lineHeight: 1.5 }}>
-              Targeting operations bottleneck with manual spreadsheet reconciliation. AI is offering a 10-minute executive walkthrough with Jitendra S. to demonstrate live ops dashboards.
+              Only file fields shown. No invented company stats.
             </div>
-          </div>
-
+          )}
         </div>
 
-        {/* Footer Actions */}
         <div style={{ padding: "16px 26px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <button
             onClick={onClose}
             style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
           >
-            Close Dossier
+            Close
           </button>
-
           <div style={{ display: "flex", gap: 10 }}>
-            {onWatchLive && contact.status === "calling" && (
+            {onWatchLive && live && (
               <button
                 onClick={() => { onClose(); onWatchLive(contact); }}
                 style={{ padding: "8px 16px", borderRadius: 8, background: C.cobalt, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
@@ -478,17 +470,8 @@ function CompanyDossierModal({ contact, onClose, onWatchLive, onTakeOver, onBook
                 <Radio size={14} /> Listen & Supervise Call
               </button>
             )}
-            {onBookMeeting && (
-              <button
-                onClick={() => { onClose(); onBookMeeting(contact); }}
-                style={{ padding: "8px 18px", borderRadius: 8, background: C.green, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
-              >
-                <CalendarCheck size={14} /> Book Meeting (Cal.com)
-              </button>
-            )}
           </div>
         </div>
-
       </div>
     </div>
   );
@@ -3086,13 +3069,14 @@ function callBelongsToFocus(c, focus) {
   return false;
 }
 
-function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
+function MissionDetail({ mission, onBack, companyName, onWatchLive, liveCalls = [] }) {
   const [expanded, setExpanded] = useState(null);
   const [visibleCount, setVisibleCount] = useState(50);
   const [rosterFilter, setRosterFilter] = useState("all");
   const [rosterSearch, setRosterSearch] = useState("");
   const [dossierContact, setDossierContact] = useState(null);
   const [showDataView, setShowDataView] = useState(false);
+  const prospectLive = (p) => (liveCalls || []).some((c) => liveCallActive(c) && prospectMatchesCall(p, c, mission && mission.id));
 
   if (showDataView) {
     return (
@@ -3107,6 +3091,7 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
             contact={dossierContact}
             onClose={() => setDossierContact(null)}
             onWatchLive={onWatchLive}
+            callIsLive={prospectLive(dossierContact)}
           />
         )}
       </>
@@ -3117,6 +3102,8 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
     acc[p.status] = (acc[p.status] || 0) + 1;
     return acc;
   }, {});
+  const liveCount = (mission.prospects || []).filter(prospectLive).length;
+  const tally = tallyMission(mission.prospects || []);
 
   const filteredProspects = (mission.prospects || []).filter((p) => {
     if (rosterFilter !== "all" && p.status !== rosterFilter) return false;
@@ -3149,20 +3136,20 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
               {mission.understood} of {mission.fileRows || mission.total} rows understood and queued — open any company below to see what happened and how.
             </div>
           )}
-          {(counts.calling || 0) > 0 && (
+          {(liveCount || 0) > 0 && (
             <div style={{ marginTop: 10, background: C.cobaltSoft, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk, lineHeight: 1.45, maxWidth: 560 }}>
-              {counts.calling} conversation{counts.calling === 1 ? "" : "s"} live now. This page is the roster. Open <strong>Live Activity</strong> to listen, take over, book a meeting, or end a call — ending a voice call with no pickup moves that company to WhatsApp / SMS / email.
+              {liveCount} conversation{liveCount === 1 ? "" : "s"} live now. This page is the roster. Open <strong>Live Activity</strong> to listen, take over, or end a call.
             </div>
           )}
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {typeof onWatchLive === "function" && (counts.calling || 0) > 0 && (
+            {typeof onWatchLive === "function" && liveCount > 0 && (
               <button
                 onClick={() => onWatchLive({ missionTitle: mission && mission.title, missionId: mission && mission.id })}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
               >
-                <Radio size={13} /> Watch {counts.calling} Live Call{counts.calling === 1 ? "" : "s"}
+                <Radio size={13} /> Watch {liveCount} Live Call{liveCount === 1 ? "" : "s"}
               </button>
             )}
             <button
@@ -3244,14 +3231,14 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", cursor: "pointer" }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      {p.status === "calling" ? <LivePulse /> : p.status === "meeting_booked" ? <CheckCircle2 size={16} color={C.green} /> : p.status === "human_review" ? <AlertTriangle size={16} color={C.red} /> : p.status === "skipped" ? <History size={15} color={C.slate} /> : <Circle size={14} color={C.slateLight} />}
+                      {prospectLive(p) ? <LivePulse /> : p.status === "meeting_booked" ? <CheckCircle2 size={16} color={C.green} /> : p.status === "human_review" ? <AlertTriangle size={16} color={C.red} /> : p.status === "skipped" ? <History size={15} color={C.slate} /> : <Circle size={14} color={C.slateLight} />}
                       <div>
                         <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13.5, color: C.textInk }}>{p.name}</div>
-                        <div style={{ fontSize: 11.5, color: C.slate }}>{p.contact} · {p.title || "Director"} · {p.phone}</div>
+                        <div style={{ fontSize: 11.5, color: C.slate }}>{[p.contact, p.title, p.phone].filter(Boolean).join(" · ")}</div>
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <Badge status={p.status} small />
+                      <Badge status={prospectLive(p) ? "calling" : p.status} small />
                       <ChevronDown size={15} color={C.slateLight} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
                     </div>
                   </div>
@@ -3259,12 +3246,14 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
                     <div style={{ padding: "0 16px 14px 40px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>
                       <div style={{ marginBottom: 6, fontWeight: 500, color: C.ink }}>{p.note}</div>
                       {p.notes && <div style={{ marginBottom: 6, fontSize: 12, color: C.slate, background: HUB_PAPER, padding: "6px 10px", borderRadius: 6 }}><strong>Lead Context:</strong> {p.notes}</div>}
+                      {(p.fleet || p.rev || p.city || p.stack) && (
                       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 8, fontSize: 11.5, color: C.slate }}>
-                        <span>🏢 Fleet: <strong>{p.fleet || "35 HGVs"}</strong></span>
-                        <span>💰 Rev: <strong>{p.rev || "£15M"}</strong></span>
-                        <span>📍 City: <strong>{p.city || "Manchester"}</strong></span>
-                        <span>💻 Stack: <strong>{p.stack || "Excel, Sage 50"}</strong></span>
+                        {p.fleet && <span>Fleet: <strong>{p.fleet}</strong></span>}
+                        {p.rev && <span>Rev: <strong>{p.rev}</strong></span>}
+                        {p.city && <span>City: <strong>{p.city}</strong></span>}
+                        {p.stack && <span>Stack: <strong>{p.stack}</strong></span>}
                       </div>
+                      )}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                         <button
                           onClick={(e) => { e.stopPropagation(); setDossierContact(p); }}
@@ -3273,7 +3262,7 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
                           📋 View Company Dossier
                         </button>
 
-                        {(p.status === "calling" || p.status === "human_review") && typeof onWatchLive === "function" && (
+                        {(prospectLive(p) || p.status === "human_review") && typeof onWatchLive === "function" && (
                           <button
                             onClick={(e) => { e.stopPropagation(); onWatchLive({ name: p.name, prospectId: p.id, missionTitle: mission && mission.title }); }}
                             style={{ background: C.cobalt, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
@@ -3306,14 +3295,12 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
             Mission stats
           </div>
           <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-            <StatRow label="Contacted" value={`${mission.contacted}/${mission.total}`} />
-            <StatRow label="Meetings booked" value={mission.meetingsBooked} accent={C.green} />
-            <StatRow label="Answer rate" value="64%" />
+            <StatRow label="Contacted" value={`${tally.contacted}/${tally.total}`} />
+            <StatRow label="Meetings booked" value={tally.meetingsBooked} accent={C.green} />
             <StatRow label="Needs input" value={counts.human_review || 0} accent={counts.human_review ? C.red : undefined} />
             <StatRow label="Do-not-call" value={counts.rejected || 0} />
             <StatRow label="Skipped — already known" value={counts.skipped || 0} accent={counts.skipped ? C.amber : undefined} />
-            <StatRow label="No answer / fallback" value={(counts.left_voicemail || 0) + (counts.emailed || 0) + (counts.retry || 0)} />
-            <StatRow label="Est. cost so far" value="£4.80" />
+            <StatRow label="No answer / fallback" value={(counts.left_voicemail || 0) + (counts.emailed || 0) + (counts.retry || 0) + (counts.no_answer || 0)} />
           </div>
 
           {(mission.timezone || mission.lunchStart || mission.noAnswerFallbacks) && (
@@ -3354,7 +3341,7 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
                 Queue
               </div>
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-                <StatRow label="Calling now" value={counts.calling || 0} accent={counts.calling ? C.cobaltDeep : undefined} />
+                <StatRow label="Calling now" value={liveCount} accent={liveCount ? C.cobaltDeep : undefined} />
                 <StatRow label="Waiting in queue" value={counts.queued || 0} />
                 <StatRow label="Concurrent lines" value={mission.concurrency} />
                 <StatRow label="Call window" value={mission.callWindow} />
@@ -3375,6 +3362,7 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive }) {
           contact={dossierContact}
           onClose={() => setDossierContact(null)}
           onWatchLive={onWatchLive}
+          callIsLive={prospectLive(dossierContact)}
         />
       )}
     </>
@@ -11031,12 +11019,28 @@ function buildLiveCard({ prospect, missionTitle, missionId, prospectId, channel,
   };
 }
 
+function liveCallActive(c) {
+  if (!c) return false;
+  if (c.ended) return false;
+  const st = String(c.state || "").toLowerCase();
+  return !["ended", "failed", "canceled", "completed", "no-answer", "busy"].includes(st);
+}
+
+function prospectMatchesCall(p, c, missionId) {
+  if (!p || !c) return false;
+  if (c.prospectId && p.id && String(c.prospectId) === String(p.id)) return true;
+  if (missionId && c.missionId && String(c.missionId) !== String(missionId)) return false;
+  if (c.prospect && p.name && String(c.prospect).toLowerCase() === String(p.name).toLowerCase()) return true;
+  if (c.prospect && p.contact && String(c.prospect).toLowerCase() === String(p.contact).toLowerCase()) return true;
+  return false;
+}
+
 function tallyMission(prospects) {
   const contacted = prospects.filter((p) =>
-    ["meeting_booked", "contacted", "rejected", "left_voicemail", "emailed", "operator_ended"].includes(p.status)
+    ["meeting_booked", "contacted", "rejected", "left_voicemail", "emailed", "operator_ended", "ended", "completed", "no_answer", "failed"].includes(p.status)
   ).length;
   const meetingsBooked = prospects.filter((p) => p.status === "meeting_booked").length;
-  return { contacted, meetingsBooked };
+  return { contacted, meetingsBooked, total: prospects.length };
 }
 
 function patchMissionProspects(missions, missionId, updater) {
@@ -22249,7 +22253,29 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
   const refreshLiveCalls = async () => {
     try {
       const lc = await api.getLiveCalls();
-      if (Array.isArray(lc)) setLiveCalls(lc);
+      if (!Array.isArray(lc)) return;
+      setLiveCalls(lc);
+      setMissions((ms) =>
+        ms.map((m) => {
+          const rows = m.prospects || [];
+          if (!rows.length) return m;
+          let changed = false;
+          const prospects = rows.map((p) => {
+            const call = lc.find((c) => prospectMatchesCall(p, c, m.id));
+            if (liveCallActive(call)) {
+              if (p.status !== "calling") changed = true;
+              return { ...p, status: "calling" };
+            }
+            if (p.status === "calling") {
+              changed = true;
+              return { ...p, status: call && call.booked ? "meeting_booked" : "ended", time: "just now" };
+            }
+            return p;
+          });
+          if (!changed) return m;
+          return { ...m, prospects, ...tallyMission(prospects) };
+        })
+      );
     } catch (_) {}
   };
 
@@ -23062,6 +23088,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             onBack={goBack}
             companyName={profile.name}
             onWatchLive={goLive}
+            liveCalls={liveCalls}
           />
         )}
         {view === "schedule" && (
