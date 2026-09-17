@@ -76,16 +76,24 @@ def alias_sip_first_call(custom_call_id: str, *extra_ids: Optional[str]) -> None
 
 
 async def notify_prospect_answered(call_id: str) -> bool:
-    """PSTN callee picked up. Fire opening greeting if xAI session is already ready."""
+    """PSTN callee picked up. Dump buffered hello onto the line with no extra wait."""
     rec = _sip_first_record(call_id)
-    if not rec:
-        return False
-    rec["answered"].set()
-    dispatch = rec.get("dispatch")
-    if dispatch and rec["session_ready"].is_set():
+    if rec:
+        rec["answered"].set()
+        rec["answered_at"] = time.time()
+    sess = get_bridged_session(call_id)
+    if not sess and rec:
+        for alias in rec.get("aliases") or []:
+            sess = get_bridged_session(alias)
+            if sess:
+                break
+    if sess and not sess.is_inbound:
+        await sess.release_to_caller()
+    dispatch = rec.get("dispatch") if rec else None
+    if dispatch:
         await dispatch("prospect_answered")
         return True
-    logger.info(f"[XAI-WS] Prospect answered {call_id}; waiting for session.updated before greeting")
+    logger.info(f"[XAI-WS] Prospect answered {call_id}; greeting buffer released")
     return True
 
 
@@ -98,16 +106,27 @@ class BridgedVoiceSession:
         self.ready = asyncio.Event()
         self._buf: List[str] = []
         self._live = False
+        self._released = bool(is_inbound)
         self.ws = None
         self.on_caller_audio = None
         self.engine = "xai"
 
     async def attach_stream(self, stream_sid: Optional[str] = None) -> None:
         self._live = True
+        await self._flush_if_released()
+
+    async def release_to_caller(self) -> None:
+        """Prospect picked up — dump buffered greeting onto the line now."""
+        self._released = True
+        await self._flush_if_released()
+
+    async def _flush_if_released(self) -> None:
+        if not self._live or not self._released:
+            return
         chunks = self._buf
         self._buf = []
         if chunks:
-            logger.info(f"[XAI-BRIDGE] Flushing {len(chunks)} pre-buffered greeting frames for {self.call_id}")
+            logger.info(f"[XAI-BRIDGE] Flushing {len(chunks)} greeting frames onto the live line for {self.call_id}")
         for chunk in chunks:
             await self._send_to_twilio(chunk)
 
@@ -130,7 +149,7 @@ class BridgedVoiceSession:
     async def emit_ai_audio(self, b64: str) -> None:
         if not b64:
             return
-        if self._live:
+        if self._live and self._released:
             await self._send_to_twilio(b64)
         else:
             self._buf.append(b64)
@@ -171,6 +190,10 @@ async def start_bridged_voice_session(
     bridged_sessions[str(call_id)] = sess
     if carrier_sid:
         bridged_sessions[str(carrier_sid)] = sess
+    if not is_inbound:
+        mark_sip_first_call(call_id)
+        if carrier_sid:
+            alias_sip_first_call(call_id, carrier_sid)
     mission = "Inbound Customer Call" if is_inbound else "Direct Outbound Outreach"
     logger.info(f"[VOICE-ROUTER] {call_id} engine={plan.engine} {plan.note}")
 
@@ -348,6 +371,15 @@ def verify_xai_webhook_signature(
 # ----------------------------------------------------------------------
 # 2. DYNAMIC SYSTEM PROMPT & TOOL DEFINITIONS
 # ----------------------------------------------------------------------
+def _spoken_brand(name: Optional[str]) -> str:
+    """How the voice should say the company. AIVHub must be one word, no pause."""
+    raw = (name or "AIVHub").strip() or "AIVHub"
+    compact = re.sub(r"[\s\-]+", "", raw)
+    if compact.lower() == "aivhub":
+        return "Aivhub"
+    return raw
+
+
 def _spoken_pitch(raw: Optional[str], company: str) -> str:
     """Keep Company Profile pitch wording. Do not rewrite into a generic dashboard line."""
     text = re.sub(r"\s+", " ", (raw or "").strip())
@@ -451,6 +483,7 @@ async def build_xai_system_instructions(
     faqs = _knowledge_cache.get("faqs") or []
 
     company_name = profile.name if profile else "AIVHub"
+    spoken_company = _spoken_brand(company_name)
     caller_name = profile.caller_name if profile else "Sam"
     pitch = (profile.pitch or "").strip() if profile else ""
     tone = profile.tone if profile else "Warm, charismatic, articulate, consultative, natural"
@@ -460,7 +493,7 @@ async def build_xai_system_instructions(
     social = (profile.social if profile and profile.social else "").strip()
     legal_name = (profile.legal_name if profile and profile.legal_name else company_name).strip()
     caller_id = (profile.caller_id if profile and profile.caller_id else "").strip()
-    spoken_pitch = _spoken_pitch(pitch, company_name)
+    spoken_pitch = _spoken_pitch(pitch, spoken_company)
 
     catalog_lines = []
     for s in services[:5]:
@@ -495,16 +528,19 @@ async def build_xai_system_instructions(
 - Stay completely silent until you receive an explicit response.create with greeting instructions.
 - Do not greet, do not fill silence, do not react to ringback or dead air.
 - When the greeting command arrives, the person has just picked up. Then speak immediately:
-  "Hi {target_first_name}, this is {caller_name} from {company_name}. How's your day going?"
+  "Hi {target_first_name}, this is {caller_name} from {spoken_company}. How's your day going?"
 """ if hold_opening else f"""CRITICAL OUTBOUND CALL OPENING (SPEAK FIRST & ENGAGE):
 - You are placing an OUTBOUND CALL to {target_name}. The person has just picked up.
 - You MUST speak FIRST immediately! Do NOT wait in awkward silence.
 - Opening Greeting (Warm & Human):
-  "Hi {target_first_name}, this is {caller_name} from {company_name}. How's your day going?"
+  "Hi {target_first_name}, this is {caller_name} from {spoken_company}. How's your day going?"
 """
 
-    instructions = f"""You are {caller_name}, an exceptionally warm, articulate, and personable executive representative calling on behalf of {company_name}.
-Tone & Personality: {tone}. You sound like an energetic, thoughtful human colleague having a relaxed, confident conversation over the phone. You NEVER sound like a rigid telemarketer, monotonous computer, or scripted bot.
+    instructions = f"""You are {caller_name}, a male executive representative calling on behalf of {spoken_company} (written "{company_name}").
+HOW TO SAY THE COMPANY NAME (MANDATORY):
+- Speak it as one word: "{spoken_company}".
+- Never pause between AIV and Hub. Never say "A.I.V. Hub" or "A I V Hub".
+Tone & Personality: {tone}. You sound like a warm, confident man on a business call — never a female voice, never a rigid telemarketer.
 
 HUMAN CONVERSATIONAL FLOW & NATURAL CADENCE RULES (MANDATORY):
 1. BREATHE & KEEP TURNS SHORT: Speak ONLY 1 to 2 short sentences per turn (12 to 25 words maximum). Monologuing sounds robotic. Keep the ping-pong dialogue flowing naturally.
@@ -1087,7 +1123,10 @@ async def join_xai_call_session(
         await _run_simulated_xai_session(call_id, caller_number)
         return
 
-    sip_first_rec = None if audio_bridge else _sip_first_record(custom_call_id, local_call_id, call_id)
+    sip_first_rec = _sip_first_record(custom_call_id, local_call_id, call_id, carrier_sid)
+    if not sip_first_rec and audio_bridge and not audio_bridge.is_inbound:
+        mark_sip_first_call(custom_call_id or local_call_id or call_id)
+        sip_first_rec = _sip_first_record(custom_call_id, local_call_id, call_id)
     sip_first = bool(sip_first_rec)
     if sip_first_rec:
         alias_sip_first_call(custom_call_id or local_call_id, local_call_id, call_id, carrier_sid)
@@ -1110,7 +1149,7 @@ async def join_xai_call_session(
     system_instructions = await build_xai_system_instructions(
         caller_number,
         prospect_name,
-        hold_opening=sip_first and not is_inbound_call and not audio_bridge,
+        hold_opening=not is_inbound_call,
         prospect_id=prospect_id,
         call_id=local_call_id,
     )
@@ -1190,56 +1229,57 @@ async def join_xai_call_session(
             greeting_dispatched = False
             greeting_audio_started = False
             session_ready = False
+            last_greeting_at = 0.0
+            user_spoke = False
+
+            profile_rep = _knowledge_cache.get("profile") if "_knowledge_cache" in globals() else None
+            rep_name = profile_rep.caller_name if profile_rep and profile_rep.caller_name else "Sam"
+            comp_name = profile_rep.name if profile_rep and profile_rep.name else "AIVHub"
+            spoken_comp = _spoken_brand(comp_name)
+            greeting_line = f"Hi {target_first_name}" if target_first_name != "there" else "Hi there"
+            inbound_greeting_instruction = (
+                f"You are {rep_name} at {spoken_comp}, answering an incoming phone call. "
+                f"Speak FIRST immediately, warm and human: "
+                f"'Hello, thanks for calling {spoken_comp}! This is {rep_name}. How can I help you today?' "
+                f"Say {spoken_comp} as one word. Never pause between AIV and Hub."
+            )
+            outbound_greeting_instruction = (
+                f"You are calling {target_first_name} as {rep_name} from {spoken_comp}. "
+                f"The person just picked up. Speak FIRST immediately, like a real person already on the line. "
+                f"Say this ONCE only, natural and unhurried: "
+                f"'{greeting_line}, this is {rep_name} calling from {spoken_comp}. How's your day going?' "
+                f"Say {spoken_comp} as one word — never pause between AIV and Hub. "
+                f"Do not wait. Do not restart or repeat this greeting."
+            )
 
             async def dispatch_opening_greeting(trigger_source: str, force: bool = False):
-                nonlocal greeting_dispatched, greeting_audio_started
-                if sip_first and not is_inbound_call and not audio_bridge:
-                    rec = _sip_first_record(custom_call_id, local_call_id, call_id)
-                    if rec and not rec["answered"].is_set() and trigger_source != "prospect_answered":
-                        logger.info(f"[XAI-WS] Defer greeting ({trigger_source}) — prospect still ringing")
-                        return
+                nonlocal greeting_dispatched, greeting_audio_started, last_greeting_at
+                rec = _sip_first_record(custom_call_id, local_call_id, call_id)
+                still_ringing = (
+                    sip_first and not is_inbound_call and rec and not rec["answered"].is_set()
+                    and trigger_source != "prospect_answered"
+                )
+                if still_ringing and not audio_bridge:
+                    logger.info(f"[XAI-WS] Defer greeting ({trigger_source}) — prospect still ringing")
+                    return
                 if greeting_dispatched and not force:
                     return
+                if force and greeting_audio_started and trigger_source == "audio_watchdog":
+                    return
+                if force:
+                    try:
+                        await ws.send(json.dumps({"type": "response.cancel"}))
+                    except Exception:
+                        pass
                 greeting_dispatched = True
                 greeting_audio_started = False
-                logger.info(f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source} (voice={active_voice})...")
-
-                try:
-                    from app.services.timezone_service import now_in as _now_in
-                    async with AsyncSessionLocal() as g_db:
-                        _, p_tz_g, _, _ = await _resolve_call_clocks(
-                            g_db, call_id=local_call_id, prospect_id=prospect_id, caller_number=caller_number
-                        )
-                    now_greeting = _now_in(p_tz_g)
-                except Exception:
-                    now_greeting = datetime.utcnow() + timedelta(hours=1)
-                current_time_str = now_greeting.strftime("%I:%M %p").lstrip("0")
-                current_date_str = now_greeting.strftime("%A, %d %B %Y")
-
-                is_inbound = is_inbound_call
-
-                profile_rep = _knowledge_cache.get("profile") if "_knowledge_cache" in globals() else None
-                rep_name = profile_rep.caller_name if profile_rep and profile_rep.caller_name else "Sam"
-                comp_name = profile_rep.name if profile_rep and profile_rep.name else "AIVHub"
-
-                if is_inbound:
-                    greeting_instruction = (
-                        f"You are {rep_name}, the AI representative at {comp_name}, answering an incoming phone call. "
-                        f"The current time is {current_time_str} on {current_date_str}. "
-                        f"Speak FIRST immediately! Say warmly, naturally, with conversational human tone: "
-                        f"'Hello, thanks for calling {comp_name}! This is {rep_name}. How can I help you today?' "
-                        f"Do not wait for the caller to speak first. Keep it relaxed and friendly."
-                    )
-                else:
-                    greeting_line = f"Hi {target_first_name}" if target_first_name != "there" else "Hi there"
-                    greeting_instruction = (
-                        f"You are calling {target_first_name} as {rep_name} from {comp_name} on an outbound business call. "
-                        f"The current time is {current_time_str} on {current_date_str}. "
-                        f"The person just picked up. Speak FIRST immediately! Say warmly and naturally: "
-                        f"'{greeting_line}, this is {rep_name} calling from {comp_name}. How's your day going?' "
-                        f"Do not wait for the other person to speak. Do not repeat if you already started this line."
-                    )
-
+                last_greeting_at = time.time()
+                warm = bool(still_ringing and audio_bridge)
+                logger.info(
+                    f"[XAI-WS] Triggering opening greeting for {target_first_name} via {trigger_source} "
+                    f"(voice={active_voice}, warm_buffer={warm})..."
+                )
+                greeting_instruction = inbound_greeting_instruction if is_inbound_call else outbound_greeting_instruction
                 greeting_cmd = {
                     "type": "response.create",
                     "response": {
@@ -1249,23 +1289,14 @@ async def join_xai_call_session(
                 }
                 try:
                     await ws.send(json.dumps(greeting_cmd))
-                    logger.info(f"[XAI-WS] Opening greeting dispatched successfully to xAI ({trigger_source}) for {target_first_name} (is_inbound={is_inbound})")
+                    logger.info(f"[XAI-WS] Opening greeting dispatched successfully to xAI ({trigger_source}) for {target_first_name} (is_inbound={is_inbound_call})")
                     asyncio.create_task(log_process_event(
                         subsystem="voice",
                         process_name="xai_greeting_dispatched",
-                        message=f"Opening greeting response.create sent to xAI for call {call_id} via {trigger_source} (is_inbound={is_inbound})",
+                        message=f"Opening greeting response.create sent to xAI for call {call_id} via {trigger_source}",
                         level="INFO",
-                        details={"callId": call_id, "triggerSource": trigger_source, "prospect": target_first_name, "isInbound": is_inbound}
+                        details={"callId": call_id, "triggerSource": trigger_source, "prospect": target_first_name, "warmBuffer": warm}
                     ))
-
-                    async def retry_if_silent():
-                        await asyncio.sleep(1.2)
-                        if greeting_dispatched and not greeting_audio_started and call_active:
-                            logger.warning(f"[XAI-WS] No greeting audio within 1.2s for {call_id} — retrying response.create")
-                            await dispatch_opening_greeting("audio_watchdog", force=True)
-
-                    if not force:
-                        asyncio.create_task(retry_if_silent())
                 except Exception as g_err:
                     greeting_dispatched = False
                     logger.warning(f"[XAI-WS] Failed to dispatch opening greeting: {g_err}")
@@ -1288,14 +1319,39 @@ async def join_xai_call_session(
                 event_type = event.get("type", "")
                 event_count += 1
 
-                if event_type in ["session.created", "session.updated"]:
+                if event_type == "session.created":
                     session_ready = True
                     rec_ready = _sip_first_record(custom_call_id, local_call_id, call_id)
                     if rec_ready:
                         rec_ready["session_ready"].set()
                     if audio_bridge and not audio_bridge.is_inbound:
                         audio_bridge.ready.set()
-                    await dispatch_opening_greeting(event_type)
+                    # Greeting waits for session.updated so we do not speak twice.
+                    continue
+
+                if event_type == "session.updated":
+                    session_ready = True
+                    rec_ready = _sip_first_record(custom_call_id, local_call_id, call_id)
+                    if rec_ready:
+                        rec_ready["session_ready"].set()
+                    if audio_bridge and not audio_bridge.is_inbound:
+                        audio_bridge.ready.set()
+                    already_answered = is_inbound_call or (rec_ready and rec_ready["answered"].is_set())
+                    if already_answered or not sip_first or audio_bridge:
+                        await dispatch_opening_greeting(event_type)
+
+                if event_type in (
+                    "input_audio_buffer.speech_started",
+                    "conversation.item.input_audio_transcription.delta",
+                ):
+                    user_spoke = True
+                    rec_h = _sip_first_record(custom_call_id, local_call_id, call_id)
+                    if rec_h:
+                        rec_h["answered"].set()
+                    if audio_bridge and not audio_bridge.is_inbound:
+                        await audio_bridge.release_to_caller()
+                    if not greeting_dispatched:
+                        await dispatch_opening_greeting("human_speech")
 
                 if event_type in (
                     "response.audio.started",

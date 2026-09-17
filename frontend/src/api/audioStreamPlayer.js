@@ -223,20 +223,16 @@ export class AudioStreamPlayer {
         source.connect(this.audioCtx.destination);
       }
 
-      // Smooth continuous scheduling (zero artificial gaps, zero tremolo / shakiness):
+      // Smooth continuous scheduling with a short jitter buffer (stops crackle / gaps)
       const now = this.audioCtx.currentTime;
       const trackKey = track === 'outbound' ? 'outbound' : 'inbound';
       let trackStart = this.trackTimelines[trackKey] || 0;
+      const JITTER = 0.18;
 
-      // If starting fresh or recovering from a silence gap (> 80ms):
-      if (trackStart === 0 || (now - trackStart) > 0.080) {
-        trackStart = now + 0.035; // 35ms initial safety cushion (immediate start without stutter)
-      } else if (trackStart < now) {
-        // Minor network packet jitter: start IMMEDIATELY at 'now'
-        trackStart = now;
-      } else if (trackStart > now + 0.200) {
-        // Excess latency drift (> 200ms behind real-time): gently resync
-        trackStart = now + 0.035;
+      if (trackStart < now + 0.02) {
+        trackStart = now + JITTER;
+      } else if (trackStart > now + 0.40) {
+        trackStart = now + JITTER;
       }
 
       source.start(trackStart);

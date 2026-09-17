@@ -1,3 +1,4 @@
+import html as html_lib
 import httpx
 import logging
 import uuid
@@ -11,12 +12,13 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from typing import Dict, Any, Optional, List, Tuple
+from urllib.parse import urlparse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 
 from app.config import settings
-from app.models.models import Meeting, MeetingEventType, CalcomSetting, Notification
+from app.models.models import Meeting, MeetingEventType, CalcomSetting, Notification, CompanyProfile
 from app.services.timezone_service import (
     combine_local,
     convert_local,
@@ -111,6 +113,141 @@ def _norm_time(raw: Optional[str]) -> str:
     return t[:5] if len(t) >= 5 else (t or "14:00")
 
 
+def _ics_escape(value: str) -> str:
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
+    )
+
+
+def _is_real_join_url(url: Optional[str]) -> bool:
+    u = (url or "").strip()
+    if not u.startswith("http"):
+        return False
+    if re.search(r"meet\.google\.com/aiv-", u, re.I):
+        return False
+    return True
+
+
+def _joinable_meeting_url(booking_uid: str, *candidates: Optional[str], brand_slug: str = "Meet") -> Tuple[str, str]:
+    """Prefer a real Cal.com / configured room. Never invent a Google Meet code — those 404."""
+    for raw in candidates:
+        u = (raw or "").strip()
+        if not u:
+            continue
+        if not u.startswith("http"):
+            u = "https://" + u.lstrip("/")
+        if not _is_real_join_url(u):
+            continue
+        low = u.lower()
+        if "meet.google.com" in low:
+            return u, "Google Meet"
+        if "zoom.us" in low:
+            return u, "Zoom"
+        return u, "Video call"
+    room = re.sub(r"[^A-Za-z0-9]", "", booking_uid or uuid.uuid4().hex)[:18]
+    slug = re.sub(r"[^A-Za-z0-9]", "", brand_slug or "Meet")[:18] or "Meet"
+    return f"https://meet.jit.si/{slug}-{room}", "Video call"
+
+
+def _pretty_datetime(date_iso: str, time_hhmm: str, tz_name: str) -> str:
+    try:
+        dt = combine_local(date_iso, time_hhmm, tz_name)
+        day = dt.strftime("%A, %d %B %Y")
+        if day[day.find(",") + 2] == "0":
+            day = day.replace(" 0", " ", 1)
+        clock = dt.strftime("%I:%M %p").lstrip("0")
+        return f"{day} · {clock} {short_label(tz_name)}"
+    except Exception:
+        return f"{date_iso} · {display_hhmm(time_hhmm)} {short_label(tz_name)}"
+
+
+def _booking_email_html(
+    *,
+    greeting_name: str,
+    host_name: str,
+    company_name: str,
+    company_website: str,
+    duration: str,
+    when_primary: str,
+    when_secondary: Optional[str],
+    join_url: str,
+    platform_label: str,
+    is_host: bool,
+) -> str:
+    who = html_lib.escape(greeting_name or "there")
+    host = html_lib.escape(host_name or company_name)
+    brand = html_lib.escape(company_name or host)
+    when = html_lib.escape(when_primary)
+    extra = html_lib.escape(when_secondary) if when_secondary else ""
+    url = html_lib.escape(join_url, quote=True)
+    plat = html_lib.escape(platform_label)
+    dur = html_lib.escape(duration or "15 min")
+    site = (company_website or "").strip()
+    if site and not site.startswith("http"):
+        site = "https://" + site
+    site_html = (
+        f' · <a href="{html_lib.escape(site, quote=True)}" style="color:#0F766E;text-decoration:none;">{html_lib.escape(site.replace("https://", "").replace("http://", ""))}</a>'
+        if site
+        else ""
+    )
+    headline = "You are confirmed" if not is_host else "New booking on your diary"
+    intro = (
+        f"You are booked with {host} at {brand} for a {dur} intro."
+        if not is_host
+        else f"{who} booked a {dur} intro with you."
+    )
+    extra_label = "Guest time" if is_host else "Host time"
+    second_row = (
+        f'<tr><td style="padding:0 0 14px 0;font-size:13px;color:#64748B;line-height:1.45;">{extra_label}: {extra}</td></tr>'
+        if extra
+        else ""
+    )
+    return f"""<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#F1F5F9;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;padding:24px 12px;">
+  <tr><td align="center">
+    <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #E2E8F0;">
+      <tr><td style="background:#0F766E;padding:22px 28px;">
+        <div style="font-family:Arial,sans-serif;font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:#99F6E4;font-weight:700;">{brand}</div>
+        <div style="font-family:Arial,sans-serif;font-size:22px;color:#ffffff;font-weight:700;margin-top:6px;">{headline}</div>
+      </td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px 0;font-family:Arial,sans-serif;font-size:15px;color:#0F172A;line-height:1.5;">Hi {who},</p>
+        <p style="margin:0 0 22px 0;font-family:Arial,sans-serif;font-size:15px;color:#334155;line-height:1.55;">{intro}</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFC;border-radius:12px;border:1px solid #E2E8F0;">
+          <tr><td style="padding:18px 20px;font-family:Arial,sans-serif;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr><td style="padding:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#0F766E;">When</td></tr>
+              <tr><td style="padding:0 0 14px 0;font-size:16px;font-weight:700;color:#0F172A;line-height:1.4;">{when}</td></tr>
+              {second_row}
+              <tr><td style="padding:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#0F766E;">Duration</td></tr>
+              <tr><td style="padding:0 0 14px 0;font-size:15px;color:#0F172A;">{dur}</td></tr>
+              <tr><td style="padding:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#0F766E;">Join</td></tr>
+              <tr><td style="padding:0;font-size:14px;color:#0F172A;">{plat}</td></tr>
+            </table>
+          </td></tr>
+        </table>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 8px 0;">
+          <tr><td style="border-radius:10px;background:#0F766E;">
+            <a href="{url}" style="display:inline-block;padding:14px 28px;font-family:Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;">Join video call</a>
+          </td></tr>
+        </table>
+        <p style="margin:0 0 20px 0;font-family:Arial,sans-serif;font-size:12px;color:#64748B;word-break:break-all;">{html_lib.escape(join_url)}</p>
+        <p style="margin:0;font-family:Arial,sans-serif;font-size:13px;color:#64748B;line-height:1.5;">A calendar file is attached — add it to Google Calendar, Outlook, or Apple Calendar. See you then.</p>
+      </td></tr>
+      <tr><td style="padding:16px 28px;background:#F8FAFC;border-top:1px solid #E2E8F0;font-family:Arial,sans-serif;font-size:11px;color:#94A3B8;">
+        Sent by {brand}{site_html}
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>"""
+
+
 # Default Event Types seeded if none exist
 DEFAULT_EVENT_TYPES = [
     {
@@ -148,6 +285,25 @@ class CalendarService:
         self.default_base_url = settings.CALCOM_BASE_URL.rstrip("/")
         self.default_api_key = settings.CALCOM_API_KEY
         self.default_event_type_id = settings.CALCOM_EVENT_TYPE_ID
+
+    async def _company_brand(self, db: AsyncSession) -> Dict[str, str]:
+        res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+        p = res.scalars().first()
+        name = ((p.name if p else "") or "").strip() or "Company"
+        website = ((p.website if p else "") or "").strip()
+        legal = ((p.legal_name if p else "") or name).strip()
+        caller = ((p.caller_name if p else "") or "").strip()
+        parsed = urlparse(website if website.startswith("http") else (f"https://{website}" if website else ""))
+        domain = (parsed.netloc or "").replace("www.", "") or "calendar.local"
+        slug = re.sub(r"[^A-Za-z0-9]+", "", name)[:18] or "Meet"
+        return {
+            "name": name,
+            "website": website,
+            "legal": legal,
+            "caller": caller,
+            "domain": domain,
+            "slug": slug,
+        }
 
     async def get_or_create_settings(self, db: AsyncSession) -> CalcomSetting:
         """Retrieves CalcomSetting singleton or creates default row."""
@@ -575,8 +731,9 @@ class CalendarService:
         date_str/time_str are host-local unless time_is_prospect_local is True.
         """
         setting = await self.get_or_create_settings(db)
-        resolved_host_email = host_email or setting.host_email or "admin@aivhub.io"
-        resolved_host_name = setting.host_name or "Jitendra S."
+        brand = await self._company_brand(db)
+        resolved_host_email = host_email or setting.host_email or ""
+        resolved_host_name = setting.host_name or brand.get("caller") or brand["name"]
         host_tz = setting.timezone or "Europe/London"
         p_tz = resolve_prospect_timezone(
             phone=prospect_phone,
@@ -619,20 +776,16 @@ class CalendarService:
         date_str = stamp["date"]
         time_str = stamp["time"]
 
-        # Fetch event type if duration not supplied
+        # Fetch event type for duration + standing room URL
+        res_et = await db.execute(select(MeetingEventType).where(MeetingEventType.slug == event_type_slug))
+        ev = res_et.scalars().first()
         if not duration_minutes:
-            res_et = await db.execute(select(MeetingEventType).where(MeetingEventType.slug == event_type_slug))
-            ev = res_et.scalars().first()
             duration_minutes = ev.length if ev else 15
 
-        # Unique IDs and Google Meet link
-        safe_slug = prospect_name.lower().replace(" ", "-").replace("@", "").replace(".", "")[:12]
         booking_uid = f"cal_{uuid.uuid4().hex[:10]}"
-        meet_code = f"aiv-{safe_slug[:4]}-{uuid.uuid4().hex[:4]}"
-        google_meet_url = f"https://meet.google.com/{meet_code}"
-
         calcom_booking_id = None
         provider = "native_calendar_engine"
+        calcom_video = None
 
         # 1. Attempt Cal.com REST API Sync if API Key configured
         if setting.api_key:
@@ -659,10 +812,19 @@ class CalendarService:
                         cal_data = resp.json()
                         calcom_booking_id = str(cal_data.get("id", ""))
                         if cal_data.get("videoCallUrl"):
-                            google_meet_url = cal_data.get("videoCallUrl")
+                            calcom_video = cal_data.get("videoCallUrl")
                         provider = "cal.com"
             except Exception as e:
                 logger.warning(f"Cal.com booking creation fallback: {e}")
+
+        standing_room = (ev.location_value if ev else None) or None
+        join_url, platform_label = _joinable_meeting_url(
+            booking_uid, calcom_video, standing_room, brand_slug=brand["slug"]
+        )
+        if (platform or "").lower() in ("google_meet", "google meet") and platform_label != "Google Meet":
+            platform = platform_label
+        elif not platform:
+            platform = platform_label
 
         # 2. Persist to DB Meeting record
         meeting = Meeting(
@@ -681,9 +843,9 @@ class CalendarService:
             fit=92,
             channel="voice" if "voice" in mission_name.lower() else "calendar",
             format=format_type,
-            platform=platform,
-            video_link=google_meet_url,
-            dial_in=f"+44 20 7946 {uuid.uuid4().hex[:4]}",
+            platform=platform_label if platform_label else platform,
+            video_link=join_url,
+            dial_in=None,
             address="Remote Video Conference",
             host=resolved_host_name,
             host_email=resolved_host_email,
@@ -711,7 +873,7 @@ class CalendarService:
         email_result = {"attendee": False, "host": False, "error": None}
         if setting.auto_email_attendee or setting.auto_email_host:
             try:
-                email_result = await self.send_booking_emails(db, meeting, google_meet_url)
+                email_result = await self.send_booking_emails(db, meeting, join_url)
             except Exception as mail_err:
                 logger.warning(f"Booking email send failed: {mail_err}")
                 email_result["error"] = str(mail_err)[:240]
@@ -731,7 +893,7 @@ class CalendarService:
                     "date": date_str,
                     "time": time_str,
                     "duration": f"{duration_minutes} min",
-                    "video_link": google_meet_url,
+                    "video_link": join_url,
                     "provider": provider,
                     "calcom_booking_id": calcom_booking_id,
                     "auto_email_attendee": setting.auto_email_attendee,
@@ -756,8 +918,8 @@ class CalendarService:
             "prospectDate": stamp["prospect_date"],
             "prospectTime": stamp["prospect_time"],
             "duration": f"{duration_minutes} min",
-            "videoLink": google_meet_url,
-            "platform": platform,
+            "videoLink": join_url,
+            "platform": platform_label,
             "provider": provider,
             "emailConfirmationSent": {
                 "attendee": bool(email_result.get("attendee")),
@@ -923,8 +1085,11 @@ class CalendarService:
             "status": "upcoming"
         }
 
-    def generate_ics(self, meeting: Meeting) -> str:
+    def generate_ics(self, meeting: Meeting, brand: Optional[Dict[str, str]] = None) -> str:
         """Generates iCalendar with host-local time converted to UTC so clients show their own zone."""
+        brand = brand or {}
+        company = brand.get("name") or meeting.host or "Meeting"
+        domain = brand.get("domain") or "calendar.local"
         try:
             host_tz = meeting.host_timezone or "Europe/London"
             start_local = combine_local(meeting.date, meeting.time, host_tz)
@@ -942,14 +1107,20 @@ class CalendarService:
             dtend = (datetime.utcnow() + timedelta(minutes=15)).strftime("%Y%m%dT%H%M00Z")
             dtstamp = dtstart
 
-        summary = f"Meeting: {meeting.prospect} & {meeting.host}"
-        description = f"Video Link: {meeting.video_link or 'https://meet.google.com'}\nPlatform: {meeting.platform}\nHost: {meeting.host} ({meeting.host_email})\nAttendee: {meeting.attendee or meeting.prospect} ({meeting.attendee_email or ''})\nNotes: {meeting.prep or ''}"
-        uid = f"{meeting.id}@aivhub.io"
+        summary = f"{company} × {meeting.prospect} — {meeting.duration or '15 min'}"
+        join = meeting.video_link or ""
+        description = (
+            f"Join: {join}\n"
+            f"Platform: {meeting.platform or 'Video call'}\n"
+            f"Host: {meeting.host} ({meeting.host_email or ''})\n"
+            f"Guest: {meeting.attendee or meeting.prospect} ({meeting.attendee_email or ''})"
+        )
+        uid = f"{meeting.id}@{domain}"
 
         ics_lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//AIVHub Cal.com Engine//EN",
+            f"PRODID:-//{_ics_escape(company)}//Calendar//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:REQUEST",
             "BEGIN:VEVENT",
@@ -957,15 +1128,25 @@ class CalendarService:
             f"DTSTAMP:{dtstamp}",
             f"DTSTART:{dtstart}",
             f"DTEND:{dtend}",
-            f"SUMMARY:{summary}",
-            f"DESCRIPTION:{description}",
-            f"LOCATION:{meeting.video_link or 'Google Meet'}",
-            f"ORGANIZER;CN={meeting.host}:mailto:{meeting.host_email or 'admin@aivhub.io'}",
-            f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN={meeting.prospect}:mailto:{meeting.attendee_email or 'attendee@example.com'}",
+            f"SUMMARY:{_ics_escape(summary)}",
+            f"DESCRIPTION:{_ics_escape(description)}",
+            f"LOCATION:{_ics_escape(join or 'Video call')}",
+            f"ORGANIZER;CN={_ics_escape(meeting.host or company)}:mailto:{meeting.host_email or ('invite@' + domain)}",
+            f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=TRUE;CN={_ics_escape(meeting.prospect or '')}:mailto:{meeting.attendee_email or 'attendee@example.com'}",
             "STATUS:CONFIRMED",
-            "END:VEVENT",
-            "END:VCALENDAR"
+            "SEQUENCE:0",
         ]
+        if join:
+            ics_lines.append(f"CONFERENCE;VALUE=URI;FEATURE=VIDEO:{join}")
+        ics_lines.extend([
+            "BEGIN:VALARM",
+            "TRIGGER:-PT15M",
+            "ACTION:DISPLAY",
+            f"DESCRIPTION:{_ics_escape(company)} meeting in 15 minutes",
+            "END:VALARM",
+            "END:VEVENT",
+            "END:VCALENDAR",
+        ])
         return "\r\n".join(ics_lines)
 
     def _public_config(self, cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1013,7 +1194,10 @@ class CalendarService:
         host = cfg.get("host") or ("smtp.gmail.com" if cfg.get("provider") == "google" else "smtp.office365.com")
         port = int(cfg.get("port") or 587)
         use_tls = cfg.get("use_tls", True)
-        sender_name = cfg.get("sender_name") or "AIVHub"
+        sender_name = cfg.get("sender_name")
+        if not sender_name:
+            brand = await self._company_brand(db)
+            sender_name = brand.get("name") or from_addr
         if not from_addr or not password:
             return {"ok": False, "error": "Gmail connected but app password missing."}
 
@@ -1022,8 +1206,8 @@ class CalendarService:
         msg["From"] = f"{sender_name} <{from_addr}>"
         msg["To"] = to_email
         alt = MIMEMultipart("alternative")
-        alt.attach(MIMEText(text_body or html_body.replace("<br>", "\n"), "plain"))
-        alt.attach(MIMEText(html_body, "html"))
+        alt.attach(MIMEText(text_body or html_lib.unescape(re.sub(r"<[^>]+>", " ", html_body)), "plain", "utf-8"))
+        alt.attach(MIMEText(html_body, "html", "utf-8"))
         msg.attach(alt)
         if ics_text:
             part = MIMEBase("text", "calendar", method="REQUEST")
@@ -1045,38 +1229,68 @@ class CalendarService:
 
     async def send_booking_emails(self, db: AsyncSession, meeting: Meeting, video_link: str) -> Dict[str, Any]:
         setting = await self.get_or_create_settings(db)
-        ics = self.generate_ics(meeting)
+        brand = await self._company_brand(db)
+        company = brand["name"]
+        host_name = meeting.host or brand.get("caller") or company
+        ics = self.generate_ics(meeting, brand)
         result = {"attendee": False, "host": False, "error": None}
+        p_tz = meeting.prospect_timezone or meeting.host_timezone or "Europe/London"
+        h_tz = meeting.host_timezone or "Europe/London"
         p_date = meeting.prospect_date or meeting.date
-        p_time = display_hhmm(meeting.prospect_time or meeting.time)
-        host_label = short_label(meeting.host_timezone or "Europe/London")
-        attendee_when = f"{p_date} at {p_time}"
-        host_when = f"{meeting.date} at {display_hhmm(meeting.time)} {host_label}"
-        if meeting.prospect_timezone and meeting.prospect_timezone != (meeting.host_timezone or "Europe/London"):
-            host_when = f"{host_when} (attendee sees {p_time})"
-        subject = f"Meeting confirmed — {attendee_when}"
-        html = (
-            f"<p>Hi {meeting.prospect},</p>"
-            f"<p>You're booked with {meeting.host} for a {meeting.duration} call.</p>"
-            f"<p><b>When:</b> {attendee_when}<br>"
-            f"<b>Where:</b> <a href='{video_link}'>{video_link}</a></p>"
-            f"<p>A calendar invite is attached.</p>"
-            f"<p>— {meeting.host}</p>"
+        p_time = meeting.prospect_time or meeting.time
+        attendee_when = _pretty_datetime(p_date, p_time, p_tz)
+        host_when = _pretty_datetime(meeting.date, meeting.time, h_tz)
+        zones_differ = short_label(p_tz) != short_label(h_tz)
+        first = (meeting.prospect or "there").strip().split()[0]
+        plat = meeting.platform or "Video call"
+        dur = meeting.duration or "15 min"
+        subject = f"Confirmed: {company} — {attendee_when}"
+        html = _booking_email_html(
+            greeting_name=first,
+            host_name=host_name,
+            company_name=company,
+            company_website=brand.get("website") or "",
+            duration=dur,
+            when_primary=attendee_when,
+            when_secondary=host_when if zones_differ else None,
+            join_url=video_link,
+            platform_label=plat,
+            is_host=False,
+        )
+        text = (
+            f"Hi {first},\n\nYou are booked with {host_name} at {company} for a {dur} intro.\n"
+            f"When: {attendee_when}\nJoin: {video_link}\n\nA calendar invite is attached.\n"
         )
         if setting.auto_email_attendee and meeting.attendee_email:
-            sent = await self.send_outbound_email(db, meeting.attendee_email, subject, html, ics_text=ics)
+            sent = await self.send_outbound_email(db, meeting.attendee_email, subject, html, text_body=text, ics_text=ics)
             result["attendee"] = bool(sent.get("ok"))
             if not sent.get("ok"):
                 result["error"] = sent.get("error")
         if setting.auto_email_host and meeting.host_email:
-            host_html = (
-                f"<p>Hi {meeting.host},</p>"
-                f"<p>Discovery booked with {meeting.prospect} ({meeting.attendee_email}).</p>"
-                f"<p><b>Diary:</b> {host_when}<br>"
-                f"<b>Where:</b> <a href='{video_link}'>{video_link}</a></p>"
-                f"<p>A calendar invite is attached.</p>"
+            host_html = _booking_email_html(
+                greeting_name=host_name,
+                host_name=host_name,
+                company_name=company,
+                company_website=brand.get("website") or "",
+                duration=dur,
+                when_primary=host_when,
+                when_secondary=attendee_when if zones_differ else None,
+                join_url=video_link,
+                platform_label=plat,
+                is_host=True,
             )
-            sent_h = await self.send_outbound_email(db, meeting.host_email, f"Host copy: {meeting.date} {meeting.time} {host_label}", host_html, ics_text=ics)
+            host_text = (
+                f"Hi {meeting.host},\n\n{meeting.prospect} ({meeting.attendee_email}) booked a {dur} intro.\n"
+                f"Your diary: {host_when}\nJoin: {video_link}\n"
+            )
+            sent_h = await self.send_outbound_email(
+                db,
+                meeting.host_email,
+                f"New booking: {meeting.prospect} — {host_when}",
+                host_html,
+                text_body=host_text,
+                ics_text=ics,
+            )
             result["host"] = bool(sent_h.get("ok"))
             if not sent_h.get("ok") and not result["error"]:
                 result["error"] = sent_h.get("error")

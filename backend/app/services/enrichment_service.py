@@ -481,11 +481,13 @@ async def enrich_prospect_intelligence(
         scraped_info = {}
     else:
         search_terms = []
+        if existing_notes:
+            search_terms.append(f"{existing_notes} LinkedIn company")
         if domain:
             search_terms.append(f"site:{domain} contact phone email")
         search_terms.append(f'"{target_company}" site:linkedin.com/company')
         if deep:
-            search_terms.append(f'"{target_company}" contact email phone')
+            search_terms.append(f'"{target_company}" contact email phone website')
             search_terms.append(f'site:reddit.com "{target_company}"')
         search_results = await asyncio.gather(*[search_duckduckgo(q, max_results=3) for q in search_terms])
         for res in search_results:
@@ -613,12 +615,24 @@ async def discover_new_target_accounts(
 
 def _row_missing_fields(row: Dict[str, Any]) -> List[str]:
     missing = []
-    if not str(row.get("phone") or "").strip():
+    phone = str(row.get("phone") or "").strip()
+    email = str(row.get("email") or "").strip()
+    contact = str(row.get("contact") or row.get("contactPerson") or "").strip()
+    company = str(row.get("name") or row.get("company") or "").strip()
+    website = str(row.get("source") or row.get("site") or row.get("website") or row.get("domain") or "").strip()
+    linkedin = str(row.get("linkedin") or "").strip()
+    if not phone:
         missing.append("phone")
-    if not str(row.get("email") or "").strip():
+    if not email:
         missing.append("email")
-    if not str(row.get("contact") or row.get("contactPerson") or "").strip():
+    if not contact:
         missing.append("person")
+    if not company or _is_person_name(company):
+        missing.append("company")
+    if not website:
+        missing.append("website")
+    if not linkedin:
+        missing.append("linkedin")
     return missing
 
 
@@ -632,7 +646,8 @@ async def fill_contact_gaps(
     """
     targets = []
     for row in rows:
-        name = str(row.get("name") or row.get("company") or "").strip()
+        contact = str(row.get("contact") or "").strip()
+        name = str(row.get("name") or row.get("company") or contact).strip()
         if not name:
             continue
         missing = _row_missing_fields(row)
@@ -643,19 +658,24 @@ async def fill_contact_gaps(
     sem = asyncio.Semaphore(2)
 
     async def enrich_one(row, name, missing):
-        domain = str(row.get("source") or row.get("site") or row.get("domain") or "").strip()
+        domain = str(row.get("source") or row.get("site") or row.get("domain") or row.get("website") or "").strip()
         if domain and " " in domain and not domain.startswith("http"):
             domain = ""
+        person = str(row.get("contact") or "").strip()
+        phone = str(row.get("phone") or "").strip()
+        query_company = name if not _is_person_name(name) else ""
+        query_name = query_company or person or name
         try:
             async with sem:
                 data = await asyncio.wait_for(
                     enrich_prospect_intelligence(
-                        name=name,
-                        company=name,
+                        name=query_name,
+                        company=query_company or query_name,
                         domain=domain or None,
-                        deep=False,
+                        existing_notes=(f"{person} {phone}").strip() or None,
+                        deep=True,
                     ),
-                    timeout=12,
+                    timeout=18,
                 )
         except Exception as err:
             logger.warning(f"Gap fill failed for '{name}': {err}")
@@ -695,13 +715,24 @@ async def fill_contact_gaps(
                 slug = linkedin.split("/company/")[-1].split("/")[0]
                 if slug:
                     linkedin = f"https://www.linkedin.com/company/{slug}"
+            website = ""
+            for url in (data.get("citations") or []):
+                low = str(url or "").lower()
+                if not url or any(s in low for s in ["linkedin.com", "facebook.com", "twitter.com", "x.com", "reddit.com", "duckduckgo", "wikipedia"]):
+                    continue
+                website = url
+                break
+            found_company = str(data.get("company") or "").strip()
+            if found_company and _is_person_name(found_company):
+                found_company = ""
             proposal = {
                 "rowId": row.get("id"),
-                "company": name,
+                "company": found_company or name,
                 "status": "proposed",
                 "gaps": missing,
                 "confidence": data.get("confidenceScore") or 0,
-                "source": linkedin or (data.get("citations") or [None])[0] or data.get("domain") or "",
+                "source": website or linkedin or (data.get("citations") or [None])[0] or "",
+                "website": website,
                 "openingHook": data.get("openingHook") or "",
                 "overview": data.get("overview") or "",
                 "linkedin": linkedin,
@@ -722,6 +753,13 @@ async def fill_contact_gaps(
             if "person" in missing and person:
                 proposal["contact"] = person
                 found.append("person")
+            if "company" in missing and found_company:
+                proposal["company"] = found_company
+                found.append("company")
+            if "website" in missing and website:
+                found.append("website")
+            if "linkedin" in missing and linkedin:
+                found.append("linkedin")
             if socials:
                 found.append("socials")
 

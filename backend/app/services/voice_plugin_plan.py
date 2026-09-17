@@ -115,7 +115,7 @@ async def resolve_voice_plan() -> VoicePlan:
 
     engine_cfg = _cfg(engine_conn)
     engine = _norm_engine(engine_conn.name if engine_conn else "", engine_cfg)
-    voice_name = engine_cfg.get("voice_name") or engine_cfg.get("voice") or settings.XAI_VOICE_NAME or "ara"
+    voice_name = engine_cfg.get("voice_name") or engine_cfg.get("voice") or settings.XAI_VOICE_NAME or "rex"
     carrier = (carrier_conn.name if carrier_conn else "twilio") or "twilio"
 
     stt = None

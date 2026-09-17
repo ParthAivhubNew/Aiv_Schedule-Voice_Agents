@@ -25,7 +25,7 @@ from app.websockets.call_hub import call_hub
 
 logger = logging.getLogger("outbound_dial")
 
-MAX_CONCURRENCY = max(1, int(getattr(settings, "OUTBOUND_MAX_CONCURRENCY", 30) or 30))
+MAX_CONCURRENCY = max(1, min(5, int(getattr(settings, "OUTBOUND_MAX_CONCURRENCY", 5) or 5)))
 CPS_GAP_SEC = max(0.15, float(getattr(settings, "OUTBOUND_CPS_GAP_SEC", 0.45) or 0.45))
 
 _drain_lock = asyncio.Lock()

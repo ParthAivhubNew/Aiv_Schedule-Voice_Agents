@@ -208,7 +208,7 @@ class TelephonyHubProvisionRequest(BaseModel):
     api_key: Optional[str] = None
     account_sid: Optional[str] = None
     agent_id: Optional[str] = None
-    voice_name: Optional[str] = "ara"  # Default to ara (ultra-natural human voice)
+    voice_name: Optional[str] = "rex"  # rex = male (Sam)
     silence_duration_ms: Optional[int] = 380  # Snappy human turn-taking
     temperature: Optional[float] = 0.80  # Natural vocal inflection and warmth
     webhook_url: Optional[str] = None
@@ -730,9 +730,9 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                     "phoneNumber": phone_clean,
                     "engine": engine,
                     "engine_label": engine_name,
-                    "voice_name": req.voice_name or "ara",
+                    "voice_name": req.voice_name or "rex",
                     "custom_voices": prev_voices,
-                    "cloned_voice_id": None if (req.voice_name or "ara") in ("ara", "eve", "rex", "leo") else (req.voice_name or None),
+                    "cloned_voice_id": None if (req.voice_name or "rex") in ("ara", "eve", "rex", "leo") else (req.voice_name or None),
                     "cloned_voice_label": prev_label if (req.voice_name and req.voice_name not in ("ara", "eve", "rex", "leo")) else None,
                     "silence_duration_ms": req.silence_duration_ms or 380,
                     "temperature": req.temperature or 0.80

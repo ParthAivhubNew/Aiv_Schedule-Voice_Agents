@@ -2137,7 +2137,7 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
   );
 
   // Step 3: Concurrency & Smart Timing State
-  const [concurrency, setConcurrency] = useState(20);
+  const [concurrency, setConcurrency] = useState(1);
   const [callPolicy, setCallPolicy] = useState("respectful"); // "respectful" | "pecr_max" | "core_peak" | "custom"
   const [customStartTime, setCustomStartTime] = useState("08:30");
   const [customEndTime, setCustomEndTime] = useState("18:30");
@@ -2256,10 +2256,12 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
       try {
         await onLaunchLiveBatch({
           rows: liveRows.map((c) => ({
-            name: c.company || c.name,
+            name: c.company || "",
             contact: c.name,
             phone: c.phone,
-            website: "",
+            website: c.website || "",
+            email: c.email || "",
+            linkedin: c.linkedin || "",
           })),
           concurrency,
           title: taskTitle,
@@ -2288,7 +2290,7 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
       region: "UK-wide",
       status: "active",
       concurrency,
-      activeLines: Math.min(concurrency, 4),
+      activeLines: Math.min(concurrency, 5),
       contacted: 0,
       total: totalRows,
       meetingsBooked: 0,
@@ -2481,9 +2483,11 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
                     Live numbers ready — {parsedContacts.length} will be dialed
                   </div>
                   {parsedContacts.slice(0, 8).map((c) => (
-                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <div key={c.id} style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr 0.9fr 0.9fr", gap: 8, fontSize: 12, padding: "4px 0", borderBottom: `1px solid ${C.border}` }}>
                       <span>{c.name}</span>
                       <span style={{ fontFamily: FONT_MONO, color: C.slate }}>{c.phone}</span>
+                      <span style={{ color: c.company ? C.ink : C.slateLight }}>{c.company || "company —"}</span>
+                      <span style={{ color: c.email || c.website || c.linkedin ? C.ink : C.slateLight }}>{c.email || c.website || c.linkedin || "email / web / LI —"}</span>
                     </div>
                   ))}
                 </div>
@@ -2500,7 +2504,9 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
                     { key: "name", label: "Contact Full / First Name Column" },
                     { key: "company", label: "Company / Organization Column" },
                     { key: "jobTitle", label: "Job Title Column" },
-                    { key: "industry", label: "Industry / Sector Column" },
+                    { key: "email", label: "Email Column (empty if not in file)" },
+                    { key: "website", label: "Website Column (empty if not in file)" },
+                    { key: "linkedin", label: "LinkedIn Column (empty if not in file)" },
                     { key: "notes", label: "Custom Notes / Context Column" },
                   ].map((f) => (
                     <div key={f.key} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
@@ -2599,24 +2605,24 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>Parallel Calling Concurrency: {concurrency} Simultaneous Lines</div>
-                    <div style={{ fontSize: 12, color: C.slate }}>Simultaneous AI voice channels dialing in parallel across your SIP trunk.</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>Calls at once: {concurrency} {concurrency === 1 ? "line" : "lines"}</div>
+                    <div style={{ fontSize: 12, color: C.slate }}>Pick 1 for one-by-one. Max 5 so voice quality stays clean.</div>
                   </div>
                   <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.cobalt }}>{concurrency} Lines</span>
                 </div>
                 <input
                   type="range"
                   min="1"
-                  max="30"
+                  max="5"
                   step="1"
                   value={concurrency}
                   onChange={(e) => setConcurrency(parseInt(e.target.value, 10))}
                   style={{ width: "100%" }}
                 />
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.slate, marginTop: 4 }}>
-                  <span>1 line (Sequential / 1-by-1)</span>
-                  <span>8 lines (Recommended Batch)</span>
-                  <span>30 lines (High-Throughput Enterprise)</span>
+                  <span>1 line (one at a time)</span>
+                  <span>3 lines</span>
+                  <span>5 lines (max for quality)</span>
                 </div>
               </div>
 
@@ -7060,7 +7066,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
     liveEngine: "xai",
     liveNote: "",
     phoneNumber: profile?.callerId || "+19096866918",
-    voiceName: "ara",
+    voiceName: "rex",
     silenceDurationMs: 380,
     temperature: 0.80,
     status: "connected",
@@ -7077,7 +7083,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [showKey, setShowKey] = useState(false);
   const [accountSid, setAccountSid] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
-  const [voiceName, setVoiceName] = useState("ara");
+  const [voiceName, setVoiceName] = useState("rex");
   const [customVoices, setCustomVoices] = useState([]);
   const [cloneName, setCloneName] = useState("My voice");
   const [pasteVoiceId, setPasteVoiceId] = useState("");
@@ -7744,9 +7750,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               >
                 {engineChoice === "xai" ? (
                   <>
-                    <option value="ara">Ara (Warm, Expressive & Ultra-Natural Human — Recommended)</option>
-                    <option value="eve">Eve (Dynamic, Engaging & Energetic Female)</option>
-                    <option value="rex">Rex (Structured, Deep Executive Male)</option>
+                    <option value="rex">Rex (Male executive — use this for Sam)</option>
+                    <option value="ara">Ara (Female, warm)</option>
+                    <option value="eve">Eve (Female, energetic)</option>
                   </>
                 ) : engineChoice === "openai" ? (
                   <>
@@ -7772,7 +7778,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 )}
               </select>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
-                Live Grok calls use this ID. Built-in = Ara/Eve/Rex. Cloned = your recording.
+                Live Grok calls use this ID. For Sam (male): pick Rex, then leave this screen — it saves on change. Ara/Eve sound female.
               </div>
             </div>
 
@@ -9048,13 +9054,14 @@ function AnalyticsView({ notifications, setNotifications }) {
 
 // header text -> which field it maps to. checked in order, first match wins.
 const COLUMN_GUESSES = {
-  name: ["company", "company name", "business", "business name", "name", "organisation", "organization"],
-  phone: ["phone", "phone number", "telephone", "tel", "mobile", "contact number"],
-  website: ["website", "url", "site", "web", "domain", "link"],
-  contact: ["contact", "contact name", "person", "attention", "poc"],
+  name: ["company", "company name", "business", "business name", "organisation", "organization", "account"],
+  phone: ["phone", "phone number", "telephone", "tel", "mobile", "mobile phone", "contact number"],
+  website: ["website", "url", "site", "web", "domain", "homepage"],
+  contact: ["contact name", "contact", "full name", "person", "attention", "poc", "first name"],
   notes: ["notes", "note", "comment", "comments", "description"],
   channel: ["channel", "contact channel", "contact method", "preferred channel", "outreach channel"],
   email: ["email", "e-mail", "mail", "email address"],
+  linkedin: ["linkedin", "linkedin url", "linkedin profile", "li url"],
 };
 
 const CHANNEL_OPTIONS = [
@@ -9097,6 +9104,30 @@ function isPersonName(raw) {
   if (parts.some((p) => ROLE_NAME_RE.test(p.replace(/\.$/, "")))) return false;
   if (parts.some((p) => /^(new|york|los|angeles|san|francisco|inc|ltd|corp|llc|group|company|plc)$/i.test(p))) return false;
   return parts.every((p) => /^[A-Z][a-zA-Z'-]+$/.test(p) || /^(de|da|van|von|der|la|le|di|du)$/i.test(p));
+}
+
+function looksLikeUrl(raw) {
+  const v = String(raw || "").trim();
+  if (!v || v.length < 5 || /\s/.test(v)) return false;
+  if (isPersonName(v)) return false;
+  return /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}([/:?#].*)?$/i.test(v) || /linkedin\.com\//i.test(v);
+}
+
+function looksLikeCompanyLabel(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return false;
+  if (isPersonName(v)) return false;
+  return /\b(ltd|limited|inc|llc|plc|gmbh|llp|corp|company|group|services|holdings)\b/i.test(v) || v.length > 2;
+}
+
+function headerLooksLikePersonColumn(h) {
+  const t = String(h || "").trim().toLowerCase();
+  return /(contact\s*name|full\s*name|first\s*name|last\s*name|\bperson\b|people|individual)/.test(t);
+}
+
+function headerLooksLikeCompanyColumn(h) {
+  const t = String(h || "").trim().toLowerCase();
+  return /(company|organisation|organization|business|employer|account name)/.test(t);
 }
 
 function isProposedPhone(raw) {
@@ -9142,15 +9173,21 @@ function validateRows(list, registry, callLog) {
 
 function rowMissingFields(r) {
   const missing = [];
-  if (!(r?.name || "").trim()) missing.push("company");
+  const person = (r?.contact || "").trim();
+  const company = (r?.name || "").trim();
+  const label = (company || person).trim();
+  if (!label) missing.push("company");
+  if (person && !company) missing.push("company");
   if (!(r?.phone || "").trim()) missing.push("phone");
   if (!(r?.email || "").trim()) missing.push("email");
-  if (!(r?.contact || "").trim()) missing.push("person");
+  if (!person && !isPersonName(r?.name)) missing.push("person");
+  if (!(r?.source || r?.website || "").trim()) missing.push("website");
+  if (!(r?.linkedin || "").trim()) missing.push("linkedin");
   return missing;
 }
 
 function rowDialable(r, missionChannel = "voice") {
-  if (!(r?.name || "").trim()) return false;
+  if (!(r?.name || r?.contact || "").trim()) return false;
   const ch = r.channel || missionChannel || "voice";
   if (ch === "email") return Boolean((r.email || "").trim());
   return Boolean((r.phone || "").trim());
@@ -9158,14 +9195,15 @@ function rowDialable(r, missionChannel = "voice") {
 
 function serializeMissionContacts(list) {
   return (list || [])
-    .filter((r) => (r.name || "").trim())
+    .filter((r) => (r.name || r.contact || "").trim())
     .map((r) => ({
       id: r.id,
-      name: r.name,
+      name: r.name || r.contact || "",
       phone: r.phone || "",
       email: r.email || "",
       contact: r.contact || "",
-      source: r.source || r.site || "",
+      source: looksLikeUrl(r.source) ? r.source : looksLikeUrl(r.site) ? r.site : "",
+      linkedin: looksLikeUrl(r.linkedin) ? r.linkedin : "",
     }));
 }
 
@@ -9183,10 +9221,23 @@ function applyFillToRow(r, fill) {
   take("phone", true, isProposedPhone);
   take("email", true);
   take("contact", true, isPersonName);
-  take("linkedin", true);
-  take("twitter", true);
-  take("facebook", true);
-  take("instagram", true);
+  if (!String(r.name || "").trim() || isPersonName(r.name)) {
+    const company = fill.company || fill.name;
+    if (company && looksLikeCompanyLabel(company) && !isPersonName(company)) {
+      next.name = company;
+      aiFields.name = true;
+    }
+  }
+  const site = fill.website || fill.source;
+  if (looksLikeUrl(site) && !looksLikeUrl(r.source)) {
+    next.source = site;
+    next.sourceType = "Website URL";
+    aiFields.source = true;
+  }
+  take("linkedin", true, looksLikeUrl);
+  take("twitter", true, looksLikeUrl);
+  take("facebook", true, looksLikeUrl);
+  take("instagram", true, looksLikeUrl);
   take("youtube", false);
   if (fill.openingHook) next.openingHook = fill.openingHook;
   next.aiFields = aiFields;
@@ -9283,7 +9334,7 @@ const ISSUE_META = {
 /* -------- call-window math: will N companies actually finish today? -------- */
 
 const AVG_CALL_MINUTES = 3; // rough estimate used for capacity planning only
-const CONCURRENCY_OPTIONS = [1, 3, 5, 10, 20, 30];
+const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 5];
 
 function timeToMinutes(hhmm) {
   const [h, m] = (hhmm || "00:00").split(":").map(Number);
@@ -9430,13 +9481,19 @@ function computeQueueEstimate(totalCompanies, concurrency, windowStart, windowEn
 function guessColumn(headers, field) {
   const candidates = COLUMN_GUESSES[field] || [];
   const lower = headers.map((h) => (h || "").toString().trim().toLowerCase());
+  const blocked = (header) => {
+    if (field === "name" && headerLooksLikePersonColumn(header)) return true;
+    if (field === "website" && (headerLooksLikePersonColumn(header) || /social|linkedin|twitter|facebook/i.test(String(header)))) return true;
+    if (field === "name" && !headerLooksLikeCompanyColumn(header) && /contact|person|mobile|phone/i.test(String(header))) return true;
+    return false;
+  };
   for (const c of candidates) {
     const idx = lower.indexOf(c);
-    if (idx !== -1) return headers[idx];
+    if (idx !== -1 && !blocked(headers[idx])) return headers[idx];
   }
-  // loose contains-match fallback
   for (const c of candidates) {
-    const idx = lower.findIndex((h) => h.includes(c));
+    if (c.length < 4 && field !== "phone") continue;
+    const idx = lower.findIndex((h, i) => h.includes(c) && !blocked(headers[i]));
     if (idx !== -1) return headers[idx];
   }
   return "";
@@ -9497,6 +9554,9 @@ function contactsFromSpreadsheetRecords(headers, records) {
       const company = String((companyH && row[companyH]) || "").trim();
       const phone = String((phoneH && row[phoneH]) || "").trim();
       const title = String((titleH && row[titleH]) || "").trim();
+      const emailH = headers.find((h) => /e-?mail/i.test(String(h || ""))) || "";
+      const webH = headers.find((h) => /website|homepage|url/i.test(String(h || "")) && !/linkedin/i.test(String(h || ""))) || "";
+      const liH = headers.find((h) => /linkedin/i.test(String(h || ""))) || "";
       const valid = digitsInPhone(phone).length >= 7 && Boolean(name || company);
       return {
         id: "pc_" + i,
@@ -9505,6 +9565,9 @@ function contactsFromSpreadsheetRecords(headers, records) {
         company: company && company !== name ? company : "",
         title,
         phone,
+        email: String((emailH && row[emailH]) || "").trim(),
+        website: String((webH && row[webH]) || "").trim(),
+        linkedin: String((liH && row[liH]) || "").trim(),
         valid,
       };
     })
@@ -9575,13 +9638,14 @@ function ImportReviewScreen({
             <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 10 }}>
               Match columns from the spreadsheet
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(110px, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(100px, 1fr))", gap: 10 }}>
               {[
-                ["name", "Company name*"],
+                ["name", "Company (if in file)"],
+                ["contact", "Contact person"],
                 ["phone", "Phone number"],
                 ["email", "Email"],
-                ["website", "Website / link"],
-                ["contact", "Contact person"],
+                ["website", "Website"],
+                ["linkedin", "LinkedIn"],
                 ["channel", "Preferred channel"],
               ].map(([field, label]) => (
                 <div key={field}>
@@ -9665,13 +9729,14 @@ function ImportReviewScreen({
 
           <div style={{ flex: 1, overflow: "auto", padding: "0 28px 24px" }}>
             <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", minWidth: 920 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "44px 1.5fr 1.1fr 1.2fr 1.1fr 1.2fr 130px 1.3fr 40px", padding: "10px 14px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "44px 1.3fr 1fr 1.1fr 1fr 1.1fr 1.1fr 110px 1.2fr 40px", padding: "10px 14px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
                 <div />
                 <div>Company</div>
                 <div>Phone</div>
                 <div>Email</div>
                 <div>Contact</div>
                 <div>Website</div>
+                <div>LinkedIn</div>
                 <div>Channel</div>
                 <div>Status</div>
                 <div />
@@ -9684,7 +9749,7 @@ function ImportReviewScreen({
                   key={r.id}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "44px 1.5fr 1.1fr 1.2fr 1.1fr 1.2fr 130px 1.3fr 40px",
+                    gridTemplateColumns: "44px 1.3fr 1fr 1.1fr 1fr 1.1fr 1.1fr 110px 1.2fr 40px",
                     gap: 8,
                     padding: "12px 14px",
                     borderTop: `1px solid ${C.border}`,
@@ -9698,7 +9763,8 @@ function ImportReviewScreen({
                   <input value={r.phone} onChange={(e) => onUpdate(r.id, "phone", e.target.value)} placeholder="Phone" style={inputStyle(r.issues.includes("missing_phone") || r.issues.includes("bad_phone"))} />
                   <input value={r.email || ""} onChange={(e) => onUpdate(r.id, "email", e.target.value)} placeholder="Email" style={inputStyle(r.issues.includes("missing_email"))} />
                   <input value={r.contact || ""} onChange={(e) => onUpdate(r.id, "contact", e.target.value)} placeholder="Person" style={inputStyle(r.issues.includes("missing_person"))} />
-                  <input value={r.source} onChange={(e) => onUpdate(r.id, "source", e.target.value)} placeholder="Website" style={inputStyle(false)} />
+                  <input value={r.source} onChange={(e) => onUpdate(r.id, "source", e.target.value)} placeholder="Website (empty if not in file)" style={inputStyle(false)} />
+                  <input value={r.linkedin || ""} onChange={(e) => onUpdate(r.id, "linkedin", e.target.value)} placeholder="LinkedIn (empty if not in file)" style={inputStyle(false)} />
                   <select value={r.channel} onChange={(e) => onUpdate(r.id, "channel", e.target.value)} style={{ ...inputStyle(false), padding: "9px 8px" }}>
                     <option value="">Default</option>
                     {CHANNEL_OPTIONS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -9746,7 +9812,7 @@ function ImportReviewScreen({
             </div>
           ))}
           <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.5, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-            Tick companies to keep. Missing phone or email is OK — next screen looks them up and writes them onto this list.
+            File columns stay. Empty company / email / website / LinkedIn are extra slots. Continue runs web search to fill those — will not invent if nothing public.
           </div>
           {onAskAi && (
             <button
@@ -9799,12 +9865,12 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
   const [importError, setImportError] = useState("");
   const [importFileName, setImportFileName] = useState("");
   const [importHeaders, setImportHeaders] = useState([]);
-  const [columnMap, setColumnMap] = useState({ name: "", phone: "", website: "", contact: "", email: "", channel: "" });
+  const [columnMap, setColumnMap] = useState({ name: "", phone: "", website: "", contact: "", email: "", channel: "", linkedin: "" });
   const [importRecords, setImportRecords] = useState([]); // raw records from file
   const [importRows, setImportRows] = useState([]); // mapped preview rows, editable
   const [importFilter, setImportFilter] = useState("all"); // all | issues | duplicates
   const [bulkChannel, setBulkChannel] = useState("voice");
-  const [concurrency, setConcurrency] = useState(20);
+  const [concurrency, setConcurrency] = useState(1);
 
   const parsed = prompt.length > 8;
 
@@ -9826,7 +9892,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
   const lookupAbortRef = useRef(null);
   const [lookupRunning, setLookupRunning] = useState(false);
 
-  const namedRows = rows.filter((r) => (r.name || "").trim());
+  const namedRows = rows.filter((r) => (r.name || r.contact || "").trim());
   const incompleteRows = namedRows.filter((r) => rowMissingFields(r).length > 0);
   const dialableRows = namedRows.filter((r) => rowDialable(r, channel));
 
@@ -9972,8 +10038,9 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
   };
 
   const handleFindMissing = async (listOverride) => {
-    const target = (listOverride && listOverride.length ? listOverride : incompleteRows).filter((r) => (r.name || "").trim() && rowMissingFields(r).length);
-    if (!target.length || lookupRunning || chatSearching || findMissingLock.current) return;
+    const pool = (listOverride && listOverride.length ? listOverride : incompleteRows).filter((r) => (r.name || r.contact || "").trim() && rowMissingFields(r).length);
+    const target = pool;
+    if (!pool.length || lookupRunning || chatSearching || findMissingLock.current) return;
     const CHUNK = 2;
     lookupStopRef.current = false;
     findMissingLock.current = true;
@@ -9982,7 +10049,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     setLookingIds(target.map((r) => String(r.id)));
     setCopilotMessages((prev) => [
       ...prev,
-      { sender: "user", text: `Find missing details for ${target.length} companies.` },
+      { sender: "user", text: `Find missing details for ${target.length} row${target.length === 1 ? "" : "s"} (web search — empty file fields only).` },
     ]);
     const allFills = [];
     let chunkErrors = 0;
@@ -10100,22 +10167,31 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
   const updateRow = (id, k, v) => setRows((r) => r.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
 
   const buildPreviewFromMap = (records, map) => {
-    const mapped = records.map((rec, i) => ({
-      id: "imp_" + i,
-      name: (map.name ? rec[map.name] : "") || "",
-      phone: (map.phone ? rec[map.phone] : "") || "",
-      email: (map.email ? rec[map.email] : "") || "",
-      contact: (map.contact ? rec[map.contact] : "") || "",
-      sourceType: "Website URL",
-      source: (map.website ? rec[map.website] : "") || "",
-      channel: normalizeChannel(map.channel ? rec[map.channel] : ""), // "" = use mission default
-      fallback: "none",
-    }));
+    const mapped = records.map((rec, i) => {
+      const company = String((map.name ? rec[map.name] : "") || "").trim();
+      const person = String((map.contact ? rec[map.contact] : "") || "").trim();
+      const websiteRaw = String((map.website ? rec[map.website] : "") || "").trim();
+      const website = looksLikeUrl(websiteRaw) ? websiteRaw : "";
+      return {
+        id: "imp_" + i,
+        name: company || person,
+        phone: String((map.phone ? rec[map.phone] : "") || "").trim(),
+        email: String((map.email ? rec[map.email] : "") || "").trim(),
+        contact: person || (isPersonName(company) ? company : ""),
+        sourceType: website ? "Website URL" : "Notes only",
+        source: website,
+        linkedin: looksLikeUrl(String((map.linkedin ? rec[map.linkedin] : "") || "").trim())
+          ? String(rec[map.linkedin]).trim()
+          : "",
+        channel: normalizeChannel(map.channel ? rec[map.channel] : ""),
+        fallback: "none",
+      };
+    });
     // flag missing/invalid/duplicate rows, then only auto-include the clean ones —
     // stops bad data from silently reaching the dialer on a big import
     return validateRows(mapped, registry, callLog).map((r) => ({
       ...r,
-      included: Boolean(r.name) && !r.issues.includes("duplicate") && !r.issues.includes("already_dnc"),
+      included: Boolean(r.name || r.contact) && !r.issues.includes("duplicate") && !r.issues.includes("already_dnc"),
     }));
   };
 
@@ -10138,6 +10214,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           contact: guessColumn(headers, "contact"),
           email: guessColumn(headers, "email"),
           channel: guessColumn(headers, "channel"),
+          linkedin: guessColumn(headers, "linkedin"),
         };
         setImportHeaders(headers);
         setColumnMap(map);
@@ -10169,7 +10246,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     setImportRows((r) => r.map((x) => (x.included ? { ...x, channel: bulkChannel } : x)));
   const removeFlaggedRows = () => setImportRows((r) => r.map((x) => (x.issues.length ? { ...x, included: false } : x)));
 
-  const includedImportRows = importRows.filter((r) => r.included && r.name);
+  const includedImportRows = importRows.filter((r) => r.included && (r.name || r.contact));
   const flaggedCount = importRows.filter((r) => r.issues.length > 0).length;
   const duplicateCount = importRows.filter((r) => r.issues.includes("duplicate")).length;
   const knownCount = importRows.filter((r) => r.identityMatch).length;
@@ -10180,17 +10257,23 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
     importRows;
 
   const useImportedRows = (thenChat) => {
-    const kept = includedImportRows.map((r, i) => ({
-      id: Date.now() + i,
-      name: r.name,
-      phone: r.phone,
-      email: r.email || "",
-      contact: r.contact || "",
-      sourceType: r.source ? "Website URL" : "Notes only",
-      source: r.source || r.contact || "",
-      channel: r.channel || "",
-      fallback: r.fallback || "none",
-    }));
+    const kept = includedImportRows.map((r, i) => {
+      const person = (r.contact || (isPersonName(r.name) ? r.name : "") || "").trim();
+      const company = looksLikeCompanyLabel(r.name) && !isPersonName(r.name) ? r.name.trim() : "";
+      const website = looksLikeUrl(r.source) ? r.source.trim() : "";
+      return {
+        id: Date.now() + i,
+        name: company,
+        phone: r.phone,
+        email: r.email || "",
+        contact: person,
+        sourceType: website ? "Website URL" : "Notes only",
+        source: website,
+        linkedin: looksLikeUrl(r.linkedin) ? r.linkedin : "",
+        channel: r.channel || "",
+        fallback: r.fallback || "none",
+      };
+    });
     setRows(kept);
     setManualMode("form");
     setTab("manual");
@@ -10444,7 +10527,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                   Drop a CSV or Excel file, or click to browse
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight }}>
-                  .csv, .xlsx, .xls — one row per company. After upload, the list opens in a full review screen.
+                  .csv, .xlsx, .xls — file cells stay as-is. Extra empty columns (company, email, website, LinkedIn) are for Find missing.
                 </div>
                 {importState === "error" && (
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.redSolid, marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
@@ -10472,7 +10555,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
             )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.4 }}>
-                This table is the mission list. Yellow cells are AI-filled. Edit anything before you start.
+                This table is the mission list. File values stay. Empty company / email / website / LinkedIn columns are extra — Find missing web-searches those. Yellow = AI fill.
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                 {lookupRunning ? (
@@ -10515,7 +10598,7 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                   <div>Status</div>
                   <div />
                 </div>
-                {rows.filter((r) => (r.name || "").trim()).map((r) => {
+                {rows.filter((r) => (r.name || r.contact || "").trim()).map((r) => {
                   const looking = lookingIds.includes(String(r.id));
                   const miss = rowMissingFields(r);
                   const ready = rowDialable(r, channel);
@@ -10524,7 +10607,12 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                   return (
                     <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr 1.1fr 0.85fr 1.05fr minmax(170px,1.5fr) 90px 36px", gap: 6, padding: "8px 10px", borderTop: `1px solid ${C.border}`, alignItems: "center", minWidth: 920 }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-                        <input value={r.name} onChange={(e) => updateRow(r.id, "name", e.target.value)} style={aiInputStyle(false)} />
+                    <input
+                      value={r.name}
+                      onChange={(e) => updateRow(r.id, "name", e.target.value)}
+                      placeholder="Company (optional)"
+                      style={aiInputStyle(false)}
+                    />
                         {hasSocial ? (
                           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                             <SocialChip href={r.linkedin} label={socialHandle(r.linkedin, "linkedin") || "in"} color="#0A66C2" title={r.linkedin} />
@@ -10540,12 +10628,12 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
                       <input value={r.phone || ""} onChange={(e) => updateRow(r.id, "phone", e.target.value)} placeholder="Phone" style={aiInputStyle(ai.phone)} />
                       <input value={r.email || ""} onChange={(e) => updateRow(r.id, "email", e.target.value)} placeholder="Email" style={aiInputStyle(ai.email)} />
                       <input value={r.contact || ""} onChange={(e) => updateRow(r.id, "contact", e.target.value)} placeholder="Person" style={aiInputStyle(ai.contact)} />
-                      <input value={r.source || ""} onChange={(e) => updateRow(r.id, "source", e.target.value)} placeholder="Website" style={aiInputStyle(false)} />
+                      <input value={r.source || ""} onChange={(e) => updateRow(r.id, "source", e.target.value)} placeholder="Website if you have one" style={aiInputStyle(false)} />
                       <input
                         value={r.linkedin || ""}
                         onChange={(e) => updateRow(r.id, "linkedin", e.target.value)}
-                        placeholder="linkedin.com/company/…"
-                        title={r.linkedin || "Company LinkedIn"}
+                        placeholder="LinkedIn only if real"
+                        title={r.linkedin || "LinkedIn"}
                         style={{ ...aiInputStyle(ai.linkedin), fontSize: 11 }}
                       />
                       <div style={{ fontSize: 11, fontWeight: 700, color: looking ? C.cobalt : ready ? C.green : "#C2410C" }}>
@@ -10793,9 +10881,11 @@ function NewMissionModal({ onClose, onCreate, registry, callLog, workingHours, c
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12 }}>
             <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>Calls running at once</span>
             <select value={concurrency} onChange={(e) => setConcurrency(Number(e.target.value))} style={{ padding: "6px 9px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5 }}>
-              {CONCURRENCY_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+              {CONCURRENCY_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n === 1 ? "1 — one at a time" : n === 5 ? "5 — max" : String(n)}</option>
+              ))}
             </select>
-            <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight }}>higher = faster through the list, but more simultaneous lines</span>
+            <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight }}>1 = one-by-one. Max 5 so quality stays good.</span>
           </div>
 
           {readyToCallCount > 0 && (
@@ -12910,8 +13000,8 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                       onChange={(e) => setCalSettings({ ...calSettings, default_platform: e.target.value })}
                       style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontWeight: 600 }}
                     >
-                      <option value="google_meet">Google Meet (Auto-generated link)</option>
-                      <option value="cal_video">Cal Video Conference</option>
+                      <option value="google_meet">Google Meet (only if Cal.com returns a real room)</option>
+                      <option value="cal_video">Cal Video / AIVHub live room (always joinable)</option>
                       <option value="zoom">Zoom</option>
                       <option value="phone">Direct Telephone Call</option>
                     </select>
@@ -22729,7 +22819,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
       ]);
       throw new Error("No dialable phone numbers on this list.");
     }
-    const cap = Math.max(1, Math.min(Number(concurrency) || 20, 30));
+    const cap = Math.max(1, Math.min(Number(concurrency) || 1, 5));
     setNotifications((ns) => [
       {
         id: "n_" + Date.now(),
@@ -22805,7 +22895,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     if (withPhones.length) {
       await launchLiveOutbound({
         rows: withPhones,
-        concurrency: payload.concurrency || 20,
+        concurrency: payload.concurrency || 1,
         title: `Uploaded list — ${withPhones.length} contacts`,
         windowStart: payload.windowStart,
         windowEnd: payload.windowEnd,

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     TWILIO_PHONE_NUMBER: Optional[str] = None
     # Parallel outbound: operator concurrency is honored up to this cap.
     # CPS gap keeps Twilio/Telnyx from rejecting a burst (default ~1 call/sec).
-    OUTBOUND_MAX_CONCURRENCY: int = int(os.getenv("OUTBOUND_MAX_CONCURRENCY", "30"))
+    OUTBOUND_MAX_CONCURRENCY: int = int(os.getenv("OUTBOUND_MAX_CONCURRENCY", "5"))
     OUTBOUND_CPS_GAP_SEC: float = float(os.getenv("OUTBOUND_CPS_GAP_SEC", "0.45"))
     
     DEEPGRAM_API_KEY: Optional[str] = None
@@ -49,10 +49,10 @@ class Settings(BaseSettings):
     XAI_API_KEY: Optional[str] = os.getenv("XAI_API_KEY", None)
     XAI_AGENT_ID: str = os.getenv("XAI_AGENT_ID", "agent_QDoRHfWcKMybf197")
     XAI_WEBHOOK_SECRET: Optional[str] = os.getenv("XAI_WEBHOOK_SECRET", None)
-    XAI_VOICE_NAME: str = os.getenv("XAI_VOICE_NAME", "ara")  # ara (ultra-natural human), eve (dynamic), rex (executive)
+    XAI_VOICE_NAME: str = os.getenv("XAI_VOICE_NAME", "rex")  # rex = male executive (Sam); ara/eve = female
     XAI_VOICE_SPEED: float = float(os.getenv("XAI_VOICE_SPEED", "1.0"))
-    XAI_VAD_SILENCE_MS: int = int(os.getenv("XAI_VAD_SILENCE_MS", "380"))  # Snappy human turn-taking (reduced from 600ms)
-    XAI_VAD_PREFIX_PADDING_MS: int = int(os.getenv("XAI_VAD_PREFIX_PADDING_MS", "180"))
+    XAI_VAD_SILENCE_MS: int = int(os.getenv("XAI_VAD_SILENCE_MS", "300"))
+    XAI_VAD_PREFIX_PADDING_MS: int = int(os.getenv("XAI_VAD_PREFIX_PADDING_MS", "160"))
     XAI_TEMPERATURE: float = float(os.getenv("XAI_TEMPERATURE", "0.80"))  # Expressive human warmth & natural inflection
     XAI_REALTIME_WS_URL: str = os.getenv("XAI_REALTIME_WS_URL", "wss://api.x.ai/v1/realtime")
     XAI_SIP_FQDN: str = os.getenv("XAI_SIP_FQDN", "sip.voice.x.ai")
