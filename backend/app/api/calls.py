@@ -71,6 +71,7 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
             "state": c.state,
             "channel": c.channel,
             "duration": dur,
+            "startedAt": c.created_at.isoformat() + "Z" if c.created_at else None,
             "flag": c.flag,
             "taken": c.taken,
             "listening": c.listening,
@@ -128,22 +129,20 @@ async def end_live_call(call_id: str, db: AsyncSession = Depends(get_db)):
         secs = max(1, int((datetime.utcnow() - call.created_at).total_seconds()))
         call.duration = f"{secs // 60:02d}:{secs % 60:02d}"
 
-    # 4. Save to CallLog
+    call.transcript = (call.transcript or []) + ["System: Call ended by supervisor."]
+
+    # 4. Save to CallLog (correct schema)
     try:
-        existing_log_res = await db.execute(select(CallLog).where(CallLog.id == f"log_{call.id}"))
-        if not existing_log_res.scalars().first():
-            log_entry = CallLog(
-                id=f"log_{call.id}",
-                contact=call.prospect,
-                channel=call.channel,
-                duration=f"{call.duration} min",
-                status="operator_ended",
-                started_at=call.created_at.strftime("%I:%M %p") if call.created_at else "Just now",
-                transcript=call.transcript or ["Call ended by supervisor."]
-            )
-            db.add(log_entry)
-    except Exception:
-        pass
+        from app.services.call_log_writer import upsert_call_log_from_live
+        await upsert_call_log_from_live(
+            db,
+            call,
+            outcome="canceled",
+            duration=call.duration,
+            force_outcome=False,
+        )
+    except Exception as log_err:
+        logger.warning(f"Could not write CallLog on operator end: {log_err}")
 
     mission_id = call.mission_id
     await db.commit()
@@ -753,22 +752,24 @@ async def dial_outbound_call(
         # Broadcast call started immediately to frontend
         await call_hub.broadcast("call_started", {
             "callId": call_id,
+            "id": call_id,
             "caller": from_clean,
             "prospect": prospect_label,
+            "mission": mission_label,
             "state": "calling",
-            "duration": "00:01"
+            "duration": "00:00",
+            "channel": "voice",
+            "ended": False,
         })
 
-        # Warm xAI before the prospect answers so greeting audio is already buffered at pickup.
-        try:
-            await start_bridged_voice_session(
-                call_id=call_id,
-                caller_number=from_clean,
-                prospect_name=prospect_label,
-                is_inbound=False,
-            )
-        except Exception as bridge_err:
-            logger.warning(f"Could not pre-warm xAI bridge: {bridge_err}")
+        # Warm voice bridge in background so UI sees the call without waiting on xAI connect
+        background_tasks.add_task(
+            start_bridged_voice_session,
+            call_id=call_id,
+            caller_number=from_clean,
+            prospect_name=prospect_label,
+            is_inbound=False,
+        )
 
         # 6. Execute Dial via Carrier Plugin
         adapter = carrier_registry.get_adapter(carrier_choice)
@@ -830,6 +831,7 @@ async def dial_outbound_call(
             # Mark call as failed in DB safely using a fresh session
             try:
                 from app.database import AsyncSessionLocal
+                from app.services.call_log_writer import upsert_call_log_from_live
                 async with AsyncSessionLocal() as fail_session:
                     res = await fail_session.execute(select(LiveCall).where(LiveCall.id == call_id))
                     rec = res.scalars().first()
@@ -837,6 +839,16 @@ async def dial_outbound_call(
                         rec.state = "failed"
                         rec.ended = True
                         rec.transcript = (rec.transcript or []) + [f"System: Dial failed - {err_msg}"]
+                        if rec.created_at:
+                            secs = max(0, int((datetime.utcnow() - rec.created_at).total_seconds()))
+                            rec.duration = f"{secs // 60:02d}:{secs % 60:02d}"
+                        await upsert_call_log_from_live(
+                            fail_session,
+                            rec,
+                            outcome="failed",
+                            duration=rec.duration,
+                            force_outcome=True,
+                        )
                         await fail_session.commit()
             except Exception as update_err:
                 logger.warning(f"Could not update failed call state in DB: {update_err}")
@@ -951,14 +963,31 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
                 matched.state = "pitching"
                 matched.transcript = (matched.transcript or []) + ["System: Call answered by recipient. AI voice representative active."]
         elif call_status in ["completed", "canceled", "failed", "no-answer", "busy"]:
-            matched.state = "ended"
+            from app.services.call_log_writer import (
+                map_carrier_status_to_outcome,
+                map_carrier_status_to_state,
+                upsert_call_log_from_live,
+            )
+            matched.state = map_carrier_status_to_state(call_status)
             matched.ended = True
-            dur_int = int(duration) if duration.isdigit() else 1
-            matched.duration = f"{dur_int//60:02d}:{dur_int%60:02d}"
+            dur_int = int(duration) if str(duration).isdigit() else 0
+            if dur_int <= 0 and matched.created_at:
+                dur_int = max(0, int((datetime.utcnow() - matched.created_at).total_seconds()))
+            matched.duration = f"{dur_int // 60:02d}:{dur_int % 60:02d}"
             note = f"Call finished ({matched.duration}). Status: {call_status}."
             if sip_code:
                 note += f" SIP Code: {sip_code}."
             matched.transcript = (matched.transcript or []) + [f"System: {note}"]
+            outcome = map_carrier_status_to_outcome(call_status)
+            # completed with no conversation still gets a history row (may refine later in finalize)
+            await upsert_call_log_from_live(
+                db,
+                matched,
+                outcome=outcome,
+                duration=matched.duration,
+                extra_note=None,
+                force_outcome=call_status in ("canceled", "failed", "no-answer", "busy"),
+            )
         mission_id = matched.mission_id
         call_ended = call_status in ["completed", "canceled", "failed", "no-answer", "busy"]
         await db.commit()
@@ -1021,8 +1050,35 @@ async def twilio_pstn_leg_status(request: Request, db: AsyncSession = Depends(ge
         except Exception as greet_err:
             logger.warning(f"Failed to trigger pickup greeting: {greet_err}")
     elif matched and call_status in ["busy", "no-answer", "failed", "canceled"]:
+        from app.services.call_log_writer import (
+            map_carrier_status_to_outcome,
+            map_carrier_status_to_state,
+            upsert_call_log_from_live,
+        )
         matched.transcript = (matched.transcript or []) + [f"System: Prospect {call_status}."]
+        matched.state = map_carrier_status_to_state(call_status)
+        matched.ended = True
+        if matched.created_at:
+            secs = max(0, int((datetime.utcnow() - matched.created_at).total_seconds()))
+            matched.duration = f"{secs // 60:02d}:{secs % 60:02d}"
+        await upsert_call_log_from_live(
+            db,
+            matched,
+            outcome=map_carrier_status_to_outcome(call_status),
+            duration=matched.duration,
+            force_outcome=True,
+        )
+        mission_id = matched.mission_id
         await db.commit()
+        await call_hub.broadcast("call_updated", {
+            "callId": matched.id,
+            "state": matched.state,
+            "duration": matched.duration,
+            "ended": True,
+        })
+        if mission_id:
+            asyncio.create_task(drain_mission_queue(mission_id))
+        return {"status": "ok"}
 
     return {"status": "ok"}
 

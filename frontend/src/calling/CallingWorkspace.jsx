@@ -36,6 +36,7 @@ import {
 import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
 import { api } from "../api/apiClient";
+import { WebSocketClient } from "../api/wsClient";
 import { AudioStreamPlayer } from "../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../tokens";
 import { setCallingEdition } from "./callingEdition";
@@ -916,12 +917,38 @@ export function CallingWorkspace({
     chatHintTimer.current = window.setTimeout(() => setChatHint(""), 1800);
   };
 
+  const formatLiveDuration = useCallback((totalSecs) => {
+    const secs = Math.max(0, Math.floor(Number(totalSecs) || 0));
+    const mm = Math.floor(secs / 60);
+    const ss = secs % 60;
+    return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  }, []);
+
+  const withLiveClock = useCallback((list, { bump = false } = {}) => {
+    const now = Date.now();
+    return (Array.isArray(list) ? list : []).map((c) => {
+      if (!c || c.ended || ["ended", "failed", "canceled"].includes(String(c.state || "").toLowerCase())) return c;
+      if (c.startedAt) {
+        const startMs = new Date(c.startedAt).getTime();
+        if (!Number.isNaN(startMs)) {
+          return { ...c, duration: formatLiveDuration((now - startMs) / 1000) };
+        }
+      }
+      if (!bump) return c;
+      const currentDur = c.duration || "00:00";
+      if (!String(currentDur).includes(":")) return c;
+      const [mm, ss] = String(currentDur).split(":").map((n) => parseInt(n, 10) || 0);
+      return { ...c, duration: formatLiveDuration(mm * 60 + ss + 1) };
+    });
+  }, [formatLiveDuration]);
+
   const refreshLive = useCallback(async () => {
     try {
       const data = await api.getLiveCalls();
-      setLiveCalls(Array.isArray(data) ? data : data?.calls || []);
+      const list = Array.isArray(data) ? data : data?.calls || [];
+      setLiveCalls(withLiveClock(list));
     } catch (_) {}
-  }, []);
+  }, [withLiveClock]);
 
   const refreshMeetings = useCallback(async () => {
     try {
@@ -958,9 +985,82 @@ export function CallingWorkspace({
       refreshMeetings();
       refreshLogs();
       if (page === "schedule") refreshSchedule();
-    }, 4000);
+    }, page === "live" ? 2000 : 4000);
     return () => window.clearInterval(t);
   }, [page, refreshLive, refreshMeetings, refreshLogs, refreshSchedule]);
+
+  // Instant live-board updates (don't wait for poll / dial HTTP return)
+  useEffect(() => {
+    let ws = null;
+    const onEvt = (msg) => {
+      if (!msg || !msg.type) return;
+      const t = msg.type;
+      if (["call_started", "call_created", "call_updated", "call_ended", "call_removed", "calls_cleared", "booking_confirmed"].includes(t)) {
+        refreshLive();
+      }
+      if (["call_ended", "booking_confirmed"].includes(t)) {
+        refreshLogs();
+        refreshMeetings();
+      }
+      // Optimistic insert when WS payload already has enough to paint a card
+      if ((t === "call_started" || t === "call_created") && msg.data) {
+        const d = msg.data;
+        const id = d.callId || d.id;
+        if (!id) return;
+        setLiveCalls((prev) => {
+          if ((prev || []).some((c) => c.id === id || String(c.id || "").startsWith("pending_"))) {
+            // Replace pending placeholder with real id when possible
+            const withoutPending = (prev || []).filter((c) => !String(c.id || "").startsWith("pending_") || c.id === id);
+            if (withoutPending.some((c) => c.id === id)) return withoutPending;
+            return [
+              {
+                id,
+                prospect: d.prospect || d.caller || "Outbound",
+                mission: d.mission || "Direct Outbound Outreach",
+                state: d.state || "calling",
+                duration: d.duration || "00:00",
+                channel: d.channel || "voice",
+                ended: false,
+                transcript: [],
+                startedAt: new Date().toISOString(),
+              },
+              ...withoutPending,
+            ];
+          }
+          return [
+            {
+              id,
+              prospect: d.prospect || d.caller || "Outbound",
+              mission: d.mission || "Direct Outbound Outreach",
+              state: d.state || "calling",
+              duration: d.duration || "00:00",
+              channel: d.channel || "voice",
+              ended: false,
+              transcript: [],
+              startedAt: new Date().toISOString(),
+            },
+            ...(prev || []),
+          ];
+        });
+      }
+    };
+    try {
+      ws = new WebSocketClient(null, onEvt);
+    } catch (e) {
+      console.warn("[CallingWorkspace] WS init:", e);
+    }
+    return () => {
+      try { if (ws) ws.close(); } catch (_) {}
+    };
+  }, [refreshLive, refreshLogs, refreshMeetings]);
+
+  // Live call clock: tick every second (API refresh alone was ~4s)
+  useEffect(() => {
+    const ticker = window.setInterval(() => {
+      setLiveCalls((prev) => withLiveClock(prev, { bump: true }));
+    }, 1000);
+    return () => window.clearInterval(ticker);
+  }, [withLiveClock]);
 
   useEffect(() => {
     const known = seenMeetings.current;
@@ -1230,7 +1330,24 @@ export function CallingWorkspace({
       showToast("No dialable phone.");
       return;
     }
+    const prospectLabel = (r.contact || r.name || "").trim() || phone;
+    const optimisticId = `pending_${Date.now()}`;
     setBusy("direct");
+    setPage("live");
+    setLiveCalls((prev) => [
+      {
+        id: optimisticId,
+        prospect: prospectLabel,
+        mission: (r.contact || r.company || r.name) ? `Direct — ${r.contact || r.company || r.name}` : "Direct Client Outreach",
+        state: "calling",
+        duration: "00:00",
+        channel: "voice",
+        ended: false,
+        transcript: [],
+        startedAt: new Date().toISOString(),
+      },
+      ...(prev || []).filter((c) => c.id !== optimisticId),
+    ]);
     try {
       await api.dialOutbound({
         to_number: phone,
@@ -1242,9 +1359,9 @@ export function CallingWorkspace({
         ...savedTwilioCreds(),
       });
       pushNote(`Outbound to ${phone}`, "success");
-      setPage("live");
       await refreshLive();
     } catch (e) {
+      setLiveCalls((prev) => (prev || []).filter((c) => c.id !== optimisticId));
       showToast(e.message || "Direct dial failed");
     } finally {
       setBusy("");
@@ -1529,6 +1646,7 @@ export function CallingWorkspace({
       : `Call all ${prospects.length} phones · 1 at a time?`;
     if (!window.confirm(label)) return;
     setBusy("dial");
+    setPage("live");
     try {
       const res = await api.dialOutboundBatch({
         prospects,
@@ -1539,7 +1657,6 @@ export function CallingWorkspace({
         ...savedTwilioCreds(),
       });
       showToast(res.message || `Live outbound started for ${res.total} contacts.`);
-      setPage("live");
       await refreshLive();
     } catch (e) {
       showToast(e.message || "Dial failed");
@@ -1554,7 +1671,24 @@ export function CallingWorkspace({
       showToast("Enter a real phone number.");
       return;
     }
+    const prospectLabel = direct.name.trim() || phone;
+    const optimisticId = `pending_${Date.now()}`;
     setBusy("direct");
+    setPage("live");
+    setLiveCalls((prev) => [
+      {
+        id: optimisticId,
+        prospect: prospectLabel,
+        mission: direct.name.trim() ? `Direct — ${direct.name.trim()}` : "Direct Client Outreach",
+        state: "calling",
+        duration: "00:00",
+        channel: "voice",
+        ended: false,
+        transcript: [],
+        startedAt: new Date().toISOString(),
+      },
+      ...(prev || []).filter((c) => c.id !== optimisticId),
+    ]);
     try {
       await api.dialOutbound({
         to_number: phone,
@@ -1564,9 +1698,9 @@ export function CallingWorkspace({
         ...savedTwilioCreds(),
       });
       pushNote(`Outbound to ${phone}`, "success");
-      setPage("live");
       await refreshLive();
     } catch (e) {
+      setLiveCalls((prev) => (prev || []).filter((c) => c.id !== optimisticId));
       showToast(e.message || "Direct dial failed");
     } finally {
       setBusy("");
@@ -2314,6 +2448,7 @@ export function CallingWorkspace({
                     ["left_voicemail", "Voicemail"],
                     ["no_answer", "No answer"],
                     ["failed", "Failed"],
+                    ["canceled", "Cancelled"],
                   ].map(([id, label]) => (
                     <button
                       key={id}

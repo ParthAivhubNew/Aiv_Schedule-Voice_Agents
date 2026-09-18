@@ -299,22 +299,30 @@ async def place_outbound_call(
 
     await call_hub.broadcast("call_started", {
         "callId": call_id,
+        "id": call_id,
         "caller": from_clean,
         "prospect": prospect_label,
         "state": "calling",
-        "duration": "00:01",
+        "duration": "00:00",
         "missionId": mission_id,
+        "mission": mission_label,
+        "channel": "voice",
+        "ended": False,
     })
 
-    try:
-        await start_bridged_voice_session(
-            call_id=call_id,
-            caller_number=from_clean,
-            prospect_name=prospect_label,
-            is_inbound=False,
-        )
-    except Exception as bridge_err:
-        logger.warning(f"Could not pre-warm voice bridge: {bridge_err}")
+    # Pre-warm voice bridge without blocking carrier dial / UI
+    async def _warm_bridge():
+        try:
+            await start_bridged_voice_session(
+                call_id=call_id,
+                caller_number=from_clean,
+                prospect_name=prospect_label,
+                is_inbound=False,
+            )
+        except Exception as bridge_err:
+            logger.warning(f"Could not pre-warm voice bridge: {bridge_err}")
+
+    asyncio.create_task(_warm_bridge())
 
     adapter = carrier_registry.get_adapter(carrier_choice)
     try:
@@ -387,6 +395,21 @@ async def place_outbound_call(
                     rec.state = "failed"
                     rec.ended = True
                     rec.transcript = (rec.transcript or []) + [f"System: Dial failed - {err_msg}"]
+                    try:
+                        from app.services.call_log_writer import upsert_call_log_from_live
+                        from datetime import datetime as _dt
+                        if rec.created_at:
+                            secs = max(0, int((_dt.utcnow() - rec.created_at).total_seconds()))
+                            rec.duration = f"{secs // 60:02d}:{secs % 60:02d}"
+                        await upsert_call_log_from_live(
+                            fail_session,
+                            rec,
+                            outcome="failed",
+                            duration=rec.duration,
+                            force_outcome=True,
+                        )
+                    except Exception as log_err:
+                        logger.warning(f"Could not write CallLog for dial fail: {log_err}")
                 if prospect_id:
                     prow = (await fail_session.execute(select(Prospect).where(Prospect.id == prospect_id))).scalars().first()
                     if prow:

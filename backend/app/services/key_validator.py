@@ -350,7 +350,26 @@ async def _do_validate_api_key(
             elif "pollinations" in p or "free" in p:
                 return {"valid": True, "provider": "Pollinations AI", "details": "Pollinations FLUX is active and 100% free (zero API key needed)."}
 
-            # 19. Custom / Other Provider with Base URL
+            # 19. Meta WhatsApp Cloud API
+            elif "whatsapp" in p or "meta" in p:
+                from app.config import settings
+                phone_id = (account_sid or settings.WHATSAPP_CLOUD_PHONE_NUMBER_ID or "1238965585975808").strip()
+                url = f"https://graph.facebook.com/v20.0/{phone_id}"
+                headers = {"Authorization": f"Bearer {api_key}"}
+                try:
+                    res = await client.get(url, headers=headers)
+                    if res.status_code == 200:
+                        data = res.json()
+                        display_phone = data.get("display_phone_number") or phone_id
+                        return {"valid": True, "provider": "Meta WhatsApp Cloud API", "details": f"Authenticated successfully ({display_phone} active)."}
+                    elif res.status_code in [401, 190]:
+                        return {"valid": False, "error": "Meta WhatsApp authentication failed (Invalid or expired Access Token)."}
+                    else:
+                        return {"valid": False, "error": f"Meta returned status {res.status_code}: {res.text[:150]}"}
+                except Exception as ex:
+                    return {"valid": False, "error": f"WhatsApp API probe error: {str(ex)}"}
+
+            # 20. Custom / Other Provider with Base URL
             else:
                 if not base_url:
                     return {"valid": False, "error": "Custom provider requires a valid Base URL endpoint."}

@@ -2011,8 +2011,11 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
             prospect_row = None
 
             if call_obj:
+                # Keep carrier-set failure states; don't overwrite failed/canceled with ended
+                prior_state = (call_obj.state or "").lower()
                 call_obj.ended = True
-                call_obj.state = "ended"
+                if prior_state not in ("failed", "canceled", "cancelled"):
+                    call_obj.state = "ended"
                 call_obj.duration = duration_str
                 prospect_name = call_obj.prospect or prospect_name
                 mission_name = call_obj.mission or mission_name
@@ -2023,62 +2026,67 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
                     prospect_row = (await db.execute(select(Prospect).where(Prospect.id == call_obj.prospect_id))).scalars().first()
                 await db.commit()
 
-            # Format into UI CallLog transcript objects: [{"who": "ai"|"them", "text": "..."}]
-            formatted_transcript = []
-            for item in raw_lines:
-                if isinstance(item, dict) and "text" in item and "who" in item:
-                    formatted_transcript.append(item)
-                elif isinstance(item, str):
-                    s = item.strip()
-                    if not s:
-                        continue
-                    if s.startswith("AI:"):
-                        formatted_transcript.append({"who": "ai", "text": s[3:].strip()})
-                    elif s.startswith("Prospect:") or s.startswith("Them:"):
-                        text_val = s.replace("Prospect:", "").replace("Them:", "").strip()
-                        formatted_transcript.append({"who": "them", "text": text_val})
-                    elif s.startswith("System:"):
-                        formatted_transcript.append({"who": "system", "text": s[7:].strip()})
-                    else:
-                        formatted_transcript.append({"who": "ai", "text": s})
-
-            # Check if CallLog already exists for this call to avoid duplicate
-            log_id = f"cl_{call_id.replace('call_', '')}"
-            existing_log_res = await db.execute(select(CallLog).where(CallLog.id == log_id))
-            existing_log = existing_log_res.scalars().first()
-
-            names = resolve_call_people(
-                prospect=prospect_row,
-                live_label=prospect_name,
-                transcript=formatted_transcript,
-                existing_person=existing_log.person_listed_as if existing_log else None,
-                existing_company=existing_log.canonical_name if existing_log else None,
+            from app.services.call_log_writer import (
+                format_transcript_lines,
+                infer_outcome_from_transcript,
+                upsert_call_log_from_live,
             )
-            now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
-            if not existing_log:
-                call_log_entry = CallLog(
-                    id=log_id,
-                    canonical_name=names["canonical"],
-                    listed_as=names["listed"],
-                    person_canonical=names["person"],
-                    person_listed_as=names["person"],
-                    channel="voice",
-                    mission=mission_name,
-                    started_at=now_str,
-                    ended_at=now_str,
-                    duration=f"{duration_str} min",
-                    outcome="meeting_booked" if is_booked else "contacted",
-                    transcript=formatted_transcript
-                )
-                db.add(call_log_entry)
-            else:
-                existing_log.transcript = formatted_transcript
-                existing_log.duration = f"{duration_str} min"
-                if is_booked:
-                    existing_log.outcome = "meeting_booked"
-                apply_names_to_log(existing_log, names)
 
-            await db.commit()
+            formatted_transcript = format_transcript_lines(raw_lines)
+            outcome = infer_outcome_from_transcript(
+                formatted_transcript,
+                is_booked=is_booked,
+                duration_str=duration_str,
+            )
+
+            if call_obj:
+                await upsert_call_log_from_live(
+                    db,
+                    call_obj,
+                    outcome=outcome,
+                    duration=duration_str,
+                    force_outcome=False,
+                )
+                await db.commit()
+            else:
+                # No LiveCall row — still try a minimal log via synthetic fields is skipped
+                log_id = f"cl_{call_id.replace('call_', '')}"
+                existing_log_res = await db.execute(select(CallLog).where(CallLog.id == log_id))
+                existing_log = existing_log_res.scalars().first()
+                names = resolve_call_people(
+                    prospect=prospect_row,
+                    live_label=prospect_name,
+                    transcript=formatted_transcript,
+                    existing_person=existing_log.person_listed_as if existing_log else None,
+                    existing_company=existing_log.canonical_name if existing_log else None,
+                )
+                now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
+                if not existing_log:
+                    db.add(CallLog(
+                        id=log_id,
+                        canonical_name=names["canonical"] or prospect_name or "Unknown",
+                        listed_as=names["listed"] or prospect_name or "Unknown",
+                        person_canonical=names["person"] or "",
+                        person_listed_as=names["person"] or "",
+                        channel="voice",
+                        mission=mission_name,
+                        started_at=now_str,
+                        ended_at=now_str,
+                        duration=f"{duration_str} min",
+                        outcome=outcome,
+                        transcript=formatted_transcript,
+                    ))
+                else:
+                    existing_log.transcript = formatted_transcript
+                    existing_log.duration = f"{duration_str} min"
+                    if is_booked:
+                        existing_log.outcome = "meeting_booked"
+                    elif outcome != "contacted" or existing_log.outcome in (None, "", "contacted"):
+                        from app.services.call_log_writer import _should_replace_outcome
+                        if _should_replace_outcome(existing_log.outcome, outcome):
+                            existing_log.outcome = outcome
+                    apply_names_to_log(existing_log, names)
+                await db.commit()
 
         await call_hub.broadcast("call_ended", {
             "callId": call_id,
@@ -2091,7 +2099,7 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
             process_name="call_session_finalized",
             message=f"Call {call_id} completed and saved to CallLog. Duration: {duration_str}, transcript lines: {len(formatted_transcript)}.",
             level="SUCCESS",
-            details={"callId": call_id, "duration": duration_str, "transcriptLines": len(formatted_transcript), "booked": is_booked}
+            details={"callId": call_id, "duration": duration_str, "transcriptLines": len(formatted_transcript), "booked": is_booked, "outcome": outcome}
         )
     except Exception as err:
         logger.error(f"Error finalizing call {call_id}: {err}", exc_info=True)

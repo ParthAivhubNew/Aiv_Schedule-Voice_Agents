@@ -90,6 +90,23 @@ async def send_whatsapp(to: str, body: str, from_override: Optional[str] = None)
                 return {"sent": True, "provider": "meta_cloud", "messageId": msg_id, "waMeUrl": link, "mode": "meta_cloud"}
             detail = resp.text[:240]
             logger.warning("Meta WhatsApp Cloud API failed: %s %s", resp.status_code, detail)
+            # If rejected because 24h conversation window is closed or template is required:
+            if "131047" in detail or "template" in detail.lower():
+                tpl_payload = {
+                    "messaging_product": "whatsapp",
+                    "to": digits,
+                    "type": "template",
+                    "template": {
+                        "name": "hello_world",
+                        "language": {"code": "en_US"}
+                    }
+                }
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    tpl_resp = await client.post(meta_url, headers=headers, json=tpl_payload)
+                if tpl_resp.status_code in (200, 201):
+                    tpl_data = tpl_resp.json()
+                    msg_id = (tpl_data.get("messages") or [{}])[0].get("id")
+                    return {"sent": True, "provider": "meta_cloud", "messageId": msg_id, "waMeUrl": link, "mode": "meta_cloud", "note": "Delivered via template"}
         except Exception as err:
             logger.warning("Meta WhatsApp Cloud API error: %s", err)
 

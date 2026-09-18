@@ -53,6 +53,7 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
         "Text-to-Speech": "Generates the AI's spoken voice on calls.",
         "Voice Orchestration": "Manages the live call itself — audio streaming, interruptions, turn-taking.",
         "Telephony": "Places and receives the actual phone calls.",
+        "Messaging": "Sends automated confirmations and follow-ups via WhatsApp and SMS.",
         "Calendar": "Checks availability and books confirmed meetings.",
         "Business Discovery": "Finds and researches prospect businesses on the web.",
         "Other": "Anything else your team connects — CRM, spreadsheets, custom internal tools."
