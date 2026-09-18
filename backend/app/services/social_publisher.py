@@ -31,12 +31,39 @@ def normalize_platform(raw: Optional[str]) -> str:
 
 
 def _mask_token(token: Optional[str]) -> str:
-    t = (token or "").strip()
-    if not t:
-        return ""
-    if len(t) <= 8:
-        return "••••"
-    return t[:3] + "••••" + t[-4:]
+    try:
+        from app.services.secret_box import open_secret, mask_secret, is_sealed
+        plain = open_secret(token) if is_sealed(token) else (token or "")
+        return mask_secret(plain) if plain else ""
+    except Exception:
+        t = (token or "").strip()
+        if not t:
+            return ""
+        if len(t) <= 8:
+            return "••••"
+        return t[:3] + "••••" + t[-4:]
+
+
+def account_access_token(account) -> str:
+    try:
+        from app.services.secret_box import open_secret
+        return open_secret(getattr(account, "access_token", None) or "")
+    except Exception:
+        return (getattr(account, "access_token", None) or "").strip()
+
+
+def seal_account_secrets(account) -> None:
+    try:
+        from app.services.secret_box import seal_secret, seal_config, is_sealed, is_masked
+        for attr in ("access_token", "refresh_token", "token_secret"):
+            val = getattr(account, attr, None) or ""
+            if val and not is_sealed(val) and not is_masked(val):
+                setattr(account, attr, seal_secret(val))
+        extra = account.extra if isinstance(account.extra, dict) else {}
+        if extra:
+            account.extra = seal_config(extra)
+    except Exception:
+        pass
 
 
 def account_public_dict(acc) -> Dict[str, Any]:
@@ -49,7 +76,7 @@ def account_public_dict(acc) -> Dict[str, Any]:
         "accountId": acc.account_id or "",
         "status": acc.status or "disconnected",
         "isDefault": bool(acc.is_default),
-        "hasToken": bool((acc.access_token or "").strip()),
+        "hasToken": bool(account_access_token(acc) or (acc.access_token or "").strip()),
         "tokenHint": _mask_token(acc.access_token),
         "lastError": acc.last_error or "",
         "lastTestedAt": acc.last_tested_at,
@@ -213,7 +240,7 @@ def _oauth1_header(method: str, url: str, api_key: str, api_secret: str, token: 
 
 async def test_account(account) -> Dict[str, Any]:
     platform = normalize_platform(account.platform)
-    token = (account.access_token or "").strip()
+    token = account_access_token(account)
     if not token:
         return {"ok": False, "error": "Access token missing."}
 
@@ -299,6 +326,7 @@ async def _test_facebook(account, token: str) -> Dict[str, Any]:
                     account.handle = account.handle or pages[0].get("name") or ""
                     if pages[0].get("access_token"):
                         account.access_token = pages[0]["access_token"]
+                        seal_account_secrets(account)
                     return {"ok": True, "handle": account.handle, "accountId": page_id, "pages": len(pages)}
             return {"ok": False, "error": "No Facebook Page found. Paste a Page ID + Page access token."}
     async with httpx.AsyncClient(timeout=20.0) as client:
@@ -347,7 +375,7 @@ async def _test_threads(account, token: str) -> Dict[str, Any]:
 
 async def publish_to_account(account, text: str, image_url: Optional[str] = None) -> Dict[str, Any]:
     platform = normalize_platform(account.platform)
-    token = (account.access_token or "").strip()
+    token = account_access_token(account)
     if not token:
         return {"ok": False, "platform": platform, "error": "No access token on this account."}
     try:

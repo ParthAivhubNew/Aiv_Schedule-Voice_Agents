@@ -147,11 +147,14 @@ async def cancel_booking(booking_id: str, payload: CancelBookingPayload, db: Asy
 
 @router.get("/settings")
 async def get_settings(db: AsyncSession = Depends(get_db)):
+    from app.services.secret_box import mask_secret, open_secret
     st = await calendar_service.get_or_create_settings(db)
+    plain = open_secret(st.api_key) if st.api_key else ""
     return {
         "host_email": st.host_email,
         "host_name": st.host_name,
-        "api_key": st.api_key,
+        "api_key": mask_secret(plain) if plain else None,
+        "has_api_key": bool(plain or st.api_key),
         "base_url": st.base_url,
         "default_event_type_slug": st.default_event_type_slug,
         "default_duration": st.default_duration,
@@ -172,14 +175,17 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
 
 @router.post("/settings")
 async def update_settings(payload: SettingsPayload, db: AsyncSession = Depends(get_db)):
+    from app.services.secret_box import mask_secret, open_secret
     data = payload.dict(exclude_unset=True)
     st = await calendar_service.save_settings(db, data)
+    plain = open_secret(st.api_key) if st.api_key else ""
     return {
         "success": True,
         "settings": {
             "host_email": st.host_email,
             "host_name": st.host_name,
-            "api_key": st.api_key,
+            "api_key": mask_secret(plain) if plain else None,
+            "has_api_key": bool(plain or st.api_key),
             "base_url": st.base_url,
             "default_event_type_slug": st.default_event_type_slug,
             "default_duration": st.default_duration,

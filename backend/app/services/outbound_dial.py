@@ -26,7 +26,7 @@ from app.websockets.call_hub import call_hub
 
 logger = logging.getLogger("outbound_dial")
 
-MAX_CONCURRENCY = max(1, min(5, int(getattr(settings, "OUTBOUND_MAX_CONCURRENCY", 5) or 5)))
+MAX_CONCURRENCY = max(1, min(2, int(getattr(settings, "OUTBOUND_MAX_CONCURRENCY", 2) or 2)))
 CPS_GAP_SEC = max(0.15, float(getattr(settings, "OUTBOUND_CPS_GAP_SEC", 0.45) or 0.45))
 
 _drain_lock = asyncio.Lock()
@@ -34,9 +34,9 @@ _drain_lock = asyncio.Lock()
 
 def _cap_concurrency(requested: Optional[int]) -> int:
     try:
-        n = int(requested or 5)
+        n = int(requested or 1)
     except (TypeError, ValueError):
-        n = 5
+        n = 1
     return max(1, min(n, MAX_CONCURRENCY))
 
 
@@ -110,6 +110,11 @@ async def _resolve_carrier_and_creds(
             carrier_choice = "sipgate" if settings.SIPGATE_SIP_ID else "twilio"
 
     stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
+    try:
+        from app.services.secret_box import open_config
+        stored_cfg = open_config(stored_cfg)
+    except Exception:
+        pass
     req_sid = (account_sid or "").strip()
     req_token = (api_key or "").strip()
 
@@ -193,6 +198,11 @@ async def _upsert_telephony_connection(
         cfg["phoneNumber"] = phone
     cfg["carrier"] = carrier
     cfg["provider"] = carrier
+    try:
+        from app.services.secret_box import seal_config
+        cfg = seal_config(cfg)
+    except Exception:
+        pass
     if target:
         target.name = name
         target.status = "connected"
@@ -426,7 +436,7 @@ async def launch_outbound_mission(
     *,
     title: str,
     prospects: List[Dict[str, Any]],
-    concurrency: int = 5,
+    concurrency: int = 2,
     from_number: Optional[str] = None,
     carrier: Optional[str] = None,
     call_window: str = "09:00–17:30",

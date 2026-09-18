@@ -610,6 +610,11 @@ def _apply_account_payload(acc: SocialAccount, payload: Dict[str, Any]):
                 continue
             extra[k] = val
     acc.extra = extra
+    try:
+        from app.services.social_publisher import seal_account_secrets
+        seal_account_secrets(acc)
+    except Exception:
+        pass
     if payload.get("isDefault") is not None:
         acc.is_default = bool(payload.get("isDefault"))
 

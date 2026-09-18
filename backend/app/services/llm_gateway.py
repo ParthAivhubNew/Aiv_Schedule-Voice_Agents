@@ -19,8 +19,10 @@ async def resolve_llm_credentials(
     """
     Resolves API credentials from request parameters, database connections, or environment variables.
     """
+    from app.services.secret_box import reject_if_masked, config_get_secret
+
     prov = (provider or "").strip().lower()
-    key = (api_key or "").strip()
+    key = reject_if_masked(api_key)
     burl = (base_url or "").strip() or None
     mod = (model or "").strip() or None
 
@@ -51,7 +53,7 @@ async def resolve_llm_credentials(
             if prov:
                 for c in conns:
                     cfg = c.config or {}
-                    k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
+                    k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
                     c_name = c.name.lower()
                     cfg_prov = str(cfg.get("provider", "")).lower()
                     if k and (prov in c_name or c_name in prov or prov in cfg_prov):
@@ -65,7 +67,7 @@ async def resolve_llm_credentials(
             # 2. Prefer connected provider in LLM, Social, Scheduler, or Image groups
             for c in conns:
                 cfg = c.config or {}
-                k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
+                k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
                 if k and c.status == "connected":
                     c_prov = (cfg.get("provider") or c.name.lower()).strip()
                     if "dall-e" in c_prov or "openai" in c_prov:
@@ -80,7 +82,7 @@ async def resolve_llm_credentials(
             # 3. Next check any connection with a non-empty key
             for c in conns:
                 cfg = c.config or {}
-                k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
+                k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
                 if k:
                     c_prov = (cfg.get("provider") or c.name.lower()).strip()
                     if "dall-e" in c_prov or "openai" in c_prov:

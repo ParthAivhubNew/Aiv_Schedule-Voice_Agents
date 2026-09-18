@@ -404,6 +404,8 @@ class CalendarService:
 
     async def save_settings(self, db: AsyncSession, data: Dict[str, Any]) -> CalcomSetting:
         """Updates CalcomSetting."""
+        from app.services.secret_box import seal_secret, is_masked, is_sealed
+
         setting = await self.get_or_create_settings(db)
         
         for field in [
@@ -419,11 +421,20 @@ class CalendarService:
                 val = data[field]
                 if field == "prospect_timezone_override" and not str(val or "").strip():
                     val = None
+                if field == "api_key":
+                    raw = str(val or "").strip()
+                    if not raw or is_masked(raw):
+                        continue  # keep existing sealed key
+                    val = seal_secret(raw) if not is_sealed(raw) else raw
                 setattr(setting, field, val)
 
         await db.commit()
         await db.refresh(setting)
         return setting
+
+    def _calcom_api_key(self, setting) -> str:
+        from app.services.secret_box import open_secret
+        return open_secret(getattr(setting, "api_key", None) or "") or (self.default_api_key or "")
 
     async def check_calcom_status(self, db: Optional[AsyncSession] = None) -> Dict[str, Any]:
         """Checks Cal.com connectivity using DB settings or default config."""
@@ -434,7 +445,7 @@ class CalendarService:
             try:
                 setting = await self.get_or_create_settings(db)
                 if setting.api_key:
-                    api_key = setting.api_key
+                    api_key = self._calcom_api_key(setting)
                 if setting.base_url:
                     base_url = setting.base_url.rstrip("/")
             except Exception as err:
@@ -561,7 +572,7 @@ class CalendarService:
         setting = await self.get_or_create_settings(db)
         if setting.api_key:
             try:
-                headers = {"Authorization": f"Bearer {setting.api_key}", "Content-Type": "application/json"}
+                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}", "Content-Type": "application/json"}
                 payload = {
                     "title": ev.title,
                     "slug": ev.slug,
@@ -632,11 +643,11 @@ class CalendarService:
         # Cal.com if connected — parse ISO times properly. Sparse/garbled days fall back to native.
         if setting.api_key:
             try:
-                headers = {"Authorization": f"Bearer {setting.api_key}"}
+                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}"}
                 params = {
                     "startTime": f"{date_str}T00:00:00Z",
                     "endTime": f"{date_str}T23:59:59Z",
-                    "apiKey": setting.api_key
+                    "apiKey": self._calcom_api_key(setting)
                 }
                 async with httpx.AsyncClient(timeout=4.0) as client:
                     resp = await client.get(f"{setting.base_url.rstrip('/')}/slots", headers=headers, params=params)
@@ -908,7 +919,7 @@ class CalendarService:
         # 1. Attempt Cal.com REST API Sync if API Key configured
         if setting.api_key:
             try:
-                headers = {"Authorization": f"Bearer {setting.api_key}", "Content-Type": "application/json"}
+                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}", "Content-Type": "application/json"}
                 start_iso = to_utc(date_str, time_str, host_tz).strftime("%Y-%m-%dT%H:%M:%SZ")
                 payload = {
                     "eventTypeId": 1,
@@ -1070,7 +1081,7 @@ class CalendarService:
         # Cancel on Cal.com if API key and booking id present
         if setting.api_key and meeting.calcom_booking_id and not meeting.calcom_booking_id.startswith("cal_"):
             try:
-                headers = {"Authorization": f"Bearer {setting.api_key}"}
+                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}"}
                 async with httpx.AsyncClient(timeout=4.0) as client:
                     await client.delete(
                         f"{setting.base_url.rstrip('/')}/bookings/{meeting.calcom_booking_id}",
@@ -1169,7 +1180,7 @@ class CalendarService:
         # If Cal.com API key is configured and calcom booking exists
         if setting.api_key and meeting.calcom_booking_id and not meeting.calcom_booking_id.startswith("cal_"):
             try:
-                headers = {"Authorization": f"Bearer {setting.api_key}", "Content-Type": "application/json"}
+                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}", "Content-Type": "application/json"}
                 start_iso = to_utc(new_date, new_time_n, host_tz).strftime("%Y-%m-%dT%H:%M:%SZ")
                 async with httpx.AsyncClient(timeout=4.0) as client:
                     await client.patch(
@@ -1636,6 +1647,15 @@ class CalendarService:
         if "connected_at" not in cfg or not cfg["connected_at"]:
             cfg["connected_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
 
+        try:
+            from app.services.secret_box import seal_config, open_secret
+            if prev_pw:
+                # Keep previously sealed password intact if client sent blank
+                cfg["smtp_password"] = prev_pw if not account_data.get("password") and not account_data.get("apiKey") else cfg.get("smtp_password")
+            cfg = seal_config(cfg)
+        except Exception:
+            pass
+
         is_primary = cfg.get("is_primary", False)
 
         # If this is marked as primary, unmark others
@@ -1668,6 +1688,11 @@ class CalendarService:
             merged_cfg.update(cfg)
             if not merged_cfg.get("smtp_password") and (incoming_pw or prev_pw):
                 merged_cfg["smtp_password"] = incoming_pw or prev_pw
+            try:
+                from app.services.secret_box import seal_config
+                merged_cfg = seal_config(merged_cfg)
+            except Exception:
+                pass
             conn.config = merged_cfg
 
         # Also sync host_email in CalcomSetting if this account is primary or host
@@ -1683,8 +1708,14 @@ class CalendarService:
         await db.refresh(conn)
 
         public_cfg = dict(conn.config or {})
-        public_cfg.pop("smtp_password", None)
-        public_cfg["hasPassword"] = bool((conn.config or {}).get("smtp_password"))
+        try:
+            from app.services.secret_box import public_config
+            public_cfg = public_config(public_cfg)
+        except Exception:
+            public_cfg.pop("smtp_password", None)
+            public_cfg.pop("api_key", None)
+            public_cfg.pop("password", None)
+        public_cfg["hasPassword"] = bool((conn.config or {}).get("smtp_password") or public_cfg.get("has_smtp_password"))
 
         return {
             "success": True,
@@ -1728,7 +1759,11 @@ class CalendarService:
 
         cfg = conn.config or {}
         email = (cfg.get("email") or "").strip()
-        password = (cfg.get("smtp_password") or "").strip()
+        try:
+            from app.services.secret_box import open_secret
+            password = open_secret(cfg.get("smtp_password") or "").strip()
+        except Exception:
+            password = (cfg.get("smtp_password") or "").strip()
         provider = cfg.get("provider") or "google"
         host = self._smtp_host_for(cfg, email) or (
             "smtp.gmail.com" if provider == "google" else "smtp.office365.com" if provider == "outlook" else ""

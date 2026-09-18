@@ -602,18 +602,31 @@ function ApprovalsBoard({
         )}
 
         {expandedPost ? (
-          <div style={{
-            position: "absolute",
-            inset: 0,
-            background: "rgba(248,247,244,0.78)",
-            backdropFilter: "blur(2px)",
-            zIndex: 8,
-            display: "flex",
-            alignItems: "stretch",
-            justifyContent: "center",
-            padding: "0 8px 8px",
-          }}>
-            <div style={{
+          <div
+            role="presentation"
+            onClick={() => {
+              setExpandedId("");
+              setEditMode(false);
+              setScheduleOpen(false);
+            }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(248,247,244,0.78)",
+              backdropFilter: "blur(2px)",
+              zIndex: 8,
+              display: "flex",
+              alignItems: "stretch",
+              justifyContent: "center",
+              padding: "0 8px 8px",
+              cursor: "pointer",
+            }}
+          >
+            <div
+              role="dialog"
+              aria-label="Post preview"
+              onClick={(e) => e.stopPropagation()}
+              style={{
               width: "100%",
               maxWidth: editMode ? 860 : 560,
               background: "#fff",
@@ -625,6 +638,7 @@ function ApprovalsBoard({
               flexDirection: "column",
               transition: previewDragging ? "none" : "max-width 0.2s ease",
               transform: `translate(${previewPos.x}px, ${previewPos.y}px)`,
+              cursor: "default",
             }}>
               <div
                 onMouseDown={onPreviewHeaderDown}
@@ -655,7 +669,7 @@ function ApprovalsBoard({
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(expandedPost.status) }}>{statusLabel(expandedPost.status)}</span>
-                  <button type="button" onClick={() => setExpandedId("")} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Close">
+                  <button type="button" onClick={() => { setExpandedId(""); setEditMode(false); setScheduleOpen(false); }} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Close">
                     <X size={16} color={C.slate} />
                   </button>
                 </div>

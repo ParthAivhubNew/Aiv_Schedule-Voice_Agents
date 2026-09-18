@@ -174,6 +174,16 @@ async def lifespan(app: FastAPI):
                     pass
     await seed_database()
     try:
+        from app.database import AsyncSessionLocal
+        from app.services.secret_box import migrate_seal_all_connections, migrate_seal_column_secrets
+        async with AsyncSessionLocal() as seal_db:
+            n1 = await migrate_seal_all_connections(seal_db)
+            n2 = await migrate_seal_column_secrets(seal_db)
+            if n1 or n2:
+                logger.info("Sealed %s connection row(s) and %s column secret row(s) at startup.", n1, n2)
+    except Exception as seal_err:
+        logger.warning("Secret seal migration skipped: %s", seal_err)
+    try:
         from app.services.process_logger import log_process_event
         await log_process_event(
             subsystem="system",

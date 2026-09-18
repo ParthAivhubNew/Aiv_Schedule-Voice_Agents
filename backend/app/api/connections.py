@@ -13,6 +13,7 @@ from app.models.models import Connection, Mission, CallLog, Meeting, Prospect, C
 from app.schemas.schemas import ConnectionSchema
 from app.services.key_validator import validate_api_key
 from app.services.process_logger import log_process_event
+from app.services.secret_box import seal_config, open_config, config_get_secret, public_config, mask_secret
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/connections", tags=["Connections & Providers"])
@@ -135,14 +136,14 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     )
     existing = result.scalars().first()
     
-    conn_config = {
+    conn_config = seal_config({
         "api_key": clean_key,
         "auth_token": clean_key,
         "account_sid": req.account_sid or (existing.config.get("account_sid") if existing and isinstance(existing.config, dict) else None),
         "base_url": req.resolved_base_url,
         "provider": req.provider,
         "model": req.model or (existing.config.get("model") if existing and isinstance(existing.config, dict) else None),
-    }
+    })
 
     if existing:
         existing.status = "connected"
@@ -266,14 +267,14 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         
         stored_key = None
         if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
-            stored_key = engine_conn.config.get("api_key")
-            stored_secret = engine_conn.config.get("signing_secret")
+            stored_key = config_get_secret(engine_conn.config, "api_key", "auth_token")
+            stored_secret = config_get_secret(engine_conn.config, "signing_secret", "webhook_secret")
             if stored_secret:
                 active_secret = stored_secret
                 settings.XAI_WEBHOOK_SECRET = stored_secret
 
         active_key = settings.XAI_API_KEY or stored_key
-        masked_active_key = engine_conn.api_key_masked if (engine_conn and engine_conn.api_key_masked) else ((active_key[:4] + "••••" + active_key[-4:]) if active_key and len(active_key) > 8 else "")
+        masked_active_key = engine_conn.api_key_masked if (engine_conn and engine_conn.api_key_masked) else (mask_secret(active_key) if active_key else "")
 
         active_carrier = carrier_conn.name if carrier_conn else ("Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Simulation")
         active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Simulation")
@@ -285,7 +286,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         active_phone = settings.TELNYX_PHONE_NUMBER or "+1 (202) 555-0199"
         is_connected = bool(settings.XAI_API_KEY)
         active_key = settings.XAI_API_KEY
-        masked_active_key = (active_key[:4] + "••••" + active_key[-4:]) if active_key and len(active_key) > 8 else ""
+        masked_active_key = mask_secret(active_key) if active_key else ""
 
     # 3. Detect public webhook URL
     default_webhook = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
@@ -384,8 +385,9 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "hasApiKey": bool(active_key),
         "apiKeyMasked": masked_active_key,
         "hasSigningSecret": bool(clean_secret),
-        "signingSecret": clean_secret,
-        "signingSecretMasked": (clean_secret[:8] + "••••••••" + clean_secret[-4:]) if clean_secret and len(clean_secret) > 12 else ("whsec_••••••••" if clean_secret else "Not configured"),
+        # Never return plaintext signing secret on GET — eye/copy only see the mask.
+        "signingSecret": None,
+        "signingSecretMasked": mask_secret(clean_secret) if clean_secret else "Not configured",
         "isLive": is_connected or os.getenv("VOICE_ENGINE_MODE") == "live"
     }
 
@@ -569,7 +571,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
                 prev_c = c_res.scalars().first()
                 if prev_c and prev_c.config and isinstance(prev_c.config, dict):
-                    key_clean = prev_c.config.get("api_key", "")
+                    key_clean = config_get_secret(prev_c.config, "api_key", "auth_token")
         
         signing_secret = None
         auto_registered = False
@@ -770,12 +772,12 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 name=carrier_name,
                 status="connected",
                 api_key_masked=masked_key,
-                config={
+                config=seal_config({
                     "phoneNumber": phone_clean,
                     "carrier": carrier_name,
                     "account_sid": req.account_sid,
                     "api_key": key_clean if ("twilio" in carrier or "telnyx" in carrier) else None
-                }
+                })
             ))
             db.add(Connection(
                 id=f"conn_{uuid.uuid4().hex[:6]}",
@@ -783,7 +785,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 name=engine_name,
                 status="connected",
                 api_key_masked=masked_key,
-                config={
+                config=seal_config({
                     "api_key": key_clean,
                     "signing_secret": signing_secret,
                     "phoneNumber": phone_clean,
@@ -795,7 +797,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                     "cloned_voice_label": prev_label if (req.voice_name and req.voice_name not in ("ara", "eve", "rex", "leo")) else None,
                     "silence_duration_ms": req.silence_duration_ms or 380,
                     "temperature": req.temperature or 0.80
-                }
+                })
             ))
             await db.commit()
         except Exception as db_err:
@@ -877,7 +879,7 @@ async def get_telephony_hub_debug(db: AsyncSession = Depends(get_db)):
             c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
             c = c_res.scalars().first()
             if c and c.config and isinstance(c.config, dict):
-                active_secret = c.config.get("signing_secret")
+                active_secret = config_get_secret(c.config, "signing_secret", "webhook_secret")
     except Exception as e:
         db_status = str(e)
         
@@ -886,7 +888,7 @@ async def get_telephony_hub_debug(db: AsyncSession = Depends(get_db)):
         "python_version": sys.version,
         "db_status": db_status,
         "xai_signing_secret_set": bool(active_secret),
-        "xai_signing_secret_preview": (active_secret[:12] + "...") if active_secret else None
+        "xai_signing_secret_preview": mask_secret(active_secret) if active_secret else None
     }
 
 
@@ -943,7 +945,7 @@ async def list_xai_registered_numbers(db: AsyncSession = Depends(get_db)):
         c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
         c = c_res.scalars().first()
         if c and c.config and isinstance(c.config, dict):
-            key = c.config.get("api_key")
+            key = config_get_secret(c.config, "api_key", "auth_token")
     if not key:
         raise HTTPException(status_code=400, detail="No xAI API Key configured.")
 

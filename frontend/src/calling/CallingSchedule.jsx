@@ -184,6 +184,8 @@ export function CallingSchedule({
   schedule,
   meetings = [],
   profile,
+  focusFilter = "",
+  onFocusConsumed,
   onSaved,
   onCall,
   onToast,
@@ -194,12 +196,20 @@ export function CallingSchedule({
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState("");
+  const [openBooked, setOpenBooked] = useState("");
   const [saving, setSaving] = useState(false);
   const [waStatus, setWaStatus] = useState(null);
   const [waBusy, setWaBusy] = useState(false);
   const [copied, setCopied] = useState("");
   const [cal, setCal] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [selectedDay, setSelectedDay] = useState(todayISO());
+
+  useEffect(() => {
+    if (focusFilter === "list") {
+      setFilter("list");
+      if (onFocusConsumed) onFocusConsumed();
+    }
+  }, [focusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     api.getWhatsappStatus().then(setWaStatus).catch(() => setWaStatus({ mode: "wa_me", configured: false }));
@@ -531,6 +541,7 @@ export function CallingSchedule({
             ["calls", "Calls"],
             ["video", `Video (${counts.video})`],
             ["whatsapp", `WhatsApp (${counts.whatsapp})`],
+            ["list", `List view (${(meetings || []).length})`],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -554,6 +565,55 @@ export function CallingSchedule({
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ ...fieldStyle(), width: 160, height: 34, marginLeft: "auto" }} />
         </div>
 
+        {filter === "list" ? (
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>Bookings</div>
+            <div style={{ fontSize: 12, color: C.slate, marginBottom: 4 }}>Confirmed meetings — was the Booked tab.</div>
+            {!(meetings || []).length ? (
+              <div style={{ ...card(), padding: 40, textAlign: "center", color: C.slate }}>No bookings yet.</div>
+            ) : (meetings || []).filter((m) => {
+              const q = query.trim().toLowerCase();
+              if (!q) return true;
+              return `${m.prospect || ""} ${m.attendee || ""} ${m.date || ""} ${m.time || ""}`.toLowerCase().includes(q);
+            }).map((m) => {
+              const kindId = m.format === "phone" ? "phone" : m.format === "in_person" ? "in_person" : "video";
+              const meta = kindMeta(kindId);
+              const Icon = meta.Icon;
+              const when = [m.date, m.time].filter(Boolean).join(" ");
+              const join = m.videoLink || m.video_link || "";
+              const open = openBooked === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setOpenBooked(open ? "" : m.id)}
+                  style={{ ...card(), textAlign: "left", cursor: "pointer", border: `1.5px solid ${open ? C.ink : C.border}`, width: "100%" }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{m.prospect || m.attendee || "Meeting"}</div>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: C.teal, background: C.tealSoft, padding: "4px 8px", borderRadius: 999 }}>{m.status || "upcoming"}</span>
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 13, color: C.textInk, display: "grid", gap: 6 }}>
+                    <div><Calendar size={13} style={{ verticalAlign: "middle" }} /> {when || "—"}</div>
+                    <div><Icon size={13} style={{ verticalAlign: "middle" }} /> {meta.label}{m.platform ? ` · ${m.platform}` : ""}</div>
+                    {m.channel ? <div style={{ color: C.slate }}>Channel: {m.channel}</div> : null}
+                  </div>
+                  {open && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                      {join ? (
+                        <a href={hrefFor(join)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ display: "inline-block", color: C.cobalt, fontWeight: 700, fontSize: 13, wordBreak: "break-all" }}>{join}</a>
+                      ) : (
+                        <div style={{ fontSize: 12, color: C.slateLight }}>No join URL yet.</div>
+                      )}
+                    </div>
+                  )}
+                  {!open ? <div style={{ marginTop: 10, fontSize: 11, fontWeight: 700, color: C.cobalt }}>Open →</div> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+        <>
         <div style={{ ...card(), padding: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 10, flexWrap: "wrap" }}>
             <div>
@@ -733,6 +793,8 @@ export function CallingSchedule({
             <div style={{ color: C.slate, fontSize: 13, padding: 12 }}>Set company working hours to show slots.</div>
           ) : null}
         </div>
+        </>
+        )}
       </div>
 
       {open && (

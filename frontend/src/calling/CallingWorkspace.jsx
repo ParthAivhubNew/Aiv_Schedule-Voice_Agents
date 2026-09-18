@@ -44,19 +44,59 @@ import { CallingSchedule } from "./CallingSchedule";
 const PAGES = [
   { id: "list", label: "List", icon: List },
   { id: "live", label: "Live", icon: Radio },
-  { id: "booked", label: "Booked", icon: Calendar },
-  { id: "logs", label: "Logs", icon: FileText },
+  { id: "logs", label: "Call history", icon: FileText },
   { id: "schedule", label: "Schedule", icon: PhoneCall },
   { id: "ai", label: "AI config", icon: Plug },
   { id: "company", label: "Company", icon: Users },
 ];
 
 const EXTRA_SLOTS = ["Phone", "Email", "Website", "LinkedIn", "Contact"];
+const DEFAULT_LIST_HEADERS = ["Company", "Contact", "Phone", "Email", "Website", "LinkedIn"];
 const SIMPLE_PAGES = new Set(PAGES.map((p) => p.id));
+const MAX_CONCURRENT = 2;
+
+function blankListRow(index = 0) {
+  const cells = {};
+  DEFAULT_LIST_HEADERS.forEach((h) => { cells[h] = ""; });
+  return {
+    id: "row_" + Date.now() + "_" + index + "_" + Math.random().toString(36).slice(2, 6),
+    company: "",
+    contact: "",
+    name: `Row ${index + 1}`,
+    phone: "",
+    email: "",
+    website: "",
+    linkedin: "",
+    town: "",
+    postcode: "",
+    address: "",
+    sector: "",
+    cells,
+    aiFields: {},
+    callTimes: 0,
+    lastOutcome: "",
+  };
+}
+
+function parseNewListName(text) {
+  const s = String(text || "");
+  const m = s.match(/\b(?:new|start|create|blank|clear)\s+(?:a\s+|the\s+)?list(?:\s+(?:called|named|titled|:)\s*|\s+)["']?([^"'.\n?!]{2,60})["']?/i);
+  if (m && m[1]) {
+    const name = m[1].trim().replace(/\s+/g, " ");
+    if (!/^(from|with|and|for|please|now|here)$/i.test(name)) return name;
+  }
+  return "";
+}
+
+function isNewListCommand(text) {
+  return /\b((new|start|create|blank)\s+(a\s+|the\s+)?list|clear\s+(the\s+)?list|start\s+(a\s+)?fresh\s+list)\b/i.test(String(text || ""));
+}
 
 function callingPageId(raw) {
   const id = String(raw || "");
   if (id === "setup") return "company";
+  if (id === "booked" || id === "meetings") return "schedule";
+  if (id === "calllog" || id === "history") return "logs";
   return SIMPLE_PAGES.has(id) ? id : "";
 }
 const ALERT_KEY = "aivhub_meeting_alerted";
@@ -68,7 +108,7 @@ const LS_CONTACTS = "aivhub_calling_saved_contacts";
 const WELCOME = {
   id: "c0",
   who: "ai",
-  text: "Write what you need: find missing on the list, look up a company, or draft who to call. I fill empty cells from public search only — no invented numbers. Pause or Stop anytime during Find missing.",
+  text: "Start a new list (say “new list” or use New list), add rows by hand, or ask me to find companies on the web. Find missing fills empty cells from public search — no invented numbers. Save list anytime.",
 };
 
 function isChatJunk(m) {
@@ -226,11 +266,31 @@ function looksLikeUrl(v) {
   return /^https?:\/\//i.test(s) || /^www\./i.test(s) || (/^[a-z0-9.-]+\.[a-z]{2,}/i.test(s) && !/\s/.test(s));
 }
 
+function isJunkWebsite(v) {
+  const s = String(v || "").trim().toLowerCase();
+  if (!s) return true;
+  return /bing\.com|google\.|duckduckgo|yahoo\.com\/search|yandex\.|baidu\.com|facebook\.com|twitter\.com|(^|[/.])x\.com([/.]|$)|instagram\.com|youtube\.com|youtu\.be|reddit\.com|wikipedia\.|linkedin\.com|schema\.org|w3\.org|microsoft\.com|office\.com/.test(s);
+}
+
 function normalizeWebsite(v) {
   const s = String(v || "").trim();
   if (!s || /public web search/i.test(s)) return "";
-  if (/^https?:\/\//i.test(s)) return s;
-  if (/^www\./i.test(s) || (/^[a-z0-9.-]+\.[a-z]{2,}/i.test(s) && !/\s/.test(s))) return "https://" + s.replace(/^\/+/, "");
+  if (isJunkWebsite(s)) return "";
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      const u = new URL(s);
+      const host = (u.hostname || "").replace(/^www\./i, "").toLowerCase();
+      if (!host || isJunkWebsite(host) || isJunkWebsite(u.hostname)) return "";
+      return `${u.protocol}//${u.hostname}`;
+    } catch (_) {
+      return "";
+    }
+  }
+  if (/^www\./i.test(s) || (/^[a-z0-9.-]+\.[a-z]{2,}/i.test(s) && !/\s/.test(s))) {
+    const cleaned = s.replace(/^\/+/, "").split(/[\/\s?]/)[0];
+    if (isJunkWebsite(cleaned)) return "";
+    return "https://" + cleaned;
+  }
   return "";
 }
 
@@ -350,11 +410,29 @@ function rowFromRecord(headers, rec, i) {
   };
 }
 
+function emailLooksPlausible(email, person) {
+  const em = String(email || "").trim().toLowerCase();
+  if (!em || !em.includes("@")) return false;
+  const [local, domain] = em.split("@");
+  if (!local || !domain || !domain.includes(".")) return false;
+  const free = /^(gmail|googlemail|yahoo|hotmail|outlook|live|icloud|me|aol|mail|protonmail|proton|gmx)\./i.test(domain)
+    || /^(gmail|googlemail|yahoo|hotmail|outlook|live|icloud|me|aol|mail|protonmail|proton|gmx)\.com$/i.test(domain);
+  if (!free) return true;
+  const parts = String(person || "").toLowerCase().match(/[a-z]+/g) || [];
+  const localC = local.replace(/[^a-z0-9]/g, "");
+  if (parts.length >= 2) {
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    if (first.length >= 2 && last.length >= 2 && localC.includes(first) && localC.includes(last)) return true;
+  }
+  return false;
+}
+
 function missingKeys(r) {
   const miss = [];
   if (digitsInPhone(rowPhone(r)).length < 7) miss.push("phone");
-  if (!String(r.email || "").trim()) miss.push("email");
-  if (!String(r.website || "").trim()) miss.push("website");
+  if (!String(r.email || "").trim() || !emailLooksPlausible(r.email, r.contact || r.name)) miss.push("email");
+  if (!String(r.website || "").trim() || isJunkWebsite(r.website)) miss.push("website");
   if (!String(r.linkedin || "").trim()) miss.push("linkedin");
   if (!String(r.contact || "").trim()) miss.push("contact");
   if (!String(r.company || "").trim()) miss.push("company");
@@ -372,7 +450,7 @@ function serializeForGaps(list) {
       company: company || "",
       contact: contact || (company ? "" : display),
       phone: rowPhone(r) || r.phone || "",
-      email: r.email || "",
+      email: emailLooksPlausible(r.email, r.contact || r.name) ? (r.email || "") : "",
       source: normalizeWebsite(r.website),
       website: normalizeWebsite(r.website),
       domain: normalizeWebsite(r.website),
@@ -396,21 +474,44 @@ function applyFill(r, fill) {
   if (!fill) return r;
   if (fill.status && fill.status !== "proposed" && !fillHasValue(fill)) return r;
   const next = { ...r, cells: { ...(r.cells || {}) }, aiFields: { ...(r.aiFields || {}) } };
+  if (isJunkWebsite(next.website)) {
+    next.website = "";
+    Object.keys(next.cells).forEach((h) => {
+      if (headerToField(h) === "website") next.cells[h] = "";
+    });
+  }
+  if (next.email && !emailLooksPlausible(next.email, next.contact || next.name || r.contact || r.name)) {
+    next.email = "";
+    Object.keys(next.cells).forEach((h) => {
+      if (headerToField(h) === "email") next.cells[h] = "";
+    });
+  }
   const take = (key, val) => {
     let cleaned = val;
-    if (key === "website" || key === "linkedin") cleaned = normalizeWebsite(val) || String(val || "").trim();
-    else cleaned = String(val || "").trim();
-    if (!cleaned || String(next[key] || "").trim()) return;
+    if (key === "website" || key === "linkedin") cleaned = normalizeWebsite(val) || "";
+    else if (key === "email") {
+      cleaned = String(val || "").trim();
+      if (cleaned && !emailLooksPlausible(cleaned, next.contact || next.name || r.contact || r.name)) cleaned = "";
+    } else cleaned = String(val || "").trim();
+    if (!cleaned) return;
+    const existing = String(next[key] || "").trim();
+    if (existing && !(key === "website" && isJunkWebsite(existing)) && !(key === "email" && !emailLooksPlausible(existing, next.contact || next.name))) return;
     next[key] = cleaned;
     next.aiFields[key] = true;
     Object.keys(next.cells).forEach((h) => {
-      if (headerToField(h) === key && !String(next.cells[h] || "").trim()) next.cells[h] = cleaned;
+      if (headerToField(h) === key && (
+        !String(next.cells[h] || "").trim()
+        || (key === "website" && isJunkWebsite(next.cells[h]))
+        || (key === "email" && !emailLooksPlausible(next.cells[h], next.contact || next.name))
+      )) {
+        next.cells[h] = cleaned;
+      }
     });
   };
   take("phone", fill.phone);
   take("email", fill.email);
   take("contact", fill.contact);
-  take("website", fill.website || fill.source);
+  take("website", fill.website || (isJunkWebsite(fill.source) ? "" : fill.source));
   take("linkedin", fill.linkedin);
   if (!String(r.company || "").trim() && fill.company) {
     next.company = fill.company;
@@ -650,19 +751,18 @@ export function CallingWorkspace({
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState([]);
   const [rows, setRows] = useState([]);
-  const [concurrency, setConcurrency] = useState(1);
   const [busy, setBusy] = useState("");
   const [toast, setToast] = useState("");
   const [liveCalls, setLiveCalls] = useState([]);
   const [meetings, setMeetings] = useState([]);
   const [logs, setLogs] = useState([]);
   const [schedule, setSchedule] = useState([]);
+  const [scheduleFocus, setScheduleFocus] = useState(""); // "list" opens booked list inside Schedule
   const [listeningId, setListeningId] = useState(null);
   const [takenId, setTakenId] = useState(null);
   const [endingId, setEndingId] = useState(null);
   const [voiceName, setVoiceName] = useState("ara-uk");
   const [direct, setDirect] = useState({ phone: "", name: "" });
-  const [openBooked, setOpenBooked] = useState("");
   const [logQuery, setLogQuery] = useState("");
   const [logOutcome, setLogOutcome] = useState("all");
   const [openLogId, setOpenLogId] = useState("");
@@ -716,12 +816,21 @@ export function CallingWorkspace({
 
   const onNotificationNavigate = (noteOrView, maybeMeta) => {
     let page = "";
+    let targetView = "";
     if (maybeMeta && maybeMeta.page) {
       page = maybeMeta.page;
+      targetView = maybeMeta.targetView || "";
     } else if (typeof noteOrView === "object" && noteOrView) {
-      page = callingPageFromTarget(resolveNotificationTarget(noteOrView).targetView);
+      const r = resolveNotificationTarget(noteOrView);
+      targetView = r.targetView;
+      page = callingPageFromTarget(r.targetView);
     } else if (typeof noteOrView === "string") {
+      targetView = noteOrView;
       page = callingPageFromTarget(noteOrView);
+    }
+    if (targetView === "meetings" || targetView === "booked" || page === "booked") {
+      setScheduleFocus("list");
+      page = "schedule";
     }
     if (page && SIMPLE_PAGES.has(page)) setPage(page);
   };
@@ -941,18 +1050,84 @@ export function CallingWorkspace({
 
   const saveList = () => {
     if (!rows.length) {
-      showToast("Nothing to save.");
+      showToast("Nothing to save — add a row or ask chat for leads first.");
       return;
     }
+    const suggested = fileName || "Untitled list";
+    let name = suggested;
+    try {
+      const typed = window.prompt("Name for this list", suggested);
+      if (typed === null) return;
+      name = String(typed || "").trim() || suggested;
+    } catch (_) {}
     const item = {
       id: "list_" + Date.now(),
-      name: fileName || "Untitled list",
+      name,
       savedAt: new Date().toISOString(),
-      headers,
+      headers: headers.length ? headers : DEFAULT_LIST_HEADERS,
       rows,
     };
-    setSavedLists((prev) => [item, ...prev].slice(0, 20));
-    showToast(`Saved ${rows.length} rows with call marks.`);
+    setFileName(name);
+    setSavedLists((prev) => [item, ...prev.filter((s) => s.name !== name)].slice(0, 20));
+    showToast(`Saved “${name}” · ${rows.length} rows.`);
+  };
+
+  const newList = ({ name, confirm = true, silent = false } = {}) => {
+    if (confirm && rows.length) {
+      const ok = window.confirm("Start a blank list? Unsaved rows on the current list will be cleared from this view (saved lists stay).");
+      if (!ok) return false;
+    }
+    const label = String(name || "").trim() || `List ${new Date().toLocaleDateString("en-GB")}`;
+    setFileName(label);
+    setHeaders([...DEFAULT_LIST_HEADERS]);
+    setRows([]);
+    setSelectedIds(new Set());
+    if (fileRef.current) fileRef.current.value = "";
+    if (!silent) showToast(`New list: ${label}`);
+    return true;
+  };
+
+  const addRow = () => {
+    if (!headers.length) setHeaders([...DEFAULT_LIST_HEADERS]);
+    setRows((prev) => {
+      const next = [...prev, blankListRow(prev.length)];
+      return next;
+    });
+    showToast("Row added — type into the cells.");
+  };
+
+  const removeRow = (id) => {
+    setRows((prev) => prev.filter((r) => r.id !== id));
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      n.delete(id);
+      return n;
+    });
+  };
+
+  const patchRowField = (id, field, raw) => {
+    const val = String(raw || "");
+    setRows((prev) => prev.map((r) => {
+      if (r.id !== id) return r;
+      const next = { ...r, cells: { ...(r.cells || {}) }, aiFields: { ...(r.aiFields || {}) } };
+      let cleaned = val;
+      if (field === "website" || field === "linkedin") cleaned = normalizeWebsite(val) || val.trim();
+      else if (field === "phone") cleaned = coercePhoneCell(val) || val.trim();
+      else cleaned = val.trim();
+      next[field] = cleaned;
+      if (field === "company" || field === "contact") {
+        next.name = (field === "company" ? cleaned : next.company) || (field === "contact" ? cleaned : next.contact) || next.name;
+      }
+      if (next.aiFields) delete next.aiFields[field];
+      const hs = headers.length ? headers : DEFAULT_LIST_HEADERS;
+      hs.forEach((h) => {
+        if (headerToField(h) === field) next.cells[h] = cleaned;
+      });
+      // Keep canonical cell keys for manual lists
+      const canon = { company: "Company", contact: "Contact", phone: "Phone", email: "Email", website: "Website", linkedin: "LinkedIn" };
+      if (canon[field]) next.cells[canon[field]] = cleaned;
+      return ensureRowPhone(next);
+    }));
   };
 
   const upsertSavedContact = (entry) => {
@@ -1228,9 +1403,25 @@ export function CallingWorkspace({
       await findMissing();
       return;
     }
+    let startedFresh = false;
+    if (isNewListCommand(text)) {
+      const listName = parseNewListName(text);
+      const onlyCommand = !/\b(find|search|discover|look up|get me|companies|leads|prospects|firms)\b/i.test(text);
+      startedFresh = newList({ name: listName || undefined, confirm: rows.length > 0, silent: true });
+      if (!startedFresh && onlyCommand) return;
+      if (onlyCommand) {
+        setChat((c) => [...c, {
+          id: "c_" + Date.now(),
+          who: "ai",
+          text: `Blank list ready${listName ? ` (“${listName}”)` : ""}. Add rows by hand, or ask me to find companies / people and I’ll put them here. Say Save list when you want it kept.`,
+        }]);
+        return;
+      }
+    }
     setBusy("chat");
     try {
       const creds = getActiveAiCredentials(commonAi, "voice");
+      const contactSnapshot = startedFresh ? [] : serializeForGaps(rows);
       const res = await api.copilotChat({
         message: text,
         history: [...historySource, userMsg].map((m) => ({ sender: m.who === "ai" ? "ai" : "user", text: m.text })),
@@ -1239,12 +1430,14 @@ export function CallingWorkspace({
         provider: creds.provider,
         model: creds.model,
         baseUrl: creds.baseUrl,
-        contacts: serializeForGaps(rows),
+        contacts: contactSnapshot,
       });
       if (res && res.fills && res.fills.length) mergeFills(res.fills);
       if (res && res.leads && res.leads.length) {
         setRows((prev) => {
-          const start = prev.length;
+          const base = startedFresh ? [] : prev;
+          const start = base.length;
+          if (!headers.length || startedFresh) setHeaders([...DEFAULT_LIST_HEADERS]);
           const added = res.leads.map((lead, i) => ({
             id: "lead_" + Date.now() + "_" + i,
             company: lead.company || lead.name || "",
@@ -1255,13 +1448,16 @@ export function CallingWorkspace({
             website: lead.website || lead.domain || "",
             linkedin: lead.linkedin || "",
             cells: {},
+            aiFields: {},
+            callTimes: 0,
+            lastOutcome: "",
           }));
-          if (!headers.length) setHeaders(["Company", "Contact", "Phone", "Email", "Website"]);
-          return [...prev, ...added.map((r) => ({
+          return [...base, ...added.map((r) => ({
             ...r,
-            cells: { Company: r.company, Contact: r.contact, Phone: r.phone, Email: r.email, Website: r.website },
+            cells: { Company: r.company, Contact: r.contact, Phone: r.phone, Email: r.email, Website: r.website, LinkedIn: r.linkedin || "" },
           }))];
         });
+        if (startedFresh && !fileName) setFileName(parseNewListName(text) || "AI list");
       }
       setChat((c) => [...c, { id: "c_" + Date.now(), who: "ai", text: (res && res.reply) || "Looked at that." }]);
     } catch (e) {
@@ -1305,8 +1501,9 @@ export function CallingWorkspace({
     sendChat(null, { text, replaceFromId: m.who === "user" ? m.id : undefined });
   };
 
-  const startCalls = async (onlySelected = false) => {
-    const pool = onlySelected
+  const startCalls = async () => {
+    const useSelected = selectedDialable >= 2;
+    const pool = useSelected
       ? rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(rowPhone(r)).length >= 7)
       : rows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7);
     const prospects = pool.map((r) => {
@@ -1322,14 +1519,15 @@ export function CallingWorkspace({
       };
     });
     if (!prospects.length) {
-      showToast(onlySelected ? "Select contacts with a phone first." : "No dialable phone numbers on this list.");
+      showToast(useSelected ? "Select contacts with a phone first." : "No dialable phone numbers on this list.");
       return;
     }
-    const cap = Math.max(1, Math.min(Number(concurrency) || 1, 5));
-    const label = onlySelected ? "selected" : "with a phone";
-    if (!window.confirm(`Call ${prospects.length} ${label}? Concurrent lines = ${cap} (max). Extra numbers queue until a line frees.`)) {
-      return;
-    }
+    // 2+ selected → up to 2 at once. Whole list (or 0–1 selected) → 1 at a time.
+    const cap = useSelected ? MAX_CONCURRENT : 1;
+    const label = useSelected
+      ? `Call ${prospects.length} selected · ${cap} at once?`
+      : `Call all ${prospects.length} phones · 1 at a time?`;
+    if (!window.confirm(label)) return;
     setBusy("dial");
     try {
       const res = await api.dialOutboundBatch({
@@ -1340,7 +1538,7 @@ export function CallingWorkspace({
         timezone: (profile && profile.timezone) || "Europe/London",
         ...savedTwilioCreds(),
       });
-      showToast(res.message || `Live outbound started for ${res.total} contacts (cap ${cap}).`);
+      showToast(res.message || `Live outbound started for ${res.total} contacts.`);
       setPage("live");
       await refreshLive();
     } catch (e) {
@@ -1443,12 +1641,13 @@ export function CallingWorkspace({
     try {
       const res = await api.confirmBooking(id);
       showToast(res.message || "Meeting booked.");
-      pushNote(res.message || "Meeting booked — added to Booked and Schedule.", "success");
+      pushNote(res.message || "Meeting booked — see Schedule → List view.", "success");
       await refreshLive();
       await refreshMeetings();
       await refreshSchedule();
       await refreshLogs();
-      setPage("booked");
+      setScheduleFocus("list");
+      setPage("schedule");
     } catch (e) {
       showToast(e.message || "Book failed");
     }
@@ -1491,12 +1690,11 @@ export function CallingWorkspace({
     });
   }, [logs, logQuery, logOutcome]);
   const titles = {
-    list: ["Today's list", "Upload Excel, tick who to call (or call all). Concurrent 1–5. Call / Text / WhatsApp per number. Save contacts anytime."],
+    list: ["Today's list", "Upload Excel, tick who to call. Max 2 at once when several are selected."],
     live: ["Live calls", "Listen, take over, book from their words, or end. Transcript stays on the card."],
-    booked: ["Booked", "Where, what kind, join URL. Bell fires when added and when time hits."],
-    logs: ["Call logs", "Name from dial form. Search, filter, expand transcript."],
-    schedule: ["Schedule", "Park a call on the left. Calendar shows booked vs free slots — click a free slot to fill day & time."],
-    ai: ["AI config", "Voice stack, keys, models. Same live engine the calls use."],
+    logs: ["Call history", "Name from dial form. Search, filter, expand transcript."],
+    schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
+    ai: ["AI config", "Keys and secrets stay encrypted in the database."],
     company: ["Company profile", "Identity, knowledge, services, FAQ. Same record classic uses on calls."],
   };
 
@@ -1655,6 +1853,12 @@ export function CallingWorkspace({
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8, flexShrink: 0 }}>
                   <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" hidden onChange={(e) => onFile(e.target.files && e.target.files[0])} />
+                  <button type="button" onClick={() => newList({})} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                    <Plus size={14} /> New list
+                  </button>
+                  <button type="button" onClick={addRow} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                    <Pencil size={14} /> Add row
+                  </button>
                   <button type="button" onClick={() => fileRef.current && fileRef.current.click()} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                     <Upload size={14} /> {fileName || "Upload CSV / Excel"}
                   </button>
@@ -1677,12 +1881,6 @@ export function CallingWorkspace({
                       ))}
                     </select>
                   ) : null}
-                  <label style={{ fontSize: 13, color: C.slate, display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
-                    Concurrent lines
-                    <select value={concurrency} onChange={(e) => setConcurrency(Number(e.target.value))} style={{ ...fieldStyle(), width: 72, height: 36 }}>
-                      {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-                    </select>
-                  </label>
                   <button type="button" disabled={!rows.length || busy === "find"} onClick={findMissing} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: "none", background: C.cobaltSoft, color: C.cobaltDeep, fontWeight: 700, cursor: rows.length ? "pointer" : "default" }}>
                     {busy === "find" ? (findProgress ? `Looking ${findProgress.done}/${findProgress.total}` : "Looking…") : "Find missing"}
                   </button>
@@ -1692,26 +1890,41 @@ export function CallingWorkspace({
                       <button type="button" onClick={() => abortFind(true)} style={{ height: 40, padding: "0 12px", borderRadius: 10, border: "none", background: C.redSoft, color: C.red, cursor: "pointer", fontWeight: 700 }}>Stop</button>
                     </>
                   ) : null}
-                  {selectedDialable > 0 ? (
-                    <button type="button" disabled={busy === "dial"} onClick={() => startCalls(true)} title={`Calls only the ${selectedDialable} ticked rows. Concurrent cap = ${concurrency}.`} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: C.gradientTeal, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
-                      {busy === "dial" ? "Placing…" : `Call selected (${selectedDialable}) · ${concurrency} line${concurrency === 1 ? "" : "s"}`}
-                    </button>
-                  ) : null}
                   {dialable > 0 ? (
-                    <button type="button" disabled={busy === "dial"} onClick={() => startCalls(false)} title={`${dialable} of ${rows.length} rows have a dialable number. Concurrent lines = ${concurrency}.`} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
-                      {busy === "dial" ? "Placing…" : `Call all phones (${dialable}) · ${concurrency} line${concurrency === 1 ? "" : "s"}`}
+                    <button
+                      type="button"
+                      disabled={busy === "dial"}
+                      onClick={startCalls}
+                      title={selectedDialable >= 2
+                        ? `Call ${selectedDialable} selected · up to ${MAX_CONCURRENT} at once`
+                        : `Call all ${dialable} phones · 1 at a time`}
+                      style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: selectedDialable >= 2 ? C.gradientTeal : C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}
+                    >
+                      {busy === "dial"
+                        ? "Placing…"
+                        : selectedDialable >= 2
+                          ? `Call selected (${selectedDialable}) · 2 at once`
+                          : `Call all phones (${dialable}) · 1 at a time`}
                     </button>
                   ) : null}
                 </div>
                 <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 10, flexShrink: 0 }}>
                   {rows.length
-                    ? `${rows.length} rows · ${dialable} have a phone · ${selectedDialable} selected. Tick rows to call a subset. Concurrent max ${concurrency}. Per row: Call / Text / WhatsApp. Save selected or Save from Call anyone.`
-                    : "Cap 5 concurrent. Upload a list, tick who to call, or dial one number above."}
+                    ? `${fileName ? `${fileName} · ` : ""}${rows.length} contacts · ${dialable} with phone${selectedDialable ? ` · ${selectedDialable} selected` : ""}. Edit cells or tick rows to dial.`
+                    : "New list → Add row, or ask chat “new list” / find companies. Save list keeps it here."}
                 </div>
 
                 {!rows.length ? (
-                  <div style={{ ...card(), padding: 48, textAlign: "center", color: C.slate, flex: 1 }}>
-                    No file yet. Call anyone above, ask chat to find a company, or upload a list.
+                  <div style={{ ...card(), padding: 40, textAlign: "center", color: C.slate, flex: 1, display: "grid", gap: 14, justifyContent: "center" }}>
+                    <div>Blank slate. Build a list by hand or with List AI.</div>
+                    <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                      <button type="button" onClick={() => { newList({ confirm: false }); addRow(); }} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+                        New list + first row
+                      </button>
+                      <button type="button" onClick={addRow} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer" }}>
+                        Add row
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="calling-scroll" style={{ ...card(), padding: 0, flex: 1, minHeight: 180 }}>
@@ -1736,6 +1949,7 @@ export function CallingWorkspace({
                           <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 700, whiteSpace: "nowrap", background: C.paperSoft, position: "sticky", top: 0, zIndex: 1 }}>Reach</th>
                           <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 700, whiteSpace: "nowrap", background: C.paperSoft, position: "sticky", top: 0, zIndex: 1 }}>Calls</th>
                           <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 700, whiteSpace: "nowrap", background: C.paperSoft, position: "sticky", top: 0, zIndex: 1 }}>Last verdict</th>
+                          <th style={{ textAlign: "left", padding: "12px 10px", borderBottom: `1px solid ${C.border}`, background: C.paperSoft, position: "sticky", top: 0, zIndex: 1, width: 44 }} />
                         </tr>
                       </thead>
                       <tbody>
@@ -1743,6 +1957,7 @@ export function CallingWorkspace({
                           const phone = rowPhone(r);
                           const canDial = digitsInPhone(phone).length >= 7;
                           const checked = selectedIds.has(r.id);
+                          const editableFields = new Set(["company", "contact", "phone", "email", "website", "linkedin"]);
                           return (
                             <tr key={r.id} style={{ background: checked ? "rgba(12,140,125,0.06)" : undefined }}>
                               <td style={{ padding: "10px 10px", borderBottom: `1px solid ${C.borderLight}`, verticalAlign: "middle" }}>
@@ -1756,7 +1971,32 @@ export function CallingWorkspace({
                                 />
                               </td>
                               {headers.map((h) => {
-                                const hi = cellHi(r, headerToField(h));
+                                const field = headerToField(h);
+                                const hi = cellHi(r, field);
+                                if (field && editableFields.has(field)) {
+                                  const v = field === "phone" ? (rowPhone(r) || r.phone || "") : (r[field] || "");
+                                  return (
+                                    <td key={h} style={{ padding: "6px 8px", borderBottom: `1px solid ${C.borderLight}`, background: hi ? C.tealSoft : undefined }}>
+                                      <input
+                                        value={v}
+                                        onChange={(e) => patchRowField(r.id, field, e.target.value)}
+                                        placeholder={h}
+                                        style={{
+                                          width: "100%",
+                                          minWidth: field === "phone" ? 120 : 90,
+                                          height: 32,
+                                          border: `1px solid ${C.border}`,
+                                          borderRadius: 8,
+                                          padding: "0 8px",
+                                          fontSize: 12.5,
+                                          fontFamily: FONT_BODY,
+                                          background: "#fff",
+                                          boxSizing: "border-box",
+                                        }}
+                                      />
+                                    </td>
+                                  );
+                                }
                                 return (
                                   <td key={h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: C.textInk, background: hi ? C.tealSoft : undefined, fontWeight: hi ? 700 : 400 }}>{cellValue(r, h)}</td>
                                 );
@@ -1764,6 +2004,30 @@ export function CallingWorkspace({
                               {extras.map((h) => {
                                 const key = h.toLowerCase() === "contact" ? "contact" : h.toLowerCase();
                                 const hi = cellHi(r, key);
+                                if (editableFields.has(key)) {
+                                  const v = key === "phone" ? (rowPhone(r) || r.phone || "") : (r[key] || "");
+                                  return (
+                                    <td key={"x_" + h} style={{ padding: "6px 8px", borderBottom: `1px solid ${C.borderLight}`, background: hi ? C.tealSoft : undefined }}>
+                                      <input
+                                        value={v}
+                                        onChange={(e) => patchRowField(r.id, key, e.target.value)}
+                                        placeholder={h}
+                                        style={{
+                                          width: "100%",
+                                          minWidth: 90,
+                                          height: 32,
+                                          border: `1px solid ${C.border}`,
+                                          borderRadius: 8,
+                                          padding: "0 8px",
+                                          fontSize: 12.5,
+                                          fontFamily: FONT_BODY,
+                                          background: "#fff",
+                                          boxSizing: "border-box",
+                                        }}
+                                      />
+                                    </td>
+                                  );
+                                }
                                 return (
                                   <td key={"x_" + h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: extraValue(r, h) ? C.textInk : C.slateLight, background: hi ? C.tealSoft : undefined, fontWeight: hi ? 700 : 400 }}>
                                     {extraValue(r, h)}
@@ -1792,6 +2056,11 @@ export function CallingWorkspace({
                               </td>
                               <td style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, fontWeight: 700 }}>{r.callTimes || 0}</td>
                               <td style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: r.lastOutcome ? C.textInk : C.slateLight }}>{r.lastOutcome || "not called"}</td>
+                              <td style={{ padding: "8px 6px", borderBottom: `1px solid ${C.borderLight}` }}>
+                                <button type="button" onClick={() => removeRow(r.id)} title="Remove row" style={{ ...miniAct(), color: C.red }}>
+                                  <Trash2 size={12} />
+                                </button>
+                              </td>
                             </tr>
                           );
                         })}
@@ -1965,7 +2234,7 @@ export function CallingWorkspace({
                   </div>
                 )}
                 <form onSubmit={(e) => { e.preventDefault(); sendChat(e); }} style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                  <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Ask, name a company, or say find missing…" disabled={busy === "chat" || busy === "find"} style={{ ...fieldStyle(), flex: 1 }} />
+                  <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="New list… find companies… or find missing" disabled={busy === "chat" || busy === "find"} style={{ ...fieldStyle(), flex: 1 }} />
                   <button type="submit" disabled={busy === "chat" || busy === "find" || !chatInput.trim()} style={{ height: 40, width: 44, border: "none", borderRadius: 10, background: C.teal, color: "#fff", cursor: "pointer" }}>
                     <Send size={14} />
                   </button>
@@ -2023,44 +2292,6 @@ export function CallingWorkspace({
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          )}
-
-          {page === "booked" && (
-            <div style={{ display: "grid", gap: 12 }}>
-              {!meetings.length ? (
-                <div style={{ ...card(), padding: 48, textAlign: "center", color: C.slate }}>No bookings yet.</div>
-              ) : meetings.map((m) => {
-                const kind = formatKind(m);
-                const Icon = kind.Icon;
-                const when = meetingTimeLabel(m) || [m.date, m.time].filter(Boolean).join(" ");
-                const join = kind.link;
-                const open = openBooked === m.id;
-                return (
-                  <button key={m.id} type="button" onClick={() => setOpenBooked(open ? "" : m.id)} style={{ ...card(), textAlign: "left", cursor: "pointer", border: `1.5px solid ${open ? C.ink : C.border}`, width: "100%" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17 }}>{m.prospect || m.attendee || "Meeting"}</div>
-                      <span style={{ fontSize: 11, fontWeight: 800, color: C.teal, background: C.tealSoft, padding: "4px 8px", borderRadius: 999 }}>{m.status || "upcoming"}</span>
-                    </div>
-                    <div style={{ marginTop: 10, fontSize: 13, color: C.textInk, display: "grid", gap: 6 }}>
-                      <div><Calendar size={13} style={{ verticalAlign: "middle" }} /> {when}</div>
-                      <div><Icon size={13} style={{ verticalAlign: "middle" }} /> {kind.label} · {kind.where}</div>
-                      {m.channel ? <div style={{ color: C.slate }}>Channel: {m.channel}</div> : null}
-                      {m.host || m.attendee ? <div style={{ color: C.slate }}>{[m.host, m.attendee].filter(Boolean).join(" · ")}</div> : null}
-                    </div>
-                    {open && (
-                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                        {join ? (
-                          <a href={/^https?:/i.test(join) ? join : "https://" + join} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ display: "inline-block", color: C.cobalt, fontWeight: 700, fontSize: 13 }}>{join}</a>
-                        ) : (
-                          <div style={{ fontSize: 12, color: C.slateLight }}>No join URL yet. Add one on Schedule if this was parked there.</div>
-                        )}
-                      </div>
-                    )}
-                    {!open ? <div style={{ marginTop: 10, fontSize: 11, fontWeight: 700, color: C.cobalt }}>Open →</div> : null}
-                  </button>
                 );
               })}
             </div>
@@ -2238,6 +2469,8 @@ export function CallingWorkspace({
               schedule={schedule}
               meetings={meetings}
               profile={profile}
+              focusFilter={scheduleFocus}
+              onFocusConsumed={() => setScheduleFocus("")}
               onSaved={async () => { await refreshSchedule(); await refreshMeetings(); }}
               onCall={(item) => {
                 setDirect({ phone: item.phone || "", name: item.prospect || "" });

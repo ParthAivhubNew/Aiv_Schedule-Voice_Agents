@@ -47,8 +47,9 @@ def _cfg(conn: Optional[Connection]) -> Dict[str, Any]:
 
 
 def _key_from(conn: Optional[Connection]) -> str:
+    from app.services.secret_box import config_get_secret
     cfg = _cfg(conn)
-    return (cfg.get("api_key") or cfg.get("apiKey") or cfg.get("auth_token") or "").strip()
+    return config_get_secret(cfg, "api_key", "apiKey", "auth_token")
 
 
 def _norm_engine(name: str, cfg: Dict[str, Any]) -> str:

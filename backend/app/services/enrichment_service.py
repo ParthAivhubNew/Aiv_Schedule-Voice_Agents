@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -15,8 +16,119 @@ logger = logging.getLogger("enrichment_service")
 SEARCH_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Language": "en-GB,en;q=0.9",
 }
+
+# Never treat these as a prospect website / domain
+_JUNK_WEB_HOSTS = (
+    "bing.com", "google.", "duckduckgo.", "yahoo.com", "yandex.", "baidu.com",
+    "linkedin.com", "facebook.com", "twitter.com", "x.com", "instagram.com",
+    "youtube.com", "youtu.be", "reddit.com", "wikipedia.org", "wikimedia.org",
+    "pinterest.com", "tiktok.com", "microsoft.com", "office.com", "live.com",
+    "schema.org", "w3.org", "cloudflare.com", "sentry.io",
+)
+
+_FREE_MAIL = {
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com",
+    "outlook.com", "live.com", "icloud.com", "me.com", "aol.com", "mail.com",
+    "protonmail.com", "proton.me", "gmx.com", "gmx.co.uk", "yandex.com",
+}
+
+
+def _host_of(url: str) -> str:
+    try:
+        raw = (url or "").strip()
+        if not raw:
+            return ""
+        p = urllib.parse.urlparse(raw if "://" in raw else "https://" + raw)
+        host = (p.netloc or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        return host
+    except Exception:
+        return ""
+
+
+def _is_junk_web_host(host_or_url: str) -> bool:
+    h = (host_or_url or "").lower()
+    if "://" in h or "/" in h:
+        h = _host_of(h)
+    if not h:
+        return True
+    return any(j in h for j in _JUNK_WEB_HOSTS)
+
+
+def _unwrap_result_url(url: str) -> str:
+    """Resolve Bing/Google/DDG wrapper links to the real destination URL."""
+    href = (url or "").strip()
+    if not href:
+        return ""
+    try:
+        if "uddg=" in href:
+            href = urllib.parse.unquote(href.split("uddg=")[-1].split("&")[0])
+        parsed = urllib.parse.urlparse(href if "://" in href else "https://" + href)
+        host = (parsed.netloc or "").lower()
+        qs = urllib.parse.parse_qs(parsed.query or "")
+        if "bing.com" in host:
+            for key in ("u", "r", "url"):
+                vals = qs.get(key) or []
+                if not vals:
+                    continue
+                raw = urllib.parse.unquote(str(vals[0]))
+                candidates = [raw]
+                if raw.startswith("a1") and len(raw) > 4:
+                    candidates.append(raw[2:])
+                for cand in candidates:
+                    if cand.startswith("http"):
+                        return cand
+                    try:
+                        pad = "=" * ((4 - len(cand) % 4) % 4)
+                        dec = base64.urlsafe_b64decode(cand + pad).decode("utf-8", errors="ignore").strip()
+                        if dec.startswith("http"):
+                            return dec
+                        if dec and not dec.startswith("http"):
+                            pad2 = "=" * ((4 - len(dec) % 4) % 4)
+                            dec2 = base64.urlsafe_b64decode(dec + pad2).decode("utf-8", errors="ignore").strip()
+                            if dec2.startswith("http"):
+                                return dec2
+                    except Exception:
+                        continue
+            return href
+        if "google." in host and ("/url" in (parsed.path or "") or "/search" in (parsed.path or "")):
+            for key in ("q", "url", "u"):
+                vals = qs.get(key) or []
+                if vals and str(vals[0]).startswith("http"):
+                    return str(vals[0])
+    except Exception:
+        pass
+    return href
+
+
+async def _resolve_redirect_once(url: str) -> str:
+    """Follow a single redirect for Bing ck links that did not unwrap from query params."""
+    href = _unwrap_result_url(url)
+    host = _host_of(href)
+    if not href or "bing.com" not in host:
+        return href
+    try:
+        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=6.0, follow_redirects=False) as client:
+            resp = await client.head(href)
+            loc = resp.headers.get("location") or ""
+            if not loc and resp.status_code in (200, 405):
+                resp = await client.get(href)
+                loc = resp.headers.get("location") or ""
+            if loc:
+                if loc.startswith("/"):
+                    loc = f"https://{host}{loc}"
+                unwrapped = _unwrap_result_url(loc)
+                if unwrapped and not _is_junk_web_host(unwrapped):
+                    return unwrapped
+                if unwrapped.startswith("http") and "bing.com" not in _host_of(unwrapped):
+                    return unwrapped
+    except Exception:
+        pass
+    return ""
+
 
 async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     results = []
@@ -31,25 +143,20 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, 
                     snippet_elem = link.select_one(".result__snippet")
                     url_elem = link.select_one(".result__url")
                     a_elem = link.select_one("a.result__a")
-                    
+
                     title = title_elem.get_text(strip=True) if title_elem else ""
                     snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
                     raw_url = url_elem.get_text(strip=True) if url_elem else ""
                     if not raw_url and a_elem and a_elem.get("href"):
                         href = a_elem.get("href") or ""
-                        # DDG sometimes wraps: /l/?uddg=<encoded>
-                        if "uddg=" in href:
-                            try:
-                                raw_url = urllib.parse.unquote(href.split("uddg=")[-1].split("&")[0])
-                            except Exception:
-                                raw_url = href
-                        else:
-                            raw_url = href
-                    
+                        raw_url = _unwrap_result_url(href) if ("uddg=" in href or "http" in href) else href
+
                     if title or snippet:
-                        url = raw_url
+                        url = _unwrap_result_url(raw_url) if raw_url else ""
                         if url and not url.startswith("http"):
                             url = "https://" + url.lstrip("/")
+                        if url and _is_junk_web_host(url):
+                            url = ""
                         results.append({
                             "title": title,
                             "snippet": snippet,
@@ -69,11 +176,25 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, 
                 soup = BeautifulSoup(resp.text, "html.parser")
                 for li in soup.select("li.b_algo")[:max_results]:
                     a = li.select_one("h2 a")
+                    cite = li.select_one("cite")
                     snippet_el = li.select_one(".b_caption p") or li.select_one("p")
                     title = a.get_text(strip=True) if a else ""
-                    url = (a.get("href") or "").strip() if a else ""
+                    href = (a.get("href") or "").strip() if a else ""
+                    cite_text = cite.get_text(strip=True) if cite else ""
+                    url = _unwrap_result_url(href)
+                    if not url or _is_junk_web_host(url):
+                        # Prefer visible cite domain (real site) over bing.com/ck wrapper
+                        if cite_text and not _is_junk_web_host(cite_text):
+                            url = cite_text if cite_text.startswith("http") else "https://" + cite_text.lstrip("/")
+                            url = url.split()[0].split("›")[0].strip()
+                            if not url.startswith("http"):
+                                url = "https://" + url.lstrip("/")
+                        else:
+                            url = await _resolve_redirect_once(href) if href else ""
+                    if url and _is_junk_web_host(url):
+                        url = ""
                     snippet = snippet_el.get_text(strip=True) if snippet_el else ""
-                    if title or snippet:
+                    if title or snippet or url:
                         results.append({"title": title, "snippet": snippet, "url": url})
     except Exception as err:
         logger.warning(f"Bing search fallback error for '{query}': {err}")
@@ -96,23 +217,37 @@ def _harvest_contacts_from_text(blob: str) -> Tuple[List[str], List[str]]:
 
 def _homepage_from_url(url: str) -> str:
     try:
-        p = urllib.parse.urlparse(url if "://" in url else "https://" + url)
+        cleaned = _unwrap_result_url(url or "")
+        if not cleaned:
+            return ""
+        p = urllib.parse.urlparse(cleaned if "://" in cleaned else "https://" + cleaned)
         host = (p.netloc or "").lower()
         if host.startswith("www."):
             host = host[4:]
-        if not host or any(s in host for s in (
-            "linkedin.com", "facebook.com", "twitter.com", "x.com", "reddit.com",
-            "duckduckgo", "wikipedia", "youtube.com", "bing.com", "google.",
-        )):
+        if not host or _is_junk_web_host(host):
             return ""
         return f"https://{host}"
     except Exception:
         return ""
 
+
+def _usable_website(url: str) -> str:
+    """Return a clean https homepage or empty — never search-engine wrappers."""
+    home = _homepage_from_url(url or "")
+    if home:
+        return home
+    raw = _unwrap_result_url(url or "").strip()
+    if not raw or _is_junk_web_host(raw):
+        return ""
+    if not raw.startswith("http"):
+        raw = "https://" + raw.lstrip("/")
+    return _homepage_from_url(raw)
+
 EMAIL_JUNK = (
-    "noreply", "no-reply", "donotreply", "sentry.io", "wixpress", "example.com",
+    "noreply", "no-reply", "donotreply", "do-not-reply", "sentry.io", "wixpress", "example.com",
     "wordpress", "cloudflare", "schema.org", "png", "jpg", "svg", "css", "js",
-    "wix.com", "squarespace", "cookiebot",
+    "wix.com", "squarespace", "cookiebot", "godaddy", "domain@", "abuse@", "postmaster@",
+    "webmaster@", "privacy@", "legal@", "support@github", "mailer-daemon",
 )
 
 SOCIAL_HOSTS = {
@@ -234,11 +369,60 @@ def _is_person_name(raw: str) -> bool:
     return True
 
 
+
 def _is_public_email(raw: str) -> bool:
     em = (raw or "").strip().lower()
     if "@" not in em or em.endswith((".png", ".jpg", ".svg", ".css", ".js", ".webp")):
         return False
-    return not any(j in em for j in EMAIL_JUNK)
+    if any(j in em for j in EMAIL_JUNK):
+        return False
+    local, _, domain = em.partition("@")
+    if not local or not domain or "." not in domain:
+        return False
+    if len(local) < 2 or len(domain) < 4:
+        return False
+    return True
+
+
+def _email_fits_context(email: str, person: str = "", company: str = "", site_host: str = "") -> bool:
+    """Reject random free-mail addresses that do not match the person/company."""
+    em = (email or "").strip().lower()
+    if not _is_public_email(em):
+        return False
+    local, _, domain = em.partition("@")
+    host = (site_host or "").lower().split(":")[0]
+    if host and host in domain:
+        return True
+    # Corporate / non-free mail from crawled pages — keep
+    if domain not in _FREE_MAIL:
+        return True
+    # Free mail only if local part looks like the person name
+    parts = re.findall(r"[a-z]+", (person or "").lower())
+    local_c = re.sub(r"[^a-z0-9]", "", local)
+    if len(parts) >= 2:
+        first, last = parts[0], parts[-1]
+        if len(first) >= 2 and len(last) >= 2:
+            if first in local_c and last in local_c:
+                return True
+            if local_c in {f"{first}{last}", f"{first[0]}{last}", f"{first}{last[0]}", f"{last}{first}"}:
+                return True
+            if f"{first}.{last}" in local or f"{first}_{last}" in local:
+                return True
+    # Company token in local part (rare for free mail) — still weak, skip
+    return False
+
+
+def _pick_best_email(emails: List[str], person: str = "", company: str = "", site_host: str = "") -> str:
+    ranked = [e for e in emails if _email_fits_context(e, person, company, site_host)]
+    if not ranked:
+        return ""
+    host = (site_host or "").lower().split(":")[0]
+    if host:
+        domain_hit = [e for e in ranked if host in e.split("@")[-1]]
+        if domain_hit:
+            return domain_hit[0]
+    non_free = [e for e in ranked if e.split("@")[-1] not in _FREE_MAIL]
+    return (non_free or ranked)[0]
 
 
 def _html_for_parse(html: str, cap: int = 280000) -> str:
@@ -628,30 +812,46 @@ async def enrich_prospect_intelligence(
     for p in snippet_phones:
         if _is_real_phone(p) and p not in discovered_phones:
             discovered_phones.append(p)
-    discovered_emails = [e for e in (scraped_info.get("emails") or []) if _is_public_email(e)]
-    for e in snippet_emails:
-        if _is_public_email(e) and e not in discovered_emails:
-            discovered_emails.append(e)
     host = ""
     if domain:
-        host = urllib.parse.urlparse(domain if domain.startswith("http") else "https://" + domain).netloc.replace("www.", "")
+        host = _host_of(domain if domain.startswith("http") else "https://" + domain)
+        if _is_junk_web_host(host):
+            host = ""
+    raw_emails = [e for e in (scraped_info.get("emails") or []) if _is_public_email(e)]
+    for e in snippet_emails:
+        if _is_public_email(e) and e not in raw_emails:
+            raw_emails.append(e)
+    discovered_emails = [
+        e for e in raw_emails
+        if _email_fits_context(e, person=person_bit or "", company=str(target_company or ""), site_host=host)
+    ]
+    # If nothing fits context, keep only non-free corporate emails (never random gmail)
+    if not discovered_emails:
+        discovered_emails = [e for e in raw_emails if e.split("@")[-1] not in _FREE_MAIL]
     if host:
         ranked = [e for e in discovered_emails if host.split(":")[0] in e] + [e for e in discovered_emails if host.split(":")[0] not in e]
         discovered_emails = ranked
     company_pitch = scraped_info.get("description", "")
 
-    # Prefer a real company homepage — never LinkedIn/social as "domain"
+    # Prefer a real company homepage — never LinkedIn/social/search as "domain"
     resolved_domain = ""
     if domain:
-        home = _homepage_from_url(domain if domain.startswith("http") else "https://" + domain)
-        if home:
-            resolved_domain = home
+        resolved_domain = _usable_website(domain)
     if not resolved_domain:
         for s in snippets:
-            home = _homepage_from_url(s.get("url") or "")
-            if home:
-                resolved_domain = home
+            resolved_domain = _usable_website(s.get("url") or "")
+            if resolved_domain:
                 break
+
+    clean_citations = []
+    for s in snippets:
+        u = _usable_website(s.get("url") or "") or _unwrap_result_url(s.get("url") or "")
+        if u and not _is_junk_web_host(u) and u not in clean_citations:
+            clean_citations.append(u)
+        elif (s.get("url") or "") and "linkedin.com" in (s.get("url") or "").lower():
+            li = _unwrap_result_url(s.get("url") or "")
+            if li and li not in clean_citations:
+                clean_citations.append(li)
 
     people = []
     name_re = re.compile(r"\b([A-Z][a-z]+ [A-Z][a-z]+)\b.{0,40}\b(CEO|Founder|Managing Director|COO|CTO|CMO)\b")
@@ -676,6 +876,13 @@ async def enrich_prospect_intelligence(
     else:
         hook = f"Hi, reaching out to {target_company} directly regarding voice AI scheduling workflows."
 
+    primary_email = _pick_best_email(
+        discovered_emails,
+        person=person_bit or "",
+        company=str(target_company or ""),
+        site_host=_host_of(resolved_domain) or host,
+    )
+
     confidence = 85 if (discovered_phones or discovered_emails) else 70 if socials else 60 if snippets else 35
 
     summary_result = {
@@ -684,14 +891,14 @@ async def enrich_prospect_intelligence(
         "phones": discovered_phones,
         "primaryPhone": discovered_phones[0] if discovered_phones else "",
         "emails": discovered_emails,
-        "primaryEmail": discovered_emails[0] if discovered_emails else "",
+        "primaryEmail": primary_email,
         "overview": company_pitch or (snippets[0]["snippet"] if snippets else "No detailed summary found."),
         "openingHook": hook,
         "keyPeople": people[:3],
         "socials": socials,
         "redditMentions": reddit_mentions[:3],
         "confidenceScore": confidence,
-        "citations": [s.get("url") for s in snippets if s.get("url")][:8]
+        "citations": clean_citations[:8],
     }
 
     if deep:
@@ -753,6 +960,17 @@ def _row_missing_fields(row: Dict[str, Any]) -> List[str]:
     company = str(row.get("name") or row.get("company") or "").strip()
     website = str(row.get("source") or row.get("site") or row.get("website") or row.get("domain") or "").strip()
     linkedin = str(row.get("linkedin") or "").strip()
+    if website and _is_junk_web_host(website):
+        website = ""
+    if email and not _email_fits_context(
+        email,
+        person=contact,
+        company=company,
+        site_host=_host_of(website),
+    ):
+        # Treat random free-mail / junk emails as still missing so we can replace
+        if email.split("@")[-1].lower() in _FREE_MAIL:
+            email = ""
     if not phone:
         missing.append("phone")
     if not email:
@@ -795,6 +1013,8 @@ async def fill_contact_gaps(
         domain = str(row.get("source") or row.get("site") or row.get("domain") or row.get("website") or "").strip()
         if domain and (" " in domain or domain.lower() == "public web search") and not domain.startswith("http"):
             domain = ""
+        if domain and _is_junk_web_host(domain):
+            domain = ""
         person = str(row.get("contact") or "").strip()
         company_field = str(row.get("company") or "").strip()
         if company_field and _is_person_name(company_field) and not person:
@@ -832,9 +1052,13 @@ async def fill_contact_gaps(
             phone = (data.get("primaryPhone") or "").strip()
             if not _is_real_phone(phone):
                 phone = ""
-            email = (data.get("primaryEmail") or "").strip()
-            if not _is_public_email(email):
-                email = ""
+            site_host = _host_of(str(data.get("domain") or domain or ""))
+            email = _pick_best_email(
+                [data.get("primaryEmail") or ""] + list(data.get("emails") or []),
+                person=person,
+                company=query_company or name,
+                site_host=site_host,
+            )
             people = data.get("keyPeople") or []
             found_person = ""
             for candidate in people:
@@ -862,26 +1086,14 @@ async def fill_contact_gaps(
                 slug = linkedin.split("/in/")[-1].split("/")[0].split("?")[0]
                 if slug:
                     linkedin = f"https://www.linkedin.com/in/{slug}"
-            website = ""
-            raw_domain = str(data.get("domain") or domain or "").strip()
-            if raw_domain and raw_domain.lower() != "public web search" and " " not in raw_domain:
-                home = _homepage_from_url(raw_domain if raw_domain.startswith("http") else f"https://{raw_domain}")
-                website = home or (raw_domain if raw_domain.startswith("http") else f"https://{raw_domain.lstrip('/')}")
-            skip_hosts = [
-                "linkedin.com", "facebook.com", "twitter.com", "x.com", "reddit.com",
-                "duckduckgo", "wikipedia", "youtube.com", "bing.com", "google.",
-            ]
+            website = _usable_website(str(data.get("domain") or ""))
+            if not website:
+                website = _usable_website(domain)
             if not website:
                 for url in (data.get("citations") or []):
-                    home = _homepage_from_url(str(url or ""))
-                    if home:
-                        website = home
+                    website = _usable_website(str(url or ""))
+                    if website:
                         break
-                    low = str(url or "").lower()
-                    if not url or any(s in low for s in skip_hosts):
-                        continue
-                    website = url
-                    break
             # Prefer company LinkedIn over person profile when we have a company name
             if linkedin and "/in/" in linkedin and query_company:
                 for url in (data.get("citations") or []):
@@ -894,16 +1106,17 @@ async def fill_contact_gaps(
                 found_company = ""
             # Infer company label from website host when file had only a person name
             if not found_company and website:
-                host_guess = urllib.parse.urlparse(website).netloc.replace("www.", "").split(".")[0]
+                host_guess = _host_of(website).split(".")[0]
                 if host_guess and len(host_guess) > 2 and host_guess.lower() not in ("www", "mail", "app"):
                     found_company = host_guess.replace("-", " ").title()
+            safe_source = website or linkedin or ""
             proposal = {
                 "rowId": row.get("id"),
                 "company": found_company or name,
                 "status": "proposed",
                 "gaps": missing,
                 "confidence": data.get("confidenceScore") or 0,
-                "source": website or linkedin or (data.get("citations") or [None])[0] or "",
+                "source": safe_source,
                 "website": website,
                 "openingHook": data.get("openingHook") or "",
                 "overview": data.get("overview") or "",
@@ -945,7 +1158,7 @@ async def fill_contact_gaps(
                 "gaps": missing,
                 "note": f"No public phone/email/person/socials found for {name}.",
                 "confidence": data.get("confidenceScore") or 0,
-                "source": proposal["source"],
+                "source": safe_source,
             }
         except Exception as err:
             logger.warning(f"Gap fill parse failed for '{name}': {err}")

@@ -511,7 +511,7 @@ class BatchDialProspect(BaseModel):
 
 class BatchDialRequest(BaseModel):
     prospects: List[BatchDialProspect] = []
-    concurrency: int = 5
+    concurrency: int = 2
     mission_title: Optional[str] = None
     from_number: Optional[str] = None
     carrier: Optional[str] = None
@@ -613,6 +613,11 @@ async def dial_outbound_call(
 
         # 3. Resolve credentials with smart fallback to saved DB vault
         stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
+        try:
+            from app.services.secret_box import open_config, seal_config
+            stored_cfg = open_config(stored_cfg)
+        except Exception:
+            seal_config = None  # type: ignore
         req_sid = (req.account_sid or "").strip()
         req_token = (req.api_key or "").strip()
 
@@ -661,6 +666,12 @@ async def dial_outbound_call(
             if sid and token and len(sid) == 34 and len(token) == 32 and sid.startswith("AC"):
                 try:
                     masked = token[:3] + "••••••••" + token[-4:]
+                    sealed = {"account_sid": sid, "api_key": token, "auth_token": token}
+                    try:
+                        from app.services.secret_box import seal_config as _seal
+                        sealed = _seal(sealed)
+                    except Exception:
+                        pass
                     if not tele_conn:
                         tele_conn = Connection(
                             id=f"conn_{uuid.uuid4().hex[:6]}",
@@ -668,12 +679,12 @@ async def dial_outbound_call(
                             group_name="Telephony",
                             status="connected",
                             api_key_masked=masked,
-                            config={"account_sid": sid, "api_key": token, "auth_token": token}
+                            config=sealed
                         )
                         db.add(tele_conn)
                     else:
                         existing_cfg = dict(tele_conn.config) if isinstance(tele_conn.config, dict) else {}
-                        tele_conn.config = {**existing_cfg, "account_sid": sid, "api_key": token, "auth_token": token}
+                        tele_conn.config = {**existing_cfg, **sealed}
                         tele_conn.status = "connected"
                         tele_conn.api_key_masked = masked
                     await db.commit()

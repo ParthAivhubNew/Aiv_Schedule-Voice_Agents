@@ -29,11 +29,13 @@ def _cfg(conn: Optional[Connection]) -> Dict[str, Any]:
 
 
 def xai_api_key(conn: Optional[Connection] = None) -> str:
+    from app.services.secret_box import config_get_secret
     cfg = _cfg(conn)
-    return (cfg.get("api_key") or settings.XAI_API_KEY or "").strip()
+    return (config_get_secret(cfg, "api_key", "apiKey", "auth_token") or settings.XAI_API_KEY or "").strip()
 
 
 async def elevenlabs_api_key(db: AsyncSession) -> str:
+    from app.services.secret_box import config_get_secret
     if settings.ELEVENLABS_API_KEY:
         return settings.ELEVENLABS_API_KEY.strip()
     res = await db.execute(select(Connection))
@@ -41,7 +43,7 @@ async def elevenlabs_api_key(db: AsyncSession) -> str:
         group = (c.group_name or "").lower()
         name = (c.name or "").lower()
         if "text-to-speech" in group or "eleven" in name:
-            key = (_cfg(c).get("api_key") or _cfg(c).get("apiKey") or "").strip()
+            key = config_get_secret(_cfg(c), "api_key", "apiKey")
             if key:
                 return key
     return ""
@@ -53,9 +55,11 @@ def stored_custom_voices(conn: Optional[Connection]) -> List[Dict[str, Any]]:
 
 
 async def save_orchestration_config(db: AsyncSession, updates: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.secret_box import seal_config
     conn = await _orchestration_conn(db)
     cfg = _cfg(conn)
     cfg.update({k: v for k, v in updates.items() if v is not None})
+    cfg = seal_config(cfg)
     if conn:
         conn.config = cfg
         conn.status = "connected"

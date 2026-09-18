@@ -341,9 +341,10 @@ async def resolve_image_credentials(
     from app.config import settings
     from sqlalchemy.future import select
     from app.models.models import Connection
+    from app.services.secret_box import reject_if_masked, config_get_secret
 
     prov = (provider or "").strip().lower()
-    key = (api_key or "").strip()
+    key = reject_if_masked(api_key)
     mod = (model or "").strip()
     burl = (base_url or "").strip()
     if prov in ("chatgpt", "gpt", "dall-e", "dalle"):
@@ -370,7 +371,7 @@ async def resolve_image_credentials(
             ]
             for c in prefer:
                 cfg = c.config if isinstance(c.config, dict) else {}
-                k = (cfg.get("api_key") or cfg.get("apiKey") or "").strip()
+                k = config_get_secret(cfg, "api_key", "apiKey")
                 if k and not _is_xai(k):
                     img_row = {
                         "provider": (cfg.get("provider") or c.name or "custom").strip().lower(),

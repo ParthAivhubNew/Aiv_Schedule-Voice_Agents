@@ -209,9 +209,9 @@ export function resolveNotificationTarget(n) {
 export function notificationActionLabel(n) {
   if (n && n.targetAction) return n.targetAction;
   const { targetView } = resolveNotificationTarget(n);
-  if (targetView === "meetings") return "Open Booked →";
+  if (targetView === "meetings") return "Open List view →";
   if (targetView === "live") return "Open Live →";
-  if (targetView === "calllog") return "Open Logs →";
+  if (targetView === "calllog") return "Open Call history →";
   if (targetView === "schedule") return "Open Schedule →";
   if (targetView === "provider") return "Open AI config →";
   if (targetView === "company") return "Open Company →";
@@ -223,8 +223,8 @@ export function notificationActionLabel(n) {
 export function callingPageFromTarget(targetView) {
   const map = {
     live: "live",
-    meetings: "booked",
-    booked: "booked",
+    meetings: "schedule",
+    booked: "schedule",
     schedule: "schedule",
     calllog: "logs",
     logs: "logs",
@@ -288,6 +288,38 @@ export function meetingTimeLabel(m) {
   const pTime = m.prospectTime || m.prospect_time;
   if (!pTime || pTz === hostTz || pTime === hostTime) return host;
   return `${host} · attendee ${pTime} ${timezoneShort(pTz)}`;
+}
+
+/** True if value is a UI mask / ciphertext placeholder — never treat as a real key. */
+export function isMaskedSecret(value) {
+  const t = String(value || "").trim();
+  if (!t) return false;
+  return t.includes("•") || t.includes("…") || t.startsWith("enc:v1:");
+}
+
+/** Keep provider/model prefs in localStorage; drop raw API keys after they are saved server-side. */
+export function scrubSecretsForStorage(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const next = { ...obj };
+  for (const k of ["apiKey", "api_key", "imageApiKey", "image_api_key", "authToken", "auth_token", "clientSecret", "signingSecret"]) {
+    if (next[k] && !isMaskedSecret(next[k])) {
+      next[`has_${k}`] = true;
+      next[k] = "";
+    }
+  }
+  if (Array.isArray(next.providers)) {
+    next.providers = next.providers.map((p) => {
+      if (!p || typeof p !== "object") return p;
+      const row = { ...p };
+      if (row.apiKey && !isMaskedSecret(row.apiKey)) {
+        row.apiKeyMasked = row.apiKeyMasked || (row.apiKey.slice(0, 3) + "••••••••" + row.apiKey.slice(-4));
+        row.apiKey = "";
+        row.hasKey = true;
+      }
+      return row;
+    });
+  }
+  return next;
 }
 
 export function getActiveAiCredentials(commonAi, pluginType = "leadgen", featureKey = "") {
@@ -355,7 +387,7 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
     }
 
     return {
-      apiKey: schedKey || "",
+      apiKey: isMaskedSecret(schedKey) ? "" : (schedKey || ""),
       provider: schedProv || "openai",
       model: schedModel || "gpt-4o",
       baseUrl: schedBaseUrl || ""
@@ -429,7 +461,7 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
   }
 
   return {
-    apiKey: resolvedKey,
+    apiKey: isMaskedSecret(resolvedKey) ? "" : resolvedKey,
     provider: provId,
     model: modelName || "gpt-4o",
     baseUrl: provObj?.baseUrl || commonAi?.schedulerAi?.baseUrl || ""
@@ -452,13 +484,14 @@ export function resolveImageCredentials(commonAi) {
     sched.imageProvider === "openai" ? sched.apiKey : "",
     openaiProv?.apiKey,
     /openai|gpt|chatgpt/i.test(String(sched.provider || "") + String(sched.model || "")) ? sched.apiKey : "",
-  ].map((x) => (x || "").trim()).find(Boolean) || "";
+  ].map((x) => (x || "").trim()).find((x) => x && !isMaskedSecret(x)) || "";
 
   const explicitPaid = ["stability", "fal", "custom"].includes(String(sched.imageProvider || "").toLowerCase());
   if (explicitPaid) {
+    const rawImg = (sched.imageApiKey || "").trim();
     return {
       imageProvider: sched.imageProvider,
-      imageApiKey: (sched.imageApiKey || "").trim(),
+      imageApiKey: isMaskedSecret(rawImg) ? "" : rawImg,
       imageModel: sched.imageModel || "",
       imageBaseUrl: sched.imageBaseUrl || "",
       imageStyle: sched.imageStyle || "modern_saas",

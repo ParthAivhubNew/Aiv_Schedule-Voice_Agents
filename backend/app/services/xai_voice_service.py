@@ -1237,7 +1237,8 @@ async def join_xai_call_session(
             c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
             c = c_res.scalars().first()
             if c and c.config and isinstance(c.config, dict):
-                stored_key = c.config.get("api_key")
+                from app.services.secret_box import config_get_secret
+                stored_key = config_get_secret(c.config, "api_key", "auth_token")
                 if stored_key:
                     api_key = stored_key
                     settings.XAI_API_KEY = stored_key

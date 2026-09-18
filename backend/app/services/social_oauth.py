@@ -119,6 +119,11 @@ async def get_oauth_app(db: AsyncSession, platform: str) -> Dict[str, Any]:
 
     client_id = (row.client_id if row else "") or ""
     client_secret = (row.client_secret if row else "") or ""
+    try:
+        from app.services.secret_box import open_secret
+        client_secret = open_secret(client_secret)
+    except Exception:
+        pass
     redirect_uri = (row.redirect_uri if row else "") or ""
     row_config = ""
     if row:
@@ -188,7 +193,12 @@ async def save_oauth_app(
     if client_id is not None:
         row.client_id = client_id.strip()
     if client_secret and not str(client_secret).startswith("••"):
-        row.client_secret = client_secret.strip()
+        try:
+            from app.services.secret_box import seal_secret, is_masked
+            if not is_masked(client_secret):
+                row.client_secret = seal_secret(client_secret.strip())
+        except Exception:
+            row.client_secret = client_secret.strip()
     if redirect_uri is not None:
         row.redirect_uri = (redirect_uri or "").strip()
     if config_id is not None and hasattr(row, "config_id"):
@@ -540,6 +550,11 @@ async def upsert_oauth_account(db: AsyncSession, payload: Dict[str, Any]) -> Opt
         db.add(existing)
         created = True
     existing.access_token = payload.get("access_token") or existing.access_token
+    try:
+        from app.services.social_publisher import seal_account_secrets
+        seal_account_secrets(existing)
+    except Exception:
+        pass
     existing.refresh_token = payload.get("refresh_token") or existing.refresh_token or ""
     existing.account_id = account_id or existing.account_id
     existing.handle = handle or existing.handle
