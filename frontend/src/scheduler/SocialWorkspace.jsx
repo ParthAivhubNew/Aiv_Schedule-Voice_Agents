@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   LogOut,
   Maximize2,
+  Minimize2,
   Pencil,
   Plus,
   Plug,
@@ -316,9 +317,11 @@ function ApprovalsBoard({
     const date = String(schedDraft.date || "").trim();
     const time = String(schedDraft.time || "09:00").trim() || "09:00";
     if (!date || date === "undated") return;
-    updateSchedule(expandedPost.id, { date, time });
+    updateSchedule(expandedPost.id, { date, time, postNow: isPastSlot(date, time) });
     setScheduleOpen(false);
   };
+
+  const schedIsPast = isPastSlot(schedDraft.date, schedDraft.time);
 
   const flashStyle = (on) => (on ? {
     boxShadow: "0 0 0 2px " + C.teal,
@@ -520,11 +523,11 @@ function ApprovalsBoard({
                           <button
                             type="button"
                             disabled={dimmed}
-                            onClick={() => openPost(p.id)}
-                            title="Enlarge preview"
+                            onClick={() => (open ? setExpandedId("") : openPost(p.id))}
+                            title={open ? "Diminish preview" : "Enlarge preview"}
                             style={{ ...secBtn, height: 30, padding: "0 8px", flexShrink: 0, fontSize: 11 }}
                           >
-                            <Maximize2 size={12} /> Enlarge
+                            {open ? <><Minimize2 size={12} /> Diminish</> : <><Maximize2 size={12} /> Enlarge</>}
                           </button>
                         </div>
                         {prog ? <GenProgressBar pct={prog.pct} label={prog.label} compact /> : null}
@@ -575,7 +578,15 @@ function ApprovalsBoard({
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(expandedPost.status) }}>{statusLabel(expandedPost.status)}</span>
-                  <button type="button" onClick={() => setExpandedId("")} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Back to list">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId("")}
+                    style={{ ...secBtn, height: 30, padding: "0 10px", fontSize: 11 }}
+                    title="Diminish preview"
+                  >
+                    <Minimize2 size={13} /> Diminish
+                  </button>
+                  <button type="button" onClick={() => setExpandedId("")} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Close">
                     <X size={16} color={C.slate} />
                   </button>
                 </div>
@@ -624,8 +635,8 @@ function ApprovalsBoard({
                           />
                           <button
                             type="button"
-                            onClick={() => setLightbox(true)}
-                            title="Full size"
+                            onClick={() => setLightbox((v) => !v)}
+                            title={lightbox ? "Diminish image" : "Full size"}
                             style={{
                               position: "absolute",
                               right: 10,
@@ -644,7 +655,7 @@ function ApprovalsBoard({
                               gap: 5,
                             }}
                           >
-                            <Maximize2 size={12} /> Enlarge
+                            {lightbox ? <><Minimize2 size={12} /> Diminish</> : <><Maximize2 size={12} /> Enlarge</>}
                           </button>
                         </>
                       ) : (
@@ -692,10 +703,15 @@ function ApprovalsBoard({
                   </div>
 
                   {scheduleOpen ? (
-                    <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: "#fff" }}>
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${schedIsPast ? C.amber : C.border}`, background: schedIsPast ? (C.amberSoft || "#FCEFDA") : "#fff" }}>
                       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                        <Clock size={14} color={C.teal} /> Change schedule
+                        <Clock size={14} color={schedIsPast ? C.amber : C.teal} /> Change schedule
                       </div>
+                      {schedIsPast ? (
+                        <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.4, marginBottom: 10, fontWeight: 600 }}>
+                          That time already passed. Saving posts this live right away — not later.
+                        </div>
+                      ) : null}
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div style={{ flex: 1, minWidth: 140 }}>
                           <label style={labelStyle}>Publish date</label>
@@ -703,7 +719,7 @@ function ApprovalsBoard({
                             type="date"
                             value={schedDraft.date || ""}
                             onChange={(e) => setSchedDraft((s) => ({ ...s, date: e.target.value }))}
-                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box" }}
+                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
                           />
                         </div>
                         <div style={{ width: 120 }}>
@@ -712,10 +728,12 @@ function ApprovalsBoard({
                             type="time"
                             value={schedDraft.time || "09:00"}
                             onChange={(e) => setSchedDraft((s) => ({ ...s, time: e.target.value }))}
-                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box" }}
+                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
                           />
                         </div>
-                        <button type="button" onClick={saveSched} style={{ ...priBtn, height: 36 }}>Save</button>
+                        <button type="button" onClick={saveSched} style={{ ...priBtn, height: 36, background: schedIsPast ? C.amber : undefined }}>
+                          {schedIsPast ? "Save & post now" : "Save"}
+                        </button>
                         <button type="button" onClick={() => setScheduleOpen(false)} style={{ ...secBtn, height: 36 }}>Cancel</button>
                       </div>
                     </div>
@@ -810,24 +828,6 @@ function ApprovalsBoard({
                         </div>
                       </>
                     )}
-
-                    {editTab === "copy" ? (
-                      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                        <label style={labelStyle}>Headline</label>
-                        <input
-                          value={expandedPost.headline || ""}
-                          onChange={(e) => revertTouched(expandedPost.id, { headline: e.target.value })}
-                          style={{ width: "100%", boxSizing: "border-box", height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 12, marginBottom: 8 }}
-                        />
-                        <label style={labelStyle}>Caption</label>
-                        <textarea
-                          value={expandedPost.caption || ""}
-                          onChange={(e) => revertTouched(expandedPost.id, { caption: e.target.value })}
-                          rows={3}
-                          style={{ width: "100%", borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical", boxSizing: "border-box" }}
-                        />
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -862,8 +862,8 @@ function ApprovalsBoard({
                   </button>
                 ) : null}
                 {expandedPost.imageUrl ? (
-                  <button type="button" onClick={() => setLightbox(true)} style={secBtn}>
-                    <Maximize2 size={13} /> Enlarge image
+                  <button type="button" onClick={() => setLightbox((v) => !v)} style={secBtn}>
+                    {lightbox ? <><Minimize2 size={13} /> Diminish image</> : <><Maximize2 size={13} /> Enlarge image</>}
                   </button>
                 ) : null}
                 <div style={{ flex: 1 }} />
@@ -881,18 +881,48 @@ function ApprovalsBoard({
 
             {lightbox && expandedPost.imageUrl ? (
               <div
-                style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(8,10,14,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+                style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(8,10,14,0.88)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}
                 onClick={() => setLightbox(false)}
               >
-                <button type="button" onClick={() => setLightbox(false)} style={{ position: "absolute", top: 18, right: 18, border: "none", background: "rgba(255,255,255,0.12)", color: "#fff", width: 36, height: 36, borderRadius: 99, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <X size={18} />
-                </button>
+                <div style={{ position: "absolute", top: 16, right: 16, display: "flex", gap: 8, zIndex: 2 }}>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setLightbox(false); }}
+                    style={{
+                      height: 36,
+                      padding: "0 14px",
+                      borderRadius: 99,
+                      border: "1px solid rgba(255,255,255,0.25)",
+                      background: "rgba(255,255,255,0.14)",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Minimize2 size={14} /> Diminish
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setLightbox(false); }}
+                    style={{ border: "none", background: "rgba(255,255,255,0.12)", color: "#fff", width: 36, height: 36, borderRadius: 99, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    title="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
                 <img
                   src={expandedPost.imageUrl}
                   alt=""
                   onClick={(e) => e.stopPropagation()}
-                  style={{ maxWidth: "min(1100px, 96vw)", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8, boxShadow: "0 24px 64px rgba(0,0,0,0.45)" }}
+                  style={{ maxWidth: "min(1100px, 96vw)", maxHeight: "85vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8, boxShadow: "0 24px 64px rgba(0,0,0,0.45)" }}
                 />
+                <div style={{ marginTop: 14, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
+                  Click outside or Diminish to shrink
+                </div>
               </div>
             ) : null}
           </div>
@@ -942,6 +972,17 @@ function parseIsoDate(s) {
   const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return Date.now();
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+}
+
+function postDueMs(p) {
+  if (!p) return 0;
+  const base = parseIsoDate(p.date);
+  const [hh, mm] = String(p.time || "09:00").split(":");
+  return new Date(base).setHours(parseInt(hh, 10) || 9, parseInt(mm, 10) || 0, 0, 0);
+}
+
+function isPastSlot(date, time, graceMs = 15000) {
+  return postDueMs({ date, time }) <= Date.now() + graceMs;
 }
 
 function monthLabel(year, month) {
@@ -1860,14 +1901,23 @@ export function SocialWorkspace({
   }, [posts]);
 
   const persistPost = (np) => {
+    // Backend publish-due only fires status "approved" when slot is due.
+    // Simple "scheduled" = already approved, waiting for slot → store as approved.
+    const apiStatus = np.status === "draft" || !np.status
+      ? "awaiting_approval"
+      : np.status === "posted"
+        ? "published"
+        : (np.status === "scheduled" || np.status === "approved")
+          ? "approved"
+          : np.status;
     return api.createPost({
       id: np.id,
       title: np.headline,
       copy: np.caption,
       channels: np.channels || [np.channel],
-      status: np.status === "draft" ? "awaiting_approval" : np.status === "posted" ? "published" : np.status === "scheduled" ? "scheduled" : np.status,
-      slotDateMs: parseIsoDate(np.date),
-      time: np.time,
+      status: apiStatus,
+      slotDateMs: postDueMs(np),
+      time: np.time || "09:00",
       theme: np.headline,
       imageUrl: np.imageUrl,
       imagePrompt: np.imagePrompt,
@@ -2197,25 +2247,6 @@ export function SocialWorkspace({
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch, status: keepEditableStatus(p.status) } : p)));
   };
 
-  const updateSchedule = (id, { date, time }) => {
-    const nextDate = String(date || "").trim();
-    const nextTime = String(time || "09:00").trim() || "09:00";
-    if (!id || !nextDate) return;
-    setPosts((ps) => {
-      const row = ps.find((p) => p.id === id);
-      if (!row || row.status === "posted") return ps;
-      let status = keepEditableStatus(row.status);
-      if (status === "approved" || status === "scheduled") status = "scheduled";
-      const next = { ...row, date: nextDate, time: nextTime, status };
-      persistPost(next);
-      if (status === "scheduled") {
-        api.updatePostStatus(next.id, "scheduled", next.caption, next.imageUrl, next.imagePrompt).catch(() => null);
-      }
-      showToast("Schedule → " + dayLabel(nextDate) + " " + nextTime);
-      return ps.map((p) => (p.id === id ? next : p));
-    });
-  };
-
   const approveOne = async (p, opts = {}) => {
     if (!p || p.status === "posted") return { ok: false, reason: "posted" };
     if (!opts.batch && publishing) return { ok: false, reason: "busy" };
@@ -2229,14 +2260,13 @@ export function SocialWorkspace({
     }
     if (!opts.batch) setPublishing(p.id);
     try {
-      await persistPost({ ...p, status: p.status || "draft" });
+      const dueMs = postDueMs(p);
       const nowMs = Date.now();
-      const due = parseIsoDate(p.date);
-      const [hh, mm] = String(p.time || "09:00").split(":");
-      const dueMs = new Date(due).setHours(parseInt(hh, 10) || 9, parseInt(mm, 10) || 0, 0, 0);
+      // Future slot → keep scheduled locally; backend stores as approved so publish-due can fire
       if (dueMs > nowMs + 60000) {
-        await api.updatePostStatus(p.id, "scheduled", p.caption, p.imageUrl, p.imagePrompt);
-        setPosts((ps) => ps.map((row) => (row.id === p.id ? { ...row, status: "scheduled" } : row)));
+        const next = { ...p, status: "scheduled" };
+        await persistPost(next);
+        setPosts((ps) => ps.map((row) => (row.id === p.id ? next : row)));
         if (!opts.quiet) showToast("Approved. Scheduled " + dayLabel(p.date) + " " + (p.time || "09:00") + ".");
         return { ok: true, status: "scheduled" };
       }
@@ -2258,6 +2288,80 @@ export function SocialWorkspace({
       if (!opts.batch) setPublishing("");
     }
   };
+
+  const updateSchedule = async (id, { date, time, postNow }) => {
+    const nextDate = String(date || "").trim();
+    const nextTime = String(time || "09:00").trim() || "09:00";
+    if (!id || !nextDate) return;
+    const row = posts.find((p) => p.id === id);
+    if (!row || row.status === "posted") return;
+
+    if (postNow || isPastSlot(nextDate, nextTime)) {
+      const next = { ...row, date: nextDate, time: nextTime, status: keepEditableStatus(row.status) };
+      setPosts((ps) => ps.map((p) => (p.id === id ? next : p)));
+      await persistPost(next);
+      showToast("Time already passed — posting now…");
+      await approveOne(next, { quiet: false });
+      return;
+    }
+
+    const next = { ...row, date: nextDate, time: nextTime, status: "scheduled" };
+    setPosts((ps) => ps.map((p) => (p.id === id ? next : p)));
+    await persistPost(next);
+    showToast("Schedule → " + dayLabel(nextDate) + " " + nextTime);
+  };
+
+  const postsRef = useRef(posts);
+  const publishingRef = useRef(publishing);
+  const approveOneRef = useRef(approveOne);
+  postsRef.current = posts;
+  publishingRef.current = publishing;
+  approveOneRef.current = approveOne;
+
+  useEffect(() => {
+    let busy = false;
+    const tick = async () => {
+      if (busy || publishingRef.current) return;
+      busy = true;
+      try {
+        const list = postsRef.current || [];
+        // Re-sync scheduled/approved so backend has approved + full due datetime
+        const waiting = list.filter((p) => p && (p.status === "scheduled" || p.status === "approved"));
+        for (const p of waiting) {
+          await persistPost(p);
+        }
+        const res = await api.publishDuePosts().catch(() => null);
+        if (res && Array.isArray(res.published) && res.published.length) {
+          const ids = new Set(res.published.map((x) => x.id));
+          setPosts((prev) => prev.map((p) => {
+            const hit = res.published.find((x) => x.id === p.id);
+            if (!hit) return p;
+            return {
+              ...p,
+              status: "posted",
+              publishedAt: hit.publishedAt || hit.published_at || "just now",
+              publishResults: hit.publishResults || hit.publish_results || p.publishResults,
+            };
+          }));
+          showToast("Posted " + ids.size + " due post" + (ids.size === 1 ? "" : "s") + ".");
+          return;
+        }
+        const dueLocal = list.filter((p) => {
+          if (!p || p.status === "posted" || p.status === "draft" || !p.status) return false;
+          if (p.status !== "scheduled" && p.status !== "approved") return false;
+          return postDueMs(p) <= Date.now();
+        });
+        for (const p of dueLocal) {
+          await approveOneRef.current(p, { quiet: true, batch: true });
+        }
+      } finally {
+        busy = false;
+      }
+    };
+    const id = window.setInterval(tick, 30000);
+    tick();
+    return () => window.clearInterval(id);
+  }, []);
 
   const approveAllDrafts = async () => {
     const list = posts.filter((p) => p.status === "draft" || !p.status);

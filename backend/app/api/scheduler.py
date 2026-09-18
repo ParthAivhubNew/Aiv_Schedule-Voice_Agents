@@ -787,6 +787,23 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
 async def publish_due_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
     """Publish approved posts whose slot time has arrived, if accounts are connected."""
     now_ms = time.time() * 1000
+
+    def _due_ms(post) -> float:
+        base = float(post.slot_date_ms or 0)
+        if not base:
+            return 0.0
+        t = str(getattr(post, "time", None) or "09:00").strip()
+        try:
+            parts = t.split(":")
+            hh = int(parts[0])
+            mm = int(parts[1]) if len(parts) > 1 else 0
+        except Exception:
+            hh, mm = 9, 0
+        dt = datetime.fromtimestamp(base / 1000.0)
+        # Prefer explicit time field over whatever clock was baked into slot_date_ms
+        dt = datetime(dt.year, dt.month, dt.day, hh, mm, 0)
+        return dt.timestamp() * 1000.0
+
     result = await db.execute(select(SocialPost).where(SocialPost.status.in_(["approved", "scheduled"])))
     posts = result.scalars().all()
     acc_res = await db.execute(select(SocialAccount))
@@ -794,30 +811,23 @@ async def publish_due_endpoint(request: Request, db: AsyncSession = Depends(get_
     published = []
     skipped = []
     for post in posts:
-        due = True
-        if post.slot_date_ms:
-            due = float(post.slot_date_ms) <= now_ms
-        if post.status == "scheduled" and not due:
-            skipped.append(post.id)
+        due_at = _due_ms(post)
+        due = (not due_at) or (due_at <= now_ms)
+        # Only approved posts auto-publish when due (Simple maps "scheduled" → approved on persist).
+        if post.status == "approved" and due:
+            hosted = _host_image(post.image_url, request)
+            if hosted:
+                post.image_url = hosted
+            bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
+            post.publish_results = bundled.get("results") or []
+            if bundled.get("ok"):
+                post.status = "published"
+                post.published_at = datetime.utcnow().isoformat()
+                published.append(_serialize_post(post))
+            else:
+                skipped.append(post.id)
             continue
-        if post.status == "scheduled" and due:
-            # scheduled posts still need human approval unless already approved
-            skipped.append(post.id)
-            continue
-        if post.status != "approved":
-            continue
-        if not due:
-            skipped.append(post.id)
-            continue
-        hosted = _host_image(post.image_url, request)
-        if hosted:
-            post.image_url = hosted
-        bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
-        post.publish_results = bundled.get("results") or []
-        if bundled.get("ok"):
-            post.status = "published"
-            post.published_at = datetime.utcnow().isoformat()
-            published.append(_serialize_post(post))
+        skipped.append(post.id)
     await db.commit()
     return {"status": "ok", "published": published, "skipped": skipped}
 
