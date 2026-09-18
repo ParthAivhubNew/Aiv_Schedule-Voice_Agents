@@ -317,6 +317,44 @@ async def data_deletion():
   </ol>
 </body></html>""")
 
+@app.get("/api/whatsapp/webhook")
+@app.get("/whatsapp/webhook")
+async def whatsapp_webhook_verify(request: Request):
+    """Meta WhatsApp Webhook Verification handshake."""
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    expected_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "aivhub_whatsapp_webhook_secret")
+    if mode == "subscribe" and token == expected_token:
+        from fastapi.responses import PlainTextResponse
+        logger.info("[WhatsApp Webhook] Verification successful!")
+        return PlainTextResponse(challenge or "", status_code=200)
+    logger.warning("[WhatsApp Webhook] Verification failed for token: %s", token)
+    from fastapi.responses import Response
+    return Response("Verification failed", status_code=403)
+
+
+@app.post("/api/whatsapp/webhook")
+@app.post("/whatsapp/webhook")
+async def whatsapp_webhook_receive(request: Request, db: AsyncSession = Depends(get_db)):
+    """Handle incoming WhatsApp messages and delivery statuses from Meta."""
+    try:
+        body = await request.json()
+        logger.info("[WhatsApp Webhook] Incoming event: %s", body)
+        entry = (body.get("entry") or [{}])[0]
+        changes = (entry.get("changes") or [{}])[0]
+        value = changes.get("value") or {}
+        messages = value.get("messages") or []
+        for msg in messages:
+            from_wa = msg.get("from")
+            text = (msg.get("text") or {}).get("body", "")
+            logger.info("[WhatsApp Message] Received from %s: %s", from_wa, text)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error("[WhatsApp Webhook] Error processing event: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
 @app.get("/")
 async def root():
     return {
