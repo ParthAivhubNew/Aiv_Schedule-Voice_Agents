@@ -215,12 +215,28 @@ class ScheduleItemSchema(BaseModel):
     day: str
     time: str
     prospect: str
-    mission: str
+    mission: str = ""
     window: str = "09:00–17:30"
     status: str = "queued"
     honored: bool = False
     deferred: bool = False
     honored_quote: Optional[str] = None
+    kind: Optional[str] = "phone"
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    video_link: Optional[str] = None
+    videoLink: Optional[str] = None
+    platform: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    whatsapp_to: Optional[str] = None
+    whatsappTo: Optional[str] = None
+    notify_whatsapp: Optional[bool] = False
+    notifyWhatsapp: Optional[bool] = False
+    meeting_id: Optional[str] = None
+
+    class Config:
+        extra = "ignore"
 
 class NotificationSchema(BaseModel):
     id: Optional[str] = None

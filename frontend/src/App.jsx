@@ -122,7 +122,7 @@ import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
 import { CalcomAdminModal } from "./admin/CalcomAdminModal";
-import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel } from "./tokens";
+import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel, logDisplayName } from "./tokens";
 import { SocialWorkspaceGate } from "./scheduler/SocialWorkspace";
 import { EDITION_EVENT, getSchedulerEdition, setSchedulerEdition } from "./scheduler/schedulerEdition";
 import { humanizeAiReply } from "./scheduler/chatClean";
@@ -3826,7 +3826,7 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
       .map((t) => {
         if (!t) return "";
         if (typeof t === "string") return t;
-        const speaker = t.who === "ai" ? "AI (Sam)" : t.who === "system" ? "System" : (item.personListedAs || item.canonicalName || "Prospect");
+        const speaker = t.who === "ai" ? "AI (Sam)" : t.who === "system" ? "System" : (logDisplayName(item) || "Prospect");
         return `${speaker}: ${t.text || ""}`;
       })
       .filter(Boolean)
@@ -3837,7 +3837,7 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
       setTimeout(() => setCopiedId(null), 2500);
       if (setNotifications) {
         setNotifications((ns) => [
-          { id: "n_" + Date.now(), text: `📋 Transcript copied to clipboard for ${item.canonicalName}`, time: "just now", unread: true, type: "info" },
+          { id: "n_" + Date.now(), text: `📋 Transcript copied to clipboard for ${logDisplayName(item)}`, time: "just now", unread: true, type: "info" },
           ...ns
         ]);
       }
@@ -3866,7 +3866,7 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
     if (!query.trim()) return true;
     const q = query.toLowerCase();
     const blob = [
-      e.canonicalName, e.listedAs, e.personCanonical, e.personListedAs, e.mission,
+      e.canonicalName, e.listedAs, e.personCanonical, e.personListedAs, logDisplayName(e), e.mission,
       ...(e.transcript || []).map((l) => l.text),
       e.requestedFollowUp?.exactWords,
     ].join(" ").toLowerCase();
@@ -3917,6 +3917,8 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
           )}
           {filtered.map((e) => {
             const isOpen = openId === e.id;
+            const personName = logDisplayName(e);
+            const companyName = e.canonicalName && e.canonicalName !== personName ? e.canonicalName : "";
             const aliasDiffers = e.listedAs && e.canonicalName && e.listedAs !== e.canonicalName;
             return (
               <div key={e.id} className="hover-float" style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
@@ -3930,7 +3932,7 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, color: C.textInk }}>{e.canonicalName}</span>
+                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, color: C.textInk }}>{personName}</span>
                       <ChannelTag channel={e.channel} small />
                       <Badge status={e.outcome} small />
                       {e.wordsLocked && (
@@ -3938,7 +3940,7 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
                       )}
                     </div>
                     <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginTop: 3 }}>
-                      {e.personListedAs || e.personCanonical || "No named contact"} · {e.mission}
+                      {companyName || e.personListedAs || e.personCanonical || "Named from file"} · {e.mission}
                     </div>
                     {aliasDiffers && (
                       <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.amber, marginTop: 3 }}>
@@ -3972,7 +3974,7 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onDirectDial({
-                                  name: e.personListedAs || e.canonicalName,
+                                  name: personName,
                                   phone: "",
                                   company: e.canonicalName
                                 });
@@ -4037,7 +4039,7 @@ function CallLogView({ notifications, setNotifications, entries, prefillQuery, c
                           return (
                             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isThem ? "flex-end" : "flex-start" }}>
                               <div style={{ fontSize: 10.5, fontWeight: 700, color: isThem ? C.slate : C.cobalt, marginBottom: 3, padding: "0 4px" }}>
-                                {isThem ? `👤 ${e.personListedAs || e.canonicalName || "Prospect"}` : "🤖 Sam (AI Voice SDR)"}
+                                {isThem ? `👤 ${personName}` : "🤖 Sam (AI Voice SDR)"}
                               </div>
                               <div
                                 style={{

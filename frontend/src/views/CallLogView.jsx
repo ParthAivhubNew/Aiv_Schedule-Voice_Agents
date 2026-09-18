@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { History, Lock, Search, Filter, PhoneCall, MessageCircle, ChevronDown, ChevronRight, Building2, Calendar } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, logDisplayName } from "../tokens";
 import { TopBar } from "../components/TopBar";
 import { Badge } from "../components/Badges";
 
@@ -31,7 +31,7 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
       .map((t) => {
         if (!t) return "";
         if (typeof t === "string") return t;
-        const speaker = t.who === "ai" ? "AI (Sam)" : t.who === "system" ? "System" : (item.personListedAs || item.canonicalName || "Prospect");
+        const speaker = t.who === "ai" ? "AI (Sam)" : t.who === "system" ? "System" : (logDisplayName(item) || "Prospect");
         return `${speaker}: ${t.text || ""}`;
       })
       .filter(Boolean)
@@ -42,7 +42,7 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
       setTimeout(() => setCopiedId(null), 2500);
       if (setNotifications) {
         setNotifications((ns) => [
-          { id: "n_" + Date.now(), text: `📋 Transcript copied to clipboard for ${item.canonicalName}`, time: "just now", unread: true, type: "info" },
+          { id: "n_" + Date.now(), text: `📋 Transcript copied to clipboard for ${logDisplayName(item)}`, time: "just now", unread: true, type: "info" },
           ...ns
         ]);
       }
@@ -60,7 +60,7 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
   };
 
   const filtered = entries.filter((e) => {
-    if (query && !e.canonicalName.toLowerCase().includes(query.toLowerCase())) return false;
+    if (query && !`${logDisplayName(e)} ${e.canonicalName || ""} ${e.personListedAs || ""}`.toLowerCase().includes(query.toLowerCase())) return false;
     if (filter !== "all" && e.outcome !== filter) return false;
     return true;
   });
@@ -124,7 +124,7 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 15, color: C.ink }}>
-                          {log.canonicalName}
+                          {logDisplayName(log)}
                         </span>
                         {log.wordsLocked && <Lock size={12} color={C.slateLight} title="Transcript verbatim and locked" />}
                       </div>
@@ -190,7 +190,7 @@ export function CallLogView({ notifications, setNotifications, entries = [] }) {
                         return (
                           <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: isAi ? "flex-start" : "flex-end" }}>
                             <div style={{ fontSize: 10.5, fontWeight: 700, color: isAi ? C.cobalt : C.slate, marginBottom: 3, padding: "0 4px" }}>
-                              {isAi ? "🤖 Sam (AI Voice SDR)" : `👤 ${log.canonicalName || "Prospect"}`}
+                              {isAi ? "🤖 Sam (AI Voice SDR)" : `👤 ${logDisplayName(log)}`}
                             </div>
                             <div
                               style={{

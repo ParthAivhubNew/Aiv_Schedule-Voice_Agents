@@ -152,6 +152,26 @@ async def lifespan(app: FastAPI):
                     await conn.execute(text(f"ALTER TABLE live_calls ADD COLUMN {col} {col_type};"))
                 except Exception:
                     pass
+
+        for col, col_type in [
+            ("kind", "VARCHAR DEFAULT 'phone'"),
+            ("phone", "VARCHAR"),
+            ("email", "VARCHAR"),
+            ("video_link", "VARCHAR"),
+            ("platform", "VARCHAR"),
+            ("address", "VARCHAR"),
+            ("notes", "TEXT"),
+            ("whatsapp_to", "VARCHAR"),
+            ("notify_whatsapp", "BOOLEAN DEFAULT 0"),
+            ("meeting_id", "VARCHAR"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS {col} {col_type};"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE schedule_items ADD COLUMN {col} {col_type};"))
+                except Exception:
+                    pass
     await seed_database()
     try:
         from app.services.process_logger import log_process_event

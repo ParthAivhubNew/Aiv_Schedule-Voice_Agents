@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.models import CompanyProfile, Connection, LiveCall, Mission, Notification, Prospect
+from app.services.call_names import clean_person_label, people_from_row
 from app.services.process_logger import log_process_event
 from app.services.telephony_provider import carrier_registry, normalize_phone_number
 from app.websockets.call_hub import call_hub
@@ -182,7 +183,7 @@ async def place_outbound_call(
     from app.services.xai_voice_service import alias_sip_first_call, start_bridged_voice_session
 
     bridge_sip = bridge_sip_uri or f"sip:{from_clean}@{settings.XAI_SIP_FQDN};transport=tls"
-    prospect_label = (prospect_name or "").strip() or f"Prospect ({to_clean[-4:]})"
+    prospect_label = clean_person_label(prospect_name) or f"Prospect ({to_clean[-4:]})"
     mission_label = mission_title or "Direct Outbound Outreach"
     call_id = f"call_{uuid.uuid4().hex[:8]}"
 
@@ -358,11 +359,8 @@ def _has_dialable_phone(raw: Optional[str]) -> bool:
 
 
 def _prospect_display_name(p: Dict[str, Any]) -> str:
-    return (
-        (p.get("prospect_name") or p.get("contact") or p.get("contact_person") or p.get("name") or "")
-        .strip()
-        or "Prospect"
-    )
+    people = people_from_row(p)
+    return people["display"] or people["person"] or people["company"] or "Unknown caller"
 
 
 async def launch_outbound_mission(
@@ -409,13 +407,16 @@ async def launch_outbound_mission(
     stored: List[Prospect] = []
     for i, p in enumerate(rows):
         phone = (p.get("phone") or p.get("to_number") or "").strip()
-        name = _prospect_display_name(p)
+        people = people_from_row(p)
+        person = people["person"]
+        company = people["company"]
+        display = people["display"] or person or company or "Unknown caller"
         pid = f"p_{uuid.uuid4().hex[:8]}"
         row = Prospect(
             id=pid,
             mission_id=mission_id,
-            name=name,
-            contact_person=p.get("contact") or p.get("contact_person") or name,
+            name=company or display,
+            contact_person=person or display,
             phone=normalize_phone_number(phone),
             site=p.get("website") or p.get("site") or "",
             channel="voice",
@@ -517,7 +518,7 @@ async def start_mission_dials(
                         dial_db,
                         to_number=p.phone,
                         from_number=from_clean,
-                        prospect_name=p.contact_person or p.name,
+                        prospect_name=clean_person_label(p.contact_person) or clean_person_label(p.name),
                         mission_id=mission_id,
                         mission_title=title,
                         prospect_id=p.id,

@@ -86,6 +86,11 @@ export const api = {
   // Schedule
   getSchedule: () => apiRequest('/schedule'),
   createScheduleItem: (payload) => apiRequest('/schedule', { method: 'POST', body: payload }),
+  getScheduleItem: (id) => apiRequest(`/schedule/${id}`),
+  updateScheduleItem: (id, payload) => apiRequest(`/schedule/${id}`, { method: 'PATCH', body: payload }),
+  deleteScheduleItem: (id) => apiRequest(`/schedule/${id}`, { method: 'DELETE' }),
+  getWhatsappStatus: () => apiRequest('/schedule/whatsapp-status'),
+  sendScheduleWhatsapp: (id, payload) => apiRequest(`/schedule/${id}/whatsapp`, { method: 'POST', body: payload || {} }),
 
   // Profile & Knowledge (RAG & Crawler)
   getProfile: () => apiRequest('/profile'),

@@ -16,6 +16,7 @@ from app.services.xai_voice_service import (
     start_bridged_voice_session,
 )
 from app.services.process_logger import log_process_event
+from app.services.call_names import apply_names_to_log, clean_person_label, resolve_call_people
 from app.config import settings
 from datetime import datetime, timedelta
 import logging
@@ -305,24 +306,38 @@ async def confirm_booking_from_call(call_id: str, db: AsyncSession = Depends(get
 async def get_call_logs(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(CallLog).order_by(CallLog.created_at.desc()))
     logs = result.scalars().all()
-    
-    return [{
-        "id": l.id,
-        "registryId": l.registry_id,
-        "canonicalName": l.canonical_name,
-        "listedAs": l.listed_as,
-        "personCanonical": l.person_canonical,
-        "personListedAs": l.person_listed_as,
-        "channel": l.channel,
-        "mission": l.mission,
-        "startedAt": l.started_at,
-        "endedAt": l.ended_at,
-        "duration": l.duration,
-        "outcome": l.outcome,
-        "requestedFollowUp": l.requested_follow_up,
-        "wordsLocked": l.words_locked,
-        "transcript": l.transcript or []
-    } for l in logs]
+    dirty = False
+    payload = []
+    for l in logs:
+        names = resolve_call_people(
+            live_label=l.listed_as,
+            transcript=l.transcript,
+            existing_person=l.person_listed_as or l.person_canonical,
+            existing_company=l.canonical_name,
+        )
+        if apply_names_to_log(l, names):
+            dirty = True
+        payload.append({
+            "id": l.id,
+            "registryId": l.registry_id,
+            "canonicalName": names["canonical"],
+            "listedAs": names["listed"],
+            "personCanonical": names["person"],
+            "personListedAs": names["person"],
+            "displayName": names["display"],
+            "channel": l.channel,
+            "mission": l.mission,
+            "startedAt": l.started_at,
+            "endedAt": l.ended_at,
+            "duration": l.duration,
+            "outcome": l.outcome,
+            "requestedFollowUp": l.requested_follow_up,
+            "wordsLocked": l.words_locked,
+            "transcript": l.transcript or []
+        })
+    if dirty:
+        await db.commit()
+    return payload
 
 
 # ----------------------------------------------------------------------
@@ -348,6 +363,7 @@ class BatchDialProspect(BaseModel):
     name: Optional[str] = None
     contact: Optional[str] = None
     contact_person: Optional[str] = None
+    company: Optional[str] = None
     website: Optional[str] = None
 
 
@@ -695,13 +711,15 @@ async def dial_outbound_batch(req: BatchDialRequest, db: AsyncSession = Depends(
     rows = []
     for p in req.prospects or []:
         phone = (p.to_number or p.phone or "").strip()
-        name = (p.prospect_name or p.contact or p.contact_person or p.name or "").strip()
+        person = (p.contact or p.contact_person or p.prospect_name or "").strip()
+        company = (p.company or p.name or "").strip()
         rows.append({
             "to_number": phone,
             "phone": phone,
-            "prospect_name": name,
-            "name": name or p.name,
-            "contact": p.contact or p.contact_person or name,
+            "prospect_name": person or company,
+            "name": company or person,
+            "company": company,
+            "contact": person or company,
             "website": p.website,
         })
     title = (req.mission_title or "").strip() or f"Outbound list — {len(rows)} contacts"
@@ -947,11 +965,23 @@ async def twilio_dial_action(request: Request, db: AsyncSession = Depends(get_db
                         formatted_transcript.append({"who": "ai", "text": s})
 
             now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
+            prospect_row = None
+            if matched.prospect_id:
+                prospect_row = (await db.execute(select(Prospect).where(Prospect.id == matched.prospect_id))).scalars().first()
+            names = resolve_call_people(
+                prospect=prospect_row,
+                live_label=matched.prospect,
+                transcript=formatted_transcript,
+                existing_person=existing_log.person_listed_as if existing_log else None,
+                existing_company=existing_log.canonical_name if existing_log else None,
+            )
             if not existing_log:
                 new_cl = CallLog(
                     id=log_id,
-                    canonical_name=matched.prospect or "Valued Prospect",
-                    listed_as=matched.prospect or "Valued Prospect",
+                    canonical_name=names["canonical"],
+                    listed_as=names["listed"],
+                    person_canonical=names["person"],
+                    person_listed_as=names["person"],
                     channel="voice",
                     mission=matched.mission or "Outbound Voice",
                     started_at=now_str,
@@ -966,6 +996,7 @@ async def twilio_dial_action(request: Request, db: AsyncSession = Depends(get_db
                 existing_log.duration = f"{matched.duration} min"
                 if matched.booked:
                     existing_log.outcome = "meeting_booked"
+                apply_names_to_log(existing_log, names)
             await db.commit()
         except Exception as log_err:
             logger.warning(f"Could not persist CallLog in dial_action: {log_err}")
@@ -1027,7 +1058,7 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
             pros_res = await db.execute(select(Prospect).where(Prospect.phone == caller_clean))
             p = pros_res.scalars().first()
             if p:
-                prospect_label = p.name or prospect_label
+                prospect_label = clean_person_label(p.contact_person) or clean_person_label(p.name) or prospect_label
                 matched_prospect_id = p.id
                 matched_mission_id = p.mission_id or matched_mission_id
     except Exception as e:

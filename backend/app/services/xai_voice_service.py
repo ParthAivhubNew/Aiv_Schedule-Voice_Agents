@@ -27,6 +27,7 @@ from app.models.models import (
     Service,
     FAQ,
 )
+from app.services.call_names import clean_person_label, is_generic_label, resolve_call_people, apply_names_to_log
 from app.services.process_logger import log_process_event, scrub_text
 from app.services.rag_service import search_knowledge
 from app.services.timezone_service import display_hhmm, now_in, resolve_prospect_timezone
@@ -195,6 +196,25 @@ async def start_bridged_voice_session(
         if carrier_sid:
             alias_sip_first_call(call_id, carrier_sid)
     mission = "Inbound Customer Call" if is_inbound else "Direct Outbound Outreach"
+    prospect_id = None
+    try:
+        async with AsyncSessionLocal() as db:
+            rec = (await db.execute(select(LiveCall).where(LiveCall.id == call_id))).scalars().first()
+            if rec:
+                prospect_id = rec.prospect_id
+                file_name = ""
+                if rec.prospect_id:
+                    prow = (await db.execute(select(Prospect).where(Prospect.id == rec.prospect_id))).scalars().first()
+                    if prow:
+                        file_name = clean_person_label(prow.contact_person) or clean_person_label(prow.name)
+                if file_name and is_generic_label(prospect_name):
+                    prospect_name = file_name
+                    rec.prospect = file_name
+                    await db.commit()
+                elif rec.prospect and is_generic_label(prospect_name):
+                    prospect_name = rec.prospect
+    except Exception as link_err:
+        logger.debug(f"Could not hydrate prospect name for bridge {call_id}: {link_err}")
     logger.info(f"[VOICE-ROUTER] {call_id} engine={plan.engine} {plan.note}")
 
     if plan.engine == "openai":
@@ -232,6 +252,7 @@ async def start_bridged_voice_session(
                 call_id=call_id,
                 caller_number=caller_number,
                 prospect_name=prospect_name,
+                prospect_id=prospect_id,
                 custom_call_id=call_id,
                 carrier_sid=carrier_sid,
                 mission_name=mission,
@@ -538,7 +559,7 @@ async def build_xai_system_instructions(
     target_name = prospect_name or "there"
     target_clean = re.sub(r"\(.*?\)", "", target_name).strip()
     target_first_name = target_clean.split()[0] if target_clean else "there"
-    if target_first_name.lower() in ["prospect", "caller"]:
+    if target_first_name.lower() in ["prospect", "caller", "valued"]:
         target_first_name = "there"
 
     opening_block = f"""HOLD THE LINE — DO NOT SPEAK YET:
@@ -804,7 +825,13 @@ async def execute_xai_tool(
                 phone = phone_val or phone
                 call_res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
                 call_record = call_res.scalars().first()
-                prospect_name = call_record.prospect if call_record else "Valued Prospect"
+                prospect_name = clean_person_label(call_record.prospect) if call_record else ""
+                if call_record and call_record.prospect_id:
+                    prow = (await db.execute(select(Prospect).where(Prospect.id == call_record.prospect_id))).scalars().first()
+                    if prow:
+                        prospect_name = clean_person_label(prow.contact_person) or clean_person_label(prow.name) or prospect_name
+                if not prospect_name:
+                    prospect_name = "there"
                 mission_name = call_record.mission if call_record else "Inbound Voice"
                 p_now = now_in(p_tz)
                 target = parse_spoken_date(raw_date, p_now)
@@ -1084,7 +1111,15 @@ async def join_xai_call_session(
         if call_obj:
             local_call_id = call_obj.id
             call_obj.state = "pitching"
-            if call_obj.prospect and (not prospect_name or prospect_name.lower().startswith("caller")):
+            if call_obj.prospect_id:
+                prow = (await db.execute(select(Prospect).where(Prospect.id == call_obj.prospect_id))).scalars().first()
+                if prow:
+                    file_name = clean_person_label(prow.contact_person) or clean_person_label(prow.name)
+                    if file_name:
+                        prospect_name = file_name
+                        if is_generic_label(call_obj.prospect):
+                            call_obj.prospect = file_name
+            if call_obj.prospect and is_generic_label(prospect_name):
                 prospect_name = call_obj.prospect
             if call_obj.mission:
                 mission_name = call_obj.mission
@@ -1242,7 +1277,7 @@ async def join_xai_call_session(
             target_raw = prospect_name or (call_obj.prospect if call_obj else None) or "there"
             target_clean = re.sub(r"\(.*?\)", "", target_raw).strip()
             target_first_name = target_clean.split()[0] if target_clean else "there"
-            if target_first_name.lower() in ["prospect", "caller", "there"]:
+            if target_first_name.lower() in ["prospect", "caller", "there", "valued"]:
                 target_first_name = "there"
 
             greeting_dispatched = False
@@ -1578,10 +1613,11 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
             res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
             call_obj = res.scalars().first()
 
-            prospect_name = "Valued Prospect"
+            prospect_name = ""
             mission_name = "Outbound Voice"
             is_booked = False
             raw_lines = transcript or []
+            prospect_row = None
 
             if call_obj:
                 call_obj.ended = True
@@ -1592,6 +1628,8 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
                 is_booked = bool(call_obj.booked)
                 if call_obj.transcript:
                     raw_lines = list(call_obj.transcript)
+                if call_obj.prospect_id:
+                    prospect_row = (await db.execute(select(Prospect).where(Prospect.id == call_obj.prospect_id))).scalars().first()
                 await db.commit()
 
             # Format into UI CallLog transcript objects: [{"who": "ai"|"them", "text": "..."}]
@@ -1618,12 +1656,21 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
             existing_log_res = await db.execute(select(CallLog).where(CallLog.id == log_id))
             existing_log = existing_log_res.scalars().first()
 
+            names = resolve_call_people(
+                prospect=prospect_row,
+                live_label=prospect_name,
+                transcript=formatted_transcript,
+                existing_person=existing_log.person_listed_as if existing_log else None,
+                existing_company=existing_log.canonical_name if existing_log else None,
+            )
             now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
             if not existing_log:
                 call_log_entry = CallLog(
                     id=log_id,
-                    canonical_name=prospect_name,
-                    listed_as=prospect_name,
+                    canonical_name=names["canonical"],
+                    listed_as=names["listed"],
+                    person_canonical=names["person"],
+                    person_listed_as=names["person"],
                     channel="voice",
                     mission=mission_name,
                     started_at=now_str,
@@ -1638,6 +1685,7 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
                 existing_log.duration = f"{duration_str} min"
                 if is_booked:
                     existing_log.outcome = "meeting_booked"
+                apply_names_to_log(existing_log, names)
 
             await db.commit()
 

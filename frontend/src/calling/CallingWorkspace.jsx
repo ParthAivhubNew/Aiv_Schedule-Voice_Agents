@@ -32,8 +32,9 @@ import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
 import { api } from "../api/apiClient";
 import { AudioStreamPlayer } from "../api/audioStreamPlayer";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, meetingTimeLabel } from "../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel } from "../tokens";
 import { setCallingEdition } from "./callingEdition";
+import { CallingSchedule } from "./CallingSchedule";
 
 const PAGES = [
   { id: "list", label: "List", icon: List },
@@ -424,7 +425,7 @@ export function CallingWorkspace({
   const [endingId, setEndingId] = useState(null);
   const [voiceName, setVoiceName] = useState("rex");
   const [direct, setDirect] = useState({ phone: "", name: "" });
-  const [plan, setPlan] = useState({ day: "", time: "10:00", prospect: "", phone: "", kind: "phone" });
+  const [openBooked, setOpenBooked] = useState("");
   const [chat, setChat] = useState(() => {
     const saved = readJson(LS_CHAT, null);
     return cleanChat(saved);
@@ -649,7 +650,7 @@ export function CallingWorkspace({
     const d = digitsInPhone(r.phone);
     const names = [r.company, r.contact, r.name].map((x) => String(x || "").toLowerCase()).filter((n) => n.length > 3);
     const hits = (logRows || []).filter((l) => {
-      const blob = `${l.canonicalName || ""} ${l.listedAs || ""} ${l.personListedAs || ""} ${l.mission || ""}`.toLowerCase();
+      const blob = `${logDisplayName(l)} ${l.canonicalName || ""} ${l.listedAs || ""} ${l.personListedAs || ""} ${l.mission || ""}`.toLowerCase();
       if (d && d.length >= 7 && blob.replace(/\D/g, "").includes(d.slice(-7))) return true;
       return names.some((n) => blob.includes(n.slice(0, 28)));
     });
@@ -878,9 +879,10 @@ export function CallingWorkspace({
       .map((r) => ({
         to_number: r.phone,
         phone: r.phone,
-        prospect_name: r.contact || r.name,
+        prospect_name: r.contact || "",
         name: r.company || r.name,
-        contact: r.contact || r.name,
+        contact: r.contact || "",
+        company: r.company || "",
         website: r.website || "",
       }));
     if (!prospects.length) {
@@ -1030,33 +1032,6 @@ export function CallingWorkspace({
     }
   };
 
-  const savePlan = async () => {
-    if (!plan.prospect.trim() || !plan.day.trim() || !plan.time.trim()) {
-      showToast("Need name, day, and time.");
-      return;
-    }
-    setBusy("plan");
-    try {
-      const kindLabel = plan.kind === "phone" ? "Phone callback" : plan.kind === "in_person" ? "In person" : "Video meeting";
-      await api.createScheduleItem({
-        day: plan.day.trim(),
-        time: plan.time.trim(),
-        prospect: plan.prospect.trim(),
-        mission: plan.phone.trim() ? `${kindLabel} · ${plan.phone.trim()}` : kindLabel,
-        window: `${profile?.weekdayStart || "09:00"}–${profile?.weekdayEnd || "17:30"}`,
-        status: "queued",
-        honored_quote: plan.phone.trim() || undefined,
-      });
-      pushNote(`Scheduled ${plan.kind === "phone" ? "call" : "meeting"} with ${plan.prospect} · ${plan.day} ${plan.time}`, "success");
-      setPlan({ day: "", time: "10:00", prospect: "", phone: "", kind: "phone" });
-      await refreshSchedule();
-    } catch (e) {
-      showToast(e.message || "Schedule failed");
-    } finally {
-      setBusy("");
-    }
-  };
-
   const activeLive = liveCalls.filter(liveActive);
   const dialable = rows.filter((r) => digitsInPhone(r.phone).length >= 7).length;
   const titles = {
@@ -1064,7 +1039,7 @@ export function CallingWorkspace({
     live: ["Live calls", "Listen, take over, book from their words, or end. Transcript stays on the card."],
     booked: ["Booked", "Where, what kind, join URL. Bell fires when added and when time hits."],
     logs: ["Call logs", "Saved when a call ends or a meeting books. Same backend as classic."],
-    schedule: ["Schedule a call", "Park a callback or meeting without an Excel list."],
+    schedule: ["Schedule", "Park a call, video meeting, or WhatsApp confirm. Click a row to open it."],
     ai: ["AI config", "Same Connections & Providers as classic. Live engine, models, and keys load from the server."],
     company: ["Company profile", "Identity, knowledge, services, FAQ. Same record classic uses on calls."],
   };
@@ -1497,8 +1472,9 @@ export function CallingWorkspace({
                 const Icon = kind.Icon;
                 const when = meetingTimeLabel(m) || [m.date, m.time].filter(Boolean).join(" ");
                 const join = kind.link;
+                const open = openBooked === m.id;
                 return (
-                  <div key={m.id} style={card()}>
+                  <button key={m.id} type="button" onClick={() => setOpenBooked(open ? "" : m.id)} style={{ ...card(), textAlign: "left", cursor: "pointer", border: `1.5px solid ${open ? C.ink : C.border}`, width: "100%" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17 }}>{m.prospect || m.attendee || "Meeting"}</div>
                       <span style={{ fontSize: 11, fontWeight: 800, color: C.teal, background: C.tealSoft, padding: "4px 8px", borderRadius: 999 }}>{m.status || "upcoming"}</span>
@@ -1509,12 +1485,17 @@ export function CallingWorkspace({
                       {m.channel ? <div style={{ color: C.slate }}>Channel: {m.channel}</div> : null}
                       {m.host || m.attendee ? <div style={{ color: C.slate }}>{[m.host, m.attendee].filter(Boolean).join(" · ")}</div> : null}
                     </div>
-                    {join ? (
-                      <a href={/^https?:/i.test(join) ? join : "https://" + join} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 12, color: C.cobalt, fontWeight: 700, fontSize: 13 }}>{join}</a>
-                    ) : (
-                      <div style={{ marginTop: 10, fontSize: 12, color: C.slateLight }}>No join URL yet.</div>
+                    {open && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                        {join ? (
+                          <a href={/^https?:/i.test(join) ? join : "https://" + join} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ display: "inline-block", color: C.cobalt, fontWeight: 700, fontSize: 13 }}>{join}</a>
+                        ) : (
+                          <div style={{ fontSize: 12, color: C.slateLight }}>No join URL yet. Add one on Schedule if this was parked there.</div>
+                        )}
+                      </div>
                     )}
-                  </div>
+                    {!open ? <div style={{ marginTop: 10, fontSize: 11, fontWeight: 700, color: C.cobalt }}>Open →</div> : null}
+                  </button>
                 );
               })}
             </div>
@@ -1526,8 +1507,10 @@ export function CallingWorkspace({
                 <div style={{ ...card(), padding: 48, textAlign: "center", color: C.slate }}>No logs yet. Ended calls land here.</div>
               ) : logs.map((l) => (
                 <div key={l.id} style={card()}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700 }}>{l.canonicalName || l.listedAs || "Call"}</div>
-                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{l.outcome || ""} · {l.duration || ""} · {l.startedAt || ""}</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700 }}>{logDisplayName(l)}</div>
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>
+                    {[l.canonicalName && l.canonicalName !== logDisplayName(l) ? l.canonicalName : "", l.outcome || "", l.duration || "", l.startedAt || ""].filter(Boolean).join(" · ")}
+                  </div>
                   <div style={{ marginTop: 8, fontFamily: FONT_MONO, fontSize: 11.5, color: C.textInk, maxHeight: 90, overflow: "auto" }}>
                     {(l.transcript || []).slice(0, 8).map((t, i) => (
                       <div key={i}>{typeof t === "string" ? t : `${t.who}: ${t.text}`}</div>
@@ -1539,56 +1522,17 @@ export function CallingWorkspace({
           )}
 
           {page === "schedule" && (
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 420px) 1fr", gap: 16 }}>
-              <div style={card()}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, marginBottom: 12 }}>Park a call or meeting</div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: C.slate, display: "block", marginBottom: 10 }}>
-                  Who
-                  <input value={plan.prospect} onChange={(e) => setPlan((p) => ({ ...p, prospect: e.target.value }))} style={{ ...fieldStyle(), marginTop: 6 }} />
-                </label>
-                <label style={{ fontSize: 12, fontWeight: 700, color: C.slate, display: "block", marginBottom: 10 }}>
-                  Phone (if calling)
-                  <input value={plan.phone} onChange={(e) => setPlan((p) => ({ ...p, phone: e.target.value }))} style={{ ...fieldStyle(), marginTop: 6 }} />
-                </label>
-                <label style={{ fontSize: 12, fontWeight: 700, color: C.slate, display: "block", marginBottom: 10 }}>
-                  Day
-                  <input value={plan.day} onChange={(e) => setPlan((p) => ({ ...p, day: e.target.value }))} placeholder="Thu 18 Sep" style={{ ...fieldStyle(), marginTop: 6 }} />
-                </label>
-                <label style={{ fontSize: 12, fontWeight: 700, color: C.slate, display: "block", marginBottom: 10 }}>
-                  Time
-                  <input value={plan.time} onChange={(e) => setPlan((p) => ({ ...p, time: e.target.value }))} style={{ ...fieldStyle(), marginTop: 6 }} />
-                </label>
-                <label style={{ fontSize: 12, fontWeight: 700, color: C.slate, display: "block", marginBottom: 14 }}>
-                  Kind
-                  <select value={plan.kind} onChange={(e) => setPlan((p) => ({ ...p, kind: e.target.value }))} style={{ ...fieldStyle(), marginTop: 6 }}>
-                    <option value="phone">Phone callback</option>
-                    <option value="video">Video meeting</option>
-                    <option value="in_person">In person</option>
-                  </select>
-                </label>
-                <button type="button" disabled={busy === "plan"} onClick={savePlan} style={{ height: 40, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: "100%" }}>
-                  {busy === "plan" ? "Saving…" : "Add to schedule"}
-                </button>
-              </div>
-              <div style={{ display: "grid", gap: 10 }}>
-                {!schedule.length ? (
-                  <div style={{ ...card(), color: C.slate }}>Nothing queued.</div>
-                ) : schedule.map((s) => (
-                  <div key={s.id} style={card()}>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700 }}>{s.prospect}</div>
-                    <div style={{ fontSize: 13, color: C.slate, marginTop: 4 }}>{s.day} {s.time} · {s.mission} · {s.status}</div>
-                    {digitsInPhone(s.honoredQuote || s.mission || "").length >= 7 ? (
-                      <button type="button" onClick={() => {
-                        const raw = String(s.honoredQuote || s.mission || "");
-                        const m = raw.match(/(\+?\d[\d\s().-]{6,}\d)/);
-                        setDirect({ phone: (m && m[1]) || "", name: s.prospect });
-                        setPage("list");
-                      }} style={{ marginTop: 10, height: 34, padding: "0 12px", borderRadius: 8, border: "none", background: C.teal, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Call this</button>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <CallingSchedule
+              schedule={schedule}
+              profile={profile}
+              onSaved={async () => { await refreshSchedule(); await refreshMeetings(); }}
+              onCall={(item) => {
+                setDirect({ phone: item.phone || "", name: item.prospect || "" });
+                setPage("list");
+              }}
+              onToast={showToast}
+              onNote={pushNote}
+            />
           )}
 
           {page === "ai" && (

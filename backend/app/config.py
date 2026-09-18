@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_PHONE_NUMBER: Optional[str] = None
+    TWILIO_WHATSAPP_NUMBER: Optional[str] = os.getenv("TWILIO_WHATSAPP_NUMBER", None)
     # Parallel outbound: operator concurrency is honored up to this cap.
     # CPS gap keeps Twilio/Telnyx from rejecting a burst (default ~1 call/sec).
     OUTBOUND_MAX_CONCURRENCY: int = int(os.getenv("OUTBOUND_MAX_CONCURRENCY", "5"))

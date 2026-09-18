@@ -298,6 +298,16 @@ class ScheduleItem(Base):
     honored = Column(Boolean, default=False)
     deferred = Column(Boolean, default=False)
     honored_quote = Column(Text, nullable=True)
+    kind = Column(String, default="phone")  # phone, video, in_person, whatsapp
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    video_link = Column(String, nullable=True)
+    platform = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    whatsapp_to = Column(String, nullable=True)
+    notify_whatsapp = Column(Boolean, default=False)
+    meeting_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Notification(Base):

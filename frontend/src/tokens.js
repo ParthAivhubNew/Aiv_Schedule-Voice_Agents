@@ -118,6 +118,46 @@ export function timezoneShort(tzId) {
   return map[tzId] || String(tzId).split("/").pop().replace(/_/g, " ");
 }
 
+const GENERIC_LOG_NAMES = /^(valued prospect|prospect|caller|unknown|unknown caller|there|n\/a|na|none)$/i;
+
+export function nameFromTranscript(transcript) {
+  const lines = Array.isArray(transcript) ? transcript : [];
+  for (const item of lines) {
+    const text = typeof item === "string" ? item : (item && item.text) || "";
+    const cleaned = String(text).replace(/^(ai|system):\s*/i, "");
+    const m = cleaned.match(/\b(?:Hi|Hello|Hey)[, ]+([A-Z][a-zA-Z'’-]{1,40})(?:\s+([A-Z][a-zA-Z'’-]{1,40}))?/);
+    if (!m) continue;
+    const first = m[1];
+    const last = m[2] || "";
+    if (/^(this|there|sam|san|everyone|all|valued)$/i.test(first)) continue;
+    return `${first} ${last}`.trim();
+  }
+  return "";
+}
+
+export function isGenericLogName(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "—" || raw === "-") return true;
+  const stripped = raw.replace(/\(.*?\)/g, "").trim();
+  if (!stripped) return true;
+  if (GENERIC_LOG_NAMES.test(stripped)) return true;
+  if (/^(caller|prospect)\b/i.test(stripped)) return true;
+  return false;
+}
+
+export function logDisplayName(entry) {
+  if (!entry) return "Unknown caller";
+  const person = entry.personListedAs || entry.personCanonical || "";
+  const spoken = nameFromTranscript(entry.transcript);
+  const listed = entry.listedAs || "";
+  const company = entry.canonicalName || "";
+  if (!isGenericLogName(person)) return person;
+  if (spoken) return spoken;
+  if (!isGenericLogName(listed) && listed !== company) return listed;
+  if (!isGenericLogName(company)) return company;
+  return spoken || "Unknown caller";
+}
+
 export function meetingTimeLabel(m) {
   if (!m) return "";
   const hostTz = m.hostTimezone || m.host_timezone || "Europe/London";

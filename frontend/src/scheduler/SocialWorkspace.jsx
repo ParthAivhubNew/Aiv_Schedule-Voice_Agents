@@ -223,11 +223,22 @@ function ApprovalsBoard({
           Posts by publish date
         </div>
         <div style={{ fontSize: 12.5, color: C.slate, marginTop: 4, marginBottom: 12, lineHeight: 1.4 }}>
-          Tabs = day the post goes live — not the day you drafted it. Click a post to enlarge.
+          Each tab is a publish day. Open a post to review and approve.
         </div>
 
         {/* Date tabs — same pattern as dashboard "By age / By provider / By constituency" */}
-        <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, overflowX: "auto" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 0,
+            borderBottom: `1px solid ${C.border}`,
+            overflowX: "auto",
+            overflowY: "hidden",
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          }}
+          className="aiv-hide-scrollbar"
+        >
           {dateTabs.length === 0 ? (
             <div style={{ padding: "10px 4px", fontSize: 13, color: C.slate }}>No dates yet</div>
           ) : dateTabs.map((t) => {
@@ -249,6 +260,7 @@ function ApprovalsBoard({
                   borderBottom: active ? `2px solid ${C.teal}` : "2px solid transparent",
                   whiteSpace: "nowrap",
                   marginBottom: -1,
+                  flexShrink: 0,
                 }}
               >
                 {t.date === "undated" ? "No date" : dayLabel(t.date)}
@@ -1217,6 +1229,9 @@ export function SocialWorkspace({
   const [editText, setEditText] = useState("");
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [expandedApprovalId, setExpandedApprovalId] = useState("");
+  const [approvalPos, setApprovalPos] = useState({ x: 0, y: 0 });
+  const [approvalDragging, setApprovalDragging] = useState(false);
+  const approvalDragRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const [pinnedDates, setPinnedDates] = useState(() => {
     const saved = readJson(LS_PINS, []);
     return Array.isArray(saved) ? saved.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
@@ -2099,8 +2114,37 @@ export function SocialWorkspace({
       setSelectedId(id);
       setExpandedApprovalId(id);
     }
+    setApprovalPos({ x: 0, y: 0 });
     setApprovalOpen(true);
   };
+
+  const onApprovalHeaderDown = (e) => {
+    if (e.target.closest("button") || e.target.closest("input") || e.target.closest("a")) return;
+    setApprovalDragging(true);
+    approvalDragRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      posX: approvalPos.x,
+      posY: approvalPos.y,
+    };
+  };
+
+  useEffect(() => {
+    if (!approvalDragging) return;
+    const onMove = (e) => {
+      setApprovalPos({
+        x: approvalDragRef.current.posX + (e.clientX - approvalDragRef.current.x),
+        y: approvalDragRef.current.posY + (e.clientY - approvalDragRef.current.y),
+      });
+    };
+    const onUp = () => setApprovalDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [approvalDragging]);
 
   const cta = (() => {
     if (drafts.length) return { label: drafts.length + " in Approvals", disabled: false, action: () => openApprovals(selectedId), tone: "approve" };
@@ -2714,8 +2758,37 @@ export function SocialWorkspace({
 
       {approvalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 20 }} onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); }}>
-          <div style={{ width: 880, maxWidth: "100%", height: "min(860px, calc(100vh - 40px))", background: HUB_PAPER, borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 64px rgba(18,20,28,0.28)" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <div
+            style={{
+              width: 880,
+              maxWidth: "100%",
+              height: "min(860px, calc(100vh - 40px))",
+              background: HUB_PAPER,
+              borderRadius: 16,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              boxShadow: "0 24px 64px rgba(18,20,28,0.28)",
+              transform: `translate(${approvalPos.x}px, ${approvalPos.y}px)`,
+              transition: approvalDragging ? "none" : "transform 0.05s ease-out",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              onMouseDown={onApprovalHeaderDown}
+              style={{
+                padding: "14px 18px",
+                borderBottom: `1px solid ${C.border}`,
+                background: "#fff",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexShrink: 0,
+                cursor: approvalDragging ? "grabbing" : "grab",
+                userSelect: "none",
+              }}
+              title="Drag to move"
+            >
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Approvals</div>
                 <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
@@ -2729,7 +2802,7 @@ export function SocialWorkspace({
               ) : null}
               <button type="button" onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); }} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
             </div>
-            <div style={{ flex: 1, minHeight: 0, padding: 14, display: "flex", flexDirection: "column" }}>
+            <div style={{ flex: 1, minHeight: 0, padding: 14, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <ApprovalsBoard
                 waitingList={waitingList}
                 doneList={doneList}
@@ -2761,6 +2834,8 @@ export function SocialWorkspace({
           </div>
         </div>
       )}
+
+      <style>{`.aiv-hide-scrollbar::-webkit-scrollbar{display:none;height:0;width:0}`}</style>
 
       {toast ? (
         <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: C.ink, color: "#fff", padding: "10px 16px", borderRadius: 10, fontSize: 13, zIndex: 80 }}>
