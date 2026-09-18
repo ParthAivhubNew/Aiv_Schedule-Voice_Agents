@@ -359,7 +359,16 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         tts_model = plan.tts.model if plan.tts else None
         llm_model = plan.llm.model if plan.llm else None
         external_tts = bool(getattr(plan, "external_tts", False))
-        tts_voice_id = (plan.tts.voice_id if plan.tts else None) or None
+        # Only surface TTS plugin ids when hybrid is actually ON (active voice = clone).
+        # Builtin ara/rex must not keep showing a leftover Cartesia UUID on the main screen.
+        if external_tts and plan.tts:
+            tts_voice_id = plan.tts.voice_id or None
+        else:
+            tts_provider = None if not (plan.engine == "modular") else tts_provider
+            tts_name = None if not (plan.engine == "modular") else tts_name
+            tts_voice_id = None
+            if plan.engine != "modular":
+                tts_model = None
     except Exception as plan_err:
         logger.warning(f"Could not resolve live voice plan: {plan_err}")
 
@@ -554,31 +563,37 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
     conn = await _orchestration_conn(db)
     voices = stored_custom_voices(conn)
     label = (req.label or "").strip()
-    builtins = {"ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage", "rachel", "adam", "sonic", "rex-uk"}
-    provider = (req.provider or "").strip().lower() or (
-        "cartesia" if looks_like_external_voice_id(vid) and "-" in vid else "xai"
-    )
-    if vid.lower() not in builtins and vid_raw.lower() not in builtins:
+    is_clone = looks_like_external_voice_id(vid)
+    provider = (req.provider or "").strip().lower()
+    if not provider:
+        if is_clone:
+            provider = "cartesia" if "-" in vid and len(vid) == 36 else "elevenlabs"
+        else:
+            provider = "xai"
+    if is_clone:
         voices = upsert_voice_list(voices, {
             "voice_id": vid,
             "name": label or vid,
             "provider": provider,
         })
+    display_label = label or (
+        f"{vid}-uk" if accent == "british" and vid in ("ara", "eve", "rex", "leo") else vid
+    )
     await save_orchestration_config(db, {
         "custom_voices": voices,
         "voice_name": vid,
         "accent": accent,
-        "cloned_voice_id": vid if looks_like_external_voice_id(vid) else None,
-        "cloned_voice_label": label or vid,
+        "cloned_voice_id": vid if is_clone else None,
+        "cloned_voice_label": display_label,
     })
     settings.XAI_VOICE_NAME = vid
 
     # Mirror clone onto the matching Text-to-Speech plugin so live plan is plugin-driven
-    if looks_like_external_voice_id(vid):
+    if is_clone:
         tts_res = await db.execute(select(Connection).where(Connection.group_name == "Text-to-Speech"))
         tts_conns = list(tts_res.scalars().all())
         target = None
-        needle = "cartesia" if provider == "cartesia" or "-" in vid else "eleven"
+        needle = "cartesia" if provider == "cartesia" or ("-" in vid and len(vid) >= 32) else "eleven"
         for c in tts_conns:
             name = (c.name or "").lower()
             if needle in name or (provider and provider in name):
@@ -596,15 +611,18 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
             target.status = "connected"
             await db.commit()
 
-    hybrid_hint = ""
-    if looks_like_external_voice_id(vid):
-        hybrid_hint = " With engine=xAI + a Text-to-Speech plugin key, live calls use xAI brain and this clone for TTS."
+    hybrid_hint = (
+        " With engine=xAI + a Text-to-Speech plugin key, live calls use xAI brain and this clone for TTS."
+        if is_clone
+        else " Builtin xAI voice active — external TTS plugins stay idle until you select a clone Voice ID."
+    )
     return {
         "success": True,
         "voice_id": vid,
         "accent": accent,
+        "external_tts": is_clone,
         "voices": voices,
-        "message": f"Active voice set to {label or vid}.{hybrid_hint}",
+        "message": f"Active voice set to {display_label}.{hybrid_hint}",
     }
 
 
@@ -822,6 +840,10 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 prev_voices = prev_c.config.get("custom_voices") or []
                 prev_label = prev_c.config.get("cloned_voice_label")
 
+            voice_choice, voice_accent = _split_voice_choice(req.voice_name or "rex", None)
+            from app.services.voice_plugin_plan import looks_like_external_voice_id
+            voice_is_clone = looks_like_external_voice_id(voice_choice)
+
             # Clean and re-insert Telephony and Voice Orchestration connections
             await db.execute(delete(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
             
@@ -850,10 +872,13 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                     "phoneNumber": phone_clean,
                     "engine": engine,
                     "engine_label": engine_name,
-                    "voice_name": req.voice_name or "rex",
+                    "voice_name": voice_choice,
+                    "accent": voice_accent,
                     "custom_voices": prev_voices,
-                    "cloned_voice_id": None if (req.voice_name or "rex") in ("ara", "eve", "rex", "leo") else (req.voice_name or None),
-                    "cloned_voice_label": prev_label if (req.voice_name and req.voice_name not in ("ara", "eve", "rex", "leo")) else None,
+                    "cloned_voice_id": voice_choice if voice_is_clone else None,
+                    "cloned_voice_label": (prev_label if voice_is_clone else None) or (
+                        f"{voice_choice}-uk" if voice_accent == "british" else voice_choice
+                    ),
                     "silence_duration_ms": req.silence_duration_ms or 380,
                     "temperature": req.temperature or 0.80
                 })

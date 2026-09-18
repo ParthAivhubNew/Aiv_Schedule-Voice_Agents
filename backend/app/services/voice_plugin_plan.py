@@ -275,12 +275,23 @@ async def resolve_voice_plan() -> VoicePlan:
                 if engine != "simulation":
                     logger.info("No live xAI key — voice engine simulation")
 
+    # Hybrid TTS only when the ACTIVE saved voice is an external clone ID.
+    # Selecting ara/rex/eve (or other builtins) turns hybrid OFF even if a Cartesia
+    # key + old UUID remain on the Text-to-Speech plugin.
+    active_voice = _strip_voice(voice_name)
+    active_is_clone = looks_like_external_voice_id(active_voice)
+    if tts and active_is_clone:
+        # Keep plugin key; force speak-id to the active clone selection
+        tts.voice_id = active_voice
+    elif tts and not active_is_clone:
+        # Builtin xAI/OpenAI persona selected — ignore plugin clone id for routing
+        pass
+
     external_tts = bool(
         engine == "xai"
+        and active_is_clone
         and tts
         and tts.api_key
-        and tts.voice_id
-        and looks_like_external_voice_id(tts.voice_id)
     )
 
     note = ""
@@ -288,9 +299,9 @@ async def resolve_voice_plan() -> VoicePlan:
         if external_tts:
             note = f"xAI STT+Grok; external TTS via {tts.provider} clone."
         else:
-            note = "Speech-to-speech via xAI Grok. STT/TTS plugins unused."
+            note = f"Speech-to-speech via xAI Grok ({active_voice or 'rex'}). External TTS plugins idle."
     elif engine == "openai":
-        note = "Speech-to-speech via OpenAI Realtime. STT/TTS plugins unused."
+        note = f"Speech-to-speech via OpenAI Realtime ({active_voice or 'alloy'})."
     elif engine == "modular":
         note = f"Modular pipeline: {stt.provider if stt else '?'} STT → LLM → {tts.provider if tts else '?'} TTS."
 

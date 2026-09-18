@@ -178,6 +178,7 @@ function prettyProvider(raw, fallback) {
 
 function liveStackLabels(hub) {
   const engine = String(hub?.liveEngine || "").toLowerCase();
+  const voice = hub?.voiceName || hub?.voiceEngineName || "—";
   const engineLabel =
     engine === "xai" ? "xAI Grok (speech-to-speech)"
     : engine === "openai" ? "OpenAI Realtime"
@@ -192,18 +193,29 @@ function liveStackLabels(hub) {
       stt: "xAI",
       tts: prettyProvider(hub?.ttsProvider, hub?.ttsName || "Cloned TTS"),
       carrier: hub?.activeCarrier || "—",
-      voice: hub?.ttsVoiceId || hub?.voiceName || "—",
+      voice: hub?.ttsVoiceId || voice,
       note: hub?.liveNote || "",
     };
   }
-  if (engine === "xai" || engine === "openai") {
+  if (engine === "xai") {
+    return {
+      engine: engineLabel,
+      llm: "xAI Grok",
+      stt: "xAI",
+      tts: `xAI built-in (${voice})`,
+      carrier: hub?.activeCarrier || "—",
+      voice,
+      note: hub?.liveNote || "",
+    };
+  }
+  if (engine === "openai") {
     return {
       engine: engineLabel,
       llm: engineLabel,
       stt: engineLabel,
-      tts: engineLabel,
+      tts: `OpenAI (${voice})`,
       carrier: hub?.activeCarrier || "—",
-      voice: hub?.voiceName || "—",
+      voice,
       note: hub?.liveNote || "",
     };
   }
@@ -213,7 +225,7 @@ function liveStackLabels(hub) {
     stt: prettyProvider(hub?.sttProvider, hub?.sttName || "—"),
     tts: prettyProvider(hub?.ttsProvider, hub?.ttsName || "—"),
     carrier: hub?.activeCarrier || "—",
-    voice: hub?.voiceName || "—",
+    voice,
     note: hub?.liveNote || "",
   };
 }
@@ -7335,19 +7347,27 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
       key: "tts",
       title: "Speak (TTS)",
       layer: "Text-to-Speech",
-      value: (modular || hybrid) ? labels.tts : (engine === "xai" ? "xAI built-in (or add TTS plugin)" : labels.tts),
+      value: (modular || hybrid)
+        ? labels.tts
+        : (engine === "xai"
+          ? `xAI built-in (${hubData?.voiceName || "rex"})`
+          : engine === "openai"
+            ? `OpenAI (${hubData?.voiceName || "alloy"})`
+            : labels.tts),
       ok: modular || hybrid ? !!(hubData?.ttsProvider || hubData?.ttsName) : true,
-      hint: "Cartesia, ElevenLabs, PlayHT, Other…",
-      needPlugin: true,
+      hint: hybrid || modular ? "Cartesia, ElevenLabs, PlayHT, Other…" : "Using engine voice — Add TTS only to clone",
+      needPlugin: modular || hybrid || (engine === "xai" && !hybrid),
       recommend: engine === "xai" && !hybrid,
     },
     {
       key: "voice",
       title: "Voice ID",
       layer: "Text-to-Speech",
-      value: hubData?.ttsVoiceId || hubData?.voiceName || "—",
-      ok: !!(hubData?.ttsVoiceId || (hubData?.voiceName && String(hubData.voiceName).length > 3)),
-      hint: "Paste clone ID in Step 3 below",
+      value: hybrid
+        ? (hubData?.ttsVoiceId || hubData?.voiceName || "—")
+        : (hubData?.voiceName || "—"),
+      ok: !!(hubData?.voiceName && String(hubData.voiceName).length > 1),
+      hint: hybrid ? "External clone ID" : "Saved engine persona (ara / rex / …)",
       needPlugin: false,
     },
   ];
@@ -8182,8 +8202,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   setVoiceName(v);
                   const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
                   const fromList = customVoices.find((x) => x.voice_id === v);
+                  const builtins = ["rex", "ara", "eve", "leo", "rex-uk", "ara-uk", "eve-uk", "leo-uk", "rachel", "adam", "sonic"];
                   const provider = fromList?.provider
-                    || (looksUuid ? "cartesia" : (v.length >= 16 && !["rex", "ara", "eve", "leo", "rachel", "adam", "sonic"].includes(v) ? "elevenlabs" : "xai"));
+                    || (looksUuid ? "cartesia" : (v.length >= 16 && !builtins.includes(v) ? "elevenlabs" : "xai"));
                   api.selectVoice({
                     voice_id: v,
                     label: fromList?.name
@@ -8193,7 +8214,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                         : v),
                     provider,
                     accent: String(v || "").includes("-uk") ? "british" : undefined,
-                  }).catch(() => {});
+                  }).then(() => fetchStatus()).catch(() => {});
                 }}
                 style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
               >
@@ -8248,15 +8269,14 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 <b>2.</b> Copy Voice ID from that provider’s dashboard (Cartesia = UUID).<br />
                 <b>3.</b> Paste here → <b>Link Voice ID</b>. {engineChoice === "xai" ? "xAI keeps brain/STT; TTS plugin speaks." : "Modular uses Connections STT + LLM + this TTS voice."}
               </div>
-              {hubData.ttsName || hubData.ttsProvider ? (
+              {hubData.externalTts ? (
                 <div style={{ fontSize: 12, color: "#065F46", marginBottom: 10, background: "#D1FAE5", borderRadius: 8, padding: "8px 10px" }}>
-                  Active TTS plugin: <b>{hubData.ttsName || hubData.ttsProvider}</b>
-                  {hubData.ttsVoiceId ? <> · Voice ID: <code style={{ fontSize: 11 }}>{hubData.ttsVoiceId}</code></> : " · no Voice ID linked yet — paste below"}
-                  {hubData.externalTts ? " · hybrid ON" : ""}
+                  Hybrid ON · TTS plugin: <b>{hubData.ttsName || hubData.ttsProvider}</b>
+                  {hubData.ttsVoiceId ? <> · Voice ID: <code style={{ fontSize: 11 }}>{hubData.ttsVoiceId}</code></> : ""}
                 </div>
               ) : (
-                <div style={{ fontSize: 12, color: "#B45309", marginBottom: 10, background: "#FFFBEB", borderRadius: 8, padding: "8px 10px" }}>
-                  No Text-to-Speech plugin connected yet. Add one under <b>All plugins / Connections</b> first, then paste the Voice ID here.
+                <div style={{ fontSize: 12, color: "#1E40AF", marginBottom: 10, background: "#EFF6FF", borderRadius: 8, padding: "8px 10px" }}>
+                  Live mouth = xAI built-in (<b>{hubData.voiceName || "rex"}</b>). TTS plugins idle until you Link a clone Voice ID below.
                 </div>
               )}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 10 }}>
