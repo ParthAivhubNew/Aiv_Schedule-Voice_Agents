@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CalendarDays,
   Check,
@@ -11,7 +12,6 @@ import {
   LayoutGrid,
   LogOut,
   Maximize2,
-  Minimize2,
   Pencil,
   Plus,
   Plug,
@@ -179,6 +179,7 @@ function ApprovalsBoard({
   publishing,
   revertTouched,
   updateSchedule,
+  deletePost,
   initialDate,
   genProgress,
 }) {
@@ -202,6 +203,9 @@ function ApprovalsBoard({
   const [schedDraft, setSchedDraft] = useState({ date: "", time: "" });
   const [lightbox, setLightbox] = useState(false);
   const [flash, setFlash] = useState({ caption: false, headline: false, image: false });
+  const [previewPos, setPreviewPos] = useState({ x: 0, y: 0 });
+  const [previewDragging, setPreviewDragging] = useState(false);
+  const previewDragRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const userPickedDate = useRef(false);
   const lastSyncedInitial = useRef("");
   const snapRef = useRef({});
@@ -262,6 +266,7 @@ function ApprovalsBoard({
     setLightbox(false);
     setEditTab("copy");
     setFlash({ caption: false, headline: false, image: false });
+    setPreviewPos({ x: 0, y: 0 });
     if (expandedPost) {
       setSchedDraft({ date: expandedPost.date || "", time: expandedPost.time || "09:00" });
       snapRef.current = {
@@ -272,6 +277,34 @@ function ApprovalsBoard({
       };
     }
   }, [expandedId]);
+
+  useEffect(() => {
+    if (!previewDragging) return undefined;
+    const onMove = (e) => {
+      setPreviewPos({
+        x: previewDragRef.current.posX + (e.clientX - previewDragRef.current.x),
+        y: previewDragRef.current.posY + (e.clientY - previewDragRef.current.y),
+      });
+    };
+    const onUp = () => setPreviewDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [previewDragging]);
+
+  const onPreviewHeaderDown = (e) => {
+    if (e.target.closest("button") || e.target.closest("input") || e.target.closest("a")) return;
+    setPreviewDragging(true);
+    previewDragRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      posX: previewPos.x,
+      posY: previewPos.y,
+    };
+  };
 
   useEffect(() => {
     if (!expandedPost) return;
@@ -523,12 +556,28 @@ function ApprovalsBoard({
                           <button
                             type="button"
                             disabled={dimmed}
-                            onClick={() => (open ? setExpandedId("") : openPost(p.id))}
-                            title={open ? "Diminish preview" : "Enlarge preview"}
+                            onClick={() => openPost(p.id)}
+                            title="Enlarge preview"
                             style={{ ...secBtn, height: 30, padding: "0 8px", flexShrink: 0, fontSize: 11 }}
                           >
-                            {open ? <><Minimize2 size={12} /> Diminish</> : <><Maximize2 size={12} /> Enlarge</>}
+                            <Maximize2 size={12} /> Enlarge
                           </button>
+                          {deletePost && p.status !== "posted" ? (
+                            <button
+                              type="button"
+                              disabled={dimmed}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm("Delete this post? It will leave the schedule.")) {
+                                  deletePost(p.id);
+                                }
+                              }}
+                              title="Delete post"
+                              style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0, color: "#B42318", borderColor: "#F3D1CD" }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          ) : null}
                         </div>
                         {prog ? <GenProgressBar pct={prog.pct} label={prog.label} compact /> : null}
                       </div>
@@ -562,9 +611,25 @@ function ApprovalsBoard({
               overflow: "hidden",
               display: "flex",
               flexDirection: "column",
-              transition: "max-width 0.2s ease",
+              transition: previewDragging ? "none" : "max-width 0.2s ease",
+              transform: `translate(${previewPos.x}px, ${previewPos.y}px)`,
             }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${C.border}`, alignItems: "center", flexShrink: 0, background: "#fff" }}>
+              <div
+                onMouseDown={onPreviewHeaderDown}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  padding: "12px 14px",
+                  borderBottom: `1px solid ${C.border}`,
+                  alignItems: "center",
+                  flexShrink: 0,
+                  background: "#fff",
+                  cursor: previewDragging ? "grabbing" : "grab",
+                  userSelect: "none",
+                }}
+                title="Drag to move"
+              >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12, color: C.slate, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span style={{ width: 18, height: 18, borderRadius: 5, background: chMeta.soft, color: chMeta.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800 }}>{chMeta.mark}</span>
@@ -578,14 +643,6 @@ function ApprovalsBoard({
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(expandedPost.status) }}>{statusLabel(expandedPost.status)}</span>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedId("")}
-                    style={{ ...secBtn, height: 30, padding: "0 10px", fontSize: 11 }}
-                    title="Diminish preview"
-                  >
-                    <Minimize2 size={13} /> Diminish
-                  </button>
                   <button type="button" onClick={() => setExpandedId("")} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Close">
                     <X size={16} color={C.slate} />
                   </button>
@@ -625,8 +682,9 @@ function ApprovalsBoard({
                             style={{
                               width: "100%",
                               height: "auto",
-                              maxHeight: editMode ? 280 : 360,
+                              maxHeight: editMode ? 320 : 420,
                               objectFit: "contain",
+                              objectPosition: "center",
                               display: "block",
                               margin: "0 auto",
                               background: "#0f1115",
@@ -635,8 +693,8 @@ function ApprovalsBoard({
                           />
                           <button
                             type="button"
-                            onClick={() => setLightbox((v) => !v)}
-                            title={lightbox ? "Diminish image" : "Full size"}
+                            onClick={() => setLightbox(true)}
+                            title="Enlarge image"
                             style={{
                               position: "absolute",
                               right: 10,
@@ -655,7 +713,7 @@ function ApprovalsBoard({
                               gap: 5,
                             }}
                           >
-                            {lightbox ? <><Minimize2 size={12} /> Diminish</> : <><Maximize2 size={12} /> Enlarge</>}
+                            <Maximize2 size={12} /> Enlarge
                           </button>
                         </>
                       ) : (
@@ -861,9 +919,19 @@ function ApprovalsBoard({
                     <Clock size={13} /> Schedule
                   </button>
                 ) : null}
-                {expandedPost.imageUrl ? (
-                  <button type="button" onClick={() => setLightbox((v) => !v)} style={secBtn}>
-                    {lightbox ? <><Minimize2 size={13} /> Diminish image</> : <><Maximize2 size={13} /> Enlarge image</>}
+                {deletePost && expandedPost.status !== "posted" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm("Delete this post? It will leave the schedule.")) {
+                        deletePost(expandedPost.id);
+                        setExpandedId("");
+                      }
+                    }}
+                    style={{ ...secBtn, color: "#B42318", borderColor: "#F3D1CD" }}
+                    title="Delete post"
+                  >
+                    <Trash2 size={13} /> Delete
                   </button>
                 ) : null}
                 <div style={{ flex: 1 }} />
@@ -879,52 +947,41 @@ function ApprovalsBoard({
               </div>
             </div>
 
-            {lightbox && expandedPost.imageUrl ? (
-              <div
-                style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(8,10,14,0.88)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}
-                onClick={() => setLightbox(false)}
-              >
-                <div style={{ position: "absolute", top: 16, right: 16, display: "flex", gap: 8, zIndex: 2 }}>
+            {lightbox && expandedPost.imageUrl && typeof document !== "undefined"
+              ? createPortal(
+                <div
+                  style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(8,10,14,0.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+                  onClick={() => setLightbox(false)}
+                >
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setLightbox(false); }}
-                    style={{
-                      height: 36,
-                      padding: "0 14px",
-                      borderRadius: 99,
-                      border: "1px solid rgba(255,255,255,0.25)",
-                      background: "rgba(255,255,255,0.14)",
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <Minimize2 size={14} /> Diminish
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setLightbox(false); }}
-                    style={{ border: "none", background: "rgba(255,255,255,0.12)", color: "#fff", width: 36, height: 36, borderRadius: 99, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    style={{ position: "absolute", top: 18, right: 18, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", width: 40, height: 40, borderRadius: 99, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}
                     title="Close"
                   >
-                    <X size={18} />
+                    <X size={20} />
                   </button>
-                </div>
-                <img
-                  src={expandedPost.imageUrl}
-                  alt=""
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ maxWidth: "min(1100px, 96vw)", maxHeight: "85vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8, boxShadow: "0 24px 64px rgba(0,0,0,0.45)" }}
-                />
-                <div style={{ marginTop: 14, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
-                  Click outside or Diminish to shrink
-                </div>
-              </div>
-            ) : null}
+                  <img
+                    src={expandedPost.imageUrl}
+                    alt=""
+                    draggable={false}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      maxWidth: "min(1200px, 96vw)",
+                      maxHeight: "92vh",
+                      width: "auto",
+                      height: "auto",
+                      objectFit: "contain",
+                      borderRadius: 10,
+                      boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+                      cursor: "default",
+                      userSelect: "none",
+                    }}
+                  />
+                </div>,
+                document.body,
+              )
+              : null}
           </div>
         ) : null}
       </div>
@@ -2247,6 +2304,16 @@ export function SocialWorkspace({
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch, status: keepEditableStatus(p.status) } : p)));
   };
 
+  const deletePost = (id) => {
+    if (!id) return;
+    setPosts((ps) => ps.filter((p) => p.id !== id));
+    setSelectedId((cur) => (cur === id ? "" : cur));
+    setExpandedApprovalId((cur) => (cur === id ? "" : cur));
+    setFocusPostId((cur) => (cur === id ? "" : cur));
+    api.deletePost(id).catch(() => null);
+    showToast("Post deleted.");
+  };
+
   const approveOne = async (p, opts = {}) => {
     if (!p || p.status === "posted") return { ok: false, reason: "posted" };
     if (!opts.batch && publishing) return { ok: false, reason: "busy" };
@@ -3038,30 +3105,62 @@ export function SocialWorkspace({
                     {dayPosts.length === 0 ? (
                       <div style={{ fontSize: 10.5, color: C.slate, lineHeight: 1.35 }}>{pinned ? "Pinned" : "Pin this day"}</div>
                     ) : dayPosts.map((p) => (
-                      <button
+                      <div
                         key={p.id}
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); openApprovals(p.id); }}
                         style={{
-                          display: "block",
-                          width: "100%",
-                          textAlign: "left",
-                          border: "none",
+                          display: "flex",
+                          alignItems: "stretch",
+                          gap: 2,
+                          marginBottom: 4,
                           background: selectedId === p.id ? C.tealSoft : C.paperSoft,
                           borderRadius: 6,
-                          padding: "5px 6px",
-                          marginBottom: 4,
-                          cursor: "pointer",
+                          overflow: "hidden",
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span style={{ width: 6, height: 6, borderRadius: 99, background: statusColor(p.status) }} />
-                          <span style={{ fontSize: 10, fontWeight: 700, color: C.slate }}>{p.time} · {p.channel}</span>
-                        </div>
-                        <div style={{ fontSize: 11.5, color: C.ink, fontWeight: 600, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {p.enriching ? "Writing…" : p.headline}
-                        </div>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openApprovals(p.id); }}
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            textAlign: "left",
+                            border: "none",
+                            background: "transparent",
+                            padding: "5px 6px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: 99, background: statusColor(p.status) }} />
+                            <span style={{ fontSize: 10, fontWeight: 700, color: C.slate }}>{p.time} · {p.channel}</span>
+                          </div>
+                          <div style={{ fontSize: 11.5, color: C.ink, fontWeight: 600, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {p.enriching ? "Writing…" : p.headline}
+                          </div>
+                        </button>
+                        {p.status !== "posted" ? (
+                          <button
+                            type="button"
+                            title="Delete post"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm("Delete this post from the schedule?")) deletePost(p.id);
+                            }}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: C.slate,
+                              cursor: "pointer",
+                              padding: "0 6px",
+                              flexShrink: 0,
+                              display: "flex",
+                              alignItems: "center",
+                            }}
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        ) : null}
+                      </div>
                     ))}
                   </div>
                 );
@@ -3422,6 +3521,7 @@ export function SocialWorkspace({
                 publishing={publishing}
                 revertTouched={revertTouched}
                 updateSchedule={updateSchedule}
+                deletePost={deletePost}
                 genProgress={genProgress}
               />
             </div>
