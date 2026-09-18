@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_PHONE_NUMBER: Optional[str] = None
     TWILIO_WHATSAPP_NUMBER: Optional[str] = os.getenv("TWILIO_WHATSAPP_NUMBER", None)
+    # Meta WhatsApp Cloud API (Using Facebook Developer provided test/production number)
+    WHATSAPP_CLOUD_ACCESS_TOKEN: Optional[str] = os.getenv("WHATSAPP_CLOUD_ACCESS_TOKEN", None)
+    WHATSAPP_CLOUD_PHONE_NUMBER_ID: Optional[str] = os.getenv("WHATSAPP_CLOUD_PHONE_NUMBER_ID", "1238965585975808")
+    WHATSAPP_CLOUD_WABA_ID: Optional[str] = os.getenv("WHATSAPP_CLOUD_WABA_ID", "1488177123071552")
     # Parallel outbound: operator concurrency is honored up to this cap.
     # CPS gap keeps Twilio/Telnyx from rejecting a burst (default ~1 call/sec).
     OUTBOUND_MAX_CONCURRENCY: int = int(os.getenv("OUTBOUND_MAX_CONCURRENCY", "5"))
@@ -60,6 +64,8 @@ class Settings(BaseSettings):
     XAI_TEMPERATURE: float = float(os.getenv("XAI_TEMPERATURE", "0.80"))  # Expressive human warmth & natural inflection
     XAI_REALTIME_WS_URL: str = os.getenv("XAI_REALTIME_WS_URL", "wss://api.x.ai/v1/realtime")
     XAI_SIP_FQDN: str = os.getenv("XAI_SIP_FQDN", "sip.voice.x.ai")
+    # Public SIP / carrier webhook (defaults to PUBLIC_BASE_URL + /api/sip-webhook)
+    XAI_WEBHOOK_URL: Optional[str] = os.getenv("XAI_WEBHOOK_URL", None)
     VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "simulation")
 
     

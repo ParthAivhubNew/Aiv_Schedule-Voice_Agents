@@ -298,7 +298,11 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         masked_active_key = mask_secret(active_key) if active_key else ""
 
     # 3. Detect public webhook URL
-    default_webhook = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
+    public = (getattr(settings, "PUBLIC_BASE_URL", None) or "http://127.0.0.1:8000").rstrip("/")
+    default_webhook = (
+        getattr(settings, "XAI_WEBHOOK_URL", None)
+        or f"{public}/api/sip-webhook"
+    )
 
     clean_secret = active_secret if (active_secret and not active_secret.startswith("whsec_••••")) else ""
     configured_voice = settings.XAI_VOICE_NAME
@@ -954,12 +958,17 @@ async def test_telephony_hub_ping():
     try:
         start_time = time.time()
         status_code = 200
+        public = (getattr(settings, "PUBLIC_BASE_URL", None) or "http://127.0.0.1:8000").rstrip("/")
+        webhook = (
+            getattr(settings, "XAI_WEBHOOK_URL", None)
+            or f"{public}/api/sip-webhook"
+        )
         details = {
-            "webhook_url": settings.XAI_WEBHOOK_URL or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook",
+            "webhook_url": webhook,
             "voice_engine": settings.VOICE_ENGINE_MODE,
             "xai_fqdn": settings.XAI_SIP_FQDN,
             "xai_api_key_set": bool(settings.XAI_API_KEY),
-            "xai_webhook_secret_set": bool(settings.XAI_WEBHOOK_SECRET)
+            "xai_webhook_secret_set": bool(settings.XAI_WEBHOOK_SECRET),
         }
 
         elapsed_ms = (time.time() - start_time) * 1000
