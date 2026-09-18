@@ -122,7 +122,7 @@ import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
 import { CalcomAdminModal } from "./admin/CalcomAdminModal";
-import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel, logDisplayName, dedupeNotifications, prependNotification, notificationFingerprint } from "./tokens";
+import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel, logDisplayName, dedupeNotifications, prependNotification, notificationFingerprint, resolveNotificationTarget, notificationActionLabel } from "./tokens";
 import { SocialWorkspaceGate } from "./scheduler/SocialWorkspace";
 import { EDITION_EVENT, getSchedulerEdition, setSchedulerEdition } from "./scheduler/schedulerEdition";
 import { humanizeAiReply } from "./scheduler/chatClean";
@@ -1496,6 +1496,7 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
 
 function NotificationBell({ notifications, setNotifications, onNavigate }) {
   const [open, setOpen] = useState(false);
+  const [activeId, setActiveId] = useState("");
   const items = useMemo(() => dedupeNotifications(notifications), [notifications]);
   const unread = items.filter((n) => n.unread).length;
 
@@ -1505,53 +1506,34 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
     if (cleaned.length !== notifications.length) setNotifications(cleaned);
   }, [notifications?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleNotificationClick = (n) => {
-    // Mark this note + any duplicate text as read (old bug: same Date.now() id hit many rows)
+  const markOneRead = (n) => {
     const fp = notificationFingerprint(n.text);
     setNotifications((ns) =>
       dedupeNotifications(ns).map((x) =>
         x.id === n.id || notificationFingerprint(x.text) === fp ? { ...x, unread: false } : x
       )
     );
-    setOpen(false);
+  };
 
-    let targetView = n.targetView;
-    let targetExtra = n.targetExtra || {};
-
-    if (!targetView) {
-      const text = (n.text || "").toLowerCase();
-      if (text.includes("meeting") || text.includes("booked") || text.includes("cal.com")) {
-        targetView = "meetings";
-      } else if (text.includes("staff input") || text.includes("live") || text.includes("pricing") || text.includes("calling") || text.includes("intervention") || text.includes("human") || text.includes("inbound call")) {
-        targetView = "live";
-        if (text.includes("pennine")) {
-          targetExtra = { liveFocus: { name: "Pennine Distribution" } };
-        } else if (text.includes("acme")) {
-          targetExtra = { liveFocus: { name: "Acme Logistics Ltd" } };
-        }
-      } else if (text.includes("schedule") || text.includes("call back") || text.includes("callback")) {
-        targetView = "schedule";
-      } else if (text.includes("call log") || text.includes("do-not-call") || text.includes("dnc") || text.includes("verbatim") || text.includes("haulage")) {
-        targetView = "calllog";
-        if (text.includes("speedy")) {
-          targetExtra = { prefillLogQuery: "Speedy Haulage" };
-        }
-      } else if (text.includes("provider") || text.includes("api key") || text.includes("integration") || text.includes("elevenlabs") || text.includes("mode")) {
-        targetView = "provider";
-      } else if (text.includes("profile") || text.includes("company")) {
-        targetView = "company";
-      } else if (text.includes("task") || text.includes("mission") || text.includes("batch")) {
-        targetView = "tasks";
-      } else {
-        targetView = "tasks";
-      }
-    }
-
+  const goTo = (n) => {
+    markOneRead(n);
+    const { targetView, targetExtra } = resolveNotificationTarget(n);
     if (typeof onNavigate === "function") {
       onNavigate(targetView, targetExtra);
     } else if (typeof window !== "undefined" && typeof window.__voiceNavigate === "function") {
       window.__voiceNavigate(targetView, targetExtra);
     }
+    // Panel stays open — only X / outside / clear closes it
+  };
+
+  const handleNotificationClick = (n) => {
+    markOneRead(n);
+    setActiveId((id) => (id === n.id ? "" : n.id));
+  };
+
+  const clearAll = () => {
+    setNotifications([]);
+    setActiveId("");
   };
 
   const getNotificationIcon = (n) => {
@@ -1572,17 +1554,6 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
       return <History size={15} color={C.slate} />;
     }
     return <Bell size={15} color={C.slate} />;
-  };
-
-  const getActionLabel = (n) => {
-    if (n.targetAction) return n.targetAction;
-    const text = (n.text || "").toLowerCase();
-    if (text.includes("meeting")) return "View Meeting →";
-    if (text.includes("staff input") || text.includes("live")) return "Join Call →";
-    if (text.includes("call log") || text.includes("dnc")) return "Open Call Log →";
-    if (text.includes("schedule")) return "Open Schedule →";
-    if (text.includes("provider")) return "AI Providers →";
-    return "View Details →";
   };
 
   const hasUnread = unread > 0;
@@ -1623,7 +1594,7 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
 
       {open && (
         <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
+          <div onClick={() => { setOpen(false); setActiveId(""); }} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
           <div style={{ position: "absolute", top: 46, right: 0, width: 380, maxWidth: "90vw", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, boxShadow: "0 16px 40px rgba(18,20,28,0.16)", zIndex: 1000, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             
             {/* Header */}
@@ -1636,12 +1607,32 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
                   </span>
                 )}
               </div>
-              <button
-                onClick={() => setNotifications((ns) => dedupeNotifications(ns).map((n) => ({ ...n, unread: false })))}
-                style={{ background: "none", border: "none", color: C.cobalt, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "2px 6px" }}
-              >
-                Mark all read
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {unread > 0 && (
+                  <button
+                    onClick={() => setNotifications((ns) => dedupeNotifications(ns).map((n) => ({ ...n, unread: false })))}
+                    style={{ background: "none", border: "none", color: C.cobalt, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "2px 6px" }}
+                  >
+                    Mark all read
+                  </button>
+                )}
+                {items.length > 0 && (
+                  <button
+                    onClick={clearAll}
+                    style={{ background: "none", border: "none", color: C.slate, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "2px 6px" }}
+                  >
+                    Clear all
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setOpen(false); setActiveId(""); }}
+                  title="Close"
+                  style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", color: C.slate, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
             </div>
 
             {/* List with clean isolated scroll and zero-jitter hover */}
@@ -1657,52 +1648,76 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
                   No notifications yet.
                 </div>
               ) : (
-                items.map((n) => (
+                items.map((n) => {
+                  const expanded = activeId === n.id;
+                  return (
                   <div
                     key={n.id}
-                    onClick={() => handleNotificationClick(n)}
                     style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 12,
-                      padding: "13px 16px 13px 14px",
                       borderBottom: `1px solid ${C.border}`,
                       borderLeft: n.unread ? `3.5px solid ${C.cobalt}` : "3.5px solid transparent",
-                      cursor: "pointer",
                       background: n.unread ? "#F8FAFF" : "#fff",
-                      transition: "background 0.12s ease, border-left-color 0.12s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "#EFF4FF";
-                      e.currentTarget.style.borderLeftColor = C.cobalt;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = n.unread ? "#F8FAFF" : "#fff";
-                      e.currentTarget.style.borderLeftColor = n.unread ? C.cobalt : "transparent";
                     }}
                   >
-                    <div style={{ marginTop: 2, width: 28, height: 28, borderRadius: 7, background: n.unread ? C.cobaltSoft : C.paperSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {getNotificationIcon(n)}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: n.unread ? 600 : 400, color: C.textInk, lineHeight: 1.45 }}>
-                        {n.text}
+                    <div
+                      onClick={() => handleNotificationClick(n)}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 12,
+                        padding: "13px 16px 13px 14px",
+                        cursor: "pointer",
+                        transition: "background 0.12s ease",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#EFF4FF"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = n.unread ? "#F8FAFF" : "#fff"; }}
+                    >
+                      <div style={{ marginTop: 2, width: 28, height: 28, borderRadius: 7, background: n.unread ? C.cobaltSoft : C.paperSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        {getNotificationIcon(n)}
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>{n.time}</span>
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.cobalt, display: "flex", alignItems: "center", gap: 3, background: n.unread ? "rgba(26,86,219,0.08)" : "transparent", padding: "2px 6px", borderRadius: 4 }}>
-                          {getActionLabel(n)}
-                        </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: n.unread ? 600 : 400, color: C.textInk, lineHeight: 1.45 }}>
+                          {n.text}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
+                          <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>{n.time}</span>
+                          <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.cobalt }}>
+                            {notificationActionLabel(n)}
+                          </span>
+                        </div>
                       </div>
                     </div>
+                    {expanded && (
+                      <div style={{ padding: "0 16px 12px 54px" }}>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); goTo(n); }}
+                          style={{
+                            height: 32,
+                            padding: "0 12px",
+                            borderRadius: 8,
+                            border: "none",
+                            background: C.cobalt,
+                            color: "#fff",
+                            fontFamily: FONT_BODY,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {notificationActionLabel(n)}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 
             {/* Footer Hint */}
             <div style={{ padding: "10px 18px", background: HUB_PAPER, borderTop: `1px solid ${C.border}`, fontSize: 11.5, color: C.slateLight, textAlign: "center" }}>
-              Click any notification to open the item directly
+              Tap a notification, then Open to go there. Panel stays open until you close it.
             </div>
           </div>
         </>
@@ -5375,9 +5390,15 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
         try {
           await api.selectVoice({
             voice_id: voiceName,
-            label: voiceName === "rex-uk" ? "Rex UK — Sam (British, male)" : voiceName === "rex" ? "Rex (Sam / male)" : voiceName,
+            label:
+              voiceName === "rex-uk" ? "Rex UK — Sam (British, male)"
+              : voiceName === "ara-uk" ? "Ara UK (British, female)"
+              : voiceName === "eve-uk" ? "Eve UK (British, female)"
+              : voiceName === "rex" ? "Rex (Sam / male)"
+              : voiceName === "ara" ? "Ara (female)"
+              : voiceName,
             provider: "xai",
-            accent: voiceName === "rex-uk" ? "british" : undefined,
+            accent: String(voiceName || "").includes("-uk") ? "british" : undefined,
           });
         } catch (_) {}
       }
@@ -5591,10 +5612,12 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                     <option value="rex-uk">Rex UK — Sam (British, male)</option>
                     <option value="rex">Rex — Sam (male)</option>
                     <option value="leo">Leo (male)</option>
+                    <option value="ara-uk">Ara UK (British, female — clear diction)</option>
                     <option value="ara">Ara (female)</option>
+                    <option value="eve-uk">Eve UK (British, female)</option>
                     <option value="eve">Eve (female)</option>
                   </select>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Spoken name and pitch come from this profile. Rex UK uses British English on the call (main UK client).</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Spoken name and pitch come from this profile. Ara UK / Rex UK = clear British English for UK clients.</div>
                 </div>
               )}
               <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…" />
@@ -7935,9 +7958,13 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   setVoiceName(v);
                   api.selectVoice({
                     voice_id: v,
-                    label: customVoices.find((x) => x.voice_id === v)?.name || (v === "rex-uk" ? "Rex UK — Sam (British, male)" : v),
+                    label: customVoices.find((x) => x.voice_id === v)?.name
+                      || (v === "rex-uk" ? "Rex UK — Sam (British, male)"
+                        : v === "ara-uk" ? "Ara UK (British, female)"
+                        : v === "eve-uk" ? "Eve UK (British, female)"
+                        : v),
                     provider: customVoices.find((x) => x.voice_id === v)?.provider || "xai",
-                    accent: v === "rex-uk" ? "british" : undefined,
+                    accent: String(v || "").includes("-uk") ? "british" : undefined,
                   }).catch(() => {});
                 }}
                 style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
@@ -7946,7 +7973,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   <>
                     <option value="rex-uk">Rex UK (British male — Sam for UK clients)</option>
                     <option value="rex">Rex (Male executive — use this for Sam)</option>
+                    <option value="ara-uk">Ara UK (British female — clear diction)</option>
                     <option value="ara">Ara (Female, warm)</option>
+                    <option value="eve-uk">Eve UK (British female)</option>
                     <option value="eve">Eve (Female, energetic)</option>
                   </>
                 ) : engineChoice === "openai" ? (
@@ -7968,12 +7997,12 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                     {v.name || v.voice_id} (cloned{v.provider ? ` · ${v.provider}` : ""})
                   </option>
                 ))}
-                {voiceName && !["ara", "eve", "rex", "rex-uk", "leo", "alloy", "echo", "shimmer", "onyx", "rachel", "adam", "sonic"].includes(voiceName) && !customVoices.some((v) => v.voice_id === voiceName) && (
+                {voiceName && !["ara", "ara-uk", "eve", "eve-uk", "rex", "rex-uk", "leo", "alloy", "echo", "shimmer", "onyx", "rachel", "adam", "sonic"].includes(voiceName) && !customVoices.some((v) => v.voice_id === voiceName) && (
                   <option value={voiceName}>Custom clone ({voiceName})</option>
                 )}
               </select>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
-                Live Grok calls use this ID. For UK clients: Rex UK. For Sam (male, US): Rex. Ara/Eve sound female.
+                Live Grok calls use this ID. UK clients: Ara UK (female) or Rex UK (male). Clear British diction on both.
               </div>
             </div>
 

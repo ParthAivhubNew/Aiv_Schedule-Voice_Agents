@@ -650,11 +650,16 @@ async def build_xai_system_instructions(
                 acc = str(eng.config.get("accent") or "").lower()
                 voice_raw = str(eng.config.get("voice_name") or eng.config.get("voice") or "")
             if acc in ("british", "uk", "en-gb") or "-uk" in voice_raw.lower() or "_uk" in voice_raw.lower():
-                accent_block = """
-ACCENT & DICTION (MANDATORY — British English):
-- You are a UK caller. Speak British English: mobile not cell, diary not calendar (when speaking), fortnight, lift, queue, ring them back.
-- Warm professional London/Home Counties voice. Not American, not transatlantic slang.
-- Company names as written. Do not Americanise spelling in speech (say organisation, specialised).
+                is_female = _voice_gender(voice_raw) == "female"
+                who = "UK caller (female)" if is_female else "UK caller (male)"
+                accent_block = f"""
+ACCENT & DICTION (MANDATORY — British English, clear speech):
+- You are a {who}. Speak clear, measured British English (Received Pronunciation / Home Counties). Not American, not estuary slang, not mumbled.
+- Pronounce every word fully and correctly. Enunciate names, company names, emails, and times. Never rush or swallow syllables.
+- Spell out unusual names letter-by-letter only if asked; otherwise say them carefully once.
+- British vocabulary: mobile not cell, diary not calendar (when speaking), fortnight, lift, queue, ring them back.
+- Say times as natural British speech: "half past nine", "quarter to three", "ten o'clock" — never invent broken minutes.
+- Company names as written. Do not Americanise spelling in speech (organisation, specialised).
 """
     except Exception:
         pass

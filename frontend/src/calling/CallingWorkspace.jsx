@@ -37,7 +37,7 @@ import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
 import { api } from "../api/apiClient";
 import { AudioStreamPlayer } from "../api/audioStreamPlayer";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications } from "../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../tokens";
 import { setCallingEdition } from "./callingEdition";
 import { CallingSchedule } from "./CallingSchedule";
 
@@ -236,18 +236,20 @@ function normalizeWebsite(v) {
 
 function junkCompanyHeader(h) {
   const s = String(h || "");
-  return /^(urn|id|ref|#)$/i.test(s.trim()) || /sic|sector|tps|ctps|employee|postcode|address|telephone|phone|web |website|contact |forename|surname|title|position/i.test(s);
+  return /^(urn|id|ref|#)$/i.test(s.trim())
+    || /sic|sector|tps|ctps|employee|postcode|address|telephone|phone|web |website|contact\s*name|forename|surname|title|position|email|linkedin/i.test(s);
 }
 
 function headerToField(h) {
   const s = String(h || "");
   if (/web\s*address|website|web\s*site|homepage|\burl\b/i.test(s) && !/linkedin/i.test(s)) return "website";
-  if (/telephone|phone|mobile|\btel\b/i.test(s)) return "phone";
+  if (/telephone|phone|mobile|\btel\b|cell\b/i.test(s)) return "phone";
   if (/e-?mail/i.test(s)) return "email";
   if (/linkedin/i.test(s)) return "linkedin";
   if (/forename|first.?name|given.?name|surname|last.?name|family.?name/i.test(s)) return "contact";
+  if (/contact\s*name|prospect\s*name|full\s*name|person\s*name|^name$/i.test(s)) return "contact";
   if (/business\s*name|company\s*name|trading|organisation|organization/i.test(s)) return "company";
-  if (/^contact$/i.test(s) || /contact person|full.?name/i.test(s)) return "contact";
+  if (/^contact$/i.test(s) || /contact person/i.test(s)) return "contact";
   if (/^company$|^business$/i.test(s)) return "company";
   return "";
 }
@@ -308,16 +310,25 @@ function rowFromRecord(headers, rec, i) {
   const liH = pickHeader(headers, /linkedin/) || "";
   const firstH = pickHeader(headers, /forename|first.?name|given.?name/) || "";
   const lastH = pickHeader(headers, /surname|last.?name|family.?name/) || "";
-  const personH = pickHeader(headers, /^contact$|contact person|full.?name/) || "";
+  const personH = pickHeader(headers, /contact\s*name|prospect\s*name|full.?name|^contact$|contact person|^name$/i) || "";
   const townH = pickHeader(headers, /^town$|^city$|locality/) || "";
   const postH = pickHeader(headers, /postcode|zip/) || "";
   const addrH = pickHeader(headers, /address line 1|^address$/) || "";
   const sectorH = pickHeader(headers, /sic desc|sector desc|industry/) || "";
-  const company = String((nameH && rec[nameH]) || "").trim();
+  let company = String((nameH && rec[nameH]) || "").trim();
   const first = String((firstH && rec[firstH]) || "").trim();
   const last = String((lastH && rec[lastH]) || "").trim();
-  const contact = [first, last].filter(Boolean).join(" ") || String((personH && rec[personH]) || "").trim();
+  let contact = [first, last].filter(Boolean).join(" ") || String((personH && rec[personH]) || "").trim();
+  // If spreadsheet only has a person column labeled oddly, keep it as contact — never as company.
+  if (!contact && company && /^[A-Z][a-z]+(?:\s+[A-Z][a-z'’-]+){1,3}$/.test(company) && !/\b(ltd|limited|llc|inc|plc|gmbh|corp|company|group)\b/i.test(company)) {
+    contact = company;
+    company = "";
+  }
   const website = normalizeWebsite((webH && rec[webH]) || "");
+  const linkedinRaw = String((liH && rec[liH]) || "").trim();
+  const linkedin = looksLikeUrl(linkedinRaw) || /linkedin\.com/i.test(linkedinRaw)
+    ? (normalizeWebsite(linkedinRaw) || linkedinRaw)
+    : linkedinRaw;
   const phone = extractPhoneFromRecord(headers, rec) || coercePhoneCell(phoneH && rec[phoneH]);
   return {
     id: "row_" + i,
@@ -327,7 +338,7 @@ function rowFromRecord(headers, rec, i) {
     phone,
     email: String((emailH && rec[emailH]) || "").trim(),
     website,
-    linkedin: String((liH && rec[liH]) || "").trim(),
+    linkedin,
     town: String((townH && rec[townH]) || "").trim(),
     postcode: String((postH && rec[postH]) || "").trim(),
     address: String((addrH && rec[addrH]) || "").trim(),
@@ -351,22 +362,29 @@ function missingKeys(r) {
 }
 
 function serializeForGaps(list) {
-  return (list || []).map((r) => ({
-    id: r.id,
-    name: r.company || r.name || "",
-    company: r.company || r.name || "",
-    contact: r.contact || "",
-    phone: rowPhone(r) || r.phone || "",
-    email: r.email || "",
-    source: normalizeWebsite(r.website),
-    website: normalizeWebsite(r.website),
-    domain: normalizeWebsite(r.website),
-    linkedin: looksLikeUrl(r.linkedin) ? r.linkedin : "",
-    town: r.town || "",
-    postcode: r.postcode || "",
-    address: r.address || "",
-    sector: r.sector || "",
-  }));
+  return (list || []).map((r) => {
+    const company = String(r.company || "").trim();
+    const contact = String(r.contact || "").trim();
+    const display = company || contact || String(r.name || "").trim();
+    return {
+      id: r.id,
+      name: display,
+      company: company || "",
+      contact: contact || (company ? "" : display),
+      phone: rowPhone(r) || r.phone || "",
+      email: r.email || "",
+      source: normalizeWebsite(r.website),
+      website: normalizeWebsite(r.website),
+      domain: normalizeWebsite(r.website),
+      linkedin: looksLikeUrl(r.linkedin) || /linkedin\.com/i.test(String(r.linkedin || ""))
+        ? (normalizeWebsite(r.linkedin) || String(r.linkedin || "").trim())
+        : "",
+      town: r.town || "",
+      postcode: r.postcode || "",
+      address: r.address || "",
+      sector: r.sector || "",
+    };
+  });
 }
 
 function fillHasValue(fill) {
@@ -379,7 +397,9 @@ function applyFill(r, fill) {
   if (fill.status && fill.status !== "proposed" && !fillHasValue(fill)) return r;
   const next = { ...r, cells: { ...(r.cells || {}) }, aiFields: { ...(r.aiFields || {}) } };
   const take = (key, val) => {
-    const cleaned = key === "website" ? normalizeWebsite(val) : val;
+    let cleaned = val;
+    if (key === "website" || key === "linkedin") cleaned = normalizeWebsite(val) || String(val || "").trim();
+    else cleaned = String(val || "").trim();
     if (!cleaned || String(next[key] || "").trim()) return;
     next[key] = cleaned;
     next.aiFields[key] = true;
@@ -395,7 +415,13 @@ function applyFill(r, fill) {
   if (!String(r.company || "").trim() && fill.company) {
     next.company = fill.company;
     next.name = fill.company;
-    take("company", fill.company);
+    next.aiFields.company = true;
+    Object.keys(next.cells).forEach((h) => {
+      if (headerToField(h) === "company" && !String(next.cells[h] || "").trim()) next.cells[h] = fill.company;
+    });
+  }
+  if (!String(next.name || "").trim() || /^Row\s+\d+$/i.test(next.name)) {
+    next.name = next.company || next.contact || next.name;
   }
   return next;
 }
@@ -404,16 +430,53 @@ function cellHi(r, fieldKey) {
   return !!(r.aiFields && fieldKey && r.aiFields[fieldKey]);
 }
 
+function linkCell(value, kind) {
+  const v = String(value || "").trim();
+  if (!v) return null;
+  let href = "";
+  if (kind === "email" && v.includes("@")) href = `mailto:${v}`;
+  else if (kind === "website" || kind === "linkedin") {
+    href = /^https?:\/\//i.test(v) ? v : `https://${v.replace(/^\/+/, "")}`;
+  }
+  if (!href) return v;
+  const label = v.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  const shown = label.length > 48 ? `${label.slice(0, 46)}…` : label;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={v}
+      style={{ color: C.cobalt, fontWeight: 700, textDecoration: "underline", wordBreak: "break-all" }}
+    >
+      {shown}
+    </a>
+  );
+}
+
 function cellValue(r, h) {
   const raw = r.cells && r.cells[h];
-  if (String(raw || "").trim()) return String(raw);
   const key = headerToField(h);
-  return key ? String(r[key] || "") : "";
+  const text = String(raw || "").trim() || (key ? String(r[key] || "") : "");
+  if (!text) return "";
+  if (key === "website" || key === "linkedin" || key === "email") {
+    return linkCell(text, key) || text;
+  }
+  if (looksLikeUrl(text) && /web|site|url|linkedin/i.test(String(h || ""))) {
+    return linkCell(text, /linkedin/i.test(String(h || "")) ? "linkedin" : "website") || text;
+  }
+  return text;
 }
 
 function extraValue(r, slot) {
   const key = slot.toLowerCase() === "contact" ? "contact" : slot.toLowerCase();
-  return String(r[key] || "");
+  const text = String(r[key] || "");
+  if (!text) return "";
+  if (key === "website" || key === "linkedin" || key === "email") {
+    return linkCell(text, key) || text;
+  }
+  return text;
 }
 
 function liveActive(c) {
@@ -641,8 +704,26 @@ export function CallingWorkspace({
   const copiedTimer = useRef(null);
   const extras = useMemo(() => extraHeaders(headers), [headers]);
 
-  const pushNote = (text, type) => {
-    setNotifications((ns) => prependNotification(ns, text, type || "info"));
+  const pushNote = (text, type, extra = {}) => {
+    const base = { ...(extra || {}) };
+    if (!base.targetView) {
+      const r = resolveNotificationTarget({ text, ...base });
+      base.targetView = r.targetView;
+      if (r.targetExtra && Object.keys(r.targetExtra).length) base.targetExtra = r.targetExtra;
+    }
+    setNotifications((ns) => prependNotification(ns, text, type || "info", base));
+  };
+
+  const onNotificationNavigate = (noteOrView, maybeMeta) => {
+    let page = "";
+    if (maybeMeta && maybeMeta.page) {
+      page = maybeMeta.page;
+    } else if (typeof noteOrView === "object" && noteOrView) {
+      page = callingPageFromTarget(resolveNotificationTarget(noteOrView).targetView);
+    } else if (typeof noteOrView === "string") {
+      page = callingPageFromTarget(noteOrView);
+    }
+    if (page && SIMPLE_PAGES.has(page)) setPage(page);
   };
 
   useEffect(() => {
@@ -1055,7 +1136,22 @@ export function CallingWorkspace({
   };
 
   const findMissing = async () => {
-    const pool = rows.filter((r) => missingKeys(r).length && (r.company || r.contact || r.name));
+    // Heal rows loaded before Contact Name mapping fix
+    const healed = rows.map((r) => {
+      if (String(r.contact || "").trim()) return r;
+      const cells = r.cells || {};
+      for (const [h, v] of Object.entries(cells)) {
+        const val = String(v || "").trim();
+        if (!val) continue;
+        if (headerToField(h) === "contact" || /contact\s*name|prospect\s*name|full\s*name|^name$/i.test(String(h || ""))) {
+          return { ...r, contact: val, name: r.company || val || r.name };
+        }
+      }
+      return r;
+    });
+    if (healed.some((r, i) => r !== rows[i])) setRows(healed);
+
+    const pool = healed.filter((r) => missingKeys(r).length && (r.company || r.contact || r.name));
     if (!pool.length) {
       showToast("Nothing missing on rows that have a name.");
       return;
@@ -1063,7 +1159,7 @@ export function CallingWorkspace({
     lookupStop.current = false;
     setBusy("find");
     setFindProgress({ done: 0, total: pool.length, filled: 0, note: "Using company, town, person, and website from the file." });
-    const CHUNK = 4;
+    const CHUNK = 3;
     let proposed = 0;
     let empty = 0;
     try {
@@ -1071,7 +1167,7 @@ export function CallingWorkspace({
         if (lookupStop.current) break;
         const slice = pool.slice(i, i + CHUNK);
         const done = Math.min(i + slice.length, pool.length);
-        setFindProgress({ done, total: pool.length, filled: proposed, note: slice.map((r) => r.company || r.name).filter(Boolean).join(" · ") });
+        setFindProgress({ done, total: pool.length, filled: proposed, note: slice.map((r) => r.company || r.contact || r.name).filter(Boolean).join(" · ") });
         const controller = new AbortController();
         lookupAbortRef.current = controller;
         let res;
@@ -1399,7 +1495,7 @@ export function CallingWorkspace({
     live: ["Live calls", "Listen, take over, book from their words, or end. Transcript stays on the card."],
     booked: ["Booked", "Where, what kind, join URL. Bell fires when added and when time hits."],
     logs: ["Call logs", "Name from dial form. Search, filter, expand transcript."],
-    schedule: ["Schedule", "Park a call, video meeting, or WhatsApp confirm. Click a row to open it."],
+    schedule: ["Schedule", "Park a call on the left. Calendar shows booked vs free slots — click a free slot to fill day & time."],
     ai: ["AI config", "Voice stack, keys, models. Same live engine the calls use."],
     company: ["Company profile", "Identity, knowledge, services, FAQ. Same record classic uses on calls."],
   };
@@ -1472,7 +1568,11 @@ export function CallingWorkspace({
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.textInk }}>{titles[page][0]}</div>
             <div style={{ fontSize: 13, color: C.slate, marginTop: 4 }}>{titles[page][1]}</div>
           </div>
-          <NotificationBell notifications={notifications} setNotifications={setNotifications} />
+          <NotificationBell
+            notifications={notifications}
+            setNotifications={setNotifications}
+            onNavigate={onNotificationNavigate}
+          />
         </div>
 
         {toast ? (
@@ -2136,6 +2236,7 @@ export function CallingWorkspace({
           {page === "schedule" && (
             <CallingSchedule
               schedule={schedule}
+              meetings={meetings}
               profile={profile}
               onSaved={async () => { await refreshSchedule(); await refreshMeetings(); }}
               onCall={(item) => {

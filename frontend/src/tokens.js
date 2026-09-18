@@ -167,6 +167,77 @@ export function notificationFingerprint(text) {
     .replace(/\s+/g, " ");
 }
 
+/** Infer where a notification should open (classic view ids). */
+export function resolveNotificationTarget(n) {
+  if (n && n.targetView) {
+    return {
+      targetView: n.targetView,
+      targetExtra: n.targetExtra || {},
+      targetAction: n.targetAction || null,
+    };
+  }
+  const text = String((n && n.text) || "").toLowerCase();
+  let targetView = "tasks";
+  let targetExtra = {};
+  if (text.includes("meeting") || text.includes("booked") || text.includes("cal.com")) {
+    targetView = "meetings";
+  } else if (
+    text.includes("staff input") || text.includes("live") || text.includes("pricing")
+    || text.includes("calling") || text.includes("intervention") || text.includes("human")
+    || text.includes("inbound call") || text.includes("outbound to")
+  ) {
+    targetView = "live";
+  } else if (text.includes("schedule") || text.includes("call back") || text.includes("callback") || text.includes("park")) {
+    targetView = "schedule";
+  } else if (
+    text.includes("call log") || text.includes("do-not-call") || text.includes("dnc")
+    || text.includes("verbatim") || text.includes("saved to log") || text.includes("saved to logs")
+  ) {
+    targetView = "calllog";
+  } else if (text.includes("provider") || text.includes("api key") || text.includes("integration") || text.includes("ai config") || text.includes("elevenlabs")) {
+    targetView = "provider";
+  } else if (text.includes("profile") || text.includes("company") || text.includes("voice saved") || text.includes("setup saved")) {
+    targetView = "company";
+  } else if (text.includes("whatsapp")) {
+    targetView = "schedule";
+  } else if (text.includes("task") || text.includes("mission") || text.includes("batch") || text.includes("list")) {
+    targetView = "tasks";
+  }
+  return { targetView, targetExtra, targetAction: (n && n.targetAction) || null };
+}
+
+export function notificationActionLabel(n) {
+  if (n && n.targetAction) return n.targetAction;
+  const { targetView } = resolveNotificationTarget(n);
+  if (targetView === "meetings") return "Open Booked →";
+  if (targetView === "live") return "Open Live →";
+  if (targetView === "calllog") return "Open Logs →";
+  if (targetView === "schedule") return "Open Schedule →";
+  if (targetView === "provider") return "Open AI config →";
+  if (targetView === "company") return "Open Company →";
+  if (targetView === "tasks") return "Open List →";
+  return "Go there →";
+}
+
+/** Map classic view ids → Calling workspace page ids. */
+export function callingPageFromTarget(targetView) {
+  const map = {
+    live: "live",
+    meetings: "booked",
+    booked: "booked",
+    schedule: "schedule",
+    calllog: "logs",
+    logs: "logs",
+    provider: "ai",
+    ai: "ai",
+    company: "company",
+    tasks: "list",
+    list: "list",
+    plugins: "plugins",
+  };
+  return map[targetView] || "list";
+}
+
 export function makeNotification(text, type = "info", extra = {}) {
   _notifSeq += 1;
   return {

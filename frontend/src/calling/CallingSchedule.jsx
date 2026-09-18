@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Calendar,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   ExternalLink,
   MapPin,
@@ -16,11 +18,13 @@ import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 
 const KINDS = [
-  { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone },
-  { id: "video", label: "Video meeting", hint: "Join URL", Icon: Video },
-  { id: "whatsapp", label: "WhatsApp", hint: "Confirm on chat", Icon: MessageCircle },
-  { id: "in_person", label: "In person", hint: "Address", Icon: MapPin },
+  { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone, color: C.cobalt },
+  { id: "video", label: "Video meeting", hint: "Join URL", Icon: Video, color: C.teal },
+  { id: "whatsapp", label: "WhatsApp", hint: "Confirm on chat", Icon: MessageCircle, color: "#25D366" },
+  { id: "in_person", label: "In person", hint: "Address", Icon: MapPin, color: C.amber },
 ];
+
+const SLOT_STEP = 30;
 
 function fieldStyle() {
   return {
@@ -63,43 +67,103 @@ function extractUrl(raw) {
 
 function inferKind(s) {
   if (s.kind && s.kind !== "phone") return s.kind;
-  const m = String(s.mission || s.kind || "").toLowerCase();
+  const m = String(s.mission || s.kind || s.format || "").toLowerCase();
   if (m.includes("video")) return "video";
   if (m.includes("whatsapp") || m.includes("whats app")) return "whatsapp";
   if (m.includes("person") || m.includes("office")) return "in_person";
-  if (s.videoLink || extractUrl(s.mission)) return "video";
+  if (s.videoLink || s.video_link || extractUrl(s.mission)) return "video";
   return s.kind || "phone";
 }
 
 function enrich(s) {
   const kind = inferKind(s);
-  const videoLink = s.videoLink || extractUrl(s.mission) || "";
-  const phone = s.phone || s.honoredQuote || "";
-  return { ...s, kind, videoLink, phone, whatsappTo: s.whatsappTo || phone };
+  const videoLink = s.videoLink || s.video_link || extractUrl(s.mission) || "";
+  const phone = s.phone || s.honoredQuote || s.honored_quote || "";
+  return { ...s, kind, videoLink, phone, whatsappTo: s.whatsappTo || s.whatsapp_to || phone };
 }
 
 function kindMeta(kind) {
   return KINDS.find((k) => k.id === kind) || KINDS[0];
 }
 
+function pad(n) {
+  return String(n).padStart(2, "0");
+}
+
 function todayISO() {
   const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function toISODate(raw) {
+  const s = String(raw || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = Date.parse(s);
+  if (!Number.isNaN(parsed)) {
+    const d = new Date(parsed);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  return "";
+}
+
+function normTime(raw) {
+  const s = String(raw || "").trim();
+  const m = s.match(/(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  return `${pad(Math.min(23, Number(m[1])))}:${pad(Math.min(59, Number(m[2])))}`;
+}
+
 function isToday(day) {
-  const s = String(day || "");
-  const iso = todayISO();
-  if (s.startsWith(iso)) return true;
-  const now = new Date();
-  return s.toLowerCase().includes(now.toLocaleDateString("en-GB", { day: "numeric", month: "short" }).toLowerCase());
+  return toISODate(day) === todayISO();
 }
 
 function hrefFor(link) {
   const s = String(link || "").trim();
   if (!s) return "";
   return /^https?:/i.test(s) ? s : "https://" + s.replace(/^\/+/, "");
+}
+
+function monthLabel(year, month) {
+  return new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+
+function buildMonthCells(year, month) {
+  const first = new Date(year, month, 1);
+  const daysIn = new Date(year, month + 1, 0).getDate();
+  const padDays = (first.getDay() + 6) % 7;
+  const cells = [];
+  for (let i = 0; i < padDays; i++) cells.push(null);
+  for (let d = 1; d <= daysIn; d++) cells.push(new Date(year, month, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function parseHM(hm) {
+  const m = String(hm || "09:00").match(/(\d{1,2}):(\d{2})/);
+  if (!m) return 9 * 60;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function minutesToHM(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${pad(h)}:${pad(m)}`;
+}
+
+function buildDaySlots(startHM, endHM, step = SLOT_STEP) {
+  const start = parseHM(startHM);
+  const end = parseHM(endHM);
+  const out = [];
+  for (let t = start; t < end; t += step) out.push(minutesToHM(t));
+  return out;
+}
+
+function eventISO(item) {
+  return toISODate(item.day || item.date || item.prospectDate || "");
+}
+
+function eventTime(item) {
+  return normTime(item.time || item.prospectTime || "");
 }
 
 const emptyPlan = () => ({
@@ -118,12 +182,14 @@ const emptyPlan = () => ({
 
 export function CallingSchedule({
   schedule,
+  meetings = [],
   profile,
   onSaved,
   onCall,
   onToast,
   onNote,
 }) {
+  const now = new Date();
   const [plan, setPlan] = useState(emptyPlan);
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
@@ -132,34 +198,90 @@ export function CallingSchedule({
   const [waStatus, setWaStatus] = useState(null);
   const [waBusy, setWaBusy] = useState(false);
   const [copied, setCopied] = useState("");
+  const [cal, setCal] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const [selectedDay, setSelectedDay] = useState(todayISO());
 
   useEffect(() => {
     api.getWhatsappStatus().then(setWaStatus).catch(() => setWaStatus({ mode: "wa_me", configured: false }));
   }, []);
 
-  const items = useMemo(() => (schedule || []).map(enrich), [schedule]);
+  const workStart = (profile && (profile.weekdayStart || profile.workingHoursStart)) || "09:00";
+  const workEnd = (profile && (profile.weekdayEnd || profile.workingHoursEnd)) || "17:30";
+  const daySlots = useMemo(() => buildDaySlots(workStart, workEnd), [workStart, workEnd]);
+
+  const items = useMemo(() => {
+    const fromSchedule = (schedule || []).map((s) => enrich({ ...s, source: "schedule" }));
+    const fromMeetings = (meetings || []).map((m) => enrich({
+      id: m.id || `mtg_${m.prospect}_${m.date}_${m.time}`,
+      prospect: m.prospect || m.attendee || "Meeting",
+      day: m.date || m.prospectDate || "",
+      time: m.time || m.prospectTime || "",
+      kind: (m.format === "phone" ? "phone" : m.format === "in_person" ? "in_person" : "video"),
+      videoLink: m.videoLink || m.video_link || "",
+      platform: m.platform || "",
+      phone: m.dialIn || m.phone || "",
+      email: m.attendeeEmail || m.attendee_email || "",
+      notes: m.prep || m.mission || "",
+      status: m.status || "upcoming",
+      source: "meeting",
+    }));
+    const seen = new Set();
+    const merged = [];
+    [...fromSchedule, ...fromMeetings].forEach((e) => {
+      const key = e.id || `${eventISO(e)}_${eventTime(e)}_${e.prospect}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(e);
+    });
+    return merged;
+  }, [schedule, meetings]);
+
   const open = items.find((s) => s.id === openId) || null;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((s) => {
-      if (filter === "today" && !isToday(s.day)) return false;
+      if (filter === "today" && !isToday(s.day || s.date)) return false;
       if (filter === "calls" && s.kind !== "phone") return false;
       if (filter === "video" && s.kind !== "video") return false;
       if (filter === "whatsapp" && s.kind !== "whatsapp" && !s.notifyWhatsapp) return false;
-      if (q && !`${s.prospect} ${s.mission} ${s.phone} ${s.day}`.toLowerCase().includes(q)) return false;
+      if (q && !`${s.prospect} ${s.mission || ""} ${s.phone} ${s.day || s.date}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [items, filter, query]);
 
   const counts = {
     all: items.length,
-    today: items.filter((s) => isToday(s.day)).length,
+    today: items.filter((s) => isToday(s.day || s.date)).length,
     video: items.filter((s) => s.kind === "video").length,
     whatsapp: items.filter((s) => s.kind === "whatsapp" || s.notifyWhatsapp).length,
   };
 
+  const byDay = useMemo(() => {
+    const map = {};
+    filtered.forEach((s) => {
+      const iso = eventISO(s);
+      if (!iso) return;
+      if (!map[iso]) map[iso] = [];
+      map[iso].push(s);
+    });
+    Object.keys(map).forEach((k) => {
+      map[k].sort((a, b) => eventTime(a).localeCompare(eventTime(b)));
+    });
+    return map;
+  }, [filtered]);
+
+  const cells = useMemo(() => buildMonthCells(cal.year, cal.month), [cal.year, cal.month]);
+  const selectedEvents = byDay[selectedDay] || [];
+  const bookedTimes = new Set(selectedEvents.map((e) => eventTime(e)).filter(Boolean));
+
   const patch = (k, v) => setPlan((p) => ({ ...p, [k]: v }));
+
+  const pickFreeSlot = (iso, time) => {
+    setSelectedDay(iso);
+    setPlan((p) => ({ ...p, day: iso, time }));
+    onToast(`Slot ${time} on ${iso} — finish the form on the left.`);
+  };
 
   const savePlan = async () => {
     if (!plan.prospect.trim() || !plan.day.trim() || !plan.time.trim()) {
@@ -196,7 +318,7 @@ export function CallingSchedule({
         notify_whatsapp: plan.notifyWhatsapp,
         whatsappTo: (plan.notifyWhatsapp || plan.kind === "whatsapp") ? plan.phone.trim() : undefined,
         honored_quote: plan.phone.trim() || undefined,
-        window: `${profile?.weekdayStart || "09:00"}–${profile?.weekdayEnd || "17:30"}`,
+        window: `${workStart}–${workEnd}`,
         status: "queued",
         mission: "",
       });
@@ -205,6 +327,7 @@ export function CallingSchedule({
         window.open(res.whatsapp.waMeUrl, "_blank", "noopener");
         onToast("WhatsApp draft opened — tap send.");
       }
+      setSelectedDay(toISODate(plan.day) || selectedDay);
       setPlan(emptyPlan());
       if (onSaved) await onSaved();
       if (res && res.id) setOpenId(res.id);
@@ -259,6 +382,10 @@ export function CallingSchedule({
 
   const markDone = async (item) => {
     try {
+      if (item.source === "meeting") {
+        onToast("Mark outcomes from Booked for meeting records.");
+        return;
+      }
       await api.updateScheduleItem(item.id, { status: "completed", honored: true });
       onToast("Marked done.");
       if (onSaved) await onSaved();
@@ -269,6 +396,10 @@ export function CallingSchedule({
 
   const remove = async (item) => {
     try {
+      if (item.source === "meeting") {
+        onToast("Remove meetings from Booked.");
+        return;
+      }
       await api.deleteScheduleItem(item.id);
       setOpenId("");
       onToast("Removed from schedule.");
@@ -282,11 +413,15 @@ export function CallingSchedule({
     <div style={{ fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>{children}</div>
   );
 
+  const selectedLabel = selectedDay
+    ? new Date(selectedDay + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
+    : "";
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 440px) 1fr", gap: 16, alignItems: "start" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 400px) 1fr", gap: 16, alignItems: "start" }}>
       <div style={{ ...card(), position: "sticky", top: 0 }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Park a call or meeting</div>
-        <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>Name, when, how. Video asks for a join URL. WhatsApp can confirm the slot.</div>
+        <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>Name, when, how. Click a free slot on the calendar to fill day & time.</div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
           {KINDS.map((k) => {
@@ -328,7 +463,7 @@ export function CallingSchedule({
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 8, marginBottom: 12 }}>
           <div>
             <Label>Day</Label>
-            <input type="date" value={plan.day} onChange={(e) => patch("day", e.target.value)} style={fieldStyle()} />
+            <input type="date" value={plan.day} onChange={(e) => { patch("day", e.target.value); setSelectedDay(e.target.value); }} style={fieldStyle()} />
           </div>
           <div>
             <Label>Time</Label>
@@ -337,7 +472,7 @@ export function CallingSchedule({
         </div>
 
         {plan.kind === "video" && (
-          <div style={{ background: C.paper, borderRadius: 12, padding: 12, marginBottom: 12, border: `1px solid ${C.border}` }}>
+          <div style={{ background: C.paper || C.paperSoft, borderRadius: 12, padding: 12, marginBottom: 12, border: `1px solid ${C.border}` }}>
             <Label>Video platform</Label>
             <select value={plan.platform} onChange={(e) => patch("platform", e.target.value)} style={{ ...fieldStyle(), marginBottom: 10 }}>
               <option>Google Meet</option>
@@ -378,7 +513,7 @@ export function CallingSchedule({
             <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>
               {waStatus?.configured
                 ? "Twilio WhatsApp sender is live — message goes from the server."
-                : "Opens WhatsApp on this device with time, name, and join link ready to send. Add TWILIO_WHATSAPP_NUMBER later to send unattended."}
+                : "Opens WhatsApp on this device with time, name, and join link ready to send."}
             </div>
           </span>
         </label>
@@ -388,8 +523,8 @@ export function CallingSchedule({
         </button>
       </div>
 
-      <div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+      <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {[
             ["all", `All (${counts.all})`],
             ["today", `Today (${counts.today})`],
@@ -416,56 +551,188 @@ export function CallingSchedule({
               {label}
             </button>
           ))}
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ ...fieldStyle(), width: 180, height: 34, marginLeft: "auto" }} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ ...fieldStyle(), width: 160, height: 34, marginLeft: "auto" }} />
         </div>
 
-        {!filtered.length ? (
-          <div style={{ ...card(), color: C.slate, textAlign: "center", padding: 48 }}>Nothing in this view. Park one on the left.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {filtered.map((s) => {
-              const meta = kindMeta(s.kind);
-              const Icon = meta.Icon;
-              const active = openId === s.id;
+        <div style={{ ...card(), padding: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>{monthLabel(cal.year, cal.month)}</div>
+              <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                Booked vs free · window {workStart}–{workEnd} · click a day, then a free slot
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setCal((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))}
+                style={calNavBtn}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => { const n = new Date(); setCal({ year: n.getFullYear(), month: n.getMonth() }); setSelectedDay(todayISO()); }}
+                style={{ ...calNavBtn, width: "auto", padding: "0 12px", fontSize: 12, fontWeight: 700 }}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => setCal((c) => (c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 }))}
+                style={calNavBtn}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, marginBottom: 6 }}>
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+              <div key={d} style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, textAlign: "center", padding: "4px 0" }}>{d}</div>
+            ))}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+            {cells.map((day, i) => {
+              if (!day) return <div key={"e" + i} />;
+              const key = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+              const dayEvents = byDay[key] || [];
+              const isSel = selectedDay === key;
+              const isTod = key === todayISO();
+              const weekend = day.getDay() === 0 || day.getDay() === 6;
               return (
                 <button
-                  key={s.id}
+                  key={key}
                   type="button"
-                  onClick={() => setOpenId(s.id)}
+                  onClick={() => {
+                    setSelectedDay(key);
+                    setPlan((p) => ({ ...p, day: key }));
+                  }}
                   style={{
-                    ...card(),
+                    minHeight: 92,
                     textAlign: "left",
+                    background: isSel ? C.tealSoft : weekend ? "#FAFAF8" : "#fff",
+                    border: `1.5px solid ${isSel ? C.teal : isTod ? C.cobalt : C.border}`,
+                    borderRadius: 10,
+                    padding: 8,
                     cursor: "pointer",
-                    border: `1.5px solid ${active ? C.ink : C.border}`,
-                    background: active ? "#FAFAF8" : "#fff",
-                    width: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{s.prospect}</div>
-                      <div style={{ fontSize: 13, color: C.slate, marginTop: 5, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <span><Calendar size={12} style={{ verticalAlign: "middle" }} /> {s.day} · {s.time}</span>
-                        <span><Icon size={12} style={{ verticalAlign: "middle" }} /> {meta.label}</span>
-                        {s.status ? <span style={{ fontSize: 11, fontWeight: 800, color: s.status === "completed" ? C.teal : C.slate, background: s.status === "completed" ? C.tealSoft : C.paper, padding: "2px 8px", borderRadius: 999 }}>{s.status}</span> : null}
-                      </div>
-                      {s.kind === "video" ? (
-                        <div style={{ marginTop: 6, fontSize: 12, color: s.videoLink ? C.cobalt : C.amber, fontWeight: 600 }}>
-                          {s.videoLink || "No join URL yet — open to add one"}
-                        </div>
-                      ) : s.phone ? (
-                        <div style={{ marginTop: 6, fontSize: 12, color: C.slate }}>{s.phone}</div>
-                      ) : s.address ? (
-                        <div style={{ marginTop: 6, fontSize: 12, color: C.slate }}>{s.address}</div>
-                      ) : null}
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: C.cobalt }}>Open →</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>{day.getDate()}</span>
+                    {dayEvents.length ? (
+                      <span style={{ fontSize: 9, fontWeight: 800, color: C.teal, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
+                        {dayEvents.length} booked
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 9, fontWeight: 700, color: C.slateLight }}>open</span>
+                    )}
                   </div>
+                  {dayEvents.slice(0, 3).map((ev) => {
+                    const meta = kindMeta(ev.kind);
+                    return (
+                      <div
+                        key={ev.id}
+                        onClick={(e) => { e.stopPropagation(); setOpenId(ev.id); setSelectedDay(key); }}
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: C.ink,
+                          background: "#fff",
+                          borderLeft: `3px solid ${meta.color || C.cobalt}`,
+                          borderRadius: 5,
+                          padding: "3px 5px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={`${eventTime(ev)} · ${ev.prospect}`}
+                      >
+                        {eventTime(ev)} · {ev.prospect}
+                      </div>
+                    );
+                  })}
+                  {dayEvents.length > 3 ? (
+                    <div style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more</div>
+                  ) : null}
                 </button>
               );
             })}
           </div>
-        )}
+        </div>
+
+        <div style={{ ...card(), padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", marginBottom: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{selectedLabel || "Pick a day"}</div>
+              <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                {selectedEvents.length} booked · {Math.max(0, daySlots.length - bookedTimes.size)} free slots in window
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, fontSize: 11, fontWeight: 700 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 99, background: C.teal }} /> Free</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 99, background: C.ink }} /> Booked</span>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+            {daySlots.map((slot) => {
+              const hit = selectedEvents.find((e) => eventTime(e) === slot);
+              if (hit) {
+                const meta = kindMeta(hit.kind);
+                const Icon = meta.Icon;
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => setOpenId(hit.id)}
+                    style={{
+                      textAlign: "left",
+                      border: `1px solid ${C.border}`,
+                      background: C.ink,
+                      color: "#fff",
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 800 }}>{slot}</div>
+                    <div style={{ fontSize: 11, marginTop: 4, opacity: 0.9, display: "flex", alignItems: "center", gap: 4 }}>
+                      <Icon size={11} /> {hit.prospect}
+                    </div>
+                  </button>
+                );
+              }
+              return (
+                <button
+                  key={slot}
+                  type="button"
+                  onClick={() => pickFreeSlot(selectedDay, slot)}
+                  style={{
+                    textAlign: "left",
+                    border: `1.5px dashed ${C.teal}`,
+                    background: C.tealSoft,
+                    color: C.ink,
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 800 }}>{slot}</div>
+                  <div style={{ fontSize: 11, marginTop: 4, color: C.teal, fontWeight: 700 }}>Free · park here</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {!daySlots.length ? (
+            <div style={{ color: C.slate, fontSize: 13, padding: 12 }}>Set company working hours to show slots.</div>
+          ) : null}
+        </div>
       </div>
 
       {open && (
@@ -479,10 +746,10 @@ export function CallingSchedule({
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20 }}>{open.prospect}</div>
-              <button type="button" onClick={() => setOpenId("")} style={{ border: "none", background: C.paper, borderRadius: 8, width: 32, height: 32, cursor: "pointer" }}><X size={16} /></button>
+              <button type="button" onClick={() => setOpenId("")} style={{ border: "none", background: C.paperSoft || C.paper, borderRadius: 8, width: 32, height: 32, cursor: "pointer" }}><X size={16} /></button>
             </div>
             <div style={{ fontSize: 13, color: C.slate, display: "grid", gap: 8, marginBottom: 18 }}>
-              <div><Calendar size={14} style={{ verticalAlign: "middle" }} /> {open.day} at {open.time}</div>
+              <div><Calendar size={14} style={{ verticalAlign: "middle" }} /> {open.day || open.date} at {open.time}</div>
               <div>{kindMeta(open.kind).label}{open.platform ? ` · ${open.platform}` : ""}</div>
               {open.phone ? <div><Phone size={14} style={{ verticalAlign: "middle" }} /> {open.phone}</div> : null}
               {open.email ? <div>{open.email}</div> : null}
@@ -506,8 +773,10 @@ export function CallingSchedule({
                       </button>
                     </div>
                   </>
-                ) : (
+                ) : open.source !== "meeting" ? (
                   <VideoLinkEditor item={open} onSaved={onSaved} onToast={onToast} />
+                ) : (
+                  <div style={{ fontSize: 12, color: C.slate }}>No join URL on this meeting yet.</div>
                 )}
               </div>
             )}
@@ -518,17 +787,21 @@ export function CallingSchedule({
                   <PhoneCall size={14} /> Call now
                 </button>
               ) : null}
-              <button type="button" disabled={waBusy} onClick={() => sendWa(open)} style={actionBtn("#25D366", "#fff")}>
-                <MessageCircle size={14} /> {waBusy ? "Opening…" : "WhatsApp this booking"}
-              </button>
-              {open.status !== "completed" ? (
+              {open.source !== "meeting" ? (
+                <button type="button" disabled={waBusy} onClick={() => sendWa(open)} style={actionBtn("#25D366", "#fff")}>
+                  <MessageCircle size={14} /> {waBusy ? "Opening…" : "WhatsApp this booking"}
+                </button>
+              ) : null}
+              {open.status !== "completed" && open.source !== "meeting" ? (
                 <button type="button" onClick={() => markDone(open)} style={actionBtn("#fff", C.ink, true)}>
                   <Check size={14} /> Mark done
                 </button>
               ) : null}
-              <button type="button" onClick={() => remove(open)} style={actionBtn(C.redSoft, C.red)}>
-                <Trash2 size={14} /> Remove
-              </button>
+              {open.source !== "meeting" ? (
+                <button type="button" onClick={() => remove(open)} style={actionBtn(C.redSoft, C.red)}>
+                  <Trash2 size={14} /> Remove
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -536,6 +809,19 @@ export function CallingSchedule({
     </div>
   );
 }
+
+const calNavBtn = {
+  width: 36,
+  height: 36,
+  borderRadius: 10,
+  border: `1px solid ${C.border}`,
+  background: "#fff",
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: C.ink,
+};
 
 function actionBtn(bg, color, border) {
   return {
