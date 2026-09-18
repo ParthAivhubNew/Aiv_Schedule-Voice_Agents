@@ -134,7 +134,8 @@ async def _resolve_carrier_and_creds(
     if "twilio" in carrier_choice:
         if not sid or not token:
             raise ValueError(
-                "Twilio Account SID and Auth Token are required to place real calls. Save them in Connections."
+                "Twilio Account SID and Auth Token are required to place real calls. Save them in Connections "
+                "(classic AI config → Voice stack / Direct outbound Expand → Save Credentials)."
             )
         if not sid.startswith("AC") or len(sid) != 34:
             raise ValueError(
@@ -144,6 +145,18 @@ async def _resolve_carrier_and_creds(
             raise ValueError(
                 f"Twilio Auth Token is invalid ({len(token)} chars; expected 32)."
             )
+        # Persist so new calling UI + classic share the same server vault (not only browser localStorage).
+        try:
+            await _upsert_telephony_connection(
+                db,
+                name="Twilio",
+                carrier="Twilio",
+                account_sid=sid,
+                api_key=token,
+                phone=stored_cfg.get("phoneNumber"),
+            )
+        except Exception as persist_err:
+            logger.warning(f"Could not persist Twilio creds to Connections: {persist_err}")
 
     credentials = {
         "account_sid": sid,
@@ -153,6 +166,51 @@ async def _resolve_carrier_and_creds(
         "connection_id": stored_cfg.get("connection_id") or stored_cfg.get("telnyx_connection_id"),
     }
     return carrier_choice, credentials, tele_conn
+
+
+async def _upsert_telephony_connection(
+    db: AsyncSession,
+    *,
+    name: str,
+    carrier: str,
+    account_sid: Optional[str],
+    api_key: Optional[str],
+    phone: Optional[str] = None,
+) -> None:
+    res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+    rows = list(res.scalars().all())
+    target = next((c for c in rows if (c.name or "").lower() == name.lower()), None) or (rows[0] if rows else None)
+    masked = ""
+    if api_key and len(api_key) > 8:
+        masked = api_key[:3] + "••••••••" + api_key[-4:]
+    cfg = dict(target.config) if target and isinstance(target.config, dict) else {}
+    if account_sid:
+        cfg["account_sid"] = account_sid
+    if api_key:
+        cfg["api_key"] = api_key
+        cfg["auth_token"] = api_key
+    if phone:
+        cfg["phoneNumber"] = phone
+    cfg["carrier"] = carrier
+    cfg["provider"] = carrier
+    if target:
+        target.name = name
+        target.status = "connected"
+        if masked:
+            target.api_key_masked = masked
+        target.config = cfg
+    else:
+        db.add(
+            Connection(
+                id=f"conn_{uuid.uuid4().hex[:6]}",
+                group_name="Telephony",
+                name=name,
+                status="connected",
+                api_key_masked=masked or None,
+                config=cfg,
+            )
+        )
+    await db.commit()
 
 
 async def place_outbound_call(
@@ -376,6 +434,8 @@ async def launch_outbound_mission(
     lunch_start: str = "12:00",
     lunch_end: str = "13:00",
     source: str = "manual",
+    account_sid: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Persist a mission and immediately dial as many PSTN lines as concurrency allows."""
     concurrency = _cap_concurrency(concurrency)
@@ -442,6 +502,8 @@ async def launch_outbound_mission(
         from_number=from_number,
         carrier=carrier,
         mission_title=mission.title,
+        account_sid=account_sid,
+        api_key=api_key,
     )
 
     dialed = sum(1 for r in results if r.get("status") in ("calling", "ringing", "queued_provider"))
@@ -476,6 +538,8 @@ async def start_mission_dials(
     from_number: Optional[str] = None,
     carrier: Optional[str] = None,
     mission_title: Optional[str] = None,
+    account_sid: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Dial queued prospects on a mission up to remaining live-line slots."""
     results: List[Dict[str, Any]] = []
@@ -523,6 +587,8 @@ async def start_mission_dials(
                         mission_title=title,
                         prospect_id=p.id,
                         carrier=carrier,
+                        account_sid=account_sid,
+                        api_key=api_key,
                     )
                 results.append({
                     "prospect_id": p.id,

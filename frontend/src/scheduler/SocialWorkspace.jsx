@@ -6,10 +6,11 @@ import {
   ChevronRight,
   Copy,
   History,
+  Clock,
   Image as ImageIcon,
   LayoutGrid,
   LogOut,
-  MessageSquare,
+  Maximize2,
   Pencil,
   Plus,
   Plug,
@@ -66,46 +67,89 @@ function companyPayload(profile) {
   };
 }
 
-function MiniChat({ messages, emptyHint, hint, busyLabel, value, onChange, onSubmit, disabled, placeholder }) {
-  const empty = !(messages || []).length;
+function GenProgressBar({ pct, label, compact }) {
+  const n = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+  if (!n && !label) return null;
   return (
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginBottom: 10, background: HUB_PAPER }}>
-      {(hint || (empty && emptyHint)) ? (
-        <div style={{ fontSize: 12, color: C.slate, marginBottom: 8, lineHeight: 1.35 }}>
-          {hint || null}
-          {hint && empty && emptyHint ? <span style={{ color: C.slateLight }}> · </span> : null}
-          {empty && emptyHint ? <span style={{ color: C.slateLight }}>{emptyHint}</span> : null}
+    <div style={{ width: "100%", marginTop: compact ? 4 : 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: compact ? 3 : 6, gap: 8 }}>
+        <div style={{ fontSize: compact ? 10 : 12, color: C.slate, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {label || "Generating…"}
         </div>
-      ) : null}
-      <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: 8 }}>
-        {empty ? null : (messages || []).map((m) => (
-          <div key={m.id} style={{ marginBottom: 6, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
+        <div style={{ fontSize: compact ? 11 : 13, fontWeight: 800, color: C.teal, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+          {n}%
+        </div>
+      </div>
+      <div style={{ height: compact ? 4 : 6, borderRadius: 99, background: C.paperSoft || "#EFEDE8", overflow: "hidden" }}>
+        <div style={{
+          height: "100%",
+          width: n + "%",
+          borderRadius: 99,
+          background: C.teal,
+          transition: "width 0.35s ease",
+        }} />
+      </div>
+    </div>
+  );
+}
+
+function packageProgressLabel(pct, skipImage) {
+  if (skipImage) {
+    if (pct < 35) return "Writing caption…";
+    if (pct < 75) return "Polishing copy…";
+    return "Finishing caption…";
+  }
+  if (pct < 28) return "Writing caption…";
+  if (pct < 52) return "Caption ready — starting image…";
+  if (pct < 82) return "Generating image…";
+  return "Finishing post…";
+}
+
+function imageProgressLabel(pct) {
+  if (pct < 25) return "Preparing image…";
+  if (pct < 70) return "Generating image…";
+  return "Rendering image…";
+}
+
+function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, placeholder }) {
+  const list = messages || [];
+  const scrollerRef = useRef(null);
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [list.length, busyLabel]);
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 10, background: "#fff", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+      <div ref={scrollerRef} style={{ flex: 1, minHeight: 120, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
+        {list.map((m) => (
+          <div key={m.id} style={{ marginBottom: 8, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
             <div style={{
-              maxWidth: "90%",
-              padding: "6px 9px",
-              borderRadius: 8,
-              background: m.who === "user" ? C.ink : "#fff",
+              maxWidth: "88%",
+              padding: "8px 11px",
+              borderRadius: m.who === "user" ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
+              background: m.who === "user" ? C.ink : HUB_PAPER,
               color: m.who === "user" ? "#fff" : C.textInk,
-              fontSize: 12,
-              lineHeight: 1.4,
+              fontSize: 12.5,
+              lineHeight: 1.45,
               border: m.who === "user" ? "none" : `1px solid ${C.border}`,
             }}>
               {m.text}
             </div>
           </div>
         ))}
-        {busyLabel ? <div style={{ fontSize: 12, color: C.teal }}>{busyLabel}</div> : null}
+        {busyLabel ? <div style={{ fontSize: 12, color: C.teal, padding: "4px 2px" }}>{busyLabel}</div> : null}
       </div>
-      <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} style={{ display: "flex", gap: 6 }}>
+      <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <input
           value={value || ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           disabled={disabled}
-          style={{ flex: 1, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13 }}
+          style={{ flex: 1, height: 38, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13 }}
         />
-        <button type="submit" disabled={disabled || !(value || "").trim()} style={{ ...priBtn, height: 36, background: C.teal }}>
-          <Send size={14} /> Apply
+        <button type="submit" disabled={disabled || !(value || "").trim()} style={{ ...priBtn, height: 38, background: C.teal }}>
+          <Send size={14} />
         </button>
       </form>
     </div>
@@ -130,11 +174,12 @@ function ApprovalsBoard({
   setCopyNote,
   sendCopyChat,
   fillPackages,
-  chatThisPost,
   approveOne,
   publishing,
   revertTouched,
+  updateSchedule,
   initialDate,
+  genProgress,
 }) {
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
@@ -150,16 +195,21 @@ function ApprovalsBoard({
 
   const [dateTab, setDateTab] = useState("");
   const [scope, setScope] = useState("waiting"); // waiting | approved | all
+  const [editMode, setEditMode] = useState(false);
+  const [editTab, setEditTab] = useState("copy"); // copy | image
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [schedDraft, setSchedDraft] = useState({ date: "", time: "" });
+  const [lightbox, setLightbox] = useState(false);
+  const [flash, setFlash] = useState({ caption: false, headline: false, image: false });
   const userPickedDate = useRef(false);
   const lastSyncedInitial = useRef("");
+  const snapRef = useRef({});
 
   useEffect(() => {
     if (!dateTabs.length) {
       setDateTab("");
       return;
     }
-    // Only jump to initialDate once when it first arrives / changes (open Approvals on a post).
-    // Never override after the user clicks a date tab.
     if (initialDate && initialDate !== lastSyncedInitial.current && dateTabs.some((t) => t.date === initialDate)) {
       lastSyncedInitial.current = initialDate;
       userPickedDate.current = false;
@@ -199,12 +249,83 @@ function ApprovalsBoard({
 
   const expandedPost = expandedId ? allPosts.find((p) => p.id === expandedId) : null;
   const expandedDone = expandedPost && expandedPost.status && expandedPost.status !== "draft";
+  const canEdit = expandedPost && expandedPost.status !== "posted";
+  const expandedProg = expandedPost && genProgress ? genProgress[expandedPost.id] : null;
+  const chMeta = expandedPost
+    ? (CHANNELS.find((c) => c.id === String(expandedPost.channel || "").toLowerCase()) || { label: expandedPost.channel, color: C.ink, soft: HUB_PAPER, mark: "?" })
+    : null;
+
+  useEffect(() => {
+    setEditMode(false);
+    setScheduleOpen(false);
+    setLightbox(false);
+    setEditTab("copy");
+    setFlash({ caption: false, headline: false, image: false });
+    if (expandedPost) {
+      setSchedDraft({ date: expandedPost.date || "", time: expandedPost.time || "09:00" });
+      snapRef.current = {
+        id: expandedPost.id,
+        caption: expandedPost.caption,
+        headline: expandedPost.headline,
+        imageUrl: expandedPost.imageUrl,
+      };
+    }
+  }, [expandedId]);
+
+  useEffect(() => {
+    if (!expandedPost) return;
+    const snap = snapRef.current;
+    if (!snap || snap.id !== expandedPost.id) {
+      snapRef.current = {
+        id: expandedPost.id,
+        caption: expandedPost.caption,
+        headline: expandedPost.headline,
+        imageUrl: expandedPost.imageUrl,
+      };
+      return;
+    }
+    const next = {
+      caption: snap.caption !== expandedPost.caption,
+      headline: snap.headline !== expandedPost.headline,
+      image: snap.imageUrl !== expandedPost.imageUrl,
+    };
+    snapRef.current = {
+      id: expandedPost.id,
+      caption: expandedPost.caption,
+      headline: expandedPost.headline,
+      imageUrl: expandedPost.imageUrl,
+    };
+    if (!next.caption && !next.headline && !next.image) return undefined;
+    setFlash(next);
+    const t = window.setTimeout(() => setFlash({ caption: false, headline: false, image: false }), 2800);
+    return () => window.clearTimeout(t);
+  }, [expandedPost && expandedPost.caption, expandedPost && expandedPost.headline, expandedPost && expandedPost.imageUrl, expandedPost && expandedPost.id]);
 
   const switchDate = (d) => {
     userPickedDate.current = true;
     setDateTab(d);
     setExpandedId("");
   };
+
+  const openPost = (id) => {
+    setExpandedId(id);
+  };
+
+  const saveSched = () => {
+    if (!expandedPost || !updateSchedule) return;
+    const date = String(schedDraft.date || "").trim();
+    const time = String(schedDraft.time || "09:00").trim() || "09:00";
+    if (!date || date === "undated") return;
+    updateSchedule(expandedPost.id, { date, time });
+    setScheduleOpen(false);
+  };
+
+  const flashStyle = (on) => (on ? {
+    boxShadow: "0 0 0 2px " + C.teal,
+    background: "rgba(15, 118, 110, 0.08)",
+    transition: "box-shadow 0.25s ease, background 0.25s ease",
+    borderRadius: 10,
+  } : { transition: "box-shadow 0.4s ease, background 0.4s ease" });
 
   return (
     <div style={{
@@ -226,7 +347,6 @@ function ApprovalsBoard({
           Each tab is a publish day. Open a post to review and approve.
         </div>
 
-        {/* Date tabs — same pattern as dashboard "By age / By provider / By constituency" */}
         <div
           style={{
             display: "flex",
@@ -338,48 +458,77 @@ function ApprovalsBoard({
                   {ch.posts.map((p) => {
                     const open = expandedId === p.id;
                     const dimmed = !!expandedId && !open;
+                    const prog = (genProgress && genProgress[p.id]) || null;
+                    const busy = !!(prog || p.enriching || imageBusy === p.id || copyBusy === p.id);
                     return (
-                      <button
+                      <div
                         key={p.id}
-                        type="button"
                         id={"appr_" + p.id}
-                        onClick={() => setExpandedId(p.id)}
-                        disabled={dimmed}
                         style={{
                           width: "100%",
-                          textAlign: "left",
-                          border: `1px solid ${C.border}`,
+                          border: `1px solid ${busy ? C.teal : C.border}`,
                           borderRadius: 10,
                           background: "#fff",
                           padding: "8px 10px",
-                          cursor: dimmed ? "default" : "pointer",
                           display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          fontFamily: FONT_BODY,
+                          flexDirection: "column",
+                          gap: 0,
                           marginBottom: 6,
                           marginLeft: 8,
                           opacity: dimmed ? 0.35 : 1,
                           transition: "opacity 0.15s ease",
+                          boxSizing: "border-box",
                         }}
                       >
-                        <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: ch.soft, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          {p.imageUrl ? (
-                            <img src={p.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                          ) : (
-                            <span style={{ fontSize: 10, color: C.slate }}>{p.enriching ? "…" : "—"}</span>
-                          )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <button
+                            type="button"
+                            onClick={() => openPost(p.id)}
+                            disabled={dimmed}
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              textAlign: "left",
+                              border: "none",
+                              background: "transparent",
+                              cursor: dimmed ? "default" : "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontFamily: FONT_BODY,
+                              padding: 0,
+                            }}
+                          >
+                            <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: ch.soft, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              {p.imageUrl ? (
+                                <img src={p.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              ) : (
+                                <span style={{ fontSize: 10, color: C.slate, fontWeight: 700 }}>
+                                  {prog ? (Math.round(prog.pct) + "%") : (p.enriching ? "…" : "—")}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {p.headline || "Draft post"}
+                              </div>
+                              <div style={{ fontSize: 11, color: C.slate, marginTop: 2 }}>
+                                {p.time || "09:00"} · {statusLabel(p.status)}
+                              </div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={dimmed}
+                            onClick={() => openPost(p.id)}
+                            title="Enlarge preview"
+                            style={{ ...secBtn, height: 30, padding: "0 8px", flexShrink: 0, fontSize: 11 }}
+                          >
+                            <Maximize2 size={12} /> Enlarge
+                          </button>
                         </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {p.headline || "Draft post"}
-                          </div>
-                          <div style={{ fontSize: 11, color: C.slate, marginTop: 2 }}>
-                            {p.time || "09:00"} · {statusLabel(p.status)}
-                          </div>
-                        </div>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(p.status), flexShrink: 0 }}>{statusLabel(p.status)}</span>
-                      </button>
+                        {prog ? <GenProgressBar pct={prog.pct} label={prog.label} compact /> : null}
+                      </div>
                     );
                   })}
                 </div>
@@ -388,12 +537,11 @@ function ApprovalsBoard({
           </div>
         )}
 
-        {/* Enlarge in-panel (covers tab body — not a second scroll page) */}
         {expandedPost ? (
           <div style={{
             position: "absolute",
             inset: 0,
-            background: "rgba(248,247,244,0.72)",
+            background: "rgba(248,247,244,0.78)",
             backdropFilter: "blur(2px)",
             zIndex: 8,
             display: "flex",
@@ -403,106 +551,350 @@ function ApprovalsBoard({
           }}>
             <div style={{
               width: "100%",
-              maxWidth: 720,
+              maxWidth: editMode ? 860 : 560,
               background: "#fff",
-              border: `2px solid ${C.teal}`,
-              borderRadius: 14,
-              padding: 16,
+              border: `1px solid ${C.border}`,
+              borderRadius: 16,
               boxShadow: "0 20px 48px rgba(18,20,28,0.22)",
-              overflowY: "auto",
+              overflow: "hidden",
               display: "flex",
               flexDirection: "column",
+              transition: "max-width 0.2s ease",
             }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10, alignItems: "flex-start", flexShrink: 0 }}>
-                <div>
-                  <div style={{ fontSize: 12, color: C.slate }}>
-                    {dayLabel(expandedPost.date)} · {expandedPost.time} · {expandedPost.channel}
-                    {expandedPost.batchId && !expandedPost.uniqueForChannel ? " · shared image set" : ""}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${C.border}`, alignItems: "center", flexShrink: 0, background: "#fff" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: C.slate, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ width: 18, height: 18, borderRadius: 5, background: chMeta.soft, color: chMeta.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800 }}>{chMeta.mark}</span>
+                    {chMeta.label}
+                    <span>·</span>
+                    {dayLabel(expandedPost.date)} · {expandedPost.time || "09:00"}
                   </div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginTop: 2 }}>
-                    {expandedDone ? (expandedPost.headline || "Post") : "Edit & approve"}
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginTop: 2 }}>
+                    Preview
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(expandedPost.status) }}>{statusLabel(expandedPost.status)}</span>
                   <button type="button" onClick={() => setExpandedId("")} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Back to list">
                     <X size={16} color={C.slate} />
                   </button>
                 </div>
               </div>
-              {expandedDone ? (
-                <>
-                  {expandedPost.imageUrl ? <img src={expandedPost.imageUrl} alt="" style={{ width: "100%", borderRadius: 12, marginBottom: 8, maxHeight: 200, objectFit: "cover" }} /> : null}
-                  <div style={{ fontSize: 13, color: C.slate, whiteSpace: "pre-wrap" }}>{expandedPost.caption}</div>
-                </>
-              ) : (
-                <>
-                  {expandedPost.imageUrl ? (
-                    <img src={expandedPost.imageUrl} alt="" style={{ width: "100%", borderRadius: 12, marginBottom: 8, maxHeight: 180, objectFit: "cover", flexShrink: 0 }} />
-                  ) : (
-                    <div style={{ height: 88, borderRadius: 12, background: C.paperSoft, display: "flex", alignItems: "center", justifyContent: "center", color: C.slate, marginBottom: 8, fontSize: 13, flexShrink: 0 }}>
-                      {expandedPost.enriching || imageBusy === expandedPost.id ? "Generating visual…" : "No image yet"}
+
+              <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+                {/* Live post preview only */}
+                <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 14, background: HUB_PAPER }}>
+                  <div style={{
+                    background: "#fff",
+                    borderRadius: 14,
+                    border: `1px solid ${C.border}`,
+                    overflow: "hidden",
+                    boxShadow: "0 1px 3px rgba(18,20,28,0.04)",
+                  }}>
+                    <div style={{ padding: "12px 14px 8px", display: "flex", gap: 10, alignItems: "center" }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 99, background: chMeta.soft, color: chMeta.color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>{chMeta.mark}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{chMeta.label}</div>
+                        <div style={{ fontSize: 11, color: C.slate }}>{dayLabel(expandedPost.date)} · {expandedPost.time || "09:00"}</div>
+                      </div>
                     </div>
-                  )}
-                  <MiniChat
-                    messages={expandedPost.imageChat}
-                    hint="Image chat — same visual across channels."
-                    emptyHint='e.g. “Spreadsheet on the left monitor.”'
-                    busyLabel={imageBusy === expandedPost.id ? "Redrawing…" : ""}
-                    value={imageNote[expandedPost.id] || ""}
-                    onChange={(v) => setImageNote((m) => ({ ...m, [expandedPost.id]: v }))}
-                    onSubmit={() => sendImageChat(expandedPost)}
-                    disabled={imageBusy === expandedPost.id}
-                    placeholder="Describe the image change…"
-                  />
-                  <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                    <button type="button" onClick={() => regenImage(expandedPost)} disabled={imageBusy === expandedPost.id} style={secBtn}>
-                      <ImageIcon size={14} /> {imageBusy === expandedPost.id ? "Generating…" : (expandedPost.imageUrl ? "Regenerate image" : "Generate image")}
-                    </button>
-                    {expandedPost.imageUrl && expandedPost.batchId && !expandedPost.uniqueForChannel ? (
-                      <button type="button" onClick={() => applyImageToBatch(expandedPost)} style={secBtn}>
-                        Use this image on all channels
-                      </button>
+
+                    <div style={{ padding: "0 14px 10px", ...flashStyle(flash.headline) }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, lineHeight: 1.35 }}>
+                        {expandedPost.headline || "Untitled"}
+                      </div>
+                    </div>
+
+                    <div style={{ position: "relative", background: "#0f1115", ...flashStyle(flash.image) }}>
+                      {expandedPost.imageUrl ? (
+                        <>
+                          <img
+                            src={expandedPost.imageUrl}
+                            alt=""
+                            style={{
+                              width: "100%",
+                              height: "auto",
+                              maxHeight: editMode ? 280 : 360,
+                              objectFit: "contain",
+                              display: "block",
+                              margin: "0 auto",
+                              background: "#0f1115",
+                              opacity: expandedProg && expandedProg.kind === "image" ? 0.55 : 1,
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setLightbox(true)}
+                            title="Full size"
+                            style={{
+                              position: "absolute",
+                              right: 10,
+                              bottom: 10,
+                              height: 32,
+                              padding: "0 10px",
+                              borderRadius: 8,
+                              border: "none",
+                              background: "rgba(0,0,0,0.72)",
+                              color: "#fff",
+                              cursor: "pointer",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 5,
+                            }}
+                          >
+                            <Maximize2 size={12} /> Enlarge
+                          </button>
+                        </>
+                      ) : (
+                        <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af", fontSize: 13, padding: 16, gap: 10 }}>
+                          {expandedProg || expandedPost.enriching || imageBusy === expandedPost.id ? (
+                            <div style={{ width: "100%", maxWidth: 280 }}>
+                              <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", textAlign: "center", marginBottom: 8, fontVariantNumeric: "tabular-nums" }}>
+                                {expandedProg ? Math.round(expandedProg.pct) : 8}%
+                              </div>
+                              <GenProgressBar
+                                pct={expandedProg ? expandedProg.pct : 8}
+                                label={expandedProg ? expandedProg.label : "Generating…"}
+                              />
+                            </div>
+                          ) : (
+                            "No image yet"
+                          )}
+                        </div>
+                      )}
+                      {expandedProg && expandedPost.imageUrl ? (
+                        <div style={{
+                          position: "absolute",
+                          left: 12,
+                          right: 12,
+                          bottom: 48,
+                          padding: 10,
+                          borderRadius: 10,
+                          background: "rgba(8,10,14,0.82)",
+                        }}>
+                          <GenProgressBar pct={expandedProg.pct} label={expandedProg.label} />
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div style={{ padding: "12px 14px 16px", ...flashStyle(flash.caption) }}>
+                      {expandedProg && !expandedPost.caption ? (
+                        <div style={{ marginBottom: 10 }}>
+                          <GenProgressBar pct={expandedProg.pct} label={expandedProg.label} />
+                        </div>
+                      ) : null}
+                      <div style={{ fontSize: 13.5, color: C.textInk, whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
+                        {expandedPost.caption || (expandedProg ? "" : "—")}
+                      </div>
+                    </div>
+                  </div>
+
+                  {scheduleOpen ? (
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: "#fff" }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                        <Clock size={14} color={C.teal} /> Change schedule
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div style={{ flex: 1, minWidth: 140 }}>
+                          <label style={labelStyle}>Publish date</label>
+                          <input
+                            type="date"
+                            value={schedDraft.date || ""}
+                            onChange={(e) => setSchedDraft((s) => ({ ...s, date: e.target.value }))}
+                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box" }}
+                          />
+                        </div>
+                        <div style={{ width: 120 }}>
+                          <label style={labelStyle}>Time</label>
+                          <input
+                            type="time"
+                            value={schedDraft.time || "09:00"}
+                            onChange={(e) => setSchedDraft((s) => ({ ...s, time: e.target.value }))}
+                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box" }}
+                          />
+                        </div>
+                        <button type="button" onClick={saveSched} style={{ ...priBtn, height: 36 }}>Save</button>
+                        <button type="button" onClick={() => setScheduleOpen(false)} style={{ ...secBtn, height: 36 }}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Edit chat — only when Edit pressed */}
+                {editMode && canEdit ? (
+                  <div style={{
+                    width: 300,
+                    flexShrink: 0,
+                    borderLeft: `1px solid ${C.border}`,
+                    background: "#fff",
+                    display: "flex",
+                    flexDirection: "column",
+                    padding: 12,
+                    gap: 10,
+                    minHeight: 0,
+                  }}>
+                    <div style={{ display: "flex", gap: 4, background: HUB_PAPER, borderRadius: 10, padding: 3 }}>
+                      {[
+                        { id: "copy", label: "Caption" },
+                        { id: "image", label: "Image" },
+                      ].map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setEditTab(t.id)}
+                          style={{
+                            flex: 1,
+                            height: 30,
+                            border: "none",
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            fontWeight: 700,
+                            fontSize: 11,
+                            background: editTab === t.id ? "#fff" : "transparent",
+                            color: editTab === t.id ? C.ink : C.slate,
+                            boxShadow: editTab === t.id ? "0 1px 3px rgba(18,20,28,0.08)" : "none",
+                          }}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {editTab === "copy" ? (
+                      <>
+                        <MiniChat
+                          messages={expandedPost.copyChat}
+                          busyLabel={
+                            (copyBusy === expandedPost.id || expandedPost.enriching)
+                              ? ((expandedProg ? Math.round(expandedProg.pct) + "% · " : "") + (expandedProg ? expandedProg.label : "Updating…"))
+                              : ""
+                          }
+                          value={copyNote[expandedPost.id] || ""}
+                          onChange={(v) => setCopyNote((m) => ({ ...m, [expandedPost.id]: v }))}
+                          onSubmit={() => sendCopyChat(expandedPost)}
+                          disabled={copyBusy === expandedPost.id || expandedPost.enriching}
+                          placeholder="What should change in the caption?"
+                        />
+                        <button type="button" onClick={() => fillPackages([expandedPost], { skipImage: true })} disabled={expandedPost.enriching} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
+                          <Sparkles size={14} /> Fresh rewrite
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <MiniChat
+                          messages={expandedPost.imageChat}
+                          busyLabel={
+                            imageBusy === expandedPost.id
+                              ? ((expandedProg ? Math.round(expandedProg.pct) + "% · " : "") + (expandedProg ? expandedProg.label : "Redrawing…"))
+                              : ""
+                          }
+                          value={imageNote[expandedPost.id] || ""}
+                          onChange={(v) => setImageNote((m) => ({ ...m, [expandedPost.id]: v }))}
+                          onSubmit={() => sendImageChat(expandedPost)}
+                          disabled={imageBusy === expandedPost.id}
+                          placeholder="Describe the image change…"
+                        />
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <button type="button" onClick={() => regenImage(expandedPost)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
+                            <ImageIcon size={14} /> {imageBusy === expandedPost.id
+                              ? (expandedProg ? ("Generating… " + Math.round(expandedProg.pct) + "%") : "Generating…")
+                              : (expandedPost.imageUrl ? "Regenerate" : "Generate image")}
+                          </button>
+                          {expandedPost.imageUrl && expandedPost.batchId && !expandedPost.uniqueForChannel ? (
+                            <button type="button" onClick={() => applyImageToBatch(expandedPost)} style={{ ...secBtn, width: "100%", justifyContent: "center", fontSize: 11 }}>
+                              Use on all channels
+                            </button>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
+
+                    {editTab === "copy" ? (
+                      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                        <label style={labelStyle}>Headline</label>
+                        <input
+                          value={expandedPost.headline || ""}
+                          onChange={(e) => revertTouched(expandedPost.id, { headline: e.target.value })}
+                          style={{ width: "100%", boxSizing: "border-box", height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 12, marginBottom: 8 }}
+                        />
+                        <label style={labelStyle}>Caption</label>
+                        <textarea
+                          value={expandedPost.caption || ""}
+                          onChange={(e) => revertTouched(expandedPost.id, { caption: e.target.value })}
+                          rows={3}
+                          style={{ width: "100%", borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical", boxSizing: "border-box" }}
+                        />
+                      </div>
                     ) : null}
                   </div>
-                  <label style={labelStyle}>Headline</label>
-                  <input
-                    value={expandedPost.headline || ""}
-                    onChange={(e) => revertTouched(expandedPost.id, { headline: e.target.value })}
-                    style={{ width: "100%", boxSizing: "border-box", height: 36, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 10 }}
-                  />
-                  <label style={labelStyle}>Post copy</label>
-                  <textarea
-                    value={expandedPost.caption || ""}
-                    onChange={(e) => revertTouched(expandedPost.id, { caption: e.target.value })}
-                    rows={4}
-                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box", marginBottom: 10 }}
-                  />
-                  <MiniChat
-                    messages={expandedPost.copyChat}
-                    hint="Copy chat — headline, hook, body, hashtags."
-                    emptyHint='e.g. “Shorter headline. Softer CTA.”'
-                    busyLabel={copyBusy === expandedPost.id || expandedPost.enriching ? "Rewriting…" : ""}
-                    value={copyNote[expandedPost.id] || ""}
-                    onChange={(v) => setCopyNote((m) => ({ ...m, [expandedPost.id]: v }))}
-                    onSubmit={() => sendCopyChat(expandedPost)}
-                    disabled={copyBusy === expandedPost.id || expandedPost.enriching}
-                    placeholder="Change headline, hook, body, or hashtags…"
-                  />
-                  <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", flexShrink: 0 }}>
-                    <button type="button" onClick={() => fillPackages([expandedPost], { skipImage: true })} disabled={expandedPost.enriching} style={secBtn}>
-                      <Sparkles size={14} /> Rewrite caption
-                    </button>
-                    <button type="button" onClick={() => chatThisPost(expandedPost)} style={secBtn}>
-                      <MessageSquare size={14} /> Chat in Plan AI
-                    </button>
-                    <button type="button" disabled={!!publishing} onClick={() => approveOne(expandedPost)} style={priBtn}>
-                      <Check size={14} /> {publishing === expandedPost.id ? "Posting…" : "Approve & post"}
-                    </button>
-                  </div>
-                </>
-              )}
+                ) : null}
+              </div>
+
+              <div style={{
+                padding: "10px 14px",
+                borderTop: `1px solid ${C.border}`,
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                alignItems: "center",
+                background: "#fff",
+                flexShrink: 0,
+              }}>
+                {canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditMode((v) => !v)}
+                    style={{
+                      ...secBtn,
+                      background: editMode ? C.ink : "#fff",
+                      color: editMode ? "#fff" : C.ink,
+                      borderColor: editMode ? C.ink : C.border,
+                    }}
+                  >
+                    <Pencil size={13} /> {editMode ? "Done editing" : "Edit"}
+                  </button>
+                ) : null}
+                {canEdit ? (
+                  <button type="button" onClick={() => { setScheduleOpen((v) => !v); setSchedDraft({ date: expandedPost.date || "", time: expandedPost.time || "09:00" }); }} style={secBtn}>
+                    <Clock size={13} /> Schedule
+                  </button>
+                ) : null}
+                {expandedPost.imageUrl ? (
+                  <button type="button" onClick={() => setLightbox(true)} style={secBtn}>
+                    <Maximize2 size={13} /> Enlarge image
+                  </button>
+                ) : null}
+                <div style={{ flex: 1 }} />
+                {!expandedDone ? (
+                  <button type="button" disabled={!!publishing} onClick={() => approveOne(expandedPost)} style={priBtn}>
+                    <Check size={14} /> {publishing === expandedPost.id ? "Posting…" : "Approve & post"}
+                  </button>
+                ) : expandedPost.status === "scheduled" || expandedPost.status === "approved" ? (
+                  <span style={{ fontSize: 12, color: C.slate }}>
+                    {expandedPost.status === "scheduled" ? "Scheduled — edit anytime" : "Approved — edit anytime"}
+                  </span>
+                ) : null}
+              </div>
             </div>
+
+            {lightbox && expandedPost.imageUrl ? (
+              <div
+                style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(8,10,14,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+                onClick={() => setLightbox(false)}
+              >
+                <button type="button" onClick={() => setLightbox(false)} style={{ position: "absolute", top: 18, right: 18, border: "none", background: "rgba(255,255,255,0.12)", color: "#fff", width: 36, height: 36, borderRadius: 99, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <X size={18} />
+                </button>
+                <img
+                  src={expandedPost.imageUrl}
+                  alt=""
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ maxWidth: "min(1100px, 96vw)", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8, boxShadow: "0 24px 64px rgba(0,0,0,0.45)" }}
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -601,9 +993,15 @@ function sameTaskDrafts(posts, dates, channels, topic) {
   });
 }
 
+function keepEditableStatus(status) {
+  if (status === "posted") return "posted";
+  if (status === "scheduled" || status === "approved") return status;
+  return "draft";
+}
+
 function copyChatReply(before, after, src) {
   if (src && src !== "llm") {
-    return "Writer did not return a new draft. Check post-writer keys, then send the note again.";
+    return "Couldn’t get a new draft from the writer. Try again in a moment.";
   }
   const sameCaption = String(before.caption || "").trim() === String(after.caption || "").trim();
   const sameHeadline = String(before.headline || "").trim() === String(after.headline || "").trim();
@@ -611,13 +1009,13 @@ function copyChatReply(before, after, src) {
   const beforeTags = countTags(before.caption);
   const afterTags = countTags(after.caption);
   if (sameCaption && sameHeadline) {
-    return "Nothing changed in headline or caption. Say exactly what to change — e.g. “put 15 hashtags at the end”.";
+    return "Left it as-is. Tell me the exact change you want.";
   }
   const bits = [];
-  if (!sameHeadline) bits.push("headline now: “" + String(after.headline || "").slice(0, 72) + "”");
-  if (afterTags !== beforeTags) bits.push(afterTags + " hashtags");
-  else if (!sameCaption) bits.push("caption rewritten");
-  return bits.length ? ("Updated: " + bits.join(". ") + ".") : "Updated the post from that note.";
+  if (!sameHeadline) bits.push("tweaked the headline");
+  if (afterTags !== beforeTags) bits.push("adjusted hashtags");
+  else if (!sameCaption) bits.push("rewrote the caption");
+  return bits.length ? ("Got it — " + bits.join(" and ") + ".") : "Updated.";
 }
 
 function reuseAskText(existing, dates, channels) {
@@ -1265,6 +1663,80 @@ export function SocialWorkspace({
   const [imageNote, setImageNote] = useState({});
   const [copyBusy, setCopyBusy] = useState("");
   const [copyNote, setCopyNote] = useState({});
+  const [genProgress, setGenProgress] = useState({});
+  const genTimers = useRef({});
+
+  const clearGenTimer = (id) => {
+    if (genTimers.current[id]) {
+      window.clearInterval(genTimers.current[id]);
+      delete genTimers.current[id];
+    }
+  };
+
+  const startGenProgress = (ids, opts = {}) => {
+    const kind = opts.kind || "package"; // package | copy | image
+    const skipImage = !!opts.skipImage;
+    const list = (ids || []).filter(Boolean);
+    list.forEach((id) => {
+      clearGenTimer(id);
+      const label0 = kind === "image"
+        ? imageProgressLabel(6)
+        : packageProgressLabel(6, skipImage || kind === "copy");
+      setGenProgress((m) => ({ ...m, [id]: { pct: 6, kind, skipImage: skipImage || kind === "copy", label: label0 } }));
+      genTimers.current[id] = window.setInterval(() => {
+        setGenProgress((m) => {
+          const cur = m[id];
+          if (!cur) return m;
+          const pct = cur.pct;
+          // Ease toward 92 — fast early, slow near end
+          const room = 92 - pct;
+          const step = Math.max(0.4, room * 0.07);
+          const nextPct = Math.min(92, pct + step);
+          const label = cur.kind === "image"
+            ? imageProgressLabel(nextPct)
+            : packageProgressLabel(nextPct, cur.skipImage);
+          return { ...m, [id]: { ...cur, pct: nextPct, label } };
+        });
+      }, 380);
+    });
+  };
+
+  const finishGenProgress = (ids) => {
+    const list = (ids || []).filter(Boolean);
+    list.forEach((id) => {
+      clearGenTimer(id);
+      setGenProgress((m) => {
+        const cur = m[id];
+        if (!cur) return m;
+        return { ...m, [id]: { ...cur, pct: 100, label: "Done" } };
+      });
+      window.setTimeout(() => {
+        setGenProgress((m) => {
+          if (!m[id]) return m;
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+      }, 700);
+    });
+  };
+
+  const failGenProgress = (ids) => {
+    const list = (ids || []).filter(Boolean);
+    list.forEach((id) => {
+      clearGenTimer(id);
+      setGenProgress((m) => {
+        if (!m[id]) return m;
+        const next = { ...m };
+        delete next[id];
+        return next;
+      });
+    });
+  };
+
+  useEffect(() => () => {
+    Object.keys(genTimers.current).forEach((id) => clearGenTimer(id));
+  }, []);
   const [hoverMsg, setHoverMsg] = useState("");
 
   const showToast = (msg) => {
@@ -1501,6 +1973,7 @@ export function SocialWorkspace({
       if (ids.some((id) => enriching.current.has(id))) return;
       ids.forEach((id) => enriching.current.add(id));
       setPosts((ps) => ps.map((p) => (ids.includes(p.id) ? { ...p, enriching: true } : p)));
+      startGenProgress(ids, { kind: skipImage ? "copy" : "package", skipImage });
       window.setTimeout(async () => {
         let p = lead.id && !lead.plan ? null : lead;
         if (!p || !p.plan) {
@@ -1508,6 +1981,7 @@ export function SocialWorkspace({
         }
         if (!p) {
           ids.forEach((id) => enriching.current.delete(id));
+          failGenProgress(ids);
           setPosts((ps) => ps.map((row) => (ids.includes(row.id) ? { ...row, enriching: false } : row)));
           return;
         }
@@ -1520,7 +1994,7 @@ export function SocialWorkspace({
             skipImage,
             linkedinDirective: (commonAi && commonAi.channelDirectives && commonAi.channelDirectives.linkedin) || "",
             style: img.imageStyle || "modern_saas",
-            aspect_ratio: "4:5",
+            aspect_ratio: img.imageAspectRatio || "16:9",
             adaptPerChannel: false,
             apiKey: creds.apiKey,
             provider: creds.provider,
@@ -1556,6 +2030,7 @@ export function SocialWorkspace({
                 imageHeadline: (pkg && (pkg.imageHeadline || pkg.image_headline)) || row.imageHeadline,
                 imageUrl: skipImage ? row.imageUrl : (sharedImageUrl || row.imageUrl),
                 imagePrompt: skipImage ? row.imagePrompt : (sharedImagePrompt || row.imagePrompt),
+                status: keepEditableStatus(row.status),
                 copyChat: revisionNote
                   ? [...(row.copyChat || []), { id: "cpa_" + Date.now() + "_" + row.id, who: "ai", text: copyChatReply(row, { caption, headline: nextHeadline }, src) }]
                   : (row.copyChat || []),
@@ -1565,10 +2040,12 @@ export function SocialWorkspace({
             });
             return nextRows;
           });
+          finishGenProgress(ids);
           if (share && p.batchId && sharedImageUrl) {
             window.setTimeout(() => syncBatchImage(p.batchId, sharedImageUrl, sharedImagePrompt), 0);
           }
         } catch (e) {
+          failGenProgress(ids);
           setPosts((rows) => rows.map((row) => {
             if (!ids.includes(row.id)) return row;
             const fail = {
@@ -1628,21 +2105,10 @@ export function SocialWorkspace({
 
   const unpinDay = (key, e) => unpinDate(key, e);
 
-  const chatThisPost = (p) => {
-    if (!p) return;
-    setFocusPostId(p.id);
-    setApprovalOpen(false);
-    setChat((cs) => [...cs, {
-      id: "focus_" + p.id + "_" + Date.now(),
-      who: "ai",
-      text: "Editing " + dayLabel(p.date) + " · " + p.channel + ". Say what to change in the caption, or describe a new image.",
-    }]);
-    window.setTimeout(() => { if (inputRef.current) inputRef.current.focus(); }, 40);
-  };
-
   const regenImage = async (p, note) => {
     if (!p || imageBusy) return;
     setImageBusy(p.id);
+    startGenProgress([p.id], { kind: "image" });
     const img = resolveImageCredentials(commonAi);
     const change = String(note || "").trim();
     const prompt = [
@@ -1667,31 +2133,35 @@ export function SocialWorkspace({
       });
       if (res && res.imageUrl) {
         const aiTurn = change
-          ? { id: "ima_" + Date.now(), who: "ai", text: "Updated the image from that note." }
+          ? { id: "ima_" + Date.now(), who: "ai", text: "Done — new image is in the preview." }
           : null;
         const next = {
           ...p,
           imageUrl: res.imageUrl,
           imagePrompt: res.imagePrompt || res.prompt || prompt,
           imageChat: aiTurn ? [...(p.imageChat || []), aiTurn] : (p.imageChat || []),
+          status: keepEditableStatus(p.status),
         };
         setPosts((ps) => ps.map((row) => {
           if (row.id === p.id) return next;
           if (!p.uniqueForChannel && !wantsPerChannelDiff(change) && p.batchId && row.batchId === p.batchId && !row.uniqueForChannel && row.status !== "posted") {
-            const shared = { ...row, imageUrl: next.imageUrl, imagePrompt: next.imagePrompt };
+            const shared = { ...row, imageUrl: next.imageUrl, imagePrompt: next.imagePrompt, status: keepEditableStatus(row.status) };
             persistPost(shared);
             return shared;
           }
           return row;
         }));
         persistPost(next);
+        finishGenProgress([p.id]);
         if (p.batchId && !p.uniqueForChannel && !wantsPerChannelDiff(change)) {
           syncBatchImage(p.batchId, next.imageUrl, next.imagePrompt, p.id);
         }
       } else {
+        failGenProgress([p.id]);
         showToast((res && res.warning) || "Image generation failed.");
       }
     } catch (e) {
+      failGenProgress([p.id]);
       showToast(e.message || "Image generation failed.");
     } finally {
       setImageBusy("");
@@ -1705,7 +2175,7 @@ export function SocialWorkspace({
     const split = wantsPerChannelDiff(text);
     const userTurn = { id: "im_" + Date.now(), who: "user", text };
     const nextChat = [...(p.imageChat || []), userTurn];
-    const seeded = { ...p, imageChat: nextChat, uniqueForChannel: p.uniqueForChannel || split, status: p.status === "posted" ? "posted" : "draft" };
+    const seeded = { ...p, imageChat: nextChat, uniqueForChannel: p.uniqueForChannel || split, status: keepEditableStatus(p.status) };
     setPosts((ps) => ps.map((row) => (row.id === p.id ? seeded : row)));
     await regenImage(seeded, text);
   };
@@ -1717,14 +2187,33 @@ export function SocialWorkspace({
     const split = wantsPerChannelDiff(text);
     const userTurn = { id: "cp_" + Date.now(), who: "user", text };
     const nextChat = [...(p.copyChat || []), userTurn];
-    const seeded = { ...p, copyChat: nextChat, uniqueForChannel: p.uniqueForChannel || split, status: p.status === "posted" ? "posted" : "draft" };
+    const seeded = { ...p, copyChat: nextChat, uniqueForChannel: p.uniqueForChannel || split, status: keepEditableStatus(p.status) };
     setCopyBusy(p.id);
     setPosts((ps) => ps.map((row) => (row.id === p.id ? seeded : row)));
     fillPackages([seeded], { skipImage: true, revisionNote: text, share: !split && !p.uniqueForChannel });
   };
 
   const revertTouched = (id, patch) => {
-    setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch, status: p.status === "posted" ? "posted" : "draft" } : p)));
+    setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch, status: keepEditableStatus(p.status) } : p)));
+  };
+
+  const updateSchedule = (id, { date, time }) => {
+    const nextDate = String(date || "").trim();
+    const nextTime = String(time || "09:00").trim() || "09:00";
+    if (!id || !nextDate) return;
+    setPosts((ps) => {
+      const row = ps.find((p) => p.id === id);
+      if (!row || row.status === "posted") return ps;
+      let status = keepEditableStatus(row.status);
+      if (status === "approved" || status === "scheduled") status = "scheduled";
+      const next = { ...row, date: nextDate, time: nextTime, status };
+      persistPost(next);
+      if (status === "scheduled") {
+        api.updatePostStatus(next.id, "scheduled", next.caption, next.imageUrl, next.imagePrompt).catch(() => null);
+      }
+      showToast("Schedule → " + dayLabel(nextDate) + " " + nextTime);
+      return ps.map((p) => (p.id === id ? next : p));
+    });
   };
 
   const approveOne = async (p, opts = {}) => {
@@ -2825,10 +3314,11 @@ export function SocialWorkspace({
                 setCopyNote={setCopyNote}
                 sendCopyChat={sendCopyChat}
                 fillPackages={fillPackages}
-                chatThisPost={chatThisPost}
                 approveOne={approveOne}
                 publishing={publishing}
                 revertTouched={revertTouched}
+                updateSchedule={updateSchedule}
+                genProgress={genProgress}
               />
             </div>
           </div>

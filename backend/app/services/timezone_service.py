@@ -93,13 +93,30 @@ def display_hhmm(hhmm: str) -> str:
 
 
 def _norm_hhmm(raw: Optional[str]) -> str:
-    t = (raw or "").strip().upper().replace(".", "")
-    for fmt in ("%H:%M", "%I:%M %p", "%I %p", "%H%M"):
+    t = (raw or "").strip()
+    if not t:
+        return "14:00"
+    if "T" in t:
         try:
-            return datetime.strptime(t, fmt).strftime("%H:%M")
+            return datetime.fromisoformat(t.replace("Z", "+00:00")).strftime("%H:%M")
+        except Exception:
+            m = re.search(r"T(\d{1,2}):(\d{2})", t)
+            if m:
+                hh, mm = int(m.group(1)), int(m.group(2))
+                if 0 <= hh <= 23 and 0 <= mm <= 59:
+                    return f"{hh:02d}:{mm:02d}"
+    u = t.upper().replace(".", "")
+    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M:%S %p", "%I:%M %p", "%I %p", "%H%M"):
+        try:
+            return datetime.strptime(u, fmt).strftime("%H:%M")
         except Exception:
             continue
-    return t[:5] if len(t) >= 5 else (t or "14:00")
+    m = re.search(r"(\d{1,2}):(\d{2})", t)
+    if m:
+        hh, mm = int(m.group(1)), int(m.group(2))
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return f"{hh:02d}:{mm:02d}"
+    return "14:00"
 
 
 def normalize_phone(raw: Optional[str]) -> str:

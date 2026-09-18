@@ -20,7 +20,23 @@ GENERIC_LABELS = {
     "the caller",
 }
 
-_SKIP_GREET = {"this", "there", "sam", "san", "everyone", "all", "hi", "hello", "hey", "valued"}
+_SKIP_GREET = {"this", "there", "sam", "san", "everyone", "all", "hi", "hello", "hey", "valued", "hi there"}
+
+NOT_A_NAME = {
+    "hi", "hello", "hey", "there", "hi there", "yes", "yeah", "yep", "speaking",
+    "please", "wait", "hold", "who", "what", "sorry", "pardon",
+}
+
+
+def greeting_first_name(raw: Optional[str]) -> str:
+    """First name for spoken greeting. Never 'Hi' / 'there' / fillers."""
+    full = clean_person_label(raw)
+    if not full:
+        return "there"
+    first = re.sub(r"\(.*?\)", "", full).strip().split()[0] if full else ""
+    if not first or first.lower() in NOT_A_NAME or first.lower() in _SKIP_GREET:
+        return "there"
+    return first
 
 
 def clean_person_label(raw: Optional[str]) -> str:
@@ -96,31 +112,28 @@ def resolve_call_people(
     existing_person: Optional[str] = None,
     existing_company: Optional[str] = None,
 ) -> Dict[str, str]:
+    """Dialed / form name wins. Transcript never renames a real dialed contact."""
     person = clean_person_label(existing_person)
     company = clean_person_label(existing_company)
+    live = clean_person_label(live_label)
 
     if prospect is not None:
         file_person = clean_person_label(getattr(prospect, "contact_person", None))
         file_company = clean_person_label(getattr(prospect, "name", None))
-        if file_person:
-            person = file_person
         if file_company and (not company or is_generic_label(company) or company.lower() == (person or "").lower()):
             if file_company.lower() != (person or "").lower():
                 company = file_company
-            elif not person:
+            elif not person and not live:
                 person = file_company
+        if file_person and not live and (not person or is_generic_label(person)):
+            person = file_person
 
-    live = clean_person_label(live_label)
+    # Name typed/passed when placing the call is source of truth.
     if live:
-        if not person:
-            person = live
-        elif not company and live.lower() != person.lower():
-            company = live
+        person = live
 
     spoken = name_from_transcript(transcript)
     if spoken and not person:
-        person = spoken
-    elif spoken and person and spoken.lower() not in person.lower() and is_generic_label(person):
         person = spoken
 
     display = person or company or spoken or "Unknown caller"

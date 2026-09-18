@@ -219,6 +219,20 @@ class SelectVoiceRequest(BaseModel):
     voice_id: str
     label: Optional[str] = None
     provider: Optional[str] = "xai"
+    accent: Optional[str] = None
+
+
+def _split_voice_choice(voice_id: str, accent: Optional[str] = None) -> tuple[str, str]:
+    vid = (voice_id or "rex").strip()
+    acc = (accent or "").strip().lower()
+    low = vid.lower()
+    if low in ("rex-uk", "rex_uk", "sam-uk", "sam_uk"):
+        return "rex", "british"
+    if acc in ("british", "uk", "en-gb"):
+        return vid, "british"
+    if low == "rex":
+        return "rex", acc or "neutral"
+    return vid, acc or "neutral"
 
 @router.get("/telephony-hub")
 async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
@@ -271,13 +285,18 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     configured_voice = settings.XAI_VOICE_NAME
     configured_silence = 380
     configured_temp = 0.80
+    configured_accent = "neutral"
     if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
         configured_voice = engine_conn.config.get("voice_name") or engine_conn.config.get("voice") or configured_voice
         configured_silence = engine_conn.config.get("silence_duration_ms", 380)
         configured_temp = engine_conn.config.get("temperature", 0.80)
+        configured_accent = engine_conn.config.get("accent") or "neutral"
         stored_custom = engine_conn.config.get("custom_voices") or []
     else:
         stored_custom = []
+    ui_voice = configured_voice
+    if str(configured_accent).lower() in ("british", "uk", "en-gb") and str(configured_voice or "").lower() == "rex":
+        ui_voice = "rex-uk"
 
     live_engine = "xai"
     live_note = ""
@@ -332,7 +351,9 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "llmModel": llm_model,
         "phoneNumber": active_phone,
         "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
-        "voiceName": configured_voice,
+        "voiceName": ui_voice,
+        "voiceEngineName": configured_voice,
+        "accent": configured_accent,
         "clonedVoiceLabel": (engine_conn.config.get("cloned_voice_label") if engine_conn and isinstance(engine_conn.config, dict) else None),
         "xaiCloneApiBlocked": bool((engine_conn.config or {}).get("xai_clone_api_blocked")) if engine_conn and isinstance(engine_conn.config, dict) else False,
         "customVoices": custom_voices,
@@ -483,14 +504,15 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
         stored_custom_voices,
         upsert_voice_list,
     )
-    vid = (req.voice_id or "").strip()
-    if not vid:
+    vid_raw = (req.voice_id or "").strip()
+    if not vid_raw:
         raise HTTPException(status_code=400, detail="voice_id is required.")
+    vid, accent = _split_voice_choice(vid_raw, req.accent)
     conn = await _orchestration_conn(db)
     voices = stored_custom_voices(conn)
     label = (req.label or "").strip()
-    builtins = {"ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage", "rachel", "adam", "sonic"}
-    if vid.lower() not in builtins:
+    builtins = {"ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage", "rachel", "adam", "sonic", "rex-uk"}
+    if vid.lower() not in builtins and vid_raw.lower() not in builtins:
         voices = upsert_voice_list(voices, {
             "voice_id": vid,
             "name": label or vid,
@@ -499,11 +521,12 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
     await save_orchestration_config(db, {
         "custom_voices": voices,
         "voice_name": vid,
-        "cloned_voice_id": vid if vid.lower() not in builtins else None,
+        "accent": accent,
+        "cloned_voice_id": vid if vid.lower() not in {"ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage"} else None,
         "cloned_voice_label": label or vid,
     })
     settings.XAI_VOICE_NAME = vid
-    return {"success": True, "voice_id": vid, "voices": voices, "message": f"Active voice set to {label or vid}."}
+    return {"success": True, "voice_id": vid, "accent": accent, "voices": voices, "message": f"Active voice set to {label or vid}."}
 
 
 @router.post("/telephony-hub/provision")

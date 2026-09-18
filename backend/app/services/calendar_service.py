@@ -4,6 +4,7 @@ import logging
 import uuid
 import asyncio
 import smtplib
+import ssl
 import zoneinfo
 import re
 from datetime import datetime, timedelta, timezone
@@ -12,7 +13,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from typing import Dict, Any, Optional, List, Tuple
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -104,13 +105,46 @@ def hours_for_day(setting, day_name: str) -> tuple:
 
 
 def _norm_time(raw: Optional[str]) -> str:
-    t = (raw or "").strip().upper().replace(".", "")
-    for fmt in ("%H:%M", "%I:%M %p", "%I %p", "%H%M"):
+    t = (raw or "").strip()
+    if not t:
+        return "14:00"
+    if "T" in t:
         try:
-            return datetime.strptime(t, fmt).strftime("%H:%M")
+            return datetime.fromisoformat(t.replace("Z", "+00:00")).strftime("%H:%M")
+        except Exception:
+            m = re.search(r"T(\d{1,2}):(\d{2})", t)
+            if m:
+                hh, mm = int(m.group(1)), int(m.group(2))
+                if 0 <= hh <= 23 and 0 <= mm <= 59:
+                    return f"{hh:02d}:{mm:02d}"
+    u = t.upper().replace(".", "")
+    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M:%S %p", "%I:%M %p", "%I %p", "%H%M"):
+        try:
+            return datetime.strptime(u, fmt).strftime("%H:%M")
         except Exception:
             continue
-    return t[:5] if len(t) >= 5 else (t or "14:00")
+    m = re.search(r"(\d{1,2}):(\d{2})", t)
+    if m:
+        hh, mm = int(m.group(1)), int(m.group(2))
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return f"{hh:02d}:{mm:02d}"
+    return "14:00"
+
+
+def _cal_slot_hhmm(raw: Any) -> str:
+    if isinstance(raw, dict):
+        raw = raw.get("time") or raw.get("start") or raw.get("slot") or ""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    parsed = _norm_time(s)
+    try:
+        hh, mm = map(int, parsed.split(":"))
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return f"{hh:02d}:{mm:02d}"
+    except Exception:
+        return ""
+    return ""
 
 
 def _ics_escape(value: str) -> str:
@@ -132,7 +166,38 @@ def _is_real_join_url(url: Optional[str]) -> bool:
     return True
 
 
-def _joinable_meeting_url(booking_uid: str, *candidates: Optional[str], brand_slug: str = "Meet") -> Tuple[str, str]:
+def _room_token(text: Optional[str], max_len: int = 24) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", str(text or ""))
+    if not words:
+        return ""
+    parts = [(w[:1].upper() + w[1:]) for w in words if w]
+    return "-".join(parts)[:max_len].strip("-")
+
+
+def _meeting_display_title(brand: str, prospect: str, topic: str) -> str:
+    brand_s = (brand or "Meeting").strip() or "Meeting"
+    who = (prospect or "Guest").strip() or "Guest"
+    topic_s = (topic or "Intro call").strip() or "Intro call"
+    return f"{brand_s} × {who} — {topic_s}"
+
+
+def _jitsi_url_with_title(room: str, title: str) -> str:
+    enc = quote(title or "Meeting", safe="")
+    clean_room = re.sub(r"[^A-Za-z0-9\-]", "", room or "Meeting")[:72] or "Meeting"
+    return (
+        f"https://meet.jit.si/{clean_room}"
+        f"#config.subject=%22{enc}%22&config.localSubject=%22{enc}%22"
+    )
+
+
+def _joinable_meeting_url(
+    booking_uid: str,
+    *candidates: Optional[str],
+    brand_slug: str = "Meet",
+    brand_name: str = "Meet",
+    prospect_name: str = "",
+    topic: str = "Intro call",
+) -> Tuple[str, str]:
     """Prefer a real Cal.com / configured room. Never invent a Google Meet code — those 404."""
     for raw in candidates:
         u = (raw or "").strip()
@@ -148,9 +213,13 @@ def _joinable_meeting_url(booking_uid: str, *candidates: Optional[str], brand_sl
         if "zoom.us" in low:
             return u, "Zoom"
         return u, "Video call"
-    room = re.sub(r"[^A-Za-z0-9]", "", booking_uid or uuid.uuid4().hex)[:18]
-    slug = re.sub(r"[^A-Za-z0-9]", "", brand_slug or "Meet")[:18] or "Meet"
-    return f"https://meet.jit.si/{slug}-{room}", "Video call"
+    brand_part = _room_token(brand_name or brand_slug, 16) or "Meet"
+    person_part = _room_token(prospect_name, 22) or "Guest"
+    topic_part = _room_token(topic, 18) or "Intro"
+    short = re.sub(r"[^A-Za-z0-9]", "", booking_uid or uuid.uuid4().hex)[-5:] or uuid.uuid4().hex[:5]
+    room = f"{brand_part}-with-{person_part}-{topic_part}-{short}"
+    title = _meeting_display_title(brand_name, prospect_name, topic)
+    return _jitsi_url_with_title(room, title), "Video call"
 
 
 def _pretty_datetime(date_iso: str, time_hhmm: str, tz_name: str) -> str:
@@ -556,8 +625,11 @@ class CalendarService:
         """
         setting = await self.get_or_create_settings(db)
         host_tz = setting.timezone or "Europe/London"
-        
-        # 1. Try Cal.com API if connected
+
+        native = await self._native_slots(db, setting, date_str, event_type_slug, host_tz)
+        cal_open: List[Dict[str, Any]] = []
+
+        # Cal.com if connected — parse ISO times properly. Sparse/garbled days fall back to native.
         if setting.api_key:
             try:
                 headers = {"Authorization": f"Bearer {setting.api_key}"}
@@ -569,14 +641,48 @@ class CalendarService:
                 async with httpx.AsyncClient(timeout=4.0) as client:
                     resp = await client.get(f"{setting.base_url.rstrip('/')}/slots", headers=headers, params=params)
                     if resp.status_code == 200:
-                        cal_slots = resp.json().get("slots", {})
-                        day_slots = cal_slots.get(date_str, [])
-                        if day_slots:
-                            return [{"time": s.get("time", "")[-14:-6] if len(s.get("time", "")) >= 14 else s.get("time", ""), "iso": s.get("time"), "available": True} for s in day_slots]
+                        payload = resp.json() if resp.content else {}
+                        cal_slots = payload.get("slots") or payload.get("data") or payload
+                        if isinstance(cal_slots, dict) and "slots" in cal_slots:
+                            cal_slots = cal_slots.get("slots")
+                        day_slots = []
+                        if isinstance(cal_slots, dict):
+                            day_slots = cal_slots.get(date_str) or cal_slots.get(date_str.replace("-", "/")) or []
+                        elif isinstance(cal_slots, list):
+                            day_slots = cal_slots
+                        parsed = []
+                        for s in day_slots or []:
+                            hhmm = _cal_slot_hhmm(s)
+                            if not hhmm:
+                                continue
+                            parsed.append({"time": hhmm, "iso": s.get("time") if isinstance(s, dict) else s, "available": True})
+                        cal_open = parsed
             except Exception as e:
                 logger.debug(f"Cal.com slot fetch failed, using native schedule generator: {e}")
 
-        # 2. Native Engine Slot Generation
+        native_open = [s for s in native if s.get("available")]
+        # Prefer host diary (native) whenever Cal.com is sparse or emptier — never starve the day to 1 junk slot.
+        if cal_open and len(cal_open) >= 4 and len(cal_open) >= len(native_open):
+            slots = cal_open
+        else:
+            if cal_open and len(cal_open) < 4:
+                logger.info(
+                    f"Cal.com returned {len(cal_open)} slot(s) for {date_str}; using native {len(native_open)} openings instead."
+                )
+            slots = native
+
+        if prospect_tz:
+            slots = decorate_slots(slots, date_str, host_tz, prospect_tz)
+        return slots
+
+    async def _native_slots(
+        self,
+        db: AsyncSession,
+        setting,
+        date_str: str,
+        event_type_slug: str,
+        host_tz: str,
+    ) -> List[Dict[str, Any]]:
         try:
             target_date = datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
@@ -587,13 +693,12 @@ class CalendarService:
         working_days = setting.working_days or ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
         if day_name not in working_days:
-            return []  # Weekend or non-working day
+            return []
 
         start_s, core_end, bookable_end, _flex = hours_for_day(setting, day_name)
         start_h, start_m = map(int, (start_s or "09:00").split(":"))
         end_h, end_m = map(int, (bookable_end or core_end or "17:30").split(":"))
 
-        # Find event type duration
         res = await db.execute(select(MeetingEventType).where(MeetingEventType.slug == event_type_slug))
         ev_type = res.scalars().first()
         duration_minutes = ev_type.length if ev_type else setting.default_duration or 15
@@ -612,22 +717,32 @@ class CalendarService:
             step_minutes = 30 if duration_minutes >= 30 else 15
         slots = []
 
+        lunch_start = str(getattr(setting, "lunch_start", None) or "12:00")
+        lunch_end = str(getattr(setting, "lunch_end", None) or "13:00")
+        try:
+            ls_h, ls_m = map(int, (lunch_start or "12:00").split(":")[:2])
+            le_h, le_m = map(int, (lunch_end or "13:00").split(":")[:2])
+            lunch_from = ls_h * 60 + ls_m
+            lunch_to = le_h * 60 + le_m
+        except Exception:
+            lunch_from, lunch_to = 12 * 60, 13 * 60
+
         host_now = now_in(host_tz)
         while current_dt + timedelta(minutes=duration_minutes) <= end_dt:
             time_str = current_dt.strftime("%H:%M")
+            mins = current_dt.hour * 60 + current_dt.minute
+            is_lunch = lunch_from <= mins < lunch_to
             is_past = current_dt <= host_now
             is_booked = time_str in booked_times
-
+            blocked = is_booked or is_past or is_lunch
             slots.append({
                 "time": time_str,
                 "displayTime": current_dt.strftime("%I:%M %p").lstrip("0"),
-                "available": not is_booked and not is_past,
-                "reason": "Already Booked" if is_booked else ("Past Time" if is_past else "Available")
+                "available": not blocked,
+                "reason": "Already Booked" if is_booked else ("Past Time" if is_past else ("Lunch" if is_lunch else "Available"))
             })
             current_dt += timedelta(minutes=step_minutes)
 
-        if prospect_tz:
-            slots = decorate_slots(slots, date_str, host_tz, prospect_tz)
         return slots
 
     async def get_week_availability(
@@ -818,8 +933,16 @@ class CalendarService:
                 logger.warning(f"Cal.com booking creation fallback: {e}")
 
         standing_room = (ev.location_value if ev else None) or None
+        event_title = (ev.title if ev else None) or "15 min discovery"
+        display_title = _meeting_display_title(brand["name"], prospect_name, event_title)
         join_url, platform_label = _joinable_meeting_url(
-            booking_uid, calcom_video, standing_room, brand_slug=brand["slug"]
+            booking_uid,
+            calcom_video,
+            standing_room,
+            brand_slug=brand["slug"],
+            brand_name=brand["name"],
+            prospect_name=prospect_name,
+            topic=event_title,
         )
         if (platform or "").lower() in ("google_meet", "google meet") and platform_label != "Google Meet":
             platform = platform_label
@@ -830,7 +953,7 @@ class CalendarService:
         meeting = Meeting(
             id=booking_uid,
             prospect=prospect_name,
-            mission=mission_name,
+            mission=display_title if (not mission_name or mission_name == "Direct Booking") else mission_name,
             date=date_str,
             time=time_str,
             host_timezone=stamp["host_timezone"],
@@ -853,7 +976,7 @@ class CalendarService:
             attendee_email=attendee_email,
             calcom_booking_id=calcom_booking_id or booking_uid,
             event_type_slug=event_type_slug,
-            prep=notes or f"Meeting booked via {provider.replace('_', ' ').title()}. Attendee: {attendee_email}",
+            prep=notes or f"{display_title}. Booked via {provider.replace('_', ' ').title()}. Attendee: {attendee_email}",
             created_at=datetime.utcnow()
         )
         db.add(meeting)
@@ -1107,9 +1230,13 @@ class CalendarService:
             dtend = (datetime.utcnow() + timedelta(minutes=15)).strftime("%Y%m%dT%H%M00Z")
             dtstamp = dtstart
 
-        summary = f"{company} × {meeting.prospect} — {meeting.duration or '15 min'}"
+        topic = (meeting.event_type_slug or "discovery").replace("-", " ").title()
+        summary = (meeting.mission or "").strip() or _meeting_display_title(
+            company, meeting.prospect or "Guest", meeting.duration or topic or "15 min"
+        )
         join = meeting.video_link or ""
         description = (
+            f"{summary}\n"
             f"Join: {join}\n"
             f"Platform: {meeting.platform or 'Video call'}\n"
             f"Host: {meeting.host} ({meeting.host_email or ''})\n"
@@ -1157,24 +1284,73 @@ class CalendarService:
         return data
 
     async def _primary_mail_account(self, db: AsyncSession):
-        from app.models.models import Connection
-        result = await db.execute(select(Connection).where(Connection.group_name == "Communication Accounts"))
-        rows = result.scalars().all()
-        connected = [c for c in rows if c.status == "connected" and (c.config or {}).get("email") and (c.config or {}).get("smtp_password")]
-        if not connected:
-            return None
-        primary = [c for c in connected if (c.config or {}).get("is_primary")]
-        return primary[0] if primary else connected[0]
+        ready = await self._mail_accounts_ready(db)
+        return ready[0] if ready else None
 
     def _smtp_send_sync(self, host, port, use_tls, username, password, from_addr, to_addrs, msg_bytes) -> None:
         port = int(port or 587)
+        ctx = ssl.create_default_context()
+        # one.com / many hosts use 465 implicit SSL — STARTTLS on 465 fails.
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=20, context=ctx) as smtp:
+                smtp.login(username, password)
+                smtp.sendmail(from_addr, to_addrs, msg_bytes)
+            return
         with smtplib.SMTP(host, port, timeout=20) as smtp:
             smtp.ehlo()
-            if use_tls:
-                smtp.starttls()
+            if use_tls is not False:
+                smtp.starttls(context=ctx)
                 smtp.ehlo()
             smtp.login(username, password)
             smtp.sendmail(from_addr, to_addrs, msg_bytes)
+
+    def _smtp_host_for(self, cfg: Dict[str, Any], from_addr: str = "") -> str:
+        host = str(cfg.get("host") or "").strip()
+        if host:
+            return host
+        provider = str(cfg.get("provider") or "").lower()
+        if provider in ("google", "gmail"):
+            return "smtp.gmail.com"
+        if provider in ("outlook", "microsoft", "office365"):
+            return "smtp.office365.com"
+        domain = (from_addr or "").split("@")[-1].lower()
+        if domain in ("one.com",) or domain.endswith(".one"):
+            return "send.one.com"
+        # Custom domains on one.com still need host saved — common default:
+        if provider in ("smtp", "custom", "one.com"):
+            return "send.one.com"
+        return ""
+
+    async def _mail_accounts_ready(self, db: AsyncSession) -> List[Any]:
+        from app.models.models import Connection
+        result = await db.execute(select(Connection).where(Connection.group_name == "Communication Accounts"))
+        rows = list(result.scalars().all())
+
+        def _pw(c) -> str:
+            cfg = c.config or {}
+            for k in ("smtp_password", "app_password", "password", "auth_password"):
+                v = str(cfg.get(k) or "").strip()
+                if v:
+                    return v
+            return ""
+
+        ready = [c for c in rows if (c.config or {}).get("email") and _pw(c)]
+        if not ready:
+            return []
+        primary = [c for c in ready if (c.config or {}).get("is_primary")]
+        smtpish = [
+            c for c in ready
+            if str((c.config or {}).get("provider") or "").lower() in ("smtp", "custom", "one.com")
+            or "one.com" in str((c.config or {}).get("host") or "").lower()
+            or "send.one.com" in str((c.config or {}).get("host") or "").lower()
+        ]
+        # Prefer primary, then custom/one.com (user's working path), then any with password.
+        ordered: List[Any] = []
+        for bucket in (primary, smtpish, ready):
+            for c in bucket:
+                if c not in ordered:
+                    ordered.append(c)
+        return ordered
 
     async def send_outbound_email(
         self,
@@ -1185,48 +1361,73 @@ class CalendarService:
         text_body: Optional[str] = None,
         ics_text: Optional[str] = None,
     ) -> Dict[str, Any]:
-        acc = await self._primary_mail_account(db)
-        if not acc:
-            return {"ok": False, "error": "No Gmail/SMTP account with an app password. Connect it in Communication Accounts."}
-        cfg = acc.config or {}
-        from_addr = cfg.get("email")
-        password = cfg.get("smtp_password")
-        host = cfg.get("host") or ("smtp.gmail.com" if cfg.get("provider") == "google" else "smtp.office365.com")
-        port = int(cfg.get("port") or 587)
-        use_tls = cfg.get("use_tls", True)
-        sender_name = cfg.get("sender_name")
-        if not sender_name:
-            brand = await self._company_brand(db)
-            sender_name = brand.get("name") or from_addr
-        if not from_addr or not password:
-            return {"ok": False, "error": "Gmail connected but app password missing."}
+        accounts = await self._mail_accounts_ready(db)
+        if not accounts:
+            return {
+                "ok": False,
+                "error": "No mail account with SMTP password. Open Communication Accounts and re-save your custom/one.com or Gmail account with the password.",
+            }
+        brand = await self._company_brand(db)
+        last_err = "SMTP send failed"
+        for acc in accounts:
+            cfg = acc.config or {}
+            from_addr = (cfg.get("email") or "").strip()
+            password = ""
+            for k in ("smtp_password", "app_password", "password", "auth_password"):
+                password = str(cfg.get(k) or "").strip()
+                if password:
+                    break
+            if not from_addr or not password:
+                continue
+            host = self._smtp_host_for(cfg, from_addr)
+            if not host:
+                last_err = f"Mail account {from_addr} has no SMTP host. Re-save Custom SMTP with host (e.g. send.one.com)."
+                continue
+            port = int(cfg.get("port") or (465 if "one.com" in host.lower() else 587))
+            use_tls = cfg.get("use_tls", True)
+            if port == 465:
+                use_tls = False
+            sender_name = cfg.get("sender_name") or brand.get("name") or from_addr
 
-        msg = MIMEMultipart("mixed")
-        msg["Subject"] = subject
-        msg["From"] = f"{sender_name} <{from_addr}>"
-        msg["To"] = to_email
-        alt = MIMEMultipart("alternative")
-        alt.attach(MIMEText(text_body or html_lib.unescape(re.sub(r"<[^>]+>", " ", html_body)), "plain", "utf-8"))
-        alt.attach(MIMEText(html_body, "html", "utf-8"))
-        msg.attach(alt)
-        if ics_text:
-            part = MIMEBase("text", "calendar", method="REQUEST")
-            part.set_payload(ics_text)
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", "attachment", filename="invite.ics")
-            msg.add_header("Content-Class", "urn:content-classes:calendarmessage")
-            msg.attach(part)
+            msg = MIMEMultipart("mixed")
+            msg["Subject"] = subject
+            msg["From"] = f"{sender_name} <{from_addr}>"
+            msg["To"] = to_email
+            alt = MIMEMultipart("alternative")
+            alt.attach(MIMEText(text_body or html_lib.unescape(re.sub(r"<[^>]+>", " ", html_body)), "plain", "utf-8"))
+            alt.attach(MIMEText(html_body, "html", "utf-8"))
+            msg.attach(alt)
+            if ics_text:
+                part = MIMEBase("text", "calendar", method="REQUEST")
+                part.set_payload(ics_text)
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment", filename="invite.ics")
+                msg.add_header("Content-Class", "urn:content-classes:calendarmessage")
+                msg.attach(part)
 
-        try:
-            await asyncio.to_thread(
-                self._smtp_send_sync,
-                host, port, use_tls, from_addr, password, from_addr, [to_email], msg.as_string(),
-            )
-            return {"ok": True, "from": from_addr, "to": to_email}
-        except Exception as err:
-            logger.warning(f"SMTP send failed: {err}")
-            return {"ok": False, "error": str(err)[:300]}
-
+            try:
+                await asyncio.to_thread(
+                    self._smtp_send_sync,
+                    host, port, use_tls, from_addr, password, from_addr, [to_email], msg.as_string(),
+                )
+                return {"ok": True, "from": from_addr, "to": to_email, "host": host}
+            except Exception as err:
+                logger.warning(f"SMTP send via {from_addr}@{host}:{port} failed: {err}")
+                last_err = str(err)[:300]
+                try:
+                    await asyncio.sleep(0.4)
+                    # one.com often wants 465 if 587 failed (or reverse)
+                    alt_port = 587 if int(port) == 465 else 465
+                    await asyncio.to_thread(
+                        self._smtp_send_sync,
+                        host, alt_port, alt_port != 465, from_addr, password, from_addr, [to_email], msg.as_string(),
+                    )
+                    return {"ok": True, "from": from_addr, "to": to_email, "host": host, "port": alt_port, "retried": True}
+                except Exception as err2:
+                    logger.warning(f"SMTP retry via {from_addr} failed: {err2}")
+                    last_err = str(err2)[:300]
+                    continue
+        return {"ok": False, "error": last_err}
     async def send_booking_emails(self, db: AsyncSession, meeting: Meeting, video_link: str) -> Dict[str, Any]:
         setting = await self.get_or_create_settings(db)
         brand = await self._company_brand(db)
@@ -1244,7 +1445,9 @@ class CalendarService:
         first = (meeting.prospect or "there").strip().split()[0]
         plat = meeting.platform or "Video call"
         dur = meeting.duration or "15 min"
-        subject = f"Confirmed: {company} — {attendee_when}"
+        subject = (meeting.mission or "").strip() or f"Confirmed: {company} — {attendee_when}"
+        if not subject.lower().startswith("confirmed"):
+            subject = f"Confirmed: {subject}"
         html = _booking_email_html(
             greeting_name=first,
             host_name=host_name,
@@ -1420,10 +1623,13 @@ class CalendarService:
         cfg = account_data.get("config", {})
         if "provider" not in cfg:
             cfg["provider"] = provider
+        prev_pw = (conn.config or {}).get("smtp_password") if conn and isinstance(conn.config, dict) else None
         if account_data.get("password"):
             cfg["smtp_password"] = account_data.get("password")
         if account_data.get("apiKey") and not cfg.get("smtp_password"):
             cfg["smtp_password"] = account_data.get("apiKey")
+        if not cfg.get("smtp_password") and prev_pw:
+            cfg["smtp_password"] = prev_pw
         if "connected_at" not in cfg or not cfg["connected_at"]:
             cfg["connected_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
 
@@ -1455,7 +1661,10 @@ class CalendarService:
             if account_data.get("password") or account_data.get("apiKey"):
                 conn.api_key_masked = "••••••••"
             merged_cfg = dict(conn.config or {})
+            incoming_pw = cfg.get("smtp_password")
             merged_cfg.update(cfg)
+            if not merged_cfg.get("smtp_password") and (incoming_pw or prev_pw):
+                merged_cfg["smtp_password"] = incoming_pw or prev_pw
             conn.config = merged_cfg
 
         # Also sync host_email in CalcomSetting if this account is primary or host
@@ -1518,28 +1727,45 @@ class CalendarService:
         email = (cfg.get("email") or "").strip()
         password = (cfg.get("smtp_password") or "").strip()
         provider = cfg.get("provider") or "google"
-        host = cfg.get("host") or ("smtp.gmail.com" if provider == "google" else "smtp.office365.com" if provider == "outlook" else "smtp.gmail.com")
-        port = int(cfg.get("port") or 587)
+        host = self._smtp_host_for(cfg, email) or (
+            "smtp.gmail.com" if provider == "google" else "smtp.office365.com" if provider == "outlook" else ""
+        )
+        port = int(cfg.get("port") or (465 if "one.com" in (host or "").lower() else 587))
         use_tls = cfg.get("use_tls", True)
+        if port == 465:
+            use_tls = False
 
         if not email:
             return {"success": False, "error": "Email address is required."}
         if not password:
             return {
                 "success": False,
-                "error": "Gmail needs a 16-character App Password (Google Account → Security → 2-Step Verification → App passwords). Normal Gmail password will fail.",
+                "error": "SMTP password missing. For Gmail use a 16-character App Password. For one.com / custom SMTP paste the mailbox password and set host (send.one.com) + port (465 or 587).",
+            }
+        if not host:
+            return {
+                "success": False,
+                "error": "SMTP host missing. For one.com use send.one.com (port 465 SSL or 587 STARTTLS).",
             }
 
         start = datetime.utcnow()
         try:
             def _login():
-                with smtplib.SMTP(host, port, timeout=18) as smtp:
-                    smtp.ehlo()
-                    if use_tls:
-                        smtp.starttls()
+                self._smtp_send_sync(host, port, use_tls, email, password, email, [email], b"")
+            # login-only probe without sendmail empty — use raw connect
+            def _login_only():
+                ctx = ssl.create_default_context()
+                if port == 465:
+                    with smtplib.SMTP_SSL(host, port, timeout=18, context=ctx) as smtp:
+                        smtp.login(email, password)
+                else:
+                    with smtplib.SMTP(host, port, timeout=18) as smtp:
                         smtp.ehlo()
-                    smtp.login(email, password)
-            await asyncio.to_thread(_login)
+                        if use_tls is not False:
+                            smtp.starttls(context=ctx)
+                            smtp.ehlo()
+                        smtp.login(email, password)
+            await asyncio.to_thread(_login_only)
             latency = int((datetime.utcnow() - start).total_seconds() * 1000)
             conn.status = "connected"
             await db.commit()
@@ -1554,11 +1780,46 @@ class CalendarService:
                 "message": f"SMTP login OK for {email} via {host}:{port}. Ready to send meeting invites.",
             }
         except Exception as err:
+            # Try alternate port once (587 <-> 465) — common one.com mismatch
+            try:
+                alt_port = 587 if port == 465 else 465
+                def _login_alt():
+                    ctx = ssl.create_default_context()
+                    if alt_port == 465:
+                        with smtplib.SMTP_SSL(host, alt_port, timeout=18, context=ctx) as smtp:
+                            smtp.login(email, password)
+                    else:
+                        with smtplib.SMTP(host, alt_port, timeout=18) as smtp:
+                            smtp.ehlo()
+                            smtp.starttls(context=ctx)
+                            smtp.ehlo()
+                            smtp.login(email, password)
+                await asyncio.to_thread(_login_alt)
+                cfg["port"] = alt_port
+                conn.config = dict(cfg)
+                conn.status = "connected"
+                await db.commit()
+                latency = int((datetime.utcnow() - start).total_seconds() * 1000)
+                return {
+                    "success": True,
+                    "accountId": account_id,
+                    "provider": provider,
+                    "email": email,
+                    "latencyMs": latency,
+                    "calendarSync": cfg.get("sync_calendar", True),
+                    "outboundEmail": cfg.get("send_invites", True),
+                    "message": f"SMTP login OK for {email} via {host}:{alt_port} (auto-switched port). Ready to send meeting invites.",
+                }
+            except Exception:
+                pass
             conn.status = "error"
             await db.commit()
             hint = str(err)
             if "Application-specific password" in hint or "Username and Password not accepted" in hint or "535" in hint:
-                hint = "Gmail rejected the password. Turn on 2-Step Verification, create an App Password, paste that 16-character code (not your normal Gmail password)."
+                if provider in ("google", "gmail"):
+                    hint = "Gmail rejected the password. Turn on 2-Step Verification, create an App Password, paste that 16-character code (not your normal Gmail password)."
+                else:
+                    hint = f"SMTP auth failed for {email} via {host}:{port}. Check password and that host/port match your provider (one.com: send.one.com, 465 or 587)."
             return {"success": False, "error": hint[:400], "email": email, "provider": provider}
 
 

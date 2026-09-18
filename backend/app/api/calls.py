@@ -377,6 +377,8 @@ class BatchDialRequest(BaseModel):
     timezone: Optional[str] = "Europe/London"
     lunch_start: Optional[str] = "12:00"
     lunch_end: Optional[str] = "13:00"
+    account_sid: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 @router.get("/outbound/carriers")
@@ -736,6 +738,8 @@ async def dial_outbound_batch(req: BatchDialRequest, db: AsyncSession = Depends(
             lunch_start=req.lunch_start or "12:00",
             lunch_end=req.lunch_end or "13:00",
             source="manual",
+            account_sid=req.account_sid,
+            api_key=req.api_key,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

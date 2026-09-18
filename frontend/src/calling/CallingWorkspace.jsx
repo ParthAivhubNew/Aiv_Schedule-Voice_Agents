@@ -15,6 +15,7 @@ import {
   PhoneOff,
   Plug,
   Radio,
+  Search,
   Send,
   Sparkles,
   Upload,
@@ -27,6 +28,10 @@ import {
   Check,
   X,
   Users,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
+  Bookmark,
 } from "lucide-react";
 import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
@@ -59,6 +64,7 @@ const LS_CHAT = "aivhub_calling_v1_chat";
 const LS_THREADS = "aivhub_calling_v1_threads";
 const LS_LISTS = "aivhub_calling_saved_lists";
 const LS_NOTES = "aivhub_calling_v1_notes";
+const LS_CONTACTS = "aivhub_calling_saved_contacts";
 const WELCOME = {
   id: "c0",
   who: "ai",
@@ -91,6 +97,34 @@ function writeJson(key, val) {
 
 function digitsInPhone(raw) {
   return String(raw || "").replace(/\D/g, "");
+}
+
+function intlDigits(raw) {
+  let d = digitsInPhone(raw);
+  if (!d) return "";
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.length === 11 && d.startsWith("0")) d = "44" + d.slice(1);
+  else if (d.length === 10 && d.startsWith("7")) d = "44" + d;
+  return d;
+}
+
+function outreachMessage(name, company, caller) {
+  const first = String(name || "").trim().split(/\s+/)[0] || "there";
+  const who = caller || company || "our team";
+  const brand = company || "AIVHub";
+  return `Hi ${first}, this is ${who} from ${brand}. Just reaching out — happy to chat when you have a moment.`;
+}
+
+function smsHref(phone, body) {
+  const d = intlDigits(phone);
+  if (!d) return "";
+  return `sms:+${d}?body=${encodeURIComponent(body || "")}`;
+}
+
+function waHref(phone, body) {
+  const d = intlDigits(phone);
+  if (!d) return "";
+  return `https://wa.me/${d}?text=${encodeURIComponent(body || "")}`;
 }
 
 function looksLikeUrl(v) {
@@ -387,6 +421,46 @@ const iconMini = {
   opacity: 0.75,
 };
 
+function miniAct() {
+  return {
+    height: 28,
+    padding: "0 8px",
+    borderRadius: 7,
+    border: `1px solid ${C.border}`,
+    background: "#fff",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    color: C.textInk,
+    whiteSpace: "nowrap",
+  };
+}
+
+function savedTwilioCreds() {
+  try {
+    const sid = (localStorage.getItem("aivhub_twilio_sid") || "").trim();
+    const token = (localStorage.getItem("aivhub_twilio_token") || "").trim();
+    return {
+      account_sid: sid.startsWith("AC") && sid.length === 34 ? sid : undefined,
+      api_key: token.length === 32 ? token : undefined,
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
+function voiceSelectLabel(id) {
+  if (id === "rex-uk") return "Rex UK — Sam (British, male)";
+  if (id === "rex") return "Rex — Sam (male)";
+  if (id === "leo") return "Leo (male)";
+  if (id === "ara") return "Ara (female)";
+  if (id === "eve") return "Eve (female)";
+  return id;
+}
+
 export function CallingWorkspace({
   operator,
   onBackToHub,
@@ -426,12 +500,17 @@ export function CallingWorkspace({
   const [voiceName, setVoiceName] = useState("rex");
   const [direct, setDirect] = useState({ phone: "", name: "" });
   const [openBooked, setOpenBooked] = useState("");
+  const [logQuery, setLogQuery] = useState("");
+  const [logOutcome, setLogOutcome] = useState("all");
+  const [openLogId, setOpenLogId] = useState("");
   const [chat, setChat] = useState(() => {
     const saved = readJson(LS_CHAT, null);
     return cleanChat(saved);
   });
   const [threads, setThreads] = useState(() => readJson(LS_THREADS, []) || []);
   const [savedLists, setSavedLists] = useState(() => readJson(LS_LISTS, []) || []);
+  const [savedContacts, setSavedContacts] = useState(() => readJson(LS_CONTACTS, []) || []);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [histOpen, setHistOpen] = useState(false);
   const [hoverMsg, setHoverMsg] = useState("");
   const [editingId, setEditingId] = useState("");
@@ -500,9 +579,23 @@ export function CallingWorkspace({
 
   useEffect(() => {
     api.getTelephonyHub().then((res) => {
-      const vid = res?.voice?.voice_id;
+      const vid = res?.voiceName || res?.voice?.voice_id;
       if (vid) setVoiceName(vid);
+      const phone = (res?.phoneNumber || "").trim();
+      if (phone && setProfile) {
+        setProfile((p) => (p && p.callerId ? p : { ...(p || {}), callerId: phone }));
+      }
     }).catch(() => {});
+    // Push browser Twilio vault → server Connections so classic + new share one source of truth.
+    const tw = savedTwilioCreds();
+    if (tw.account_sid && tw.api_key) {
+      api.testAndSaveConnection({
+        layer: "Telephony",
+        provider: "Twilio",
+        api_key: tw.api_key,
+        account_sid: tw.account_sid,
+      }).catch(() => {});
+    }
     api.getNotifications().then((n) => {
       if (!Array.isArray(n) || !n.length) return;
       setNotifications((prev) => {
@@ -566,7 +659,7 @@ export function CallingWorkspace({
     const t = window.setInterval(() => {
       refreshLive();
       refreshMeetings();
-      if (page === "logs") refreshLogs();
+      refreshLogs();
       if (page === "schedule") refreshSchedule();
     }, 4000);
     return () => window.clearInterval(t);
@@ -621,6 +714,7 @@ export function CallingWorkspace({
   useEffect(() => { writeJson(LS_CHAT, chat); }, [chat]);
   useEffect(() => { writeJson(LS_THREADS, threads); }, [threads]);
   useEffect(() => { writeJson(LS_LISTS, savedLists); }, [savedLists]);
+  useEffect(() => { writeJson(LS_CONTACTS, savedContacts); }, [savedContacts]);
   useEffect(() => { writeJson(LS_NOTES, notifications); }, [notifications]);
 
   const abortFind = (hard) => {
@@ -673,12 +767,134 @@ export function CallingWorkspace({
     showToast(`Saved ${rows.length} rows with call marks.`);
   };
 
+  const upsertSavedContact = (entry) => {
+    const phone = String(entry.phone || "").trim();
+    const dig = digitsInPhone(phone);
+    if (dig.length < 7) {
+      showToast("Need a real phone to save.");
+      return false;
+    }
+    const next = {
+      id: entry.id || ("sc_" + Date.now() + "_" + dig.slice(-4)),
+      phone,
+      name: String(entry.name || entry.contact || "").trim(),
+      company: String(entry.company || "").trim(),
+      email: String(entry.email || "").trim(),
+      savedAt: new Date().toISOString(),
+      source: entry.source || "manual",
+    };
+    setSavedContacts((prev) => {
+      const without = (prev || []).filter((c) => digitsInPhone(c.phone) !== dig);
+      return [next, ...without].slice(0, 200);
+    });
+    return true;
+  };
+
+  const saveDirectContact = () => {
+    if (!upsertSavedContact({
+      phone: direct.phone,
+      name: direct.name,
+      source: "direct",
+    })) return;
+    showToast(`Saved ${direct.name.trim() || direct.phone.trim()}`);
+  };
+
+  const saveSelectedContacts = () => {
+    const picks = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(r.phone).length >= 7);
+    if (!picks.length) {
+      showToast("Select rows with a phone first.");
+      return;
+    }
+    picks.forEach((r) => upsertSavedContact({
+      phone: r.phone,
+      name: r.contact || r.name || "",
+      company: r.company || "",
+      email: r.email || "",
+      source: "list",
+    }));
+    showToast(`Saved ${picks.length} contact${picks.length === 1 ? "" : "s"}.`);
+  };
+
+  const removeSavedContact = (id) => {
+    setSavedContacts((prev) => (prev || []).filter((c) => c.id !== id));
+  };
+
+  const loadSavedContact = (c) => {
+    setDirect({ phone: c.phone || "", name: c.name || c.company || "" });
+    showToast("Loaded into Call anyone.");
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllDialable = () => {
+    setSelectedIds(new Set(rows.filter((r) => digitsInPhone(r.phone).length >= 7).map((r) => r.id)));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const brandForMsg = () => (profile && (profile.name || profile.company)) || "AIVHub";
+  const callerForMsg = () => (profile && profile.callerName) || "";
+
+  const openChannel = (kind, phone, name, company) => {
+    const dig = digitsInPhone(phone);
+    if (dig.length < 7) {
+      showToast("No usable phone on this row.");
+      return;
+    }
+    const body = outreachMessage(name, company || brandForMsg(), callerForMsg());
+    if (kind === "sms") {
+      const href = smsHref(phone, body);
+      if (href) window.open(href, "_blank");
+      return;
+    }
+    if (kind === "whatsapp") {
+      const href = waHref(phone, body);
+      if (href) window.open(href, "_blank");
+      return;
+    }
+  };
+
+  const callOneRow = async (r) => {
+    const phone = String((r && r.phone) || "").trim();
+    if (digitsInPhone(phone).length < 7) {
+      showToast("No dialable phone.");
+      return;
+    }
+    setBusy("direct");
+    try {
+      await api.dialOutbound({
+        to_number: phone,
+        from_number: (profile && profile.callerId) || undefined,
+        prospect_name: (r.contact || r.name || "").trim() || undefined,
+        mission_title: (r.contact || r.company || r.name)
+          ? `Direct — ${r.contact || r.company || r.name}`
+          : "Direct Client Outreach",
+        ...savedTwilioCreds(),
+      });
+      pushNote(`Outbound to ${phone}`, "success");
+      setPage("live");
+      await refreshLive();
+    } catch (e) {
+      showToast(e.message || "Direct dial failed");
+    } finally {
+      setBusy("");
+    }
+  };
+
   const loadList = (id) => {
     const item = savedLists.find((s) => s.id === id);
     if (!item) return;
     setFileName(item.name);
     setHeaders(item.headers || []);
     setRows(item.rows || []);
+    setSelectedIds(new Set());
     showToast("Loaded " + item.name);
   };
 
@@ -712,7 +928,8 @@ export function CallingWorkspace({
         setFileName(file.name);
         setHeaders(hs);
         setRows((records || []).map((rec, i) => rowFromRecord(hs, rec, i)));
-        showToast(`${records.length} rows from file. Empty extra columns stay blank until Find missing.`);
+        setSelectedIds(new Set());
+        showToast(`${records.length} rows from file. Tick who to call, or call all with phones.`);
       },
       (err) => showToast(err)
     );
@@ -873,24 +1090,26 @@ export function CallingWorkspace({
     sendChat(null, { text, replaceFromId: m.who === "user" ? m.id : undefined });
   };
 
-  const startCalls = async () => {
-    const prospects = rows
-      .filter((r) => digitsInPhone(r.phone).length >= 7)
-      .map((r) => ({
-        to_number: r.phone,
-        phone: r.phone,
-        prospect_name: r.contact || "",
-        name: r.company || r.name,
-        contact: r.contact || "",
-        company: r.company || "",
-        website: r.website || "",
-      }));
+  const startCalls = async (onlySelected = false) => {
+    const pool = onlySelected
+      ? rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(r.phone).length >= 7)
+      : rows.filter((r) => digitsInPhone(r.phone).length >= 7);
+    const prospects = pool.map((r) => ({
+      to_number: r.phone,
+      phone: r.phone,
+      prospect_name: r.contact || "",
+      name: r.company || r.name,
+      contact: r.contact || "",
+      company: r.company || "",
+      website: r.website || "",
+    }));
     if (!prospects.length) {
-      showToast("No dialable phone numbers on this list.");
+      showToast(onlySelected ? "Select contacts with a phone first." : "No dialable phone numbers on this list.");
       return;
     }
     const cap = Math.max(1, Math.min(Number(concurrency) || 1, 5));
-    if (!window.confirm(`Call ${prospects.length} contact${prospects.length === 1 ? "" : "s"} that already have a phone? Concurrent lines = ${cap} (not ${prospects.length}). Extra numbers wait for a free line.`)) {
+    const label = onlySelected ? "selected" : "with a phone";
+    if (!window.confirm(`Call ${prospects.length} ${label}? Concurrent lines = ${cap} (max). Extra numbers queue until a line frees.`)) {
       return;
     }
     setBusy("dial");
@@ -901,8 +1120,9 @@ export function CallingWorkspace({
         mission_title: fileName ? `List — ${fileName}` : `Outbound list — ${prospects.length} contacts`,
         from_number: (profile && profile.callerId) || undefined,
         timezone: (profile && profile.timezone) || "Europe/London",
+        ...savedTwilioCreds(),
       });
-      showToast(res.message || `Live outbound started for ${res.total} contacts.`);
+      showToast(res.message || `Live outbound started for ${res.total} contacts (cap ${cap}).`);
       setPage("live");
       await refreshLive();
     } catch (e) {
@@ -925,6 +1145,7 @@ export function CallingWorkspace({
         from_number: (profile && profile.callerId) || undefined,
         prospect_name: direct.name.trim() || undefined,
         mission_title: direct.name.trim() ? `Direct — ${direct.name.trim()}` : "Direct Client Outreach",
+        ...savedTwilioCreds(),
       });
       pushNote(`Outbound to ${phone}`, "success");
       setPage("live");
@@ -1023,7 +1244,12 @@ export function CallingWorkspace({
         await api.updateProfile(next);
         if (setProfile) setProfile(next);
       }
-      await api.selectVoice({ voice_id: voiceName, label: voiceName === "rex" ? "Rex (Sam / male)" : voiceName, provider: "xai" });
+      await api.selectVoice({
+        voice_id: voiceName,
+        label: voiceSelectLabel(voiceName),
+        provider: "xai",
+        accent: voiceName === "rex-uk" ? "british" : undefined,
+      });
       showToast(companyPanel ? "Voice saved." : "Setup saved.");
     } catch (e) {
       showToast(e.message || "Save failed");
@@ -1034,13 +1260,25 @@ export function CallingWorkspace({
 
   const activeLive = liveCalls.filter(liveActive);
   const dialable = rows.filter((r) => digitsInPhone(r.phone).length >= 7).length;
+  const selectedDialable = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(r.phone).length >= 7).length;
+  const allDialableSelected = dialable > 0 && selectedDialable === dialable;
+  const filteredLogs = useMemo(() => {
+    const q = logQuery.trim().toLowerCase();
+    return (logs || []).filter((l) => {
+      const outcome = String(l.outcome || "").toLowerCase();
+      if (logOutcome !== "all" && outcome !== logOutcome) return false;
+      if (!q) return true;
+      const blob = `${logDisplayName(l)} ${l.canonicalName || ""} ${l.personListedAs || ""} ${l.mission || ""} ${l.outcome || ""}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [logs, logQuery, logOutcome]);
   const titles = {
-    list: ["Today's list", "Upload, chat, or dial one number. Find missing uses the same search AI as classic."],
+    list: ["Today's list", "Upload Excel, tick who to call (or call all). Concurrent 1–5. Call / Text / WhatsApp per number. Save contacts anytime."],
     live: ["Live calls", "Listen, take over, book from their words, or end. Transcript stays on the card."],
     booked: ["Booked", "Where, what kind, join URL. Bell fires when added and when time hits."],
-    logs: ["Call logs", "Saved when a call ends or a meeting books. Same backend as classic."],
+    logs: ["Call logs", "Name from dial form. Search, filter, expand transcript."],
     schedule: ["Schedule", "Park a call, video meeting, or WhatsApp confirm. Click a row to open it."],
-    ai: ["AI config", "Same Connections & Providers as classic. Live engine, models, and keys load from the server."],
+    ai: ["AI config", "Voice stack, keys, models. Same live engine the calls use."],
     company: ["Company profile", "Identity, knowledge, services, FAQ. Same record classic uses on calls."],
   };
 
@@ -1139,13 +1377,58 @@ export function CallingWorkspace({
               <div style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
                 <div style={{ ...card(), marginBottom: 12, flexShrink: 0 }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>Call anyone</div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <input value={direct.phone} onChange={(e) => setDirect((d) => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ ...fieldStyle(), flex: 1, minWidth: 160 }} />
-                    <input value={direct.name} onChange={(e) => setDirect((d) => ({ ...d, name: e.target.value }))} placeholder="Name (optional)" style={{ ...fieldStyle(), flex: 1, minWidth: 140 }} />
-                    <button type="button" disabled={busy === "direct"} onClick={directCall} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: C.gradientTeal, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
-                      {busy === "direct" ? "Calling…" : "Call now"}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <input value={direct.phone} onChange={(e) => setDirect((d) => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ ...fieldStyle(), flex: 1, minWidth: 140 }} />
+                    <input value={direct.name} onChange={(e) => setDirect((d) => ({ ...d, name: e.target.value }))} placeholder="Name (optional)" style={{ ...fieldStyle(), flex: 1, minWidth: 120 }} />
+                    <button type="button" disabled={busy === "direct"} onClick={directCall} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: "none", background: C.gradientTeal, color: "#fff", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <Phone size={14} /> {busy === "direct" ? "Calling…" : "Call"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={digitsInPhone(direct.phone).length < 7}
+                      onClick={() => openChannel("sms", direct.phone, direct.name, brandForMsg())}
+                      style={{ height: 40, padding: "0 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: digitsInPhone(direct.phone).length >= 7 ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, opacity: digitsInPhone(direct.phone).length >= 7 ? 1 : 0.45 }}
+                    >
+                      <MessageSquare size={14} /> Text
+                    </button>
+                    <button
+                      type="button"
+                      disabled={digitsInPhone(direct.phone).length < 7}
+                      onClick={() => openChannel("whatsapp", direct.phone, direct.name, brandForMsg())}
+                      style={{ height: 40, padding: "0 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: digitsInPhone(direct.phone).length >= 7 ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, opacity: digitsInPhone(direct.phone).length >= 7 ? 1 : 0.45 }}
+                    >
+                      WhatsApp
+                    </button>
+                    <button
+                      type="button"
+                      disabled={digitsInPhone(direct.phone).length < 7}
+                      onClick={saveDirectContact}
+                      style={{ height: 40, padding: "0 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: digitsInPhone(direct.phone).length >= 7 ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, opacity: digitsInPhone(direct.phone).length >= 7 ? 1 : 0.45 }}
+                    >
+                      <Bookmark size={14} /> Save
                     </button>
                   </div>
+                  {savedContacts.length ? (
+                    <div style={{ marginTop: 12, borderTop: `1px solid ${C.borderLight}`, paddingTop: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: C.slate, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 8 }}>
+                        Saved numbers ({savedContacts.length})
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 140, overflow: "auto" }}>
+                        {savedContacts.slice(0, 12).map((c) => (
+                          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <button type="button" onClick={() => loadSavedContact(c)} style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", textAlign: "left", flex: 1, minWidth: 120 }}>
+                              <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{c.name || c.company || "Contact"}</div>
+                              <div style={{ fontSize: 11, color: C.slate }}>{c.phone}{c.company && c.name ? ` · ${c.company}` : ""}</div>
+                            </button>
+                            <button type="button" onClick={() => callOneRow(c)} style={miniAct()}><Phone size={12} /> Call</button>
+                            <button type="button" onClick={() => openChannel("sms", c.phone, c.name, c.company || brandForMsg())} style={miniAct()}><MessageSquare size={12} /> Text</button>
+                            <button type="button" onClick={() => openChannel("whatsapp", c.phone, c.name, c.company || brandForMsg())} style={miniAct()}>WA</button>
+                            <button type="button" onClick={() => removeSavedContact(c.id)} style={{ ...miniAct(), color: C.red }}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8, flexShrink: 0 }}>
@@ -1155,6 +1438,14 @@ export function CallingWorkspace({
                   </button>
                   <button type="button" disabled={!rows.length} onClick={saveList} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: rows.length ? "pointer" : "default" }}>
                     Save list
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selectedDialable}
+                    onClick={saveSelectedContacts}
+                    style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: selectedDialable ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, opacity: selectedDialable ? 1 : 0.45 }}
+                  >
+                    <Bookmark size={14} /> Save selected
                   </button>
                   {savedLists.length ? (
                     <select defaultValue="" onChange={(e) => { if (e.target.value) loadList(e.target.value); e.target.value = ""; }} style={{ ...fieldStyle(), width: 180, height: 40 }}>
@@ -1179,14 +1470,21 @@ export function CallingWorkspace({
                       <button type="button" onClick={() => abortFind(true)} style={{ height: 40, padding: "0 12px", borderRadius: 10, border: "none", background: C.redSoft, color: C.red, cursor: "pointer", fontWeight: 700 }}>Stop</button>
                     </>
                   ) : null}
+                  {selectedDialable > 0 ? (
+                    <button type="button" disabled={busy === "dial"} onClick={() => startCalls(true)} title={`Calls only the ${selectedDialable} ticked rows. Concurrent cap = ${concurrency}.`} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: C.gradientTeal, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+                      {busy === "dial" ? "Placing…" : `Call selected (${selectedDialable}) · ${concurrency} line${concurrency === 1 ? "" : "s"}`}
+                    </button>
+                  ) : null}
                   {dialable > 0 ? (
-                    <button type="button" disabled={busy === "dial"} onClick={startCalls} title={`${dialable} of ${rows.length} rows have a dialable number. Concurrent lines is the dropdown, not this count.`} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
-                      {busy === "dial" ? "Placing…" : `Call ${dialable} with phones`}
+                    <button type="button" disabled={busy === "dial"} onClick={() => startCalls(false)} title={`${dialable} of ${rows.length} rows have a dialable number. Concurrent lines = ${concurrency}.`} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+                      {busy === "dial" ? "Placing…" : `Call all phones (${dialable}) · ${concurrency} line${concurrency === 1 ? "" : "s"}`}
                     </button>
                   ) : null}
                 </div>
                 <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 10, flexShrink: 0 }}>
-                  {rows.length ? `${rows.length} rows · ${dialable} have a phone. Concurrent 1–5. Find missing uses Business Name + town + person + website from the file, then fills empty Email/LinkedIn/phone. Highlighted cells = newly found.` : "Cap 5 concurrent. Quality band, not a guarantee."}
+                  {rows.length
+                    ? `${rows.length} rows · ${dialable} have a phone · ${selectedDialable} selected. Tick rows to call a subset. Concurrent max ${concurrency}. Per row: Call / Text / WhatsApp. Save selected or Save from Call anyone.`
+                    : "Cap 5 concurrent. Upload a list, tick who to call, or dial one number above."}
                 </div>
 
                 {!rows.length ? (
@@ -1198,38 +1496,82 @@ export function CallingWorkspace({
                     <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
                       <thead>
                         <tr>
+                          <th style={{ textAlign: "left", padding: "12px 10px", borderBottom: `1px solid ${C.border}`, background: C.paperSoft, position: "sticky", top: 0, zIndex: 1, width: 44 }}>
+                            <input
+                              type="checkbox"
+                              checked={allDialableSelected}
+                              onChange={() => (allDialableSelected ? clearSelection() : selectAllDialable())}
+                              title={allDialableSelected ? "Clear selection" : "Select all with phones"}
+                              style={{ width: 16, height: 16, cursor: "pointer" }}
+                            />
+                          </th>
                           {headers.map((h) => (
                             <th key={h} style={{ textAlign: "left", padding: "12px 14px", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 700, whiteSpace: "nowrap", background: C.paperSoft, position: "sticky", top: 0, zIndex: 1 }}>{h}</th>
                           ))}
                           {extras.map((h) => (
                             <th key={"x_" + h} style={{ textAlign: "left", padding: "12px 14px", borderBottom: `1px solid ${C.border}`, color: C.slateLight, fontWeight: 700, whiteSpace: "nowrap", background: C.paperSoft, position: "sticky", top: 0, zIndex: 1 }}>{h}</th>
                           ))}
+                          <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 700, whiteSpace: "nowrap", background: C.paperSoft, position: "sticky", top: 0, zIndex: 1 }}>Reach</th>
                           <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 700, whiteSpace: "nowrap", background: C.paperSoft, position: "sticky", top: 0, zIndex: 1 }}>Calls</th>
                           <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 700, whiteSpace: "nowrap", background: C.paperSoft, position: "sticky", top: 0, zIndex: 1 }}>Last verdict</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map((r) => (
-                          <tr key={r.id}>
-                            {headers.map((h) => {
-                              const hi = cellHi(r, headerToField(h));
-                              return (
-                                <td key={h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: C.textInk, background: hi ? C.tealSoft : undefined, fontWeight: hi ? 700 : 400 }}>{cellValue(r, h)}</td>
-                              );
-                            })}
-                            {extras.map((h) => {
-                              const key = h.toLowerCase() === "contact" ? "contact" : h.toLowerCase();
-                              const hi = cellHi(r, key);
-                              return (
-                                <td key={"x_" + h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: extraValue(r, h) ? C.textInk : C.slateLight, background: hi ? C.tealSoft : undefined, fontWeight: hi ? 700 : 400 }}>
-                                  {extraValue(r, h)}
-                                </td>
-                              );
-                            })}
-                            <td style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, fontWeight: 700 }}>{r.callTimes || 0}</td>
-                            <td style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: r.lastOutcome ? C.textInk : C.slateLight }}>{r.lastOutcome || "not called"}</td>
-                          </tr>
-                        ))}
+                        {rows.map((r) => {
+                          const canDial = digitsInPhone(r.phone).length >= 7;
+                          const checked = selectedIds.has(r.id);
+                          return (
+                            <tr key={r.id} style={{ background: checked ? "rgba(12,140,125,0.06)" : undefined }}>
+                              <td style={{ padding: "10px 10px", borderBottom: `1px solid ${C.borderLight}`, verticalAlign: "middle" }}>
+                                <input
+                                  type="checkbox"
+                                  disabled={!canDial}
+                                  checked={checked}
+                                  onChange={() => toggleSelect(r.id)}
+                                  title={canDial ? "Select for batch call / save" : "No phone"}
+                                  style={{ width: 16, height: 16, cursor: canDial ? "pointer" : "default", opacity: canDial ? 1 : 0.35 }}
+                                />
+                              </td>
+                              {headers.map((h) => {
+                                const hi = cellHi(r, headerToField(h));
+                                return (
+                                  <td key={h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: C.textInk, background: hi ? C.tealSoft : undefined, fontWeight: hi ? 700 : 400 }}>{cellValue(r, h)}</td>
+                                );
+                              })}
+                              {extras.map((h) => {
+                                const key = h.toLowerCase() === "contact" ? "contact" : h.toLowerCase();
+                                const hi = cellHi(r, key);
+                                return (
+                                  <td key={"x_" + h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: extraValue(r, h) ? C.textInk : C.slateLight, background: hi ? C.tealSoft : undefined, fontWeight: hi ? 700 : 400 }}>
+                                    {extraValue(r, h)}
+                                  </td>
+                                );
+                              })}
+                              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${C.borderLight}`, whiteSpace: "nowrap" }}>
+                                {canDial ? (
+                                  <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                                    <button type="button" disabled={busy === "direct"} onClick={() => callOneRow(r)} style={miniAct()} title="AI call via Twilio">
+                                      <Phone size={12} /> Call
+                                    </button>
+                                    <button type="button" onClick={() => openChannel("sms", r.phone, r.contact || r.name, r.company || brandForMsg())} style={miniAct()} title="Open SMS">
+                                      <MessageSquare size={12} /> Text
+                                    </button>
+                                    <button type="button" onClick={() => openChannel("whatsapp", r.phone, r.contact || r.name, r.company || brandForMsg())} style={miniAct()} title="Open WhatsApp">
+                                      WA
+                                    </button>
+                                    <button type="button" onClick={() => { upsertSavedContact({ phone: r.phone, name: r.contact || r.name, company: r.company, email: r.email, source: "list" }); showToast("Saved contact"); }} style={miniAct()} title="Save number">
+                                      <Bookmark size={12} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: C.slateLight, fontSize: 11 }}>No phone</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, fontWeight: 700 }}>{r.callTimes || 0}</td>
+                              <td style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: r.lastOutcome ? C.textInk : C.slateLight }}>{r.lastOutcome || "not called"}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1502,22 +1844,169 @@ export function CallingWorkspace({
           )}
 
           {page === "logs" && (
-            <div style={{ display: "grid", gap: 10 }}>
-              {!logs.length ? (
-                <div style={{ ...card(), padding: 48, textAlign: "center", color: C.slate }}>No logs yet. Ended calls land here.</div>
-              ) : logs.map((l) => (
-                <div key={l.id} style={card()}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700 }}>{logDisplayName(l)}</div>
-                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>
-                    {[l.canonicalName && l.canonicalName !== logDisplayName(l) ? l.canonicalName : "", l.outcome || "", l.duration || "", l.startedAt || ""].filter(Boolean).join(" · ")}
-                  </div>
-                  <div style={{ marginTop: 8, fontFamily: FONT_MONO, fontSize: 11.5, color: C.textInk, maxHeight: 90, overflow: "auto" }}>
-                    {(l.transcript || []).slice(0, 8).map((t, i) => (
-                      <div key={i}>{typeof t === "string" ? t : `${t.who}: ${t.text}`}</div>
-                    ))}
-                  </div>
+            <div style={{ display: "grid", gap: 14 }}>
+              <div style={{ ...card(), display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                <div style={{ position: "relative", flex: "1 1 220px", minWidth: 180 }}>
+                  <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.slate }} />
+                  <input
+                    value={logQuery}
+                    onChange={(e) => setLogQuery(e.target.value)}
+                    placeholder="Search name, company, mission…"
+                    style={{ ...fieldStyle(), paddingLeft: 34, height: 40 }}
+                  />
                 </div>
-              ))}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[
+                    ["all", "All"],
+                    ["contacted", "Contacted"],
+                    ["meeting_booked", "Booked"],
+                    ["left_voicemail", "Voicemail"],
+                    ["no_answer", "No answer"],
+                    ["failed", "Failed"],
+                  ].map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setLogOutcome(id)}
+                      style={{
+                        height: 34,
+                        padding: "0 12px",
+                        borderRadius: 999,
+                        border: `1px solid ${logOutcome === id ? C.ink : C.border}`,
+                        background: logOutcome === id ? C.ink : "#fff",
+                        color: logOutcome === id ? "#fff" : C.textInk,
+                        fontWeight: 700,
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: C.slate, marginLeft: "auto" }}>
+                  {filteredLogs.length} of {logs.length}
+                </div>
+              </div>
+
+              {!filteredLogs.length ? (
+                <div style={{ ...card(), padding: 48, textAlign: "center", color: C.slate }}>
+                  {logs.length ? "No logs match this filter." : "No logs yet. Ended calls land here."}
+                </div>
+              ) : filteredLogs.map((l) => {
+                const open = openLogId === l.id;
+                const name = logDisplayName(l);
+                const outcome = String(l.outcome || "ended").replace(/_/g, " ");
+                const lines = Array.isArray(l.transcript) ? l.transcript : [];
+                const preview = lines.slice(0, open ? lines.length : 3);
+                const outcomeColor =
+                  /booked|meeting/i.test(outcome) ? C.green
+                    : /voicemail|no.?answer/i.test(outcome) ? C.amber || "#B45309"
+                    : /fail|reject/i.test(outcome) ? C.red
+                    : C.cobalt;
+                return (
+                  <div
+                    key={l.id}
+                    style={{
+                      ...card(),
+                      padding: 0,
+                      overflow: "hidden",
+                      border: `1.5px solid ${open ? C.ink : C.border}`,
+                      boxShadow: open ? "0 10px 28px rgba(18,20,28,0.08)" : "0 4px 14px rgba(18,20,28,0.04)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setOpenLogId(open ? "" : l.id)}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        border: "none",
+                        background: "transparent",
+                        padding: "16px 18px",
+                        cursor: "pointer",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>{name}</div>
+                          <div style={{ marginTop: 4, fontSize: 12.5, color: C.slate }}>
+                            {[l.canonicalName && l.canonicalName !== name ? l.canonicalName : "", l.duration, l.startedAt || l.endedAt]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{
+                            fontSize: 11,
+                            fontWeight: 800,
+                            letterSpacing: "0.02em",
+                            textTransform: "uppercase",
+                            color: outcomeColor,
+                            background: `${outcomeColor}18`,
+                            padding: "5px 10px",
+                            borderRadius: 999,
+                          }}>
+                            {outcome}
+                          </span>
+                          {open ? <ChevronUp size={16} color={C.slate} /> : <ChevronDown size={16} color={C.slate} />}
+                        </div>
+                      </div>
+                      {l.mission ? (
+                        <div style={{ fontSize: 12, color: C.slateLight }}>{l.mission}</div>
+                      ) : null}
+                    </button>
+                    <div style={{
+                      borderTop: `1px solid ${C.border}`,
+                      background: open ? "linear-gradient(180deg, #FAFAF8 0%, #F6F5F1 100%)" : "#FAFAF8",
+                      padding: "12px 18px 16px",
+                      fontFamily: FONT_MONO,
+                      fontSize: 12,
+                      color: C.textInk,
+                      display: "grid",
+                      gap: 8,
+                      maxHeight: open ? 360 : 110,
+                      overflow: "auto",
+                    }}>
+                      {!preview.length ? (
+                        <div style={{ color: C.slate }}>No transcript captured.</div>
+                      ) : preview.map((t, i) => {
+                        const who = typeof t === "string" ? (t.startsWith("Prospect") || t.startsWith("them") ? "them" : "ai") : (t.who || "ai");
+                        const text = typeof t === "string" ? t.replace(/^(AI|Prospect|Them|System):\s*/i, "") : (t.text || "");
+                        const isAi = who === "ai" || who === "assistant";
+                        return (
+                          <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <span style={{
+                              flexShrink: 0,
+                              width: 54,
+                              fontSize: 10,
+                              fontWeight: 800,
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                              color: isAi ? C.teal : C.cobalt,
+                              paddingTop: 2,
+                            }}>
+                              {isAi ? "Sam" : "Them"}
+                            </span>
+                            <span style={{ lineHeight: 1.45 }}>{text}</span>
+                          </div>
+                        );
+                      })}
+                      {!open && lines.length > 3 ? (
+                        <button
+                          type="button"
+                          onClick={() => setOpenLogId(l.id)}
+                          style={{ border: "none", background: "transparent", color: C.cobalt, fontWeight: 700, fontSize: 12, cursor: "pointer", textAlign: "left", padding: 0 }}
+                        >
+                          Show full transcript ({lines.length} lines) →
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -1536,9 +2025,9 @@ export function CallingWorkspace({
           )}
 
           {page === "ai" && (
-            <div>
+            <div style={{ maxWidth: 1080 }}>
               {isValidElement(aiKeysPanel)
-                ? cloneElement(aiKeysPanel, { notifications, setNotifications })
+                ? cloneElement(aiKeysPanel, { notifications, setNotifications, embedded: true })
                 : (aiKeysPanel || (
                 <div style={card()}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, marginBottom: 8 }}>Open platform AI keys</div>
@@ -1560,6 +2049,7 @@ export function CallingWorkspace({
                     <label style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
                       Voice
                       <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} style={{ ...fieldStyle(), marginTop: 6 }}>
+                        <option value="rex-uk">Rex UK — Sam (British, male)</option>
                         <option value="rex">Rex — Sam (male)</option>
                         <option value="leo">Leo (male)</option>
                         <option value="ara">Ara (female)</option>

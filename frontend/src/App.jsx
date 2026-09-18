@@ -5365,8 +5365,9 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
         try {
           await api.selectVoice({
             voice_id: voiceName,
-            label: voiceName === "rex" ? "Rex (Sam / male)" : voiceName,
+            label: voiceName === "rex-uk" ? "Rex UK — Sam (British, male)" : voiceName === "rex" ? "Rex (Sam / male)" : voiceName,
             provider: "xai",
+            accent: voiceName === "rex-uk" ? "british" : undefined,
           });
         } catch (_) {}
       }
@@ -5577,12 +5578,13 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                     onChange={(e) => setVoiceName(e.target.value)}
                     style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
                   >
+                    <option value="rex-uk">Rex UK — Sam (British, male)</option>
                     <option value="rex">Rex — Sam (male)</option>
                     <option value="leo">Leo (male)</option>
                     <option value="ara">Ara (female)</option>
                     <option value="eve">Eve (female)</option>
                   </select>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Spoken name and pitch come from this profile. This only picks the xAI voice.</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Spoken name and pitch come from this profile. Rex UK uses British English on the call (main UK client).</div>
                 </div>
               )}
               <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…" />
@@ -6572,7 +6574,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
     } catch (_) { return ""; }
   });
   const [showCreds, setShowCreds] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Auto-sync Twilio credentials to localStorage ONLY if completely valid; otherwise remove
   useEffect(() => {
@@ -6728,35 +6730,46 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
 
   return (
     <div style={{
-      background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
-      borderRadius: 14,
-      padding: "20px 24px",
-      color: "#F8FAFC",
-      border: "1px solid rgba(255, 255, 255, 0.12)",
-      boxShadow: "0 10px 30px rgba(0, 0, 0, 0.25)",
+      background: isExpanded ? "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)" : "#fff",
+      borderRadius: 16,
+      padding: isExpanded ? "20px 24px" : "14px 16px",
+      color: isExpanded ? "#F8FAFC" : C.textInk,
+      border: `1px solid ${isExpanded ? "rgba(255, 255, 255, 0.12)" : C.border}`,
+      boxShadow: isExpanded ? "0 10px 30px rgba(0, 0, 0, 0.25)" : "0 8px 28px rgba(18,20,28,0.06)",
       marginBottom: 20
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: isExpanded ? 16 : 0 }}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => { if (!isExpanded) setIsExpanded(true); }}
+        onKeyDown={(e) => { if (!isExpanded && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setIsExpanded(true); } }}
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: isExpanded ? 16 : 0, cursor: isExpanded ? "default" : "pointer" }}
+      >
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ background: "#22C55E", width: 9, height: 9, borderRadius: "50%", display: "inline-block", boxShadow: "0 0 8px #22C55E" }} />
-            <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#4ADE80" }}>
-              Autonomous Outbound Calling Plugin
-            </span>
-            <span style={{ background: "rgba(255,255,255,0.1)", fontSize: 11, padding: "2px 8px", borderRadius: 12, color: "#94A3B8" }}>
-              Twilio / Telnyx / SIP / Sim
+            <span style={{ background: isExpanded ? "#22C55E" : C.teal, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />
+            <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: isExpanded ? "#4ADE80" : C.slate }}>
+              Direct outbound
             </span>
           </div>
-          <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 18, color: "#fff", margin: "4px 0 2px" }}>
-            📞 Direct Outbound Voice Dial (Client Call / Live Test)
-          </h2>
-          <p style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#94A3B8", margin: 0, maxWidth: 680, lineHeight: 1.4 }}>
-            Place autonomous outbound calls to clients or test contacts. Carrier connects audio to xAI Realtime AI with live pitch and meeting booking.
-          </p>
+          {isExpanded ? (
+            <>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 18, color: "#fff", margin: "6px 0 2px" }}>
+                Dial one number
+              </h2>
+              <p style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#94A3B8", margin: 0, maxWidth: 680, lineHeight: 1.4 }}>
+                Test a single live line. Same voice stack as list calls. List page already dials the file — use this only for a one-off.
+              </p>
+            </>
+          ) : (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 4 }}>
+              Collapsed. Click to expand and place a one-off test call.
+            </div>
+          )}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {onViewLiveCalls && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+          {isExpanded && onViewLiveCalls && (
             <button
               type="button"
               onClick={onViewLiveCalls}
@@ -6775,25 +6788,29 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 gap: 5
               }}
             >
-              <Activity size={12} color="#38BDF8" /> Live Activity
+              <Activity size={12} color="#38BDF8" /> Live
             </button>
           )}
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
             style={{
-              background: "rgba(255, 255, 255, 0.08)",
-              border: "1px solid rgba(255, 255, 255, 0.18)",
+              background: isExpanded ? "rgba(255, 255, 255, 0.08)" : C.cobaltSoft,
+              border: `1px solid ${isExpanded ? "rgba(255, 255, 255, 0.18)" : "#C7D7FA"}`,
               borderRadius: 8,
-              padding: "6px 12px",
-              color: "#F1F5F9",
+              padding: "7px 12px",
+              color: isExpanded ? "#F1F5F9" : C.cobaltDeep,
               fontFamily: FONT_BODY,
               fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer"
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            {isExpanded ? "Collapse Dialer" : "Expand Dialer"}
+            <ChevronDown size={14} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+            {isExpanded ? "Collapse" : "Expand"}
           </button>
         </div>
       </div>
@@ -7908,14 +7925,16 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   setVoiceName(v);
                   api.selectVoice({
                     voice_id: v,
-                    label: customVoices.find((x) => x.voice_id === v)?.name || v,
+                    label: customVoices.find((x) => x.voice_id === v)?.name || (v === "rex-uk" ? "Rex UK — Sam (British, male)" : v),
                     provider: customVoices.find((x) => x.voice_id === v)?.provider || "xai",
+                    accent: v === "rex-uk" ? "british" : undefined,
                   }).catch(() => {});
                 }}
                 style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
               >
                 {engineChoice === "xai" ? (
                   <>
+                    <option value="rex-uk">Rex UK (British male — Sam for UK clients)</option>
                     <option value="rex">Rex (Male executive — use this for Sam)</option>
                     <option value="ara">Ara (Female, warm)</option>
                     <option value="eve">Eve (Female, energetic)</option>
@@ -7939,12 +7958,12 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                     {v.name || v.voice_id} (cloned{v.provider ? ` · ${v.provider}` : ""})
                   </option>
                 ))}
-                {voiceName && !["ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "rachel", "adam", "sonic"].includes(voiceName) && !customVoices.some((v) => v.voice_id === voiceName) && (
+                {voiceName && !["ara", "eve", "rex", "rex-uk", "leo", "alloy", "echo", "shimmer", "onyx", "rachel", "adam", "sonic"].includes(voiceName) && !customVoices.some((v) => v.voice_id === voiceName) && (
                   <option value={voiceName}>Custom clone ({voiceName})</option>
                 )}
               </select>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
-                Live Grok calls use this ID. For Sam (male): pick Rex, then leave this screen — it saves on change. Ara/Eve sound female.
+                Live Grok calls use this ID. For UK clients: Rex UK. For Sam (male, US): Rex. Ara/Eve sound female.
               </div>
             </div>
 
@@ -8833,23 +8852,45 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       {!embedded && <TopBar title="Connections & Providers" subtitle="Layer routing, API keys and live credential testing" notifications={notifications} setNotifications={setNotifications} />}
       <div style={{ padding: embedded ? 0 : "20px 32px" }}>
 
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-          {[
-            { id: "telephony-hub", label: "⚡ Voice & Telephony Trunking Hub" },
-            { id: "routing", label: "⚙️ Layer Routing & Models" },
-            { id: "credentials", label: "🔑 API Credentials" },
-            { id: "docs", label: "📖 Step-by-Step Setup Guide" },
-          ].map((t) => (
+        <div style={{
+          display: "flex",
+          gap: 8,
+          marginBottom: 18,
+          flexWrap: "wrap",
+          padding: embedded ? 6 : 0,
+          background: embedded ? "#fff" : "transparent",
+          border: embedded ? `1px solid ${C.border}` : "none",
+          borderRadius: embedded ? 14 : 0,
+          boxShadow: embedded ? "0 8px 28px rgba(18,20,28,0.06)" : "none",
+        }}>
+          {(embedded
+            ? [
+                { id: "telephony-hub", label: "Voice stack" },
+                { id: "credentials", label: "API keys" },
+                { id: "routing", label: "Models" },
+                { id: "docs", label: "Setup guide" },
+              ]
+            : [
+                { id: "telephony-hub", label: "Voice & Telephony Trunking Hub" },
+                { id: "routing", label: "Layer Routing & Models" },
+                { id: "credentials", label: "API Credentials" },
+                { id: "docs", label: "Step-by-Step Setup Guide" },
+              ]
+          ).map((t) => (
             <button
               key={t.id}
+              type="button"
               onClick={() => setActiveTab(t.id)}
               style={{
-                padding: "8px 16px", borderRadius: 8,
-                border: `1px solid ${activeTab === t.id ? C.ink : C.border}`,
-                background: activeTab === t.id ? C.ink : "#fff",
+                padding: embedded ? "8px 14px" : "8px 16px",
+                borderRadius: embedded ? 10 : 8,
+                border: embedded ? "none" : `1px solid ${activeTab === t.id ? C.ink : C.border}`,
+                background: activeTab === t.id ? (embedded ? C.ink : C.ink) : (embedded ? "transparent" : "#fff"),
                 color: activeTab === t.id ? "#fff" : C.slate,
-                fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                fontFamily: FONT_BODY,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
               }}
             >
               {t.label}
@@ -8857,9 +8898,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
           ))}
         </div>
 
-        {/* TAB: Setup Guide & Docs */}
         {activeTab === "docs" && (
           <TelephonyDocsView
+            embedded={embedded}
             notifications={notifications}
             setNotifications={setNotifications}
             onNavigate={(dest) => {
@@ -8883,7 +8924,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         {/* TAB 1: Layer Routing */}
         {activeTab === "routing" && (
           <>
-            {liveLabels && (
+            {liveLabels && !embedded && (
               <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#1E40AF", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Live on server</div>
                 <div style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>
@@ -22513,7 +22554,13 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         api.getMeetings(),
         api.getSchedule()
       ]);
-      if (Array.isArray(cl)) setCallLog(cl);
+      if (Array.isArray(cl) && cl.length) {
+        setCallLog((prev) => {
+          const seen = new Set(cl.map((x) => x && x.id).filter(Boolean));
+          const extra = (prev || []).filter((x) => x && x.id && !seen.has(x.id));
+          return extra.length ? [...cl, ...extra] : cl;
+        });
+      }
       if (Array.isArray(mt)) setMeetings(mt);
       if (Array.isArray(sc)) setScheduleItems(sc);
     } catch (_) {}

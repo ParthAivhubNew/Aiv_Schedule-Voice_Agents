@@ -19,6 +19,7 @@ from app.database import AsyncSessionLocal
 from app.models.models import (
     CallLog,
     CompanyProfile,
+    Connection,
     LiveCall,
     Meeting,
     Mission,
@@ -27,7 +28,7 @@ from app.models.models import (
     Service,
     FAQ,
 )
-from app.services.call_names import clean_person_label, is_generic_label, resolve_call_people, apply_names_to_log
+from app.services.call_names import clean_person_label, greeting_first_name, is_generic_label, resolve_call_people, apply_names_to_log
 from app.services.process_logger import log_process_event, scrub_text
 from app.services.rag_service import search_knowledge
 from app.services.timezone_service import display_hhmm, now_in, resolve_prospect_timezone
@@ -74,6 +75,59 @@ def alias_sip_first_call(custom_call_id: str, *extra_ids: Optional[str]) -> None
         if extra:
             rec["aliases"].add(str(extra))
             _sip_first_calls[str(extra)] = rec
+
+
+_IVR_HOLD_MARKERS = (
+    "please wait",
+    "please hold",
+    "hold the line",
+    "your call is important",
+    "press 1",
+    "press one",
+    "an automated",
+    "try again later",
+)
+
+_VOICEMAIL_MARKERS = (
+    "leave a message",
+    "after the tone",
+    "record your message",
+    "mailbox",
+    "voicemail",
+    "forwarded to voicemail",
+    "the person you called",
+    "not available",
+    "no one is available",
+    "leave your message",
+    "at the tone",
+)
+
+
+def _is_voicemail_prompt(text: str) -> bool:
+    t = (text or "").lower()
+    return any(m in t for m in _VOICEMAIL_MARKERS)
+
+
+def _is_hold_ivr(text: str) -> bool:
+    t = (text or "").lower()
+    if _is_voicemail_prompt(t):
+        return False
+    return any(m in t for m in _IVR_HOLD_MARKERS)
+
+
+def _is_ivr_or_hold(text: str) -> bool:
+    """Legacy helper — hold OR voicemail machine audio."""
+    return _is_hold_ivr(text) or _is_voicemail_prompt(text)
+
+
+def _xai_voice_id(raw: Optional[str], accent: Optional[str] = None) -> str:
+    v = (raw or "rex").strip()
+    low = v.lower()
+    if low in ("rex-uk", "rex_uk", "sam-uk", "sam_uk"):
+        return "rex"
+    if low in ("ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage"):
+        return low
+    return v or "rex"
 
 
 async def notify_prospect_answered(call_id: str) -> bool:
@@ -556,15 +610,30 @@ async def build_xai_system_instructions(
             "Calendar lookup failed — call check_calendar_availability before offering a time."
         )
 
-    target_name = prospect_name or "there"
-    target_clean = re.sub(r"\(.*?\)", "", target_name).strip()
-    target_first_name = target_clean.split()[0] if target_clean else "there"
-    if target_first_name.lower() in ["prospect", "caller", "valued"]:
-        target_first_name = "there"
+    target_name = clean_person_label(prospect_name) or "there"
+    target_first_name = greeting_first_name(target_name)
+
+    accent_block = ""
+    try:
+        async with AsyncSessionLocal() as acc_db:
+            c_res = await acc_db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            eng = c_res.scalars().first()
+            acc = ""
+            if eng and isinstance(eng.config, dict):
+                acc = str(eng.config.get("accent") or "").lower()
+            if acc in ("british", "uk", "en-gb"):
+                accent_block = """
+ACCENT & DICTION (MANDATORY — British English):
+- You are a UK caller. Speak British English: mobile not cell, diary not calendar (when speaking), fortnight, lift, queue, ring them back.
+- Warm professional London/Home Counties voice. Not American, not transatlantic slang.
+- Company names as written. Do not Americanise spelling in speech (say organisation, specialised).
+"""
+    except Exception:
+        pass
 
     opening_block = f"""HOLD THE LINE — DO NOT SPEAK YET:
 - This is an outbound call to {target_name}. The phone is still ringing.
-- Stay completely silent until you receive an explicit response.create with greeting instructions.
+- Stay completely silent until a HUMAN picks up. Ringback, hold music, and IVR are not pickup.
 - Do not greet, do not fill silence, do not react to ringback or dead air.
 - When the greeting command arrives, the person has just picked up. Then speak immediately:
   "Hi {target_first_name}, this is {caller_name} from {spoken_company}. How's your day going?"
@@ -581,6 +650,23 @@ HOW TO SAY THE COMPANY NAME (MANDATORY):
 - {brand_hint}
 - Use the saved Company Profile name and pitch only. Do not substitute another brand.
 Tone & Personality: {tone}. You sound like a warm, confident man on a business call — never a female voice, never a rigid telemarketer.
+{accent_block}
+WHO THEY ARE (LOCKED — NEVER OVERRIDE FROM SPEECH):
+- This call is to {target_name}. Spoken first name: {"'" + target_first_name + "'" if target_first_name != "there" else "unknown — say Hi there, then use no name until they give a real one"}.
+- "hi", "hello", "hey", "hi there", "yes", "speaking", "please wait" are NOT names. Never address them as Hi There.
+- If you already have their name, do not ask for it and do not replace it with anything they just said.
+
+AUTOMATED WAIT / IVR / VOICEMAIL (MANDATORY):
+- "Please wait", "hold", "press 1" — machine hold. Stay SILENT. Do NOT say "I'll wait" or "okay".
+- "Leave a message" / "after the tone" / mailbox — that is VOICEMAIL. When the beep/record cue comes, leave ONE short voicemail:
+  "Hi {target_first_name}, this is {caller_name} from {spoken_company}. Calling about a quick 15-minute walkthrough of how we help. I'll try you again — or reply to this number. Thanks."
+- Do not ramble on voicemail. One take, then stop.
+- If a HUMAN picks up mid-voicemail or mid-hold: STOP the message instantly. Talk to them live:
+  "Hi {target_first_name}, this is {caller_name} from {spoken_company} — glad I caught you. How's your day going?"
+- First human utterance that is NOT a machine: introduce yourself (name + company). Never invent their name from "hi"/"hello".
+
+TIMES:
+- Speak valid clock times only ("nine o'clock", "nine thirty", "quarter to ten"). Never invent minutes like ninety-four. Only offer times returned by check_calendar_availability.
 
 HUMAN CONVERSATIONAL FLOW & NATURAL CADENCE RULES (MANDATORY):
 1. BREATHE & KEEP TURNS SHORT: Speak ONLY 1 to 2 short sentences per turn (12 to 25 words maximum). Monologuing sounds robotic. Keep the ping-pong dialogue flowing naturally.
@@ -921,17 +1007,19 @@ async def execute_xai_tool(
                 details={"callId": call_id, "meetingId": meeting_id, "date": booked.get("date"), "time": booked.get("time"), "email": email_val, "mail": mail},
             )
 
-            mail_line = "Calendar invite emailed." if mail.get("attendee") else (
-                "Meeting is on our calendar. Invite email could not send — Gmail is not connected with an app password."
-            )
+            # Never expose mail failure to the model — it starts inventing "email problem" lines.
             return {
                 "success": True,
                 "meeting_id": meeting_id,
                 "date": spoken_label,
                 "time": spoken_time,
                 "video_link": booked.get("videoLink"),
-                "email_sent": bool(mail.get("attendee")),
-                "message": f"Confirmed {spoken_label} at {spoken_time}. {mail_line} Tell them they will get the Meet link. Do not mention timezones.",
+                "message": (
+                    f"Confirmed {spoken_label} at {spoken_time}. "
+                    "Tell them the walkthrough is locked and they will get the Meet link / invite details. "
+                    "Do NOT mention email, Gmail, SMTP, app passwords, delivery problems, or any tech issue. "
+                    "Never mention timezones."
+                ),
             }
 
         elif name == "check_calendar_availability":
@@ -966,7 +1054,21 @@ async def execute_xai_tool(
                 date_iso = target.strftime("%Y-%m-%d")
                 date_label = target.strftime("%A, %d %B %Y")
                 slots = await calendar_service.get_available_slots(db, date_iso, prospect_tz=p_tz)
-                open_slots = [s.get("spoken") or s.get("displayTime") for s in slots if s.get("offerable", s.get("available"))]
+                open_slots = []
+                for s in slots:
+                    if not s.get("offerable", s.get("available")):
+                        continue
+                    label = s.get("spoken") or s.get("displayTime") or display_hhmm(s.get("time") or "")
+                    # Drop impossible clock labels (e.g. invented :94) before the model can speak them.
+                    raw_t = str(s.get("time") or "")
+                    try:
+                        hh, mm = map(int, raw_t.split(":")[:2])
+                        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                            continue
+                    except Exception:
+                        pass
+                    if label:
+                        open_slots.append(label)
                 if not slots:
                     nxt = await calendar_service.get_week_availability(db, target + timedelta(days=1), days=3, prospect_tz=p_tz)
                     nxt_line = "; ".join(
@@ -1033,6 +1135,7 @@ async def join_xai_call_session(
         ws_url = f"{base_ws}?call_id={call_id}"
     api_key = settings.XAI_API_KEY
     active_voice = settings.XAI_VOICE_NAME
+    active_voice = _xai_voice_id(active_voice)
     silence_ms = getattr(settings, "XAI_VAD_SILENCE_MS", 380)
     prefix_ms = getattr(settings, "XAI_VAD_PREFIX_PADDING_MS", 180)
     temp_val = getattr(settings, "XAI_TEMPERATURE", 0.80)
@@ -1049,9 +1152,9 @@ async def join_xai_call_session(
                     settings.XAI_API_KEY = stored_key
                     settings.VOICE_ENGINE_MODE = "live"
                 if c.config.get("voice_name"):
-                    active_voice = c.config.get("voice_name")
+                    active_voice = _xai_voice_id(c.config.get("voice_name"), c.config.get("accent"))
                 elif c.config.get("voice"):
-                    active_voice = c.config.get("voice")
+                    active_voice = _xai_voice_id(c.config.get("voice"), c.config.get("accent"))
                 if c.config.get("silence_duration_ms"):
                     silence_ms = int(c.config.get("silence_duration_ms"))
                 if c.config.get("prefix_padding_ms"):
@@ -1275,16 +1378,16 @@ async def join_xai_call_session(
 
             # 2. Set up instant first-turn greeting trigger
             target_raw = prospect_name or (call_obj.prospect if call_obj else None) or "there"
-            target_clean = re.sub(r"\(.*?\)", "", target_raw).strip()
-            target_first_name = target_clean.split()[0] if target_clean else "there"
-            if target_first_name.lower() in ["prospect", "caller", "there", "valued"]:
-                target_first_name = "there"
+            target_first_name = greeting_first_name(target_raw)
 
             greeting_dispatched = False
             greeting_audio_started = False
             session_ready = False
             last_greeting_at = 0.0
             user_spoke = False
+            voicemail_dispatched = False
+            human_live = False
+            awaiting_human = False
 
             profile_rep = _knowledge_cache.get("profile") if "_knowledge_cache" in globals() else None
             rep_name = (profile_rep.caller_name or "").strip() if profile_rep and profile_rep.caller_name else "the caller"
@@ -1299,12 +1402,26 @@ async def join_xai_call_session(
                 f"{brand_hint}"
             )
             outbound_greeting_instruction = (
-                f"You are calling {target_first_name} as {rep_name} from {spoken_comp}. "
+                f"You are calling {target_raw} as {rep_name} from {spoken_comp}. "
+                f"Their name is locked as {target_first_name if target_first_name != 'there' else 'unknown'}. "
                 f"The person just picked up. Speak FIRST immediately, like a real person already on the line. "
                 f"Say this ONCE only, natural and unhurried: "
                 f"'{greeting_line}, this is {rep_name} calling from {spoken_comp}. How's your day going?' "
                 f"{brand_hint} "
+                f"If you hear hold/'please wait': stay silent. "
+                f"If you hear leave-a-message/voicemail beep: leave a short voicemail with who you are, company, and why you called — then stop. "
+                f"If a human barges in mid-message: cut off, greet them live with the locked name. "
+                f"Never address them as Hi There. Never invent their name from 'hi'/'hello'. "
                 f"Do not wait. Do not restart or repeat this greeting. Use only the saved company name and pitch."
+            )
+
+            voicemail_instruction = (
+                f"You reached {target_raw}'s VOICEMAIL. Leave ONE short message now, then stop speaking. "
+                f"Say: 'Hi {target_first_name if target_first_name != 'there' else 'there'}, this is {rep_name} from {spoken_comp}. "
+                f"Calling about a quick 15-minute walkthrough of how we can help. I'll try you again shortly — "
+                f"or you can ring this number back. Thanks.' "
+                f"Do not ask questions. Do not keep talking after that. "
+                f"If a human suddenly answers mid-message, stop the voicemail and greet them live instead."
             )
 
             async def dispatch_opening_greeting(trigger_source: str, force: bool = False):
@@ -1355,6 +1472,40 @@ async def join_xai_call_session(
                 except Exception as g_err:
                     greeting_dispatched = False
                     logger.warning(f"[XAI-WS] Failed to dispatch opening greeting: {g_err}")
+
+            async def dispatch_voicemail(trigger_source: str = "voicemail_prompt"):
+                nonlocal voicemail_dispatched, greeting_dispatched, greeting_audio_started, awaiting_human
+                if is_inbound_call or human_live:
+                    return
+                if voicemail_dispatched:
+                    return
+                voicemail_dispatched = True
+                awaiting_human = False
+                greeting_dispatched = True
+                greeting_audio_started = False
+                try:
+                    await ws.send(json.dumps({"type": "response.cancel"}))
+                except Exception:
+                    pass
+                logger.info(f"[XAI-WS] Leaving voicemail for {target_first_name} via {trigger_source}")
+                try:
+                    await ws.send(json.dumps({
+                        "type": "response.create",
+                        "response": {
+                            "modalities": ["audio", "text"],
+                            "instructions": voicemail_instruction,
+                        },
+                    }))
+                    asyncio.create_task(log_process_event(
+                        subsystem="voice",
+                        process_name="xai_voicemail_dispatched",
+                        message=f"Voicemail drop sent for call {call_id}",
+                        level="INFO",
+                        details={"callId": call_id, "prospect": target_first_name, "triggerSource": trigger_source},
+                    ))
+                except Exception as vm_err:
+                    voicemail_dispatched = False
+                    logger.warning(f"[XAI-WS] Voicemail dispatch failed: {vm_err}")
 
             rec = _sip_first_record(custom_call_id, local_call_id, call_id)
             if rec:
@@ -1493,7 +1644,31 @@ async def join_xai_call_session(
                 elif event_type in ["conversation.item.input_audio_transcription.completed", "conversation.item.input_audio_transcription"]:
                     await commit_ai_turn()
                     caller_text = event.get("transcript", "")
+                    if caller_text and _is_hold_ivr(caller_text):
+                        awaiting_human = True
+                        logger.info(f"[XAI-WS] Hold/IVR — stay silent: {caller_text[:120]}")
+                        try:
+                            await ws.send(json.dumps({"type": "response.cancel"}))
+                        except Exception:
+                            pass
+                        continue
+                    if caller_text and _is_voicemail_prompt(caller_text):
+                        logger.info(f"[XAI-WS] Voicemail prompt: {caller_text[:120]}")
+                        await dispatch_voicemail("transcript")
+                        continue
                     if caller_text:
+                        # Real human on the line (or barge-in mid-voicemail / mid-hold)
+                        if (voicemail_dispatched or awaiting_human) and not human_live and not is_inbound_call:
+                            human_live = True
+                            awaiting_human = False
+                            logger.info(f"[XAI-WS] Human barge-in / pickup mid-machine — live intro for {target_first_name}")
+                            try:
+                                await ws.send(json.dumps({"type": "response.cancel"}))
+                            except Exception:
+                                pass
+                            await dispatch_opening_greeting("human_barge_in", force=True)
+                        human_live = True
+                        awaiting_human = False
                         line = f"Prospect: {caller_text}"
                         if line not in transcript_history:
                             transcript_history.append(line)

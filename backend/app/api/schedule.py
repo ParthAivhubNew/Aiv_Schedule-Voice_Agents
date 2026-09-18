@@ -7,6 +7,7 @@ from app.schemas.schemas import ScheduleItemSchema
 from app.services.whatsapp_notify import send_whatsapp, whatsapp_ready, digits_only, wa_me_url
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
+from urllib.parse import quote
 import uuid
 import re
 
@@ -22,7 +23,7 @@ KIND_LABELS = {
 
 def _slug(text: str) -> str:
     s = re.sub(r"[^a-zA-Z0-9]+", "-", str(text or "").strip())
-    return s.strip("-")[:48] or "room"
+    return s.strip("-")[:64] or "room"
 
 
 def _kind_label(kind: str) -> str:
@@ -66,8 +67,14 @@ def _video_link(req: ScheduleItemSchema, item_id: str) -> str:
     platform = (req.platform or "").lower()
     if "zoom" in platform or "teams" in platform or "google" in platform or "cal.com" in platform:
         return ""
-    slug = _slug(f"AIVHub-{req.prospect}-{item_id}")
-    return f"https://meet.jit.si/{slug}"
+    prospect = (req.prospect or "Guest").strip() or "Guest"
+    topic = (req.mission or "Intro call").strip() or "Intro call"
+    if topic.lower().startswith("video"):
+        topic = "Intro call"
+    room = _slug(f"AIVHub-with-{prospect}-{topic}-{item_id[-4:]}")
+    title = f"AIVHub × {prospect} — {topic}"
+    enc = quote(title, safe="")
+    return f"https://meet.jit.si/{room}#config.subject=%22{enc}%22&config.localSubject=%22{enc}%22"
 
 
 def _compose_whatsapp(item: ScheduleItem, company_name: str = "AIVHub", caller: str = "") -> str:

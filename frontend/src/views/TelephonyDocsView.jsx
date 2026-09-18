@@ -32,7 +32,7 @@ import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { TopBar } from "../components/TopBar";
 import { api } from "../api/apiClient";
 
-export function TelephonyDocsView({ notifications, setNotifications, onNavigate }) {
+export function TelephonyDocsView({ notifications, setNotifications, onNavigate, embedded = false }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [copiedKey, setCopiedKey] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -91,18 +91,6 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate 
       navigator.clipboard.writeText(text);
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 2000);
-      if (setNotifications) {
-        setNotifications((ns) => [
-          {
-            id: "n_" + Date.now(),
-            text: `✓ Copied to clipboard: ${text.length > 35 ? text.slice(0, 35) + "..." : text}`,
-            time: "just now",
-            unread: true,
-            type: "success",
-          },
-          ...ns,
-        ]);
-      }
     } catch (_) {}
   };
 
@@ -120,16 +108,25 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate 
   const progressPct = Math.round((completedCount / CHECKLIST_ITEMS.length) * 100);
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", background: C.paper, display: "flex", flexDirection: "column" }}>
-      <TopBar
-        title="Telephony & Connections Setup Guide"
-        subtitle="Step-by-step documentation for acquiring a phone number, configuring SIP webhooks, connecting AI voice engines, and testing live calls."
-        notifications={notifications}
-        setNotifications={setNotifications}
-      />
+    <div style={{ flex: 1, overflowY: embedded ? "visible" : "auto", background: embedded ? "transparent" : C.paper, display: "flex", flexDirection: "column" }}>
+      {!embedded && (
+        <TopBar
+          title="Telephony & Connections Setup Guide"
+          subtitle="Step-by-step documentation for acquiring a phone number, configuring SIP webhooks, connecting AI voice engines, and testing live calls."
+          notifications={notifications}
+          setNotifications={setNotifications}
+        />
+      )}
 
-      <div style={{ padding: "24px 32px", maxWidth: 1200, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
-        {/* Top Action Bar & Live Snapshot Card */}
+      <div style={{ padding: embedded ? 0 : "24px 32px", maxWidth: 1200, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
+        {embedded ? (
+          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 16, boxShadow: "0 8px 28px rgba(18,20,28,0.06)" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>Setup guide</div>
+            <div style={{ fontSize: 13, color: C.slate, marginTop: 4, lineHeight: 1.45 }}>
+              Carrier, number, webhook, then a test call. Copy shows a tick here — not a second bell.
+            </div>
+          </div>
+        ) : (
         <div
           style={{
             background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 100%)",
@@ -266,6 +263,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate 
             </div>
           </div>
         </div>
+        )}
 
         {/* Interactive Setup Progress & Checklist */}
         <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: "20px 24px", marginBottom: 24, boxShadow: C.shadowCard }}>
@@ -325,27 +323,48 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate 
         </div>
 
         {/* Documentation Navigation Tabs */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-          {[
-            { id: "overview", label: "🗺️ Overview & Architecture" },
-            { id: "telnyx", label: "📞 Telnyx Walkthrough (Recommended)" },
-            { id: "twilio", label: "🔴 Twilio Walkthrough (Alternative)" },
-            { id: "voice-ai", label: "🧠 Voice AI & Persona (xAI / OpenAI)" },
-            { id: "calendar", label: "📅 Cal.com & Calendar Booking" },
-            { id: "troubleshooting", label: "❓ Troubleshooting & Carrier FAQs" },
-          ].map((tab) => (
+        <div style={{
+          display: "flex",
+          gap: 8,
+          marginBottom: 16,
+          flexWrap: "wrap",
+          padding: embedded ? 6 : 0,
+          background: embedded ? "#fff" : "transparent",
+          border: embedded ? `1px solid ${C.border}` : "none",
+          borderRadius: embedded ? 14 : 0,
+          boxShadow: embedded ? "0 8px 28px rgba(18,20,28,0.06)" : "none",
+        }}>
+          {(embedded
+            ? [
+                { id: "overview", label: "Overview" },
+                { id: "telnyx", label: "Telnyx" },
+                { id: "twilio", label: "Twilio" },
+                { id: "voice-ai", label: "Voice AI" },
+                { id: "calendar", label: "Calendar" },
+                { id: "troubleshooting", label: "FAQ" },
+              ]
+            : [
+                { id: "overview", label: "🗺️ Overview & Architecture" },
+                { id: "telnyx", label: "📞 Telnyx Walkthrough (Recommended)" },
+                { id: "twilio", label: "🔴 Twilio Walkthrough (Alternative)" },
+                { id: "voice-ai", label: "🧠 Voice AI & Persona (xAI / OpenAI)" },
+                { id: "calendar", label: "📅 Cal.com & Calendar Booking" },
+                { id: "troubleshooting", label: "❓ Troubleshooting & Carrier FAQs" },
+              ]
+          ).map((tab) => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveTab(tab.id)}
               style={{
-                padding: "9px 18px",
-                borderRadius: 8,
-                border: `1px solid ${activeTab === tab.id ? C.ink : C.border}`,
-                background: activeTab === tab.id ? C.ink : "#fff",
+                padding: embedded ? "8px 14px" : "9px 18px",
+                borderRadius: embedded ? 10 : 8,
+                border: embedded ? "none" : `1px solid ${activeTab === tab.id ? C.ink : C.border}`,
+                background: activeTab === tab.id ? C.ink : (embedded ? "transparent" : "#fff"),
                 color: activeTab === tab.id ? "#fff" : C.slate,
                 fontFamily: FONT_BODY,
                 fontSize: 13,
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: "pointer",
                 transition: "all 0.15s ease",
               }}
