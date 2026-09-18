@@ -1921,9 +1921,6 @@ export function CallingWorkspace({
                       <button type="button" onClick={() => { newList({ confirm: false }); addRow(); }} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
                         New list + first row
                       </button>
-                      <button type="button" onClick={addRow} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer" }}>
-                        Add row
-                      </button>
                     </div>
                   </div>
                 ) : (
