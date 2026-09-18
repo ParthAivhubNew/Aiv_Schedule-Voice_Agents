@@ -158,6 +158,55 @@ export function logDisplayName(entry) {
   return spoken || "Unknown caller";
 }
 
+let _notifSeq = 0;
+
+export function notificationFingerprint(text) {
+  return String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+export function makeNotification(text, type = "info", extra = {}) {
+  _notifSeq += 1;
+  return {
+    id: `n_${Date.now()}_${_notifSeq}_${Math.random().toString(36).slice(2, 7)}`,
+    text: String(text || "").trim(),
+    time: "just now",
+    unread: true,
+    type: type || "info",
+    ...extra,
+  };
+}
+
+/** Drop duplicate ids + same message text. Keeps newest first. */
+export function dedupeNotifications(list) {
+  const seenIds = new Set();
+  const seenFp = new Set();
+  const out = [];
+  for (const n of list || []) {
+    if (!n || !(n.text || "").trim()) continue;
+    const id = n.id || makeNotification(n.text, n.type).id;
+    if (seenIds.has(id)) continue;
+    const fp = notificationFingerprint(n.text);
+    if (fp && seenFp.has(fp)) continue;
+    seenIds.add(id);
+    if (fp) seenFp.add(fp);
+    out.push({ ...n, id });
+  }
+  return out;
+}
+
+/** Prepend one note; skip if same text already near the top. */
+export function prependNotification(ns, text, type = "info", extra = {}) {
+  const list = Array.isArray(ns) ? ns : [];
+  const fp = notificationFingerprint(text);
+  if (!fp) return dedupeNotifications(list);
+  const already = list.slice(0, 16).some((n) => notificationFingerprint(n.text) === fp);
+  if (already) return dedupeNotifications(list);
+  return dedupeNotifications([makeNotification(text, type, extra), ...list]).slice(0, 80);
+}
+
 export function meetingTimeLabel(m) {
   if (!m) return "";
   const hostTz = m.hostTimezone || m.host_timezone || "Europe/London";

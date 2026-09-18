@@ -1,22 +1,40 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Bell, PlusCircle, CheckCircle2, AlertTriangle, Info } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, dedupeNotifications, notificationFingerprint } from "../tokens";
 
-export function NotificationBell({ notifications = [], setNotifications }) {
+export function NotificationBell({ notifications = [], setNotifications, onNavigate }) {
   const [open, setOpen] = useState(false);
   const bellRef = useRef(null);
 
-  const unreadCount = notifications.filter((n) => n.unread).length;
+  const items = useMemo(() => dedupeNotifications(notifications), [notifications]);
+  const unreadCount = items.filter((n) => n.unread).length;
   const hasUnread = unreadCount > 0;
 
   const markAllRead = () => {
     if (!setNotifications) return;
-    setNotifications((ns) => ns.map((n) => ({ ...n, unread: false })));
+    setNotifications((ns) => dedupeNotifications(ns).map((n) => ({ ...n, unread: false })));
   };
 
-  const markOneRead = (id) => {
-    if (!setNotifications) return;
-    setNotifications((ns) => ns.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+  const markOneRead = (n) => {
+    if (!setNotifications || !n) return;
+    const fp = notificationFingerprint(n.text);
+    setNotifications((ns) =>
+      dedupeNotifications(ns).map((x) =>
+        x.id === n.id || notificationFingerprint(x.text) === fp ? { ...x, unread: false } : x
+      )
+    );
+  };
+
+  const handleItemClick = (n) => {
+    markOneRead(n);
+    setOpen(false);
+    if (typeof onNavigate === "function") {
+      onNavigate(n);
+      return;
+    }
+    if (typeof window !== "undefined" && typeof window.__voiceNavigate === "function" && n.targetView) {
+      window.__voiceNavigate(n.targetView, n.targetExtra || {});
+    }
   };
 
   useEffect(() => {
@@ -27,6 +45,15 @@ export function NotificationBell({ notifications = [], setNotifications }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // One-time cleanup of stored duplicates when panel opens / list grows
+  useEffect(() => {
+    if (!setNotifications || !notifications.length) return;
+    const cleaned = dedupeNotifications(notifications);
+    if (cleaned.length !== notifications.length) {
+      setNotifications(cleaned);
+    }
+  }, [notifications.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div ref={bellRef} style={{ position: "relative" }}>
       <style>{`
@@ -36,6 +63,7 @@ export function NotificationBell({ notifications = [], setNotifications }) {
         }
       `}</style>
       <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
         title={hasUnread ? `${unreadCount} unread` : "Notifications"}
         style={{
@@ -99,6 +127,7 @@ export function NotificationBell({ notifications = [], setNotifications }) {
             <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: "#fff" }}>Notifications</span>
             {unreadCount > 0 && (
               <button
+                type="button"
                 onClick={markAllRead}
                 style={{
                   background: "none",
@@ -116,15 +145,18 @@ export function NotificationBell({ notifications = [], setNotifications }) {
             )}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
-            {notifications.length === 0 ? (
+            {items.length === 0 ? (
               <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, textAlign: "center", padding: "16px 0" }}>
                 No notifications
               </div>
             ) : (
-              notifications.map((n) => (
+              items.map((n) => (
                 <div
                   key={n.id}
-                  onClick={() => markOneRead(n.id)}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleItemClick(n)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleItemClick(n); }}
                   style={{
                     display: "flex",
                     gap: 10,
@@ -132,13 +164,13 @@ export function NotificationBell({ notifications = [], setNotifications }) {
                     borderRadius: 10,
                     background: n.unread ? "rgba(75,115,255,0.12)" : "rgba(255,255,255,0.03)",
                     border: `1px solid ${n.unread ? "rgba(75,115,255,0.25)" : "transparent"}`,
-                    cursor: n.unread ? "pointer" : "default",
+                    cursor: "pointer",
                   }}
                 >
                   <div style={{ marginTop: 2 }}>
                     {n.type === "success" && <CheckCircle2 size={15} color={C.teal} />}
                     {n.type === "alert" && <AlertTriangle size={15} color={C.amber} />}
-                    {n.type === "info" && <Info size={15} color={C.cobaltDeep} />}
+                    {(n.type === "info" || !n.type) && <Info size={15} color={C.cobaltDeep} />}
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#F8FAFC", lineHeight: 1.4 }}>{n.text}</div>

@@ -805,9 +805,12 @@ class CalendarService:
         hours_line = hours if not day_bits else f"{hours} default; " + "; ".join(day_bits)
         lines = [
             f"INTERNAL (never speak timezone names, never say UK/GMT/IST/'your time'/'our time'): host diary {host_tz}.",
+            f"Host invite mailbox: {setting.host_email or '(not set — configure Schedule / Cal.com host email)'}.",
             f"Current local clock for speech: {p_now.strftime('%I:%M %p').lstrip('0')} on {p_now.strftime('%A, %d %B %Y')}.",
             f"We sit {hours_line}.{flex_line} If their ask falls outside, say that window is packed and offer nearby times from the list. Stay easy-going.",
-            "Offer only these spoken times (do not invent):",
+            "Slots below come from the real host diary (working hours + existing bookings"
+            + (", Cal.com if connected" if getattr(setting, "api_key", None) else ", local hours only — no Cal.com key")
+            + "). Offer only these spoken times (do not invent):",
         ]
         for d in week:
             if d["open"]:

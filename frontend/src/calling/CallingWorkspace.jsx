@@ -37,7 +37,7 @@ import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
 import { api } from "../api/apiClient";
 import { AudioStreamPlayer } from "../api/audioStreamPlayer";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel } from "../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications } from "../tokens";
 import { setCallingEdition } from "./callingEdition";
 import { CallingSchedule } from "./CallingSchedule";
 
@@ -97,6 +97,99 @@ function writeJson(key, val) {
 
 function digitsInPhone(raw) {
   return String(raw || "").replace(/\D/g, "");
+}
+
+function coercePhoneCell(v) {
+  if (v == null || v === "") return "";
+  if (typeof v === "number" && Number.isFinite(v)) {
+    // Excel stores long phones as numbers — avoid "4.47e+11"
+    return String(Math.trunc(v));
+  }
+  let s = String(v).trim();
+  if (/e[+-]?\d+$/i.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) s = String(Math.trunc(n));
+  }
+  return s;
+}
+
+function isPhoneHeader(h) {
+  return /telephone|phone|mobile|\btel\b|cell\b|whatsapp|msisdn|dial/i.test(String(h || ""));
+}
+
+function phoneHeaders(headers) {
+  return (headers || []).filter((h) => isPhoneHeader(h));
+}
+
+/** Prefer the phone column that actually has dialable values (not an empty "Telephone" before "Mobile Phone"). */
+function pickBestPhoneHeader(headers, records) {
+  const cands = phoneHeaders(headers);
+  if (!cands.length) return "";
+  let best = cands[0];
+  let bestScore = -1;
+  cands.forEach((h) => {
+    let score = 0;
+    (records || []).slice(0, 80).forEach((rec) => {
+      if (digitsInPhone(coercePhoneCell(rec && rec[h])).length >= 7) score += 1;
+    });
+    if (score > bestScore) {
+      bestScore = score;
+      best = h;
+    }
+  });
+  return best;
+}
+
+function extractPhoneFromRecord(headers, rec) {
+  if (!rec) return "";
+  const ordered = [];
+  const bestH = pickBestPhoneHeader(headers, [rec]);
+  if (bestH) ordered.push(bestH);
+  phoneHeaders(headers).forEach((h) => { if (!ordered.includes(h)) ordered.push(h); });
+  let best = "";
+  ordered.forEach((h) => {
+    const v = coercePhoneCell(rec[h]);
+    const d = digitsInPhone(v);
+    if (d.length >= 7 && d.length >= digitsInPhone(best).length) best = v;
+  });
+  if (best) return best;
+  // Last resort: any cell that looks like an international / mobile number
+  Object.keys(rec).forEach((h) => {
+    if (headerToField(h) === "email" || headerToField(h) === "website" || headerToField(h) === "linkedin") return;
+    const v = coercePhoneCell(rec[h]);
+    const d = digitsInPhone(v);
+    if (d.length >= 10 && d.length <= 15 && d.length >= digitsInPhone(best).length) best = v;
+  });
+  return best;
+}
+
+/** Live resolve — also fixes older rows where phone stayed empty while Mobile Phone cell had the number. */
+function rowPhone(r) {
+  if (!r) return "";
+  const direct = coercePhoneCell(r.phone);
+  if (digitsInPhone(direct).length >= 7) return direct;
+  const cells = r.cells || {};
+  let best = "";
+  Object.keys(cells).forEach((h) => {
+    if (!isPhoneHeader(h) && headerToField(h) !== "phone") return;
+    const v = coercePhoneCell(cells[h]);
+    if (digitsInPhone(v).length >= 7 && digitsInPhone(v).length >= digitsInPhone(best).length) best = v;
+  });
+  if (best) return best;
+  Object.keys(cells).forEach((h) => {
+    if (headerToField(h) === "email" || headerToField(h) === "website" || headerToField(h) === "linkedin") return;
+    const v = coercePhoneCell(cells[h]);
+    const d = digitsInPhone(v);
+    if (d.length >= 10 && d.length <= 15 && d.length >= digitsInPhone(best).length) best = v;
+  });
+  return best;
+}
+
+function ensureRowPhone(r) {
+  if (!r) return r;
+  const p = rowPhone(r);
+  if (!p || p === r.phone) return r;
+  return { ...r, phone: p };
 }
 
 function intlDigits(raw) {
@@ -209,7 +302,7 @@ function rowFromRecord(headers, rec, i) {
     || (headers || []).find((h) => /^(company|business)$/i.test(String(h || "").trim()))
     || (headers || []).find((h) => !junkCompanyHeader(h) && headerToField(h) === "company")
     || "";
-  const phoneH = pickHeader(headers, /telephone|phone|mobile|\btel\b/) || "";
+  const phoneH = pickBestPhoneHeader(headers, [rec]) || pickHeader(headers, /telephone|phone|mobile|\btel\b|cell\b/) || "";
   const emailH = pickHeader(headers, /e-?mail/) || "";
   const webH = pickHeader(headers, /web\s*address|website|web\s*site|homepage|\burl\b/) || "";
   const liH = pickHeader(headers, /linkedin/) || "";
@@ -225,12 +318,13 @@ function rowFromRecord(headers, rec, i) {
   const last = String((lastH && rec[lastH]) || "").trim();
   const contact = [first, last].filter(Boolean).join(" ") || String((personH && rec[personH]) || "").trim();
   const website = normalizeWebsite((webH && rec[webH]) || "");
+  const phone = extractPhoneFromRecord(headers, rec) || coercePhoneCell(phoneH && rec[phoneH]);
   return {
     id: "row_" + i,
     company,
     contact,
     name: company || contact || `Row ${i + 1}`,
-    phone: String((phoneH && rec[phoneH]) || "").trim(),
+    phone,
     email: String((emailH && rec[emailH]) || "").trim(),
     website,
     linkedin: String((liH && rec[liH]) || "").trim(),
@@ -247,7 +341,7 @@ function rowFromRecord(headers, rec, i) {
 
 function missingKeys(r) {
   const miss = [];
-  if (!String(r.phone || "").trim()) miss.push("phone");
+  if (digitsInPhone(rowPhone(r)).length < 7) miss.push("phone");
   if (!String(r.email || "").trim()) miss.push("email");
   if (!String(r.website || "").trim()) miss.push("website");
   if (!String(r.linkedin || "").trim()) miss.push("linkedin");
@@ -262,7 +356,7 @@ function serializeForGaps(list) {
     name: r.company || r.name || "",
     company: r.company || r.name || "",
     contact: r.contact || "",
-    phone: r.phone || "",
+    phone: rowPhone(r) || r.phone || "",
     email: r.email || "",
     source: normalizeWebsite(r.website),
     website: normalizeWebsite(r.website),
@@ -456,9 +550,15 @@ function voiceSelectLabel(id) {
   if (id === "rex-uk") return "Rex UK — Sam (British, male)";
   if (id === "rex") return "Rex — Sam (male)";
   if (id === "leo") return "Leo (male)";
+  if (id === "ara-uk") return "Ara UK (British, female)";
+  if (id === "eve-uk") return "Eve UK (British, female)";
   if (id === "ara") return "Ara (female)";
   if (id === "eve") return "Eve (female)";
   return id;
+}
+
+function voiceAccentFor(id) {
+  return String(id || "").includes("-uk") || String(id || "").includes("_uk") ? "british" : undefined;
 }
 
 export function CallingWorkspace({
@@ -497,7 +597,7 @@ export function CallingWorkspace({
   const [listeningId, setListeningId] = useState(null);
   const [takenId, setTakenId] = useState(null);
   const [endingId, setEndingId] = useState(null);
-  const [voiceName, setVoiceName] = useState("rex");
+  const [voiceName, setVoiceName] = useState("ara-uk");
   const [direct, setDirect] = useState({ phone: "", name: "" });
   const [openBooked, setOpenBooked] = useState("");
   const [logQuery, setLogQuery] = useState("");
@@ -521,7 +621,7 @@ export function CallingWorkspace({
   const [chatInput, setChatInput] = useState("");
   const [notifications, setNotifications] = useState(() => {
     const saved = readJson(LS_NOTES, []);
-    return Array.isArray(saved) ? saved : [];
+    return dedupeNotifications(Array.isArray(saved) ? saved : []);
   });
   const [draft, setDraft] = useState({
     name: (profile && profile.name) || "",
@@ -542,7 +642,7 @@ export function CallingWorkspace({
   const extras = useMemo(() => extraHeaders(headers), [headers]);
 
   const pushNote = (text, type) => {
-    setNotifications((ns) => [{ id: "n_" + Date.now(), text, time: "just now", unread: true, type: type || "info" }, ...ns]);
+    setNotifications((ns) => prependNotification(ns, text, type || "info"));
   };
 
   useEffect(() => {
@@ -600,10 +700,17 @@ export function CallingWorkspace({
       if (!Array.isArray(n) || !n.length) return;
       setNotifications((prev) => {
         const seen = new Set(prev.map((x) => x && x.id));
+        const seenText = new Set(prev.map((x) => String(x && x.text || "").trim().toLowerCase()));
         const extra = n
           .filter((x) => x && x.id && !seen.has(x.id))
+          .filter((x) => {
+            const t = String(x.text || "").trim().toLowerCase();
+            if (!t || seenText.has(t)) return false;
+            seenText.add(t);
+            return true;
+          })
           .map((x) => ({ ...x, unread: x.unread !== false }));
-        return extra.length ? [...extra, ...prev] : prev;
+        return dedupeNotifications(extra.length ? [...extra, ...prev] : prev);
       });
     }).catch(() => {});
   }, []);
@@ -715,7 +822,7 @@ export function CallingWorkspace({
   useEffect(() => { writeJson(LS_THREADS, threads); }, [threads]);
   useEffect(() => { writeJson(LS_LISTS, savedLists); }, [savedLists]);
   useEffect(() => { writeJson(LS_CONTACTS, savedContacts); }, [savedContacts]);
-  useEffect(() => { writeJson(LS_NOTES, notifications); }, [notifications]);
+  useEffect(() => { writeJson(LS_NOTES, dedupeNotifications(notifications)); }, [notifications]);
 
   const abortFind = (hard) => {
     lookupStop.current = true;
@@ -741,7 +848,7 @@ export function CallingWorkspace({
   };
 
   const tallyRow = (r, logRows) => {
-    const d = digitsInPhone(r.phone);
+    const d = digitsInPhone(rowPhone(r));
     const names = [r.company, r.contact, r.name].map((x) => String(x || "").toLowerCase()).filter((n) => n.length > 3);
     const hits = (logRows || []).filter((l) => {
       const blob = `${logDisplayName(l)} ${l.canonicalName || ""} ${l.listedAs || ""} ${l.personListedAs || ""} ${l.mission || ""}`.toLowerCase();
@@ -800,13 +907,13 @@ export function CallingWorkspace({
   };
 
   const saveSelectedContacts = () => {
-    const picks = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(r.phone).length >= 7);
+    const picks = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(rowPhone(r)).length >= 7);
     if (!picks.length) {
       showToast("Select rows with a phone first.");
       return;
     }
     picks.forEach((r) => upsertSavedContact({
-      phone: r.phone,
+      phone: rowPhone(r),
       name: r.contact || r.name || "",
       company: r.company || "",
       email: r.email || "",
@@ -834,7 +941,7 @@ export function CallingWorkspace({
   };
 
   const selectAllDialable = () => {
-    setSelectedIds(new Set(rows.filter((r) => digitsInPhone(r.phone).length >= 7).map((r) => r.id)));
+    setSelectedIds(new Set(rows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).map((r) => r.id)));
   };
 
   const clearSelection = () => setSelectedIds(new Set());
@@ -862,7 +969,7 @@ export function CallingWorkspace({
   };
 
   const callOneRow = async (r) => {
-    const phone = String((r && r.phone) || "").trim();
+    const phone = String(rowPhone(r) || "").trim();
     if (digitsInPhone(phone).length < 7) {
       showToast("No dialable phone.");
       return;
@@ -893,10 +1000,22 @@ export function CallingWorkspace({
     if (!item) return;
     setFileName(item.name);
     setHeaders(item.headers || []);
-    setRows(item.rows || []);
+    setRows((item.rows || []).map(ensureRowPhone));
     setSelectedIds(new Set());
     showToast("Loaded " + item.name);
   };
+
+  useEffect(() => {
+    setRows((prev) => {
+      let changed = false;
+      const next = prev.map((r) => {
+        const healed = ensureRowPhone(r);
+        if (healed !== r) changed = true;
+        return healed;
+      });
+      return changed ? next : prev;
+    });
+  }, [rows.length, fileName]);
 
   useEffect(() => {
     if (!logs.length || !rows.length) return;
@@ -927,7 +1046,7 @@ export function CallingWorkspace({
       ({ headers: hs, records }) => {
         setFileName(file.name);
         setHeaders(hs);
-        setRows((records || []).map((rec, i) => rowFromRecord(hs, rec, i)));
+        setRows((records || []).map((rec, i) => rowFromRecord(hs, rec, i)).map(ensureRowPhone));
         setSelectedIds(new Set());
         showToast(`${records.length} rows from file. Tick who to call, or call all with phones.`);
       },
@@ -1092,17 +1211,20 @@ export function CallingWorkspace({
 
   const startCalls = async (onlySelected = false) => {
     const pool = onlySelected
-      ? rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(r.phone).length >= 7)
-      : rows.filter((r) => digitsInPhone(r.phone).length >= 7);
-    const prospects = pool.map((r) => ({
-      to_number: r.phone,
-      phone: r.phone,
-      prospect_name: r.contact || "",
-      name: r.company || r.name,
-      contact: r.contact || "",
-      company: r.company || "",
-      website: r.website || "",
-    }));
+      ? rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(rowPhone(r)).length >= 7)
+      : rows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7);
+    const prospects = pool.map((r) => {
+      const phone = rowPhone(r);
+      return {
+        to_number: phone,
+        phone,
+        prospect_name: r.contact || "",
+        name: r.company || r.name,
+        contact: r.contact || "",
+        company: r.company || "",
+        website: r.website || "",
+      };
+    });
     if (!prospects.length) {
       showToast(onlySelected ? "Select contacts with a phone first." : "No dialable phone numbers on this list.");
       return;
@@ -1248,7 +1370,7 @@ export function CallingWorkspace({
         voice_id: voiceName,
         label: voiceSelectLabel(voiceName),
         provider: "xai",
-        accent: voiceName === "rex-uk" ? "british" : undefined,
+        accent: voiceAccentFor(voiceName),
       });
       showToast(companyPanel ? "Voice saved." : "Setup saved.");
     } catch (e) {
@@ -1259,8 +1381,8 @@ export function CallingWorkspace({
   };
 
   const activeLive = liveCalls.filter(liveActive);
-  const dialable = rows.filter((r) => digitsInPhone(r.phone).length >= 7).length;
-  const selectedDialable = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(r.phone).length >= 7).length;
+  const dialable = rows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).length;
+  const selectedDialable = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(rowPhone(r)).length >= 7).length;
   const allDialableSelected = dialable > 0 && selectedDialable === dialable;
   const filteredLogs = useMemo(() => {
     const q = logQuery.trim().toLowerCase();
@@ -1518,7 +1640,8 @@ export function CallingWorkspace({
                       </thead>
                       <tbody>
                         {rows.map((r) => {
-                          const canDial = digitsInPhone(r.phone).length >= 7;
+                          const phone = rowPhone(r);
+                          const canDial = digitsInPhone(phone).length >= 7;
                           const checked = selectedIds.has(r.id);
                           return (
                             <tr key={r.id} style={{ background: checked ? "rgba(12,140,125,0.06)" : undefined }}>
@@ -1550,16 +1673,16 @@ export function CallingWorkspace({
                               <td style={{ padding: "8px 10px", borderBottom: `1px solid ${C.borderLight}`, whiteSpace: "nowrap" }}>
                                 {canDial ? (
                                   <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
-                                    <button type="button" disabled={busy === "direct"} onClick={() => callOneRow(r)} style={miniAct()} title="AI call via Twilio">
+                                    <button type="button" disabled={busy === "direct"} onClick={() => callOneRow({ ...r, phone })} style={miniAct()} title="AI call via Twilio">
                                       <Phone size={12} /> Call
                                     </button>
-                                    <button type="button" onClick={() => openChannel("sms", r.phone, r.contact || r.name, r.company || brandForMsg())} style={miniAct()} title="Open SMS">
+                                    <button type="button" onClick={() => openChannel("sms", phone, r.contact || r.name, r.company || brandForMsg())} style={miniAct()} title="Open SMS">
                                       <MessageSquare size={12} /> Text
                                     </button>
-                                    <button type="button" onClick={() => openChannel("whatsapp", r.phone, r.contact || r.name, r.company || brandForMsg())} style={miniAct()} title="Open WhatsApp">
+                                    <button type="button" onClick={() => openChannel("whatsapp", phone, r.contact || r.name, r.company || brandForMsg())} style={miniAct()} title="Open WhatsApp">
                                       WA
                                     </button>
-                                    <button type="button" onClick={() => { upsertSavedContact({ phone: r.phone, name: r.contact || r.name, company: r.company, email: r.email, source: "list" }); showToast("Saved contact"); }} style={miniAct()} title="Save number">
+                                    <button type="button" onClick={() => { upsertSavedContact({ phone, name: r.contact || r.name, company: r.company, email: r.email, source: "list" }); showToast("Saved contact"); }} style={miniAct()} title="Save number">
                                       <Bookmark size={12} />
                                     </button>
                                   </div>
@@ -1791,8 +1914,8 @@ export function CallingWorkspace({
                         <button type="button" onClick={() => toggleTakeover(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: takenId === id ? C.redSoft : "#fff", cursor: "pointer", fontWeight: 700 }}>
                           {takenId === id ? "Hand back to AI" : "Take over"}
                         </button>
-                        <button type="button" onClick={() => bookMeeting(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: "none", background: C.green, color: "#fff", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-                          <Calendar size={14} /> Confirm meeting
+                        <button type="button" onClick={() => bookMeeting(id)} title="Books from what was said on this call (time + email in transcript) onto the real calendar" style={{ height: 38, padding: "0 12px", borderRadius: 9, border: "none", background: C.green, color: "#fff", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                          <Calendar size={14} /> Book from call
                         </button>
                         <button type="button" onClick={() => setEndingId(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: "none", background: C.redSoft, color: C.red, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
                           <PhoneOff size={14} /> End
@@ -2049,11 +2172,13 @@ export function CallingWorkspace({
                     <label style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
                       Voice
                       <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} style={{ ...fieldStyle(), marginTop: 6 }}>
+                        <option value="ara-uk">Ara UK (British, female)</option>
+                        <option value="eve-uk">Eve UK (British, female)</option>
+                        <option value="ara">Ara (female)</option>
+                        <option value="eve">Eve (female)</option>
                         <option value="rex-uk">Rex UK — Sam (British, male)</option>
                         <option value="rex">Rex — Sam (male)</option>
                         <option value="leo">Leo (male)</option>
-                        <option value="ara">Ara (female)</option>
-                        <option value="eve">Eve (female)</option>
                       </select>
                     </label>
                   </div>

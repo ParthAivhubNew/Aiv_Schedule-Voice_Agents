@@ -226,8 +226,17 @@ def _split_voice_choice(voice_id: str, accent: Optional[str] = None) -> tuple[st
     vid = (voice_id or "rex").strip()
     acc = (accent or "").strip().lower()
     low = vid.lower()
-    if low in ("rex-uk", "rex_uk", "sam-uk", "sam_uk"):
-        return "rex", "british"
+    uk_aliases = {
+        "rex-uk": "rex", "rex_uk": "rex", "sam-uk": "rex", "sam_uk": "rex",
+        "ara-uk": "ara", "ara_uk": "ara",
+        "eve-uk": "eve", "eve_uk": "eve",
+        "leo-uk": "leo", "leo_uk": "leo",
+    }
+    if low in uk_aliases:
+        return uk_aliases[low], "british"
+    if "-uk" in low or "_uk" in low:
+        base = low.replace("-uk", "").replace("_uk", "") or vid
+        return base, "british"
     if acc in ("british", "uk", "en-gb"):
         return vid, "british"
     if low == "rex":
@@ -295,8 +304,17 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     else:
         stored_custom = []
     ui_voice = configured_voice
-    if str(configured_accent).lower() in ("british", "uk", "en-gb") and str(configured_voice or "").lower() == "rex":
-        ui_voice = "rex-uk"
+    _cv = str(configured_voice or "").lower()
+    _ca = str(configured_accent or "").lower()
+    if _ca in ("british", "uk", "en-gb"):
+        if _cv == "rex":
+            ui_voice = "rex-uk"
+        elif _cv == "ara":
+            ui_voice = "ara-uk"
+        elif _cv == "eve":
+            ui_voice = "eve-uk"
+        elif _cv == "leo":
+            ui_voice = "leo-uk"
 
     live_engine = "xai"
     live_note = ""

@@ -122,7 +122,7 @@ import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
 import EmailOutreachPlugin from "./plugins/EmailOutreachPlugin";
 import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
 import { CalcomAdminModal } from "./admin/CalcomAdminModal";
-import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel, logDisplayName } from "./tokens";
+import { getActiveAiCredentials, resolveImageCredentials, meetingTimeLabel, logDisplayName, dedupeNotifications, prependNotification, notificationFingerprint } from "./tokens";
 import { SocialWorkspaceGate } from "./scheduler/SocialWorkspace";
 import { EDITION_EVENT, getSchedulerEdition, setSchedulerEdition } from "./scheduler/schedulerEdition";
 import { humanizeAiReply } from "./scheduler/chatClean";
@@ -1496,15 +1496,25 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
 
 function NotificationBell({ notifications, setNotifications, onNavigate }) {
   const [open, setOpen] = useState(false);
-  const unread = notifications.filter((n) => n.unread).length;
+  const items = useMemo(() => dedupeNotifications(notifications), [notifications]);
+  const unread = items.filter((n) => n.unread).length;
+
+  useEffect(() => {
+    if (!setNotifications || !notifications?.length) return;
+    const cleaned = dedupeNotifications(notifications);
+    if (cleaned.length !== notifications.length) setNotifications(cleaned);
+  }, [notifications?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNotificationClick = (n) => {
-    // 1. Mark this notification as read
-    setNotifications((ns) => ns.map((x) => (x.id === n.id ? { ...x, unread: false } : x)));
-    // 2. Dismiss dropdown
+    // Mark this note + any duplicate text as read (old bug: same Date.now() id hit many rows)
+    const fp = notificationFingerprint(n.text);
+    setNotifications((ns) =>
+      dedupeNotifications(ns).map((x) =>
+        x.id === n.id || notificationFingerprint(x.text) === fp ? { ...x, unread: false } : x
+      )
+    );
     setOpen(false);
 
-    // 3. Smart routing based on metadata or message content
     let targetView = n.targetView;
     let targetExtra = n.targetExtra || {};
 
@@ -1512,7 +1522,7 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
       const text = (n.text || "").toLowerCase();
       if (text.includes("meeting") || text.includes("booked") || text.includes("cal.com")) {
         targetView = "meetings";
-      } else if (text.includes("staff input") || text.includes("live") || text.includes("pricing") || text.includes("calling") || text.includes("intervention") || text.includes("human")) {
+      } else if (text.includes("staff input") || text.includes("live") || text.includes("pricing") || text.includes("calling") || text.includes("intervention") || text.includes("human") || text.includes("inbound call")) {
         targetView = "live";
         if (text.includes("pennine")) {
           targetExtra = { liveFocus: { name: "Pennine Distribution" } };
@@ -1627,7 +1637,7 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
                 )}
               </div>
               <button
-                onClick={() => setNotifications((ns) => ns.map((n) => ({ ...n, unread: false })))}
+                onClick={() => setNotifications((ns) => dedupeNotifications(ns).map((n) => ({ ...n, unread: false })))}
                 style={{ background: "none", border: "none", color: C.cobalt, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "2px 6px" }}
               >
                 Mark all read
@@ -1642,12 +1652,12 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
                 overscrollBehavior: "contain",
               }}
             >
-              {notifications.length === 0 ? (
+              {items.length === 0 ? (
                 <div style={{ padding: "36px 20px", textAlign: "center", color: C.slateLight, fontSize: 13 }}>
                   No notifications yet.
                 </div>
               ) : (
-                notifications.map((n) => (
+                items.map((n) => (
                   <div
                     key={n.id}
                     onClick={() => handleNotificationClick(n)}
@@ -1701,7 +1711,7 @@ function NotificationBell({ notifications, setNotifications, onNavigate }) {
   );
 }
 
-function TopBar({ title, subtitle, onNewMission, notifications, setNotifications, onBack, canGoBack, backLabel }) {
+function TopBar({ title, subtitle, onNewMission, notifications, setNotifications, onBack, canGoBack, backLabel, onNavigate }) {
   return (
     <div
       style={{
@@ -1740,7 +1750,7 @@ function TopBar({ title, subtitle, onNewMission, notifications, setNotifications
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <NotificationBell notifications={notifications} setNotifications={setNotifications} />
+        <NotificationBell notifications={notifications} setNotifications={setNotifications} onNavigate={onNavigate || ((view, extra) => typeof window !== "undefined" && window.__voiceNavigate && window.__voiceNavigate(view, extra))} />
         {onNewMission && (
           <button
             onClick={onNewMission}
@@ -22448,7 +22458,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
   const [selectedMissionId, setSelectedMissionId] = useState(null);
   const [liveFocus, setLiveFocus] = useState(null);
   const [showNew, setShowNew] = useState(false);
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState(() => dedupeNotifications(INITIAL_NOTIFICATIONS));
   const [missions, setMissions] = useState(() => {
     try {
       const saved = localStorage.getItem("aivhub_missions");
@@ -22576,6 +22586,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
   // Real-time WebSocket connection to Call Hub + auto polling fallback
   useEffect(() => {
     let ws = null;
+    const seenInboundCallIds = new Set();
     try {
       ws = new WebSocketClient(
         null,
@@ -22583,17 +22594,16 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
           if (msg && msg.type) {
             refreshLiveCalls();
             if (msg.type === "call_created" || msg.type === "call_started") {
-              const callerLabel = (msg.data && (msg.data.prospect || msg.data.caller)) || "Incoming caller";
-              setNotifications((ns) => [
-                {
-                  id: "n_" + Date.now(),
-                  text: `📞 Inbound call received: ${callerLabel}. AI is conversing live now!`,
-                  time: "just now",
-                  unread: true,
-                  type: "alert"
-                },
-                ...ns
-              ]);
+              const data = msg.data || {};
+              const callId = data.id || data.callId || data.carrierSid || "";
+              // call_created + call_started (and remounted listeners) used to fire 2–4 identical bells
+              if (callId) {
+                if (seenInboundCallIds.has(callId)) return;
+                seenInboundCallIds.add(callId);
+              }
+              const callerLabel = data.prospect || data.caller || "Incoming caller";
+              const text = `Inbound call received: ${callerLabel}. AI is conversing live now.`;
+              setNotifications((ns) => prependNotification(ns, text, "alert", { targetView: "live" }));
             }
             if (["call_ended", "booking_confirmed", "call_updated"].includes(msg.type)) {
               refreshWorkspaceLogs();

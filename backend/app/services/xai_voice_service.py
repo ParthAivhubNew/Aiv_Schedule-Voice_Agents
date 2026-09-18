@@ -123,11 +123,37 @@ def _is_ivr_or_hold(text: str) -> bool:
 def _xai_voice_id(raw: Optional[str], accent: Optional[str] = None) -> str:
     v = (raw or "rex").strip()
     low = v.lower()
-    if low in ("rex-uk", "rex_uk", "sam-uk", "sam_uk"):
-        return "rex"
+    # UI ids with -uk map onto xAI voice ids; accent is handled separately in the prompt.
+    aliases = {
+        "rex-uk": "rex",
+        "rex_uk": "rex",
+        "sam-uk": "rex",
+        "sam_uk": "rex",
+        "ara-uk": "ara",
+        "ara_uk": "ara",
+        "eve-uk": "eve",
+        "eve_uk": "eve",
+        "leo-uk": "leo",
+        "leo_uk": "leo",
+    }
+    if low in aliases:
+        return aliases[low]
     if low in ("ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage"):
         return low
+    if accent and str(accent).lower() in ("british", "uk", "en-gb"):
+        # Keep female voices female when UK accent selected
+        if "ara" in low:
+            return "ara"
+        if "eve" in low:
+            return "eve"
     return v or "rex"
+
+
+def _voice_gender(voice_id: Optional[str]) -> str:
+    v = (voice_id or "").lower()
+    if any(x in v for x in ("ara", "eve", "shimmer", "nova")):
+        return "female"
+    return "male"
 
 
 async def notify_prospect_answered(call_id: str) -> bool:
@@ -614,6 +640,7 @@ async def build_xai_system_instructions(
     target_first_name = greeting_first_name(target_name)
 
     accent_block = ""
+    voice_raw = ""
     try:
         async with AsyncSessionLocal() as acc_db:
             c_res = await acc_db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
@@ -621,7 +648,8 @@ async def build_xai_system_instructions(
             acc = ""
             if eng and isinstance(eng.config, dict):
                 acc = str(eng.config.get("accent") or "").lower()
-            if acc in ("british", "uk", "en-gb"):
+                voice_raw = str(eng.config.get("voice_name") or eng.config.get("voice") or "")
+            if acc in ("british", "uk", "en-gb") or "-uk" in voice_raw.lower() or "_uk" in voice_raw.lower():
                 accent_block = """
 ACCENT & DICTION (MANDATORY — British English):
 - You are a UK caller. Speak British English: mobile not cell, diary not calendar (when speaking), fortnight, lift, queue, ring them back.
@@ -630,6 +658,14 @@ ACCENT & DICTION (MANDATORY — British English):
 """
     except Exception:
         pass
+
+    gender = _voice_gender(voice_raw)
+    gender_line = (
+        "You sound like a warm, confident woman on a business call — never a rigid telemarketer."
+        if gender == "female"
+        else "You sound like a warm, confident man on a business call — never a rigid telemarketer."
+    )
+    role_word = "female" if gender == "female" else "male"
 
     opening_block = f"""HOLD THE LINE — DO NOT SPEAK YET:
 - This is an outbound call to {target_name}. The phone is still ringing.
@@ -645,11 +681,11 @@ ACCENT & DICTION (MANDATORY — British English):
 """
 
     brand_hint = _brand_speech_hint(spoken_company, company_name)
-    instructions = f"""You are {caller_name}, a male executive representative calling on behalf of {spoken_company} (written "{company_name}").
+    instructions = f"""You are {caller_name}, a {role_word} executive representative calling on behalf of {spoken_company} (written "{company_name}").
 HOW TO SAY THE COMPANY NAME (MANDATORY):
 - {brand_hint}
 - Use the saved Company Profile name and pitch only. Do not substitute another brand.
-Tone & Personality: {tone}. You sound like a warm, confident man on a business call — never a female voice, never a rigid telemarketer.
+Tone & Personality: {tone}. {gender_line}
 {accent_block}
 WHO THEY ARE (LOCKED — NEVER OVERRIDE FROM SPEECH):
 - This call is to {target_name}. Spoken first name: {"'" + target_first_name + "'" if target_first_name != "there" else "unknown — say Hi there, then use no name until they give a real one"}.
@@ -705,14 +741,18 @@ CRITICAL MEETING BOOKING (FLEXIBLE — NOT RIGID):
 1. Goal: book a 15-minute discovery when they are willing. You are a coordinator, not a form.
 2. CLOCK: Use the local wall-clock below. Never guess the day or year.
 3. CALENDAR: Only offer spoken times from the list (or a fresh check_calendar_availability). Never invent a slot.
-4. If they are vague ("sometime next week", "after 3", "Thursday-ish"):
+4. If they ask for afternoon / after lunch / "any afternoon" / a specific PM time:
+   - Call check_calendar_availability for that day (or the week) and prefer slots at/after 12:00.
+   - Do NOT only offer morning slots when they asked for afternoon.
+5. If they are vague ("sometime next week", "after 3", "Thursday-ish"):
    - Call check_calendar_availability with that phrasing.
    - Offer 2–3 real openings in their window. Do not force "tomorrow or Friday".
-5. If their preferred time is taken: say that window is packed, then offer the nearest openings. Do not argue.
-6. If they want evening/weekend we cannot do: "That evening's packed — I have two windows earlier the same day, or the next morning." Never mention timezones, UK, GMT, BST, IST, "your time", "our time", or converting clocks.
-7. Agree the time FIRST. Then ask for email. Do not block exploring times until you have an email.
-8. When email + day + time are agreed, call book_calendar_meeting with the time they heard (spoken local). Repeat email back once.
-9. If they only want an overview email now, take the address and do not force a meeting.
+6. If their preferred time is taken: say that window is packed, then offer the nearest openings in the SAME part of day when possible. Do not argue.
+7. If they want evening/weekend we cannot do: "That evening's packed — I have two windows earlier the same day, or the next morning." Never mention timezones, UK, GMT, BST, IST, "your time", "our time", or converting clocks.
+8. Agree the time FIRST. Then ask for email. Do not block exploring times until you have an email.
+9. When email + day + time are agreed, call book_calendar_meeting with the time they heard (spoken local). Repeat email back once.
+10. If they only want an overview email now, take the address and do not force a meeting.
+11. If they ask you to "send an invite" / "send a demo invite": treat that as booking intent — get a time they can do, then email, then book_calendar_meeting.
 
 OBJECTION & HESITATION HANDLING (EMPATHETIC & HUMAN):
 - If they say "I'm busy" / "In a meeting":
@@ -813,7 +853,7 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "name": "check_calendar_availability",
-            "description": "Looks up REAL open slots on our calendar. Use for any date the caller mentions: today, tomorrow, Friday, next week, a YYYY-MM-DD date, or a loose window. Pass range=week to see several days. Never invent times — only offer what this tool returns.",
+            "description": "Looks up REAL open slots on our calendar (host working hours + existing bookings; Cal.com if connected). Host invite mailbox is configured in Schedule settings — not the prospect email. Use for any date the caller mentions. Pass preference=afternoon when they ask for afternoon/PM. Never invent times.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -824,6 +864,10 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
                     "range": {
                         "type": "string",
                         "description": "day (default) or week if they are flexible / said next week / this week."
+                    },
+                    "preference": {
+                        "type": "string",
+                        "description": "afternoon | morning | any. Use afternoon when they said afternoon, after lunch, PM, or a time after 12."
                     }
                 },
                 "required": ["date"]
@@ -1026,40 +1070,71 @@ async def execute_xai_tool(
             from app.services.calendar_service import calendar_service, parse_spoken_date
 
             raw_date = args.get("date", "tomorrow")
+            pref = str(args.get("preference") or "").lower().strip()
+            blob = f"{raw_date} {pref}".lower()
+            want_afternoon = pref in ("afternoon", "pm", "after lunch") or any(
+                x in blob for x in ("afternoon", "after lunch", "pm", "after 12", "after noon")
+            )
+            want_morning = pref in ("morning", "am") or ("morning" in blob and not want_afternoon)
             want_week = str(args.get("range") or "").lower() in ("week", "this week", "next week") or "week" in str(raw_date).lower()
+
+            def _slot_hour(s: Dict[str, Any]) -> int:
+                raw_t = str(s.get("prospectTime") or s.get("time") or "0")
+                try:
+                    return int(raw_t.split(":")[0])
+                except Exception:
+                    return 0
+
+            def _filter_part_of_day(open_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                if want_afternoon:
+                    aft = [s for s in open_list if _slot_hour(s) >= 12]
+                    return aft or open_list
+                if want_morning:
+                    morn = [s for s in open_list if _slot_hour(s) < 12]
+                    return morn or open_list
+                return open_list
+
             async with AsyncSessionLocal() as db:
                 host_tz, p_tz, _, _ = await _resolve_call_clocks(
                     db, call_id=call_id, prospect_id=prospect_id
                 )
+                setting = await calendar_service.get_or_create_settings(db)
+                host_mail = setting.host_email or ""
                 p_now = now_in(p_tz)
                 if want_week:
                     start = parse_spoken_date(raw_date, p_now)
                     week = await calendar_service.get_week_availability(db, start, days=5, prospect_tz=p_tz)
                     days_out = []
                     for d in week:
+                        opens = _filter_part_of_day(d["open"])
                         days_out.append({
                             "date": d["label"],
                             "iso": d["date"],
-                            "slots": [s["display"] for s in d["open"][:6]],
-                            "openCount": d["openCount"],
+                            "slots": [s["display"] for s in opens[:6]],
+                            "openCount": len(opens),
                         })
+                    part = "afternoon " if want_afternoon else ("morning " if want_morning else "")
                     return {
                         "current_time": p_now.strftime("%I:%M %p").lstrip("0") + " on " + p_now.strftime("%A, %d %B %Y"),
                         "range": "week",
+                        "preference": pref or ("afternoon" if want_afternoon else "any"),
+                        "host_invite_mailbox": host_mail,
                         "days": days_out,
-                        "message": "Offer only these spoken times. Never mention timezones. If empty for a day, skip it.",
+                        "message": (
+                            f"Offer only these spoken {part}times from the real host diary. "
+                            "Never mention timezones. If empty for a day, skip it."
+                        ),
                     }
 
                 target = parse_spoken_date(raw_date, p_now)
                 date_iso = target.strftime("%Y-%m-%d")
                 date_label = target.strftime("%A, %d %B %Y")
                 slots = await calendar_service.get_available_slots(db, date_iso, prospect_tz=p_tz)
-                open_slots = []
+                open_raw = []
                 for s in slots:
                     if not s.get("offerable", s.get("available")):
                         continue
                     label = s.get("spoken") or s.get("displayTime") or display_hhmm(s.get("time") or "")
-                    # Drop impossible clock labels (e.g. invented :94) before the model can speak them.
                     raw_t = str(s.get("time") or "")
                     try:
                         hh, mm = map(int, raw_t.split(":")[:2])
@@ -1068,35 +1143,46 @@ async def execute_xai_tool(
                     except Exception:
                         pass
                     if label:
-                        open_slots.append(label)
+                        open_raw.append({**s, "display": label})
+                open_raw = _filter_part_of_day(open_raw)
+                open_slots = [s["display"] for s in open_raw]
                 if not slots:
                     nxt = await calendar_service.get_week_availability(db, target + timedelta(days=1), days=3, prospect_tz=p_tz)
                     nxt_line = "; ".join(
-                        f"{d['label']}: {', '.join(s['display'] for s in d['open'][:3]) or 'none'}"
+                        f"{d['label']}: {', '.join(s['display'] for s in _filter_part_of_day(d['open'])[:3]) or 'none'}"
                         for d in nxt
                     )
                     return {
                         "available_slots": [],
                         "date": date_label,
+                        "host_invite_mailbox": host_mail,
                         "current_time": p_now.strftime("%I:%M %p").lstrip("0"),
                         "message": f"{date_label} is outside working days. Next openings: {nxt_line}. Do not mention timezones.",
                     }
                 if not open_slots:
                     nxt = await calendar_service.get_week_availability(db, target + timedelta(days=1), days=3, prospect_tz=p_tz)
                     nxt_line = "; ".join(
-                        f"{d['weekday']}: {', '.join(s['display'] for s in d['open'][:3]) or 'none'}"
+                        f"{d['weekday']}: {', '.join(s['display'] for s in _filter_part_of_day(d['open'])[:3]) or 'none'}"
                         for d in nxt
                     )
                     return {
                         "available_slots": [],
                         "date": date_label,
+                        "host_invite_mailbox": host_mail,
                         "current_time": p_now.strftime("%I:%M %p").lstrip("0"),
-                        "message": f"No free slots on {date_label}. Offer nearby: {nxt_line}. Say the window is packed, not that we are closed in another country.",
+                        "message": (
+                            f"No free slots on {date_label} "
+                            f"(working hours + past times + lunch + bookings"
+                            f"{', Cal.com' if setting.api_key else ''}). "
+                            f"Offer nearby: {nxt_line}. Say the window is packed."
+                        ),
                     }
                 return {
                     "available_slots": open_slots[:8],
                     "date": date_label,
                     "iso": date_iso,
+                    "preference": pref or ("afternoon" if want_afternoon else "any"),
+                    "host_invite_mailbox": host_mail,
                     "current_time": p_now.strftime("%I:%M %p").lstrip("0"),
                     "message": f"For {date_label} we can do: {', '.join(open_slots[:6])}. Offer two of these. Speak only these times. Never mention timezones.",
                 }

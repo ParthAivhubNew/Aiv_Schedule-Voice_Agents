@@ -115,41 +115,60 @@ function imageProgressLabel(pct) {
 function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, placeholder }) {
   const list = messages || [];
   const scrollerRef = useRef(null);
+  const hasThread = list.length > 0 || !!busyLabel;
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [list.length, busyLabel]);
   return (
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 10, background: "#fff", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
-      <div ref={scrollerRef} style={{ flex: 1, minHeight: 120, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
-        {list.map((m) => (
-          <div key={m.id} style={{ marginBottom: 8, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
-            <div style={{
-              maxWidth: "88%",
-              padding: "8px 11px",
-              borderRadius: m.who === "user" ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
-              background: m.who === "user" ? C.ink : HUB_PAPER,
-              color: m.who === "user" ? "#fff" : C.textInk,
-              fontSize: 12.5,
-              lineHeight: 1.45,
-              border: m.who === "user" ? "none" : `1px solid ${C.border}`,
-            }}>
-              {m.text}
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      flexShrink: 0,
+      width: "100%",
+    }}>
+      {hasThread ? (
+        <div
+          ref={scrollerRef}
+          style={{
+            maxHeight: 160,
+            overflowY: "auto",
+            padding: "8px 10px",
+            borderRadius: 10,
+            border: `1px solid ${C.border}`,
+            background: HUB_PAPER,
+          }}
+        >
+          {list.map((m) => (
+            <div key={m.id} style={{ marginBottom: 8, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
+              <div style={{
+                maxWidth: "88%",
+                padding: "8px 11px",
+                borderRadius: m.who === "user" ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
+                background: m.who === "user" ? C.ink : "#fff",
+                color: m.who === "user" ? "#fff" : C.textInk,
+                fontSize: 12.5,
+                lineHeight: 1.45,
+                border: m.who === "user" ? "none" : `1px solid ${C.border}`,
+              }}>
+                {m.text}
+              </div>
             </div>
-          </div>
-        ))}
-        {busyLabel ? <div style={{ fontSize: 12, color: C.teal, padding: "4px 2px" }}>{busyLabel}</div> : null}
-      </div>
+          ))}
+          {busyLabel ? <div style={{ fontSize: 12, color: C.teal, padding: "4px 2px" }}>{busyLabel}</div> : null}
+        </div>
+      ) : null}
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <input
           value={value || ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           disabled={disabled}
-          style={{ flex: 1, height: 38, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13 }}
+          style={{ flex: 1, height: 38, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff", boxSizing: "border-box" }}
         />
-        <button type="submit" disabled={disabled || !(value || "").trim()} style={{ ...priBtn, height: 38, background: C.teal }}>
+        <button type="submit" disabled={disabled || !(value || "").trim()} style={{ ...priBtn, height: 38, width: 38, padding: 0, displayContent: "center", background: C.teal }}>
           <Send size={14} />
         </button>
       </form>
@@ -555,15 +574,6 @@ function ApprovalsBoard({
                               </div>
                             </div>
                           </button>
-                          <button
-                            type="button"
-                            disabled={dimmed}
-                            onClick={() => openPost(p.id)}
-                            title="Enlarge preview"
-                            style={{ ...secBtn, height: 30, padding: "0 8px", flexShrink: 0, fontSize: 11 }}
-                          >
-                            <Maximize2 size={12} /> Enlarge
-                          </button>
                           {deletePost && p.status !== "posted" ? (
                             <button
                               type="button"
@@ -841,7 +851,7 @@ function ApprovalsBoard({
                     </div>
 
                     {editTab === "copy" ? (
-                      <>
+                      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
                         <MiniChat
                           messages={expandedPost.copyChat}
                           busyLabel={
@@ -858,9 +868,9 @@ function ApprovalsBoard({
                         <button type="button" onClick={() => fillPackages([expandedPost], { skipImage: true })} disabled={expandedPost.enriching} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                           <Sparkles size={14} /> Fresh rewrite
                         </button>
-                      </>
+                      </div>
                     ) : (
-                      <>
+                      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
                         <MiniChat
                           messages={expandedPost.imageChat}
                           busyLabel={
@@ -886,7 +896,7 @@ function ApprovalsBoard({
                             </button>
                           ) : null}
                         </div>
-                      </>
+                      </div>
                     )}
                   </div>
                 ) : null}

@@ -213,66 +213,190 @@ async def toggle_takeover(call_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/live/{call_id}/confirm-booking")
 async def confirm_booking_from_call(call_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Book from what was actually said on the call (transcript) — not a fake fixed slot.
+    Uses real calendar_service.create_booking so invite goes to host_email / attendee email.
+    """
+    import re
+    from app.services.calendar_service import calendar_service, parse_spoken_date, _norm_time
+    from app.services.timezone_service import now_in
+
     res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
     call = res.scalars().first()
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
-        
+
+    raw_lines = call.transcript or []
+    text_blob = "\n".join(
+        (line if isinstance(line, str) else f"{line.get('who', '')}: {line.get('text', '')}")
+        for line in raw_lines
+    )
+
+    # Email from transcript (prospect or AI repeating it)
+    emails = re.findall(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text_blob)
+    attendee_email = ""
+    for e in emails:
+        low = e.lower()
+        if low.endswith(("@aivhub.io", "@aivhub.com")):
+            continue
+        attendee_email = e
+        break
+    if not attendee_email and emails:
+        attendee_email = emails[-1]
+
+    setting = await calendar_service.get_or_create_settings(db)
+    host_tz = setting.timezone or "Europe/London"
+    host_now = now_in(host_tz)
+
+    # Prefer explicit clock times mentioned by prospect ("3 PM", "15:00", "three o'clock")
+    time_val = ""
+    time_patterns = [
+        r"\b(\d{1,2})\s*(?::|\.)\s*(\d{2})\s*(a\.?m\.?|p\.?m\.?)?\b",
+        r"\b(\d{1,2})\s*(a\.?m\.?|p\.?m\.?)\b",
+        r"\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(a\.?m\.?|p\.?m\.?|o'?clock)\b",
+    ]
+    word_hour = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+        "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    }
+    for pat in time_patterns:
+        m = re.search(pat, text_blob, re.I)
+        if not m:
+            continue
+        g = m.groups()
+        if g[0].isdigit():
+            hh = int(g[0])
+            mm = int(g[1]) if len(g) > 1 and g[1] and g[1].isdigit() else 0
+            ampm = (g[-1] or "").lower() if len(g) > 1 else ""
+        else:
+            hh = word_hour.get(g[0].lower(), 0)
+            mm = 0
+            ampm = (g[1] or "").lower()
+        if "p" in ampm and hh < 12:
+            hh += 12
+        if "a" in ampm and hh == 12:
+            hh = 0
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            time_val = f"{hh:02d}:{mm:02d}"
+            break
+
+    # Date from spoken phrases
+    date_hint = "tomorrow"
+    low = text_blob.lower()
+    if "this afternoon" in low or "today" in low:
+        date_hint = "today"
+    elif "tomorrow" in low:
+        date_hint = "tomorrow"
+    elif "monday" in low:
+        date_hint = "monday"
+    elif "tuesday" in low:
+        date_hint = "tuesday"
+    elif "wednesday" in low:
+        date_hint = "wednesday"
+    elif "thursday" in low:
+        date_hint = "thursday"
+    elif "friday" in low:
+        date_hint = "friday"
+    elif "next week" in low:
+        date_hint = "next monday"
+
+    if not time_val:
+        # Fallback helper (legacy) then nearest open slot that day
+        extracted = extract_requested_time(
+            [line if isinstance(line, str) else str(line.get("text") or "") for line in raw_lines]
+        )
+        if extracted and extracted.get("time"):
+            time_val = _norm_time(extracted.get("time"))
+            if extracted.get("day") and "month" not in str(extracted.get("day")).lower():
+                date_hint = extracted.get("day")
+
+    target = parse_spoken_date(date_hint, host_now)
+    date_iso = target.strftime("%Y-%m-%d")
+
+    if not time_val:
+        slots = await calendar_service.get_available_slots(db, date_iso)
+        open_slots = [s for s in slots if s.get("available")]
+        # Prefer afternoon if they asked for afternoon
+        if "afternoon" in low or "3 p" in low or "pm" in low:
+            aft = [s for s in open_slots if int(str(s.get("time") or "0").split(":")[0]) >= 12]
+            if aft:
+                open_slots = aft
+        if not open_slots:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No agreed time found in the transcript and no free slots on "
+                    f"{target.strftime('%A %d %b')}. "
+                    "Have the AI confirm a day/time (and email) on the call, then try again."
+                ),
+            )
+        time_val = open_slots[0]["time"]
+
+    if not attendee_email or "@" not in attendee_email:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No email address heard on this call. "
+                "Ask the prospect for an email so we can send the invite, then confirm again."
+            ),
+        )
+
+    booked = await calendar_service.create_booking(
+        db,
+        prospect_name=call.prospect or "Prospect",
+        attendee_email=attendee_email,
+        date_str=date_iso,
+        time_str=time_val,
+        host_email=setting.host_email,
+        notes=f"Confirmed from live call {call_id}. Mission: {call.mission or ''}",
+        mission_name=call.mission or "Live call booking",
+        prospect_phone=getattr(call, "to_number", None) or getattr(call, "phone", None),
+        enforce_hours=False,
+    )
+    if not booked.get("success") and not booked.get("bookingId"):
+        raise HTTPException(
+            status_code=400,
+            detail=booked.get("message") or booked.get("error") or "Could not book that slot on the real calendar.",
+        )
+
     call.booked = True
     call.ended = True
     call.state = "ended"
-    
-    # 1. Update prospect status
+
     if call.prospect_id:
         p_res = await db.execute(select(Prospect).where(Prospect.id == call.prospect_id))
         p = p_res.scalars().first()
         if p:
             p.status = "meeting_booked"
-            p.note = "Meeting booked — Thu 2:00 PM"
-            
-    # 2. Add to Schedule
+            p.note = f"Meeting booked — {date_iso} {time_val}"
+
+    day_label = target.strftime("%a, %d %b")
     sched = ScheduleItem(
         id=f"s_{uuid.uuid4().hex[:6]}",
-        day="Thu, 3 Sep",
-        time="14:00",
+        day=day_label,
+        time=time_val,
         prospect=call.prospect,
         mission=call.mission,
-        window="09:00–17:30",
-        status="completed"
+        window=f"{setting.working_hours_start or '09:00'}–{setting.working_hours_end or '17:30'}",
+        status="completed",
     )
     db.add(sched)
-    
-    # 3. Add to Meetings with transcript conversion
+
     call_trans_objects = []
-    for line in (call.transcript or []):
-        is_ai = line.startswith("AI:")
-        clean_text = line.replace("AI:", "").replace("Prospect:", "").strip()
+    for line in raw_lines:
+        if isinstance(line, dict):
+            call_trans_objects.append({
+                "who": "ai" if str(line.get("who") or "").lower() in ("ai", "sam") else "them",
+                "text": str(line.get("text") or ""),
+            })
+            continue
+        s = str(line)
+        is_ai = s.startswith("AI:") or s.startswith("Sam")
+        clean_text = s.replace("AI:", "").replace("Prospect:", "").replace("Them:", "").replace("Sam:", "").strip()
         call_trans_objects.append({"who": "ai" if is_ai else "them", "text": clean_text})
-        
-    meeting = Meeting(
-        id=f"mt_{uuid.uuid4().hex[:6]}",
-        prospect=call.prospect,
-        mission=call.mission,
-        date="Thu 3 Sep",
-        time="14:00",
-        host_timezone="Europe/London",
-        prospect_timezone="Europe/London",
-        prospect_time="14:00",
-        duration="15 min",
-        status="upcoming",
-        fit=92,
-        channel=call.channel,
-        format="video",
-        platform="Google Meet",
-        video_link="meet.google.com/aiv-booked-demo",
-        host="Jitendra S.",
-        attendee="Ops Lead",
-        prep=f"Meeting confirmed directly from live outreach session on {call.mission}.",
-        call_transcript=call_trans_objects
-    )
-    db.add(meeting)
-    
-    # 4. Append to Call Log
+
+    meeting_id = booked.get("bookingId") or f"mt_{uuid.uuid4().hex[:6]}"
+    # create_booking already persisted Meeting — refresh note on call log
     call_log = CallLog(
         id=f"cl_{uuid.uuid4().hex[:6]}",
         canonical_name=call.prospect,
@@ -283,24 +407,42 @@ async def confirm_booking_from_call(call_id: str, db: AsyncSession = Depends(get
         ended_at=datetime.utcnow().strftime("%d %b %Y, %H:%M"),
         duration=call.duration,
         outcome="meeting_booked",
-        requested_follow_up={"day": "Thu 3 Sep", "time": "14:00", "exactWords": "Thursday afternoon works fine."},
+        requested_follow_up={
+            "day": day_label,
+            "time": time_val,
+            "email": attendee_email,
+            "exactWords": text_blob[-280:],
+        },
         words_locked=True,
-        transcript=call_trans_objects
+        transcript=call_trans_objects,
     )
     db.add(call_log)
-    
-    # 5. Add Notification
+
     notif = Notification(
         id=f"n_{uuid.uuid4().hex[:6]}",
-        text=f"Meeting booked with {call.prospect} — added to Schedule & Meetings",
-        type="success"
+        text=f"Meeting booked with {call.prospect} · {day_label} {time_val} → {attendee_email}",
+        type="success",
     )
     db.add(notif)
-    
+
     await db.commit()
-    
-    await call_hub.broadcast("booking_confirmed", {"callId": call_id, "prospect": call.prospect})
-    return {"status": "ok", "message": "Meeting booked successfully"}
+    await call_hub.broadcast("booking_confirmed", {
+        "callId": call_id,
+        "prospect": call.prospect,
+        "date": date_iso,
+        "time": time_val,
+        "email": attendee_email,
+        "bookingId": meeting_id,
+    })
+    return {
+        "status": "ok",
+        "message": f"Booked {day_label} at {time_val} — invite to {attendee_email}",
+        "bookingId": meeting_id,
+        "date": date_iso,
+        "time": time_val,
+        "email": attendee_email,
+        "hostEmail": setting.host_email,
+    }
 
 @router.get("/logs", response_model=list[dict])
 async def get_call_logs(db: AsyncSession = Depends(get_db)):
