@@ -196,7 +196,7 @@ function ApprovalsBoard({
   }, [allPosts]);
 
   const [dateTab, setDateTab] = useState("");
-  const [scope, setScope] = useState("waiting"); // waiting | approved | all
+  const [scope, setScope] = useState("waiting"); // waiting | approved | posted | all
   const [editMode, setEditMode] = useState(false);
   const [editTab, setEditTab] = useState("copy"); // copy | image
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -232,7 +232,8 @@ function ApprovalsBoard({
   const activePosts = useMemo(() => {
     const day = allPosts.filter((p) => (p.date || "undated") === dateTab);
     if (scope === "waiting") return day.filter((p) => p.status === "draft" || !p.status);
-    if (scope === "approved") return day.filter((p) => p.status && p.status !== "draft");
+    if (scope === "approved") return day.filter((p) => p.status === "approved" || p.status === "scheduled");
+    if (scope === "posted") return day.filter((p) => p.status === "posted");
     return day;
   }, [allPosts, dateTab, scope]);
 
@@ -438,6 +439,7 @@ function ApprovalsBoard({
           {[
             { id: "waiting", label: "Waiting" },
             { id: "approved", label: "Approved" },
+            { id: "posted", label: "Posted" },
             { id: "all", label: "All" },
           ].map((s) => (
             <button
@@ -939,6 +941,8 @@ function ApprovalsBoard({
                   <button type="button" disabled={!!publishing} onClick={() => approveOne(expandedPost)} style={priBtn}>
                     <Check size={14} /> {publishing === expandedPost.id ? "Posting…" : "Approve & post"}
                   </button>
+                ) : expandedPost.status === "posted" ? (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.teal }}>Posted — live on channel</span>
                 ) : expandedPost.status === "scheduled" || expandedPost.status === "approved" ? (
                   <span style={{ fontSize: 12, color: C.slate }}>
                     {expandedPost.status === "scheduled" ? "Scheduled — edit anytime" : "Approved — edit anytime"}
@@ -2821,10 +2825,10 @@ export function SocialWorkspace({
   };
 
   const statusLabel = (s) => {
-    if (s === "posted") return "Live";
+    if (s === "posted") return "Posted";
     if (s === "scheduled") return "Scheduled";
     if (s === "approved") return "Approved";
-    return "Review";
+    return "Waiting";
   };
 
   const reviewList = posts.slice().sort((a, b) => {
