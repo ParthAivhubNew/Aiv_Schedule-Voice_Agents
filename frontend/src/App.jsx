@@ -6318,9 +6318,11 @@ const FAMOUS_PROVIDERS_BY_LAYER = {
   "Other": ["Other (Custom Base URL)"]
 };
 
-function AddIntegrationModal({ onClose, onAddSuccess }) {
-  const [category, setCategory] = useState("LLM");
-  const [providerChoice, setProviderChoice] = useState("DeepSeek");
+function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" }) {
+  const [category, setCategory] = useState(initialCategory && FAMOUS_PROVIDERS_BY_LAYER[initialCategory] ? initialCategory : "LLM");
+  const [providerChoice, setProviderChoice] = useState(
+    ((FAMOUS_PROVIDERS_BY_LAYER[initialCategory] || FAMOUS_PROVIDERS_BY_LAYER.LLM) || ["Other (Custom Base URL)"])[0]
+  );
   const [customName, setCustomName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [voiceId, setVoiceId] = useState("");
@@ -7285,12 +7287,161 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
 
 /* ---------------------------------- Voice & Telephony Trunking Hub (Multi-Provider) ---------------------------------- */
 
-function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProfile }) {
+function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
+  const labels = liveStackLabels(hubData || {});
+  const engine = String(hubData?.liveEngine || "").toLowerCase();
+  const modular = engine === "modular";
+  const hybrid = !!hubData?.externalTts;
+  const xaiLike = engine === "xai" || engine === "openai";
+
+  const rows = [
+    {
+      key: "telephony",
+      title: "Phone",
+      layer: "Telephony",
+      value: labels.carrier || hubData?.activeCarrier || "—",
+      ok: !!(hubData?.activeCarrier || hubData?.phoneNumber),
+      hint: "Twilio, Telnyx, or SIP",
+      needPlugin: true,
+    },
+    {
+      key: "engine",
+      title: "Call engine",
+      layer: "Voice Orchestration",
+      value: labels.engine,
+      ok: !!engine && engine !== "simulation",
+      hint: "xAI · Modular · OpenAI",
+      needPlugin: false,
+    },
+    {
+      key: "stt",
+      title: "Listen (STT)",
+      layer: "Speech-to-Text",
+      value: modular ? labels.stt : (xaiLike ? "Inside engine" : labels.stt),
+      ok: modular ? !!(hubData?.sttProvider || hubData?.sttName) : true,
+      hint: modular ? "Deepgram, Whisper, …" : "Bundled — no separate plugin",
+      needPlugin: modular,
+    },
+    {
+      key: "llm",
+      title: "Think (LLM)",
+      layer: "LLM",
+      value: modular ? labels.llm : (xaiLike ? "Inside engine" : labels.llm),
+      ok: modular ? !!(hubData?.llmProvider || hubData?.llmName) : true,
+      hint: modular ? "Groq, OpenAI, Grok chat, …" : "Bundled — no separate plugin",
+      needPlugin: modular,
+    },
+    {
+      key: "tts",
+      title: "Speak (TTS)",
+      layer: "Text-to-Speech",
+      value: (modular || hybrid) ? labels.tts : (engine === "xai" ? "xAI built-in (or add TTS plugin)" : labels.tts),
+      ok: modular || hybrid ? !!(hubData?.ttsProvider || hubData?.ttsName) : true,
+      hint: "Cartesia, ElevenLabs, PlayHT, Other…",
+      needPlugin: true,
+      recommend: engine === "xai" && !hybrid,
+    },
+    {
+      key: "voice",
+      title: "Voice ID",
+      layer: "Text-to-Speech",
+      value: hubData?.ttsVoiceId || hubData?.voiceName || "—",
+      ok: !!(hubData?.ttsVoiceId || (hubData?.voiceName && String(hubData.voiceName).length > 3)),
+      hint: "Paste clone ID in Step 3 below",
+      needPlugin: false,
+    },
+  ];
+
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+        <div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>Call plugin stack</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 4, maxWidth: 560, lineHeight: 1.45 }}>
+            Every live-call piece is a plugin. Add keys under the matching layer. Swap anytime — next call uses the new stack.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenCredentials && onOpenCredentials()}
+          style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}
+        >
+          Manage all plugins
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {rows.map((r) => (
+          <div
+            key={r.key}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "140px 1fr auto",
+              gap: 12,
+              alignItems: "center",
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: `1px solid ${r.ok ? "#E2E8F0" : "#FDE68A"}`,
+              background: r.ok ? "#F8FAFC" : "#FFFBEB",
+            }}
+          >
+            <div>
+              <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.textInk }}>{r.title}</div>
+              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>{r.hint}</div>
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.ink, wordBreak: "break-all" }}>
+              {r.value}
+              {r.recommend && (
+                <span style={{ display: "block", fontSize: 11, fontWeight: 500, color: "#B45309", marginTop: 2 }}>
+                  Tip: add TTS plugin + Voice ID for your clone
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{
+                fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
+                background: r.ok ? "#D1FAE5" : "#FEF3C7", color: r.ok ? "#065F46" : "#92400E",
+              }}>
+                {r.ok ? "Ready" : "Needed"}
+              </span>
+              {r.needPlugin && (
+                <button
+                  type="button"
+                  onClick={() => onAddLayer && onAddLayer(r.layer)}
+                  style={{
+                    background: C.ink, color: "#fff", border: "none", borderRadius: 7,
+                    padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                  }}
+                >
+                  {r.ok ? "Change" : "Add"}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 12, fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
+        {modular
+          ? "Modular mode: STT + LLM + TTS plugins all required from Connections."
+          : hybrid
+            ? "Hybrid mode: xAI listens/thinks; your TTS plugin speaks the clone."
+            : "Engine-bundled mode: STT/LLM inside the engine. Add a TTS plugin anytime to unlock your own voice."}
+      </div>
+    </div>
+  );
+}
+
+function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProfile, onOpenCredentials }) {
   const [hubData, setHubData] = useState({
     activeCarrier: "Telnyx",
     activeEngine: "xAI Realtime",
     liveEngine: "xai",
     liveNote: "",
+    externalTts: false,
+    ttsProvider: null,
+    ttsName: null,
+    ttsVoiceId: null,
     phoneNumber: profile?.callerId || "+19096866918",
     voiceName: "rex",
     silenceDurationMs: 380,
@@ -7338,6 +7489,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [copiedFqdn, setCopiedFqdn] = useState(false);
   const [copiedSecret, setCopiedSecret] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
+  const [showStackAdd, setShowStackAdd] = useState(false);
+  const [stackAddLayer, setStackAddLayer] = useState("Text-to-Speech");
 
   const fetchStatus = async () => {
     try {
@@ -7515,23 +7668,18 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const linkPastedVoice = async () => {
     const vid = pasteVoiceId.trim();
     if (!vid) {
-      setCloneErr(
-        engineChoice === "modular"
-          ? "Paste an ElevenLabs or Cartesia Voice ID, or record below."
-          : "Paste your Cartesia clone UUID (or xAI console Voice ID)."
-      );
+      setCloneErr("Paste a Voice ID from your TTS provider (Cartesia UUID, ElevenLabs id, etc.).");
       return;
     }
     setCloning(true);
     setCloneErr("");
     try {
       const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(vid);
-      const provider =
-        engineChoice === "modular"
-          ? (looksUuid ? "cartesia" : "elevenlabs")
-          : looksUuid
-            ? "cartesia"
-            : "xai";
+      const shortXai = /^[a-z0-9]{6,12}$/i.test(vid) && !looksUuid && vid.length <= 12;
+      let provider = "custom";
+      if (looksUuid) provider = "cartesia";
+      else if (engineChoice === "xai" && shortXai) provider = "xai";
+      else if (vid.length >= 16) provider = "elevenlabs";
       const res = await api.selectVoice({
         voice_id: vid,
         label: cloneName.trim() || vid,
@@ -7539,12 +7687,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       });
       setVoiceName(vid);
       if (res.voices) setCustomVoices(res.voices);
-      setCloneMsg(
-        looksUuid
-          ? (res.message || "Cartesia clone linked. Keep engine on xAI + CARTESIA_API_KEY in .env for hybrid TTS.")
-          : (res.message || "Custom voice linked.")
-      );
+      setCloneMsg(res.message || `Voice linked (${provider}). Ensure Connections → Text-to-Speech has that provider's API key.`);
       setPasteVoiceId("");
+      try { await fetchStatus(); } catch (_) { /* ignore */ }
     } catch (err) {
       setCloneErr(err.message || String(err));
     } finally {
@@ -7661,22 +7806,22 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
     {
       id: "xai",
       name: "xAI Realtime Voice (Grok)",
-      badge: "<500ms • Speech-to-Speech",
-      desc: "All-in-one multimodal voice engine with native server VAD, dynamic pgvector RAG, and Grok intelligence.",
+      badge: "Brain + STT · plug any TTS",
+      desc: "Grok listens and thinks. Add any Text-to-Speech plugin (Cartesia, ElevenLabs, …) + Voice ID to speak in your clone.",
       icon: Sparkles
     },
     {
       id: "openai",
       name: "OpenAI Realtime API",
       badge: "GPT-4o Multimodal Audio",
-      desc: "Low-latency voice engine with natural turn-taking supporting Alloy, Echo, Shimmer and function calls.",
+      desc: "Built-in voices only (Alloy, Echo, …). No custom clone — use xAI or Modular for your own voice.",
       icon: Headphones
     },
     {
       id: "modular",
       name: "Modular Voice Pipeline",
-      badge: "Deepgram + Groq + ElevenLabs",
-      desc: "Best-of-breed component stitching: Nova-2 STT, ultra-fast Groq Llama-3-70B, and Cartesia/ElevenLabs TTS.",
+      badge: "Pick STT + LLM + TTS plugins",
+      desc: "Full plugin stack from Connections: any Speech-to-Text, LLM, and Text-to-Speech (Cartesia, ElevenLabs, …).",
       icon: Layers
     },
     {
@@ -7803,6 +7948,34 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         )}
       </div>
 
+      <CallPluginStackBoard
+        hubData={hubData}
+        onAddLayer={(layer) => {
+          setStackAddLayer(layer || "Text-to-Speech");
+          setShowStackAdd(true);
+        }}
+        onOpenCredentials={() => {
+          if (typeof onOpenCredentials === "function") onOpenCredentials();
+        }}
+      />
+
+      {showStackAdd && (
+        <AddIntegrationModal
+          initialCategory={stackAddLayer}
+          onClose={() => setShowStackAdd(false)}
+          onAddSuccess={() => {
+            setShowStackAdd(false);
+            fetchStatus();
+            if (typeof setNotifications === "function") {
+              setNotifications((ns) => [
+                { id: "n_" + Date.now(), text: "Plugin connected — live call stack updated.", time: "just now", unread: true, type: "success" },
+                ...(ns || []),
+              ]);
+            }
+          }}
+        />
+      )}
+
       {/* Direct Outbound Dialing Card */}
       <DirectOutboundCallCard notifications={notifications} setNotifications={setNotifications} defaultFromNumber={phoneNumber || hubData.phoneNumber} />
 
@@ -7903,13 +8076,15 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           </div>
           <div style={{ marginTop: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: "#5B21B6", background: "#F5F3FF", border: "1px solid #DDD6FE", borderRadius: 8, padding: "8px 12px" }}>
             {engineChoice === "modular"
-              ? "Live path uses Connections keys: Speech-to-Text → LLM → Text-to-Speech. Hub engine key unused."
+              ? "Live path = Connections plugins only: Speech-to-Text → LLM → Text-to-Speech. Paste your TTS Voice ID in Step 3."
               : engineChoice === "openai"
-                ? "Live path is OpenAI speech-to-speech. STT/TTS plugins unused until you switch to Modular."
+                ? "OpenAI built-in voices only. For a cloned voice, pick xAI (hybrid TTS) or Modular."
                 : engineChoice === "simulation"
                   ? "Scripted demo engine. No live carrier audio plugins."
-                  : "Live path: xAI STT + Grok brain. Add CARTESIA_API_KEY + CARTESIA_VOICE_ID (or paste clone UUID below) to speak in your cloned voice; otherwise xAI builtin voice."}
-            {hubData.liveNote ? ` Current: ${hubData.liveNote}` : ""}
+                  : hubData.externalTts
+                    ? `Hybrid ON: xAI brain/STT + ${hubData.ttsName || hubData.ttsProvider || "TTS plugin"} mouth.`
+                    : "xAI brain/STT. To use YOUR voice: Connections → Text-to-Speech (Cartesia/ElevenLabs/…) + paste Voice ID in Step 3 below."}
+            {hubData.liveNote ? ` · ${hubData.liveNote}` : ""}
           </div>
         </div>
 
@@ -7998,186 +8173,155 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
 
             <div>
               <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                AI Voice Persona (Human Realism)
+                Active voice (presets + linked clones)
               </label>
               <select
                 value={voiceName}
                 onChange={(e) => {
                   const v = e.target.value;
                   setVoiceName(v);
+                  const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+                  const fromList = customVoices.find((x) => x.voice_id === v);
+                  const provider = fromList?.provider
+                    || (looksUuid ? "cartesia" : (v.length >= 16 && !["rex", "ara", "eve", "leo", "rachel", "adam", "sonic"].includes(v) ? "elevenlabs" : "xai"));
                   api.selectVoice({
                     voice_id: v,
-                    label: customVoices.find((x) => x.voice_id === v)?.name
+                    label: fromList?.name
                       || (v === "rex-uk" ? "Rex UK — Sam (British, male)"
                         : v === "ara-uk" ? "Ara UK (British, female)"
                         : v === "eve-uk" ? "Eve UK (British, female)"
                         : v),
-                    provider: customVoices.find((x) => x.voice_id === v)?.provider || "xai",
+                    provider,
                     accent: String(v || "").includes("-uk") ? "british" : undefined,
                   }).catch(() => {});
                 }}
                 style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
               >
                 {engineChoice === "xai" ? (
-                  <>
-                    <option value="rex-uk">Rex UK (British male — Sam for UK clients)</option>
-                    <option value="rex">Rex (Male executive — use this for Sam)</option>
-                    <option value="ara-uk">Ara UK (British female — clear diction)</option>
-                    <option value="ara">Ara (Female, warm)</option>
+                  <optgroup label="xAI built-in (only if no TTS plugin)">
+                    <option value="rex-uk">Rex UK (British male)</option>
+                    <option value="rex">Rex (Male)</option>
+                    <option value="ara-uk">Ara UK (British female)</option>
+                    <option value="ara">Ara (Female)</option>
                     <option value="eve-uk">Eve UK (British female)</option>
-                    <option value="eve">Eve (Female, energetic)</option>
-                  </>
+                    <option value="eve">Eve (Female)</option>
+                  </optgroup>
                 ) : engineChoice === "openai" ? (
-                  <>
-                    <option value="alloy">Alloy (Versatile, balanced)</option>
-                    <option value="echo">Echo (Warm, natural)</option>
-                    <option value="shimmer">Shimmer (Clear, upbeat)</option>
-                    <option value="onyx">Onyx (Deep, authoritative)</option>
-                  </>
+                  <optgroup label="OpenAI presets">
+                    <option value="alloy">Alloy</option>
+                    <option value="echo">Echo</option>
+                    <option value="shimmer">Shimmer</option>
+                    <option value="onyx">Onyx</option>
+                  </optgroup>
                 ) : (
-                  <>
-                    <option value="rachel">Rachel (ElevenLabs Calm)</option>
-                    <option value="adam">Adam (ElevenLabs Narration)</option>
-                    <option value="sonic">Cartesia Sonic (90ms Ultra-Fast)</option>
-                  </>
+                  <optgroup label="Preset shortcuts (need matching TTS plugin)">
+                    <option value="sonic">Cartesia Sonic (stock)</option>
+                    <option value="rachel">ElevenLabs Rachel (stock)</option>
+                    <option value="adam">ElevenLabs Adam (stock)</option>
+                  </optgroup>
                 )}
-                {customVoices.map((v) => (
-                  <option key={v.voice_id} value={v.voice_id}>
-                    {v.name || v.voice_id} (cloned{v.provider ? ` · ${v.provider}` : ""})
-                  </option>
-                ))}
+                {customVoices.length > 0 && (
+                  <optgroup label="Your linked clones">
+                    {customVoices.map((v) => (
+                      <option key={v.voice_id} value={v.voice_id}>
+                        {v.name || v.voice_id}{v.provider ? ` · ${v.provider}` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
                 {voiceName && !["ara", "ara-uk", "eve", "eve-uk", "rex", "rex-uk", "leo", "alloy", "echo", "shimmer", "onyx", "rachel", "adam", "sonic"].includes(voiceName) && !customVoices.some((v) => v.voice_id === voiceName) && (
-                  <option value={voiceName}>Custom clone ({voiceName})</option>
+                  <option value={voiceName}>Custom ({voiceName})</option>
                 )}
               </select>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
-                Live Grok calls use this ID. UK clients: Ara UK (female) or Rex UK (male). Clear British diction on both.
+                Cloned voices appear after you paste a Voice ID below. Stock presets need the matching TTS plugin in Connections.
               </div>
             </div>
 
-            {engineChoice === "xai" && (
-            <div style={{ gridColumn: "1 / -1", border: "1px solid #F59E0B", background: "#FFFBEB", borderRadius: 12, padding: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <AlertTriangle size={16} color="#B45309" />
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: "#92400E" }}>Use your own voice on xAI calls</div>
+            {(engineChoice === "xai" || engineChoice === "modular") && (
+            <div style={{ gridColumn: "1 / -1", border: "1px solid #6EE7B7", background: "#ECFDF5", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#065F46", marginBottom: 6 }}>
+                Your TTS Voice ID (Cartesia, ElevenLabs, or any plugin)
               </div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#78350F", lineHeight: 1.5, marginBottom: 10 }}>
-                AIVHub <b>Record → Save clone</b> talks to xAI’s create-voice API. That API is <b>Enterprise-only</b>. Your current plan cannot create a clone from this plugin. Admin is notified in the bell and in System Process Logs.
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#047857", lineHeight: 1.5, marginBottom: 12 }}>
+                <b>1.</b> Connections → <b>Text-to-Speech</b> → add provider (Cartesia / ElevenLabs / Other) + API key.<br />
+                <b>2.</b> Copy Voice ID from that provider’s dashboard (Cartesia = UUID).<br />
+                <b>3.</b> Paste here → <b>Link Voice ID</b>. {engineChoice === "xai" ? "xAI keeps brain/STT; TTS plugin speaks." : "Modular uses Connections STT + LLM + this TTS voice."}
               </div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#1F2937", lineHeight: 1.55, background: "#fff", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
-                <b>What to do now (works on the free console):</b>
-                <ol style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-                  <li>Record 90–120s of natural speech on your phone/computer (quiet room).</li>
-                  <li>Open <a href="https://console.x.ai" target="_blank" rel="noreferrer" style={{ color: "#6D28D9" }}>console.x.ai → Custom Voices</a> with the same xAI team as this API key.</li>
-                  <li>Upload the file. Card ⋯ → <b>Copy Voice ID</b> (8 characters).</li>
-                  <li>Paste it below → <b>Link pasted ID</b>. Pick it in AI Voice Persona. Live Grok calls use that voice.</li>
-                </ol>
-                <div style={{ marginTop: 8, fontSize: 12, color: "#92400E" }}>
-                  Admin: upgrade the xAI team to Enterprise if you want Record → Save inside AIVHub. Until then, console + paste is the path.
+              {hubData.ttsName || hubData.ttsProvider ? (
+                <div style={{ fontSize: 12, color: "#065F46", marginBottom: 10, background: "#D1FAE5", borderRadius: 8, padding: "8px 10px" }}>
+                  Active TTS plugin: <b>{hubData.ttsName || hubData.ttsProvider}</b>
+                  {hubData.ttsVoiceId ? <> · Voice ID: <code style={{ fontSize: 11 }}>{hubData.ttsVoiceId}</code></> : " · no Voice ID linked yet — paste below"}
+                  {hubData.externalTts ? " · hybrid ON" : ""}
                 </div>
-              </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "#B45309", marginBottom: 10, background: "#FFFBEB", borderRadius: 8, padding: "8px 10px" }}>
+                  No Text-to-Speech plugin connected yet. Add one under <b>All plugins / Connections</b> first, then paste the Voice ID here.
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 10 }}>
                 <input
                   type="text"
                   value={cloneName}
                   onChange={(e) => setCloneName(e.target.value)}
-                  placeholder="Voice label (e.g. Sam — own voice)"
+                  placeholder="Label (e.g. My Cartesia clone)"
                   style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
                 />
                 <input
                   type="text"
                   value={pasteVoiceId}
                   onChange={(e) => setPasteVoiceId(e.target.value)}
-                  placeholder="Paste xAI Voice ID (8 chars)"
+                  placeholder="Paste Voice ID (Cartesia UUID / ElevenLabs id / …)"
                   style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13 }}
                 />
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: pasteVoiceId.trim() ? "#92400E" : "#E7E5E4", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed" }}>
-                  {cloning ? "Linking…" : "Link pasted ID"}
+                <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: pasteVoiceId.trim() ? "#065F46" : "#E7E5E4", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, fontSize: 13, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed" }}>
+                  {cloning ? "Linking…" : "Link Voice ID"}
                 </button>
-                <button type="button" onClick={() => setShowEnterpriseRecord((v) => !v)} style={{ background: "transparent", color: "#92400E", border: "1px dashed #F59E0B", borderRadius: 8, padding: "8px 14px", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
-                  {showEnterpriseRecord ? "Hide Enterprise record" : "I have xAI Enterprise — show in-app record"}
-                </button>
+                <span style={{ fontSize: 12, color: "#047857" }}>Works with any TTS plugin — not locked to one vendor.</span>
               </div>
-              {showEnterpriseRecord && !xaiCloneBlocked && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #F59E0B" }}>
-                  <div style={{ fontSize: 12, color: "#78350F", marginBottom: 8 }}>Only use this if xAI confirmed Enterprise clone API on this team.</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                    {recState !== "recording" ? (
-                      <button type="button" onClick={startRecording} style={{ background: "#5B21B6", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        <Mic size={14} /> Record
-                      </button>
-                    ) : (
-                      <button type="button" onClick={stopRecording} style={{ background: "#B91C1C", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        <Square size={12} /> Stop ({recSec}s)
-                      </button>
-                    )}
-                    <button type="button" onClick={uploadClone} disabled={cloning || !recBlob} style={{ background: recBlob ? C.ink : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: recBlob && !cloning ? "pointer" : "not-allowed" }}>
-                      {cloning ? "Cloning…" : "Save clone to plugin"}
-                    </button>
-                    {recState === "ready" && recBlob && (
-                      <span style={{ fontSize: 12, color: "#059669" }}>Recording ready ({Math.max(recSec, 1)}s).</span>
-                    )}
-                  </div>
-                </div>
-              )}
-              {showEnterpriseRecord && xaiCloneBlocked && (
-                <div style={{ marginTop: 10, fontSize: 12.5, color: "#B91C1C" }}>
-                  This team already failed Enterprise clone API. Use console + paste above. Do not record here.
-                </div>
-              )}
               {cloneMsg && <div style={{ marginTop: 8, fontSize: 12.5, color: "#059669" }}>{cloneMsg}</div>}
               {cloneErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{cloneErr}</div>}
               {customVoices.length > 0 && (
                 <div style={{ marginTop: 10, fontSize: 12, color: C.slate }}>
-                  Linked voices: {customVoices.map((v) => v.name || v.voice_id).join(" · ")}
+                  Linked: {customVoices.map((v) => `${v.name || v.voice_id}${v.provider ? ` (${v.provider})` : ""}`).join(" · ")}
                 </div>
               )}
-            </div>
-            )}
 
-            {engineChoice === "modular" && (
-            <div style={{ gridColumn: "1 / -1", border: "1px solid #A7F3D0", background: "#ECFDF5", borderRadius: 12, padding: 16 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: "#065F46", marginBottom: 6 }}>Clone your own voice (ElevenLabs)</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#047857", lineHeight: 1.45, marginBottom: 12 }}>
-                Modular pipeline clones through the ElevenLabs key in Connections → Text-to-Speech. Record 60–90s, then save. xAI console is not used on this engine.
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 10 }}>
-                <input
-                  type="text"
-                  value={cloneName}
-                  onChange={(e) => setCloneName(e.target.value)}
-                  placeholder="Voice label (e.g. Sam — own voice)"
-                  style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
-                />
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                {recState !== "recording" ? (
-                  <button type="button" onClick={startRecording} style={{ background: "#065F46", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <Mic size={14} /> Record
-                  </button>
-                ) : (
-                  <button type="button" onClick={stopRecording} style={{ background: "#B91C1C", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <Square size={12} /> Stop ({recSec}s)
-                  </button>
-                )}
-                <button type="button" onClick={uploadClone} disabled={cloning || !recBlob} style={{ background: recBlob ? C.ink : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: recBlob && !cloning ? "pointer" : "not-allowed" }}>
-                  {cloning ? "Cloning…" : "Save clone to plugin"}
-                </button>
-                {recState === "ready" && recBlob && (
-                  <span style={{ fontSize: 12, color: "#059669" }}>Recording ready ({Math.max(recSec, 1)}s) — save it.</span>
-                )}
-                {recState === "recording" && (
-                  <span style={{ fontSize: 12, color: "#B91C1C" }}>Recording… keep talking naturally. Stop at 60–90s.</span>
-                )}
-              </div>
-              {cloneMsg && <div style={{ marginTop: 8, fontSize: 12.5, color: "#059669" }}>{cloneMsg}</div>}
-              {cloneErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{cloneErr}</div>}
-              {customVoices.length > 0 && (
-                <div style={{ marginTop: 10, fontSize: 12, color: C.slate }}>
-                  Saved clones: {customVoices.map((v) => v.name || v.voice_id).join(" · ")}
+              <details style={{ marginTop: 14 }}>
+                <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: "#065F46" }}>
+                  Optional: record in-app (ElevenLabs only)
+                </summary>
+                <div style={{ marginTop: 10, fontSize: 12, color: "#047857", marginBottom: 8 }}>
+                  Needs ElevenLabs key in Connections → Text-to-Speech. For Cartesia, clone on cartesia.ai then paste UUID above.
                 </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                  {recState !== "recording" ? (
+                    <button type="button" onClick={startRecording} style={{ background: "#065F46", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <Mic size={14} /> Record
+                    </button>
+                  ) : (
+                    <button type="button" onClick={stopRecording} style={{ background: "#B91C1C", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <Square size={12} /> Stop ({recSec}s)
+                    </button>
+                  )}
+                  <button type="button" onClick={uploadClone} disabled={cloning || !recBlob} style={{ background: recBlob ? C.ink : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: recBlob && !cloning ? "pointer" : "not-allowed" }}>
+                    {cloning ? "Cloning…" : "Save recording → ElevenLabs"}
+                  </button>
+                </div>
+              </details>
+
+              {engineChoice === "xai" && (
+                <details style={{ marginTop: 10 }}>
+                  <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: "#92400E" }}>
+                    Advanced: xAI Enterprise custom voice (usually skip — use Cartesia/ElevenLabs instead)
+                  </summary>
+                  <div style={{ marginTop: 8, fontSize: 12, color: "#78350F", lineHeight: 1.45 }}>
+                    xAI in-app clone API is Enterprise-only. Prefer Cartesia/ElevenLabs Voice ID above.
+                    Or paste an 8-char ID from <a href="https://console.x.ai" target="_blank" rel="noreferrer" style={{ color: "#6D28D9" }}>console.x.ai → Custom Voices</a> in the Voice ID field.
+                  </div>
+                </details>
               )}
             </div>
             )}
@@ -8187,8 +8331,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 6 }}>Own-voice clone not available on this engine</div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>
                 {engineChoice === "openai"
-                  ? "OpenAI Realtime uses built-in voices only (Alloy, Echo, Shimmer, Onyx). There is no custom clone. Switch the engine above to xAI (paste a console Voice ID) or Modular (record into ElevenLabs) if you need your own voice on calls."
-                  : "Simulated engine uses scripted audio. Switch to xAI or Modular to clone a real voice."}
+                  ? "OpenAI Realtime = fixed presets only. Switch engine to xAI (Grok + any TTS plugin) or Modular to use a Cartesia/ElevenLabs Voice ID."
+                  : "Simulated engine uses scripted audio. Switch to xAI or Modular for a real cloned voice."}
               </div>
             </div>
             )}
@@ -9019,12 +9163,27 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             setNotifications={setNotifications}
             profile={profile}
             setProfile={setProfile}
+            onOpenCredentials={() => setActiveTab("credentials")}
           />
         )}
 
         {/* TAB 1: Layer Routing */}
         {activeTab === "routing" && (
           <>
+            <div style={{ marginBottom: 16, padding: "14px 16px", borderRadius: 10, background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#065F46", marginBottom: 4 }}>Real plugins live on AI config + Credentials</div>
+              <div style={{ fontSize: 12.5, color: "#047857", lineHeight: 1.45 }}>
+                Open <b>AI config</b> → <b>Call plugin stack</b> (Phone, STT, LLM, TTS, Voice ID) and click Add/Change.
+                Or use the <b>API Credentials</b> tab to paste keys per layer. The table below is a preference map only — it does not replace live Connections keys.
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab("telephony-hub")}
+                style={{ marginTop: 10, background: "#065F46", color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+              >
+                Open call plugin stack
+              </button>
+            </div>
             {liveLabels && !embedded && (
               <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#1E40AF", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Live on server</div>
