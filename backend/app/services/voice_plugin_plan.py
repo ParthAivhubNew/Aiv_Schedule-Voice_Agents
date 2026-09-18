@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -12,6 +13,15 @@ from app.database import AsyncSessionLocal
 from app.models.models import Connection
 
 logger = logging.getLogger("voice_plugin_plan")
+
+XAI_BUILTIN_VOICES = {
+    "ara", "eve", "rex", "leo", "sal",
+    "alloy", "echo", "shimmer", "onyx", "sage", "nova",
+}
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.I,
+)
 
 
 @dataclass
@@ -38,6 +48,8 @@ class VoicePlan:
     llm: Optional[PluginCreds] = None
     s2s_key: str = ""
     note: str = ""
+    # True when xAI handles STT+Grok but Cartesia/ElevenLabs speaks the cloned voice
+    external_tts: bool = False
 
 
 def _cfg(conn: Optional[Connection]) -> Dict[str, Any]:
@@ -89,6 +101,26 @@ def _match_provider(name: str) -> str:
     return n.split()[0] if n else ""
 
 
+def looks_like_external_voice_id(vid: str) -> bool:
+    """True for Cartesia UUID / ElevenLabs IVC ids — not xAI builtin names."""
+    v = (vid or "").strip()
+    if not v:
+        return False
+    low = v.lower().replace("-uk", "").replace("_uk", "")
+    if low in XAI_BUILTIN_VOICES:
+        return False
+    if low in ("rachel", "adam", "sonic"):
+        return False
+    if _UUID_RE.match(v):
+        return True
+    # ElevenLabs voice ids are typically 20+ alphanumerics
+    return len(v) >= 16
+
+
+def _strip_voice(v: Any) -> str:
+    return str(v or "").strip()
+
+
 async def resolve_voice_plan() -> VoicePlan:
     engine_conn = None
     carrier_conn = None
@@ -98,6 +130,7 @@ async def resolve_voice_plan() -> VoicePlan:
     async with AsyncSessionLocal() as db:
         res = await db.execute(select(Connection))
         conns = res.scalars().all()
+
     def _pick(group_needles: tuple, current):
         matches = [c for c in conns if any(n in (c.group_name or "").lower() for n in group_needles) and _key_from(c)]
         if not matches:
@@ -117,7 +150,33 @@ async def resolve_voice_plan() -> VoicePlan:
     engine_cfg = _cfg(engine_conn)
     engine = _norm_engine(engine_conn.name if engine_conn else "", engine_cfg)
     voice_name = engine_cfg.get("voice_name") or engine_cfg.get("voice") or settings.XAI_VOICE_NAME or "rex"
+    voice_name = _strip_voice(voice_name) or "rex"
     carrier = (carrier_conn.name if carrier_conn else "twilio") or "twilio"
+    orch_clone = _strip_voice(engine_cfg.get("cloned_voice_id") or "")
+    # Prefer TTS plugin that matches the active clone provider (plugin mix & match)
+    tts_matches = [
+        c for c in conns
+        if any(n in (c.group_name or "").lower() for n in ("text-to-speech", "tts")) and _key_from(c)
+    ]
+    if tts_matches:
+        preferred = None
+        clone_hint = orch_clone or (voice_name if looks_like_external_voice_id(voice_name) else "")
+        custom = engine_cfg.get("custom_voices") or []
+        clone_provider = ""
+        for v in custom:
+            if isinstance(v, dict) and str(v.get("voice_id") or "") == clone_hint:
+                clone_provider = str(v.get("provider") or "").lower()
+                break
+        if not clone_provider and clone_hint:
+            clone_provider = "cartesia" if _UUID_RE.match(clone_hint) else "elevenlabs"
+        for c in tts_matches:
+            name = (c.name or "").lower()
+            if clone_provider and clone_provider in name:
+                preferred = c
+                break
+        if preferred is None:
+            preferred = next((c for c in tts_matches if c.status == "connected"), tts_matches[0])
+        tts_conn = preferred
 
     stt = None
     if stt_conn and _key_from(stt_conn):
@@ -131,19 +190,51 @@ async def resolve_voice_plan() -> VoicePlan:
     elif settings.DEEPGRAM_API_KEY:
         stt = PluginCreds(provider="deepgram", api_key=settings.DEEPGRAM_API_KEY.strip(), model="nova-2", extra={"display_name": "Deepgram Nova-2"})
 
+    cartesia_vid = _strip_voice(getattr(settings, "CARTESIA_VOICE_ID", None))
+    eleven_vid = _strip_voice(getattr(settings, "ELEVENLABS_VOICE_ID", None))
+    # orch_clone already resolved above from Voice Orchestration plugin
+
     tts = None
     if tts_conn and _key_from(tts_conn):
+        tts_cfg = _cfg(tts_conn)
+        provider = _match_provider(tts_conn.name) or "elevenlabs"
+        vid = _strip_voice(tts_cfg.get("voice_id") or "")
+        if not vid:
+            if "cartesia" in provider and cartesia_vid:
+                vid = cartesia_vid
+            elif "eleven" in provider and eleven_vid:
+                vid = eleven_vid
+            elif orch_clone and looks_like_external_voice_id(orch_clone):
+                vid = orch_clone
+            elif looks_like_external_voice_id(voice_name):
+                vid = voice_name
         tts = PluginCreds(
-            provider=_match_provider(tts_conn.name) or "elevenlabs",
+            provider=provider,
             api_key=_key_from(tts_conn),
-            voice_id=_cfg(tts_conn).get("voice_id") or "",
-            model=_cfg(tts_conn).get("model") or "",
+            voice_id=vid,
+            model=tts_cfg.get("model") or "",
             extra={"display_name": tts_conn.name or ""},
         )
-    elif settings.ELEVENLABS_API_KEY:
-        tts = PluginCreds(provider="elevenlabs", api_key=settings.ELEVENLABS_API_KEY.strip(), extra={"display_name": "ElevenLabs"})
     elif settings.CARTESIA_API_KEY:
-        tts = PluginCreds(provider="cartesia", api_key=settings.CARTESIA_API_KEY.strip(), extra={"display_name": "Cartesia"})
+        vid = cartesia_vid or (orch_clone if looks_like_external_voice_id(orch_clone) else "") or (
+            voice_name if looks_like_external_voice_id(voice_name) else ""
+        )
+        tts = PluginCreds(
+            provider="cartesia",
+            api_key=settings.CARTESIA_API_KEY.strip(),
+            voice_id=vid,
+            extra={"display_name": "Cartesia"},
+        )
+    elif settings.ELEVENLABS_API_KEY:
+        vid = eleven_vid or (orch_clone if looks_like_external_voice_id(orch_clone) else "") or (
+            voice_name if looks_like_external_voice_id(voice_name) else ""
+        )
+        tts = PluginCreds(
+            provider="elevenlabs",
+            api_key=settings.ELEVENLABS_API_KEY.strip(),
+            voice_id=vid,
+            extra={"display_name": "ElevenLabs"},
+        )
 
     llm = None
     if llm_conn and _key_from(llm_conn):
@@ -184,9 +275,20 @@ async def resolve_voice_plan() -> VoicePlan:
                 if engine != "simulation":
                     logger.info("No live xAI key — voice engine simulation")
 
+    external_tts = bool(
+        engine == "xai"
+        and tts
+        and tts.api_key
+        and tts.voice_id
+        and looks_like_external_voice_id(tts.voice_id)
+    )
+
     note = ""
     if engine == "xai":
-        note = "Speech-to-speech via xAI Grok. STT/TTS plugins unused."
+        if external_tts:
+            note = f"xAI STT+Grok; external TTS via {tts.provider} clone."
+        else:
+            note = "Speech-to-speech via xAI Grok. STT/TTS plugins unused."
     elif engine == "openai":
         note = "Speech-to-speech via OpenAI Realtime. STT/TTS plugins unused."
     elif engine == "modular":
@@ -201,4 +303,5 @@ async def resolve_voice_plan() -> VoicePlan:
         llm=llm,
         s2s_key=openai_key if engine == "openai" else xai_key,
         note=note,
+        external_tts=external_tts,
     )

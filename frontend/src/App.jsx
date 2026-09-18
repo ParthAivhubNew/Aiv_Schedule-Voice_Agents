@@ -184,6 +184,18 @@ function liveStackLabels(hub) {
     : engine === "modular" ? "Modular pipeline"
     : engine === "simulation" ? "Simulation"
     : hub?.activeEngine || "—";
+  // Plugin hybrid: xAI brain/STT + external TTS clone from Connections
+  if (engine === "xai" && hub?.externalTts) {
+    return {
+      engine: "xAI + cloned TTS (plugin)",
+      llm: "xAI Grok",
+      stt: "xAI",
+      tts: prettyProvider(hub?.ttsProvider, hub?.ttsName || "Cloned TTS"),
+      carrier: hub?.activeCarrier || "—",
+      voice: hub?.ttsVoiceId || hub?.voiceName || "—",
+      note: hub?.liveNote || "",
+    };
+  }
   if (engine === "xai" || engine === "openai") {
     return {
       engine: engineLabel,
@@ -6311,6 +6323,7 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
   const [providerChoice, setProviderChoice] = useState("DeepSeek");
   const [customName, setCustomName] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [voiceId, setVoiceId] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [accountSid, setAccountSid] = useState("");
@@ -6322,6 +6335,7 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
   const isOther = providerChoice.startsWith("Other") || category === "Other";
   const isTwilio = providerChoice === "Twilio";
   const isTelnyx = providerChoice.toLowerCase().includes("telnyx");
+  const isTts = category === "Text-to-Speech";
   const [phoneNumber, setPhoneNumber] = useState("");
   const providerList = FAMOUS_PROVIDERS_BY_LAYER[category] || ["Other (Custom Base URL)"];
 
@@ -6366,6 +6380,7 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
         api_key: apiKey.trim(),
         base_url: baseUrl.trim() || undefined,
         account_sid: accountSid.trim() || undefined,
+        voice_id: isTts && voiceId.trim() ? voiceId.trim() : undefined,
       });
 
       if (isTelnyx && phoneNumber.trim()) {
@@ -6507,6 +6522,23 @@ function AddIntegrationModal({ onClose, onAddSuccess }) {
               </button>
             </div>
           </div>
+
+          {isTts && (
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                Cloned Voice ID (optional)
+              </label>
+              <input
+                value={voiceId}
+                onChange={(e) => setVoiceId(e.target.value)}
+                placeholder={providerChoice.includes("Cartesia") ? "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" : "ElevenLabs or Cartesia voice id"}
+                style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
+              />
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                With Voice Orchestration = xAI, this TTS plugin speaks your clone on live calls.
+              </div>
+            </div>
+          )}
 
           {/* Base URL (if custom or Cal.com) */}
           {(isOther || providerChoice.includes("Cal.com")) && (
@@ -7483,20 +7515,35 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const linkPastedVoice = async () => {
     const vid = pasteVoiceId.trim();
     if (!vid) {
-      setCloneErr(engineChoice === "modular" ? "Paste an ElevenLabs Voice ID, or record below." : "Paste a Voice ID from console.x.ai.");
+      setCloneErr(
+        engineChoice === "modular"
+          ? "Paste an ElevenLabs or Cartesia Voice ID, or record below."
+          : "Paste your Cartesia clone UUID (or xAI console Voice ID)."
+      );
       return;
     }
     setCloning(true);
     setCloneErr("");
     try {
+      const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(vid);
+      const provider =
+        engineChoice === "modular"
+          ? (looksUuid ? "cartesia" : "elevenlabs")
+          : looksUuid
+            ? "cartesia"
+            : "xai";
       const res = await api.selectVoice({
         voice_id: vid,
         label: cloneName.trim() || vid,
-        provider: engineChoice === "modular" ? "elevenlabs" : "xai",
+        provider,
       });
       setVoiceName(vid);
       if (res.voices) setCustomVoices(res.voices);
-      setCloneMsg(res.message || "Custom voice linked.");
+      setCloneMsg(
+        looksUuid
+          ? (res.message || "Cartesia clone linked. Keep engine on xAI + CARTESIA_API_KEY in .env for hybrid TTS.")
+          : (res.message || "Custom voice linked.")
+      );
       setPasteVoiceId("");
     } catch (err) {
       setCloneErr(err.message || String(err));
@@ -7861,7 +7908,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 ? "Live path is OpenAI speech-to-speech. STT/TTS plugins unused until you switch to Modular."
                 : engineChoice === "simulation"
                   ? "Scripted demo engine. No live carrier audio plugins."
-                  : "Live path is xAI speech-to-speech. STT/TTS plugins unused until you switch to Modular."}
+                  : "Live path: xAI STT + Grok brain. Add CARTESIA_API_KEY + CARTESIA_VOICE_ID (or paste clone UUID below) to speak in your cloned voice; otherwise xAI builtin voice."}
             {hubData.liveNote ? ` Current: ${hubData.liveNote}` : ""}
           </div>
         </div>

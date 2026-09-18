@@ -25,7 +25,6 @@ from app.api.logs import router as logs_router
 from app.api.sip_webhook import router as sip_webhook_router
 from app.api.enrichment import router as enrichment_router
 from app.api.calcom import router as calcom_router
-from app.api.whatsapp import router as whatsapp_router
 from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
@@ -247,8 +246,6 @@ app.include_router(sip_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router)  # Direct /sip-webhook compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(calcom_router, prefix=settings.API_PREFIX)
-app.include_router(whatsapp_router, prefix=settings.API_PREFIX)
-app.include_router(whatsapp_router)  # Direct /whatsapp/webhook compatibility
 app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
 
 # Universal Direct Fallback Webhooks for Twilio Inbound Voice

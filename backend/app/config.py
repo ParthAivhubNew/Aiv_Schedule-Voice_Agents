@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     DEEPGRAM_API_KEY: Optional[str] = None
     ELEVENLABS_API_KEY: Optional[str] = None
     CARTESIA_API_KEY: Optional[str] = None
+    # Cloned Cartesia voice UUID — used when engine=xai + external TTS hybrid
+    CARTESIA_VOICE_ID: Optional[str] = None
+    ELEVENLABS_VOICE_ID: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     DEEPSEEK_API_KEY: Optional[str] = None

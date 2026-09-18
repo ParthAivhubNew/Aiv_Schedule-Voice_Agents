@@ -140,6 +140,9 @@ def _xai_voice_id(raw: Optional[str], accent: Optional[str] = None) -> str:
         return aliases[low]
     if low in ("ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage"):
         return low
+    # Cartesia UUID / ElevenLabs clone ids are not valid xAI voices — keep a builtin for session.
+    if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", low) or len(v) >= 16:
+        return "rex"
     if accent and str(accent).lower() in ("british", "uk", "en-gb"):
         # Keep female voices female when UK accent selected
         if "ara" in low:
@@ -295,7 +298,7 @@ async def start_bridged_voice_session(
                     prospect_name = rec.prospect
     except Exception as link_err:
         logger.debug(f"Could not hydrate prospect name for bridge {call_id}: {link_err}")
-    logger.info(f"[VOICE-ROUTER] {call_id} engine={plan.engine} {plan.note}")
+    logger.info(f"[VOICE-ROUTER] {call_id} engine={plan.engine} external_tts={getattr(plan, 'external_tts', False)} {plan.note}")
 
     if plan.engine == "openai":
         from app.services.voice_openai import run_openai_realtime
@@ -337,6 +340,7 @@ async def start_bridged_voice_session(
                 carrier_sid=carrier_sid,
                 mission_name=mission,
                 audio_bridge=sess,
+                voice_plan=plan,
             )
         )
     return sess
@@ -1212,10 +1216,12 @@ async def join_xai_call_session(
     carrier_sid: Optional[str] = None,
     custom_call_id: Optional[str] = None,
     audio_bridge: Optional[BridgedVoiceSession] = None,
+    voice_plan: Optional[Any] = None,
 ):
     """
     Connects an outbound WebSocket session to xAI Realtime Voice API.
     SIP mode: wss://...?call_id= (audio on SIP). Bridge mode: μ-law over WS, no SIP wait.
+    When voice_plan.external_tts is set, xAI handles STT+Grok; Cartesia/ElevenLabs speaks.
     """
     start_ts = time.time()
     agent_id = getattr(settings, "XAI_AGENT_ID", None) or "agent_QDoRHfWcKMybf197"
@@ -1230,6 +1236,23 @@ async def join_xai_call_session(
     silence_ms = getattr(settings, "XAI_VAD_SILENCE_MS", 380)
     prefix_ms = getattr(settings, "XAI_VAD_PREFIX_PADDING_MS", 180)
     temp_val = getattr(settings, "XAI_TEMPERATURE", 0.80)
+
+    if voice_plan is None and audio_bridge is not None:
+        try:
+            from app.services.voice_plugin_plan import resolve_voice_plan
+            voice_plan = await resolve_voice_plan()
+        except Exception as plan_err:
+            logger.debug(f"Could not resolve voice plan for hybrid TTS: {plan_err}")
+
+    use_external_tts = bool(
+        audio_bridge
+        and voice_plan
+        and getattr(voice_plan, "external_tts", False)
+        and getattr(voice_plan, "tts", None)
+        and voice_plan.tts.api_key
+        and voice_plan.tts.voice_id
+    )
+    _ext_tts_cleanup: Dict[str, Any] = {"worker": None, "queue": None}
 
     try:
         from app.models.models import Connection
@@ -1256,6 +1279,14 @@ async def join_xai_call_session(
     except Exception as k_err:
         logger.warning(f"Could not load xAI config from DB: {k_err}")
 
+    # External clone IDs must not be sent to xAI as session.voice
+    if use_external_tts:
+        active_voice = _xai_voice_id(active_voice) if active_voice in ("ara", "eve", "rex", "leo") else "rex"
+        logger.info(
+            f"[XAI-WS] External TTS ON for {call_id}: provider={voice_plan.tts.provider} "
+            f"voice_id={voice_plan.tts.voice_id[:12]}… (xAI session voice={active_voice})"
+        )
+
     await log_process_event(
         subsystem="telephony",
         process_name="xai_ws_connecting",
@@ -1268,7 +1299,9 @@ async def join_xai_call_session(
             "customCallId": custom_call_id,
             "isLiveKey": bool(api_key and api_key.startswith("xai-")),
             "wsUrl": ws_url,
-            "agentId": agent_id
+            "agentId": agent_id,
+            "externalTts": use_external_tts,
+            "ttsProvider": (voice_plan.tts.provider if use_external_tts and voice_plan and voice_plan.tts else None),
         }
     )
     logger.info(
@@ -1441,8 +1474,11 @@ async def join_xai_call_session(
             )
 
             # 2. Send session.update to configure voice, VAD, prompt & tools
+            # Hybrid: keep audio modality so xAI STT/VAD works; we drop its speaker audio and
+            # synthesize via Cartesia/ElevenLabs from transcript/text deltas.
+            session_modalities = ["audio", "text"]
             session_body = {
-                    "modalities": ["audio", "text"],
+                    "modalities": session_modalities,
                     "voice": active_voice,
                     "instructions": system_instructions,
                     "temperature": temp_val,
@@ -1467,6 +1503,69 @@ async def join_xai_call_session(
             }
             # 1. Update session with complete AIVHub configuration
             await ws.send(json.dumps(session_config))
+
+            # External cloned-voice TTS: sentence buffer over xAI text/transcript deltas
+            ext_tts_buf = ""
+            ext_tts_queue: asyncio.Queue = asyncio.Queue()
+            ext_tts_worker: Optional[asyncio.Task] = None
+            if use_external_tts and audio_bridge:
+                audio_bridge._barge = asyncio.Event()
+
+                async def _ext_tts_worker_loop():
+                    from app.services.voice_modular import _speak
+                    while True:
+                        phrase = await ext_tts_queue.get()
+                        if phrase is None:
+                            break
+                        phrase = (phrase or "").strip()
+                        if not phrase or not voice_plan:
+                            continue
+                        if getattr(audio_bridge, "_barge", None) and audio_bridge._barge.is_set():
+                            audio_bridge._barge = asyncio.Event()
+                        try:
+                            await _speak(audio_bridge, voice_plan, phrase, pace=True)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as speak_err:
+                            logger.warning(f"[XAI-WS] External TTS speak failed: {speak_err}")
+
+                ext_tts_worker = asyncio.create_task(_ext_tts_worker_loop())
+                _ext_tts_cleanup["worker"] = ext_tts_worker
+                _ext_tts_cleanup["queue"] = ext_tts_queue
+
+            async def _cancel_ext_tts():
+                nonlocal ext_tts_buf
+                ext_tts_buf = ""
+                if audio_bridge is not None:
+                    if getattr(audio_bridge, "_barge", None) is None:
+                        audio_bridge._barge = asyncio.Event()
+                    audio_bridge._barge.set()
+                # Drain pending phrases so barge-in stays quiet
+                while not ext_tts_queue.empty():
+                    try:
+                        ext_tts_queue.get_nowait()
+                    except Exception:
+                        break
+
+            async def _feed_ext_tts(delta: str, force_flush: bool = False):
+                nonlocal ext_tts_buf
+                if not use_external_tts:
+                    return
+                if delta:
+                    ext_tts_buf += delta
+                while True:
+                    m = re.search(r"([.!?])(\s+|$)", ext_tts_buf)
+                    if not m:
+                        break
+                    end = m.end()
+                    phrase = ext_tts_buf[:end].strip()
+                    ext_tts_buf = ext_tts_buf[end:]
+                    if phrase:
+                        await ext_tts_queue.put(phrase)
+                if force_flush and ext_tts_buf.strip():
+                    phrase = ext_tts_buf.strip()
+                    ext_tts_buf = ""
+                    await ext_tts_queue.put(phrase)
 
             # 2. Set up instant first-turn greeting trigger
             target_raw = prospect_name or (call_obj.prospect if call_obj else None) or "there"
@@ -1658,6 +1757,9 @@ async def join_xai_call_session(
                     "response.audio.delta",
                 ):
                     greeting_audio_started = True
+                    # Hybrid: drop xAI speaker audio — Cartesia/ElevenLabs owns the mouth
+                    if use_external_tts:
+                        continue
                     delta_audio = event.get("delta") or event.get("audio")
                     if audio_bridge and delta_audio:
                         await audio_bridge.emit_ai_audio(delta_audio)
@@ -1702,11 +1804,16 @@ async def join_xai_call_session(
                             "who": "ai",
                             "delta": delta_text
                         })
+                        if use_external_tts:
+                            greeting_audio_started = True
+                            await _feed_ext_tts(delta_text)
 
                 elif event_type in ["response.audio_transcript.done", "response.text.done"]:
                     final_text = event.get("transcript") or event.get("text", "")
                     if final_text:
                         current_ai_text = final_text
+                    if use_external_tts:
+                        await _feed_ext_tts("", force_flush=True)
                     await commit_ai_turn()
 
                 elif event_type == "response.output_item.done":
@@ -1726,10 +1833,14 @@ async def join_xai_call_session(
                                 text_part = content_part.get("transcript") or content_part.get("text")
                                 if text_part and not current_ai_text:
                                     current_ai_text = text_part
+                    if use_external_tts:
+                        await _feed_ext_tts("", force_flush=True)
                     await commit_ai_turn()
 
                 # User started speaking - commit any in-flight AI speech
                 elif event_type == "input_audio_buffer.speech_started":
+                    if use_external_tts:
+                        await _cancel_ext_tts()
                     await commit_ai_turn()
 
                 # Handle Caller Transcription (User speaking)
@@ -1845,6 +1956,19 @@ async def join_xai_call_session(
             details={"callId": local_call_id, "sipCallId": call_id, "error": str(exc)}
         )
     finally:
+        q = _ext_tts_cleanup.get("queue")
+        w = _ext_tts_cleanup.get("worker")
+        if q is not None:
+            try:
+                await q.put(None)
+            except Exception:
+                pass
+        if w is not None and not w.done():
+            w.cancel()
+            try:
+                await w
+            except (asyncio.CancelledError, Exception):
+                pass
         active_xai_sessions.pop(local_call_id, None)
         active_xai_sessions.pop(call_id, None)
         for key in list(bridged_sessions.keys()):

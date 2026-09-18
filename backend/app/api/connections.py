@@ -27,6 +27,8 @@ class TestKeyRequest(BaseModel):
     baseUrl: Optional[str] = None
     account_sid: Optional[str] = None
     model: Optional[str] = None
+    voice_id: Optional[str] = None
+    voiceId: Optional[str] = None
 
     @property
     def resolved_api_key(self) -> str:
@@ -35,6 +37,10 @@ class TestKeyRequest(BaseModel):
     @property
     def resolved_base_url(self) -> Optional[str]:
         return self.base_url or self.baseUrl
+
+    @property
+    def resolved_voice_id(self) -> str:
+        return (self.voice_id or self.voiceId or "").strip()
 
 @router.get("", response_model=list[dict])
 async def list_connections(db: AsyncSession = Depends(get_db)):
@@ -143,6 +149,9 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         "base_url": req.resolved_base_url,
         "provider": req.provider,
         "model": req.model or (existing.config.get("model") if existing and isinstance(existing.config, dict) else None),
+        "voice_id": req.resolved_voice_id or (
+            existing.config.get("voice_id") if existing and isinstance(existing.config, dict) else None
+        ),
     })
 
     if existing:
@@ -328,6 +337,8 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     stt_model = None
     tts_model = None
     llm_model = None
+    external_tts = False
+    tts_voice_id = None
     try:
         from app.services.voice_plugin_plan import resolve_voice_plan
         plan = await resolve_voice_plan()
@@ -342,6 +353,8 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         stt_model = plan.stt.model if plan.stt else None
         tts_model = plan.tts.model if plan.tts else None
         llm_model = plan.llm.model if plan.llm else None
+        external_tts = bool(getattr(plan, "external_tts", False))
+        tts_voice_id = (plan.tts.voice_id if plan.tts else None) or None
     except Exception as plan_err:
         logger.warning(f"Could not resolve live voice plan: {plan_err}")
 
@@ -368,6 +381,8 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "sttModel": stt_model,
         "ttsModel": tts_model,
         "llmModel": llm_model,
+        "externalTts": external_tts,
+        "ttsVoiceId": tts_voice_id,
         "phoneNumber": active_phone,
         "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
         "voiceName": ui_voice,
@@ -524,6 +539,9 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
         stored_custom_voices,
         upsert_voice_list,
     )
+    from app.services.secret_box import seal_config
+    from app.services.voice_plugin_plan import looks_like_external_voice_id
+
     vid_raw = (req.voice_id or "").strip()
     if not vid_raw:
         raise HTTPException(status_code=400, detail="voice_id is required.")
@@ -532,21 +550,57 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
     voices = stored_custom_voices(conn)
     label = (req.label or "").strip()
     builtins = {"ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage", "rachel", "adam", "sonic", "rex-uk"}
+    provider = (req.provider or "").strip().lower() or (
+        "cartesia" if looks_like_external_voice_id(vid) and "-" in vid else "xai"
+    )
     if vid.lower() not in builtins and vid_raw.lower() not in builtins:
         voices = upsert_voice_list(voices, {
             "voice_id": vid,
             "name": label or vid,
-            "provider": req.provider or "xai",
+            "provider": provider,
         })
     await save_orchestration_config(db, {
         "custom_voices": voices,
         "voice_name": vid,
         "accent": accent,
-        "cloned_voice_id": vid if vid.lower() not in {"ara", "eve", "rex", "leo", "alloy", "echo", "shimmer", "onyx", "sage"} else None,
+        "cloned_voice_id": vid if looks_like_external_voice_id(vid) else None,
         "cloned_voice_label": label or vid,
     })
     settings.XAI_VOICE_NAME = vid
-    return {"success": True, "voice_id": vid, "accent": accent, "voices": voices, "message": f"Active voice set to {label or vid}."}
+
+    # Mirror clone onto the matching Text-to-Speech plugin so live plan is plugin-driven
+    if looks_like_external_voice_id(vid):
+        tts_res = await db.execute(select(Connection).where(Connection.group_name == "Text-to-Speech"))
+        tts_conns = list(tts_res.scalars().all())
+        target = None
+        needle = "cartesia" if provider == "cartesia" or "-" in vid else "eleven"
+        for c in tts_conns:
+            name = (c.name or "").lower()
+            if needle in name or (provider and provider in name):
+                target = c
+                break
+        if target is None and tts_conns:
+            target = next((c for c in tts_conns if c.status == "connected"), tts_conns[0])
+        if target is not None:
+            cfg = dict(target.config) if isinstance(target.config, dict) else {}
+            cfg["voice_id"] = vid
+            cfg["provider"] = provider if provider in ("cartesia", "elevenlabs") else (
+                "cartesia" if "cartesia" in (target.name or "").lower() else cfg.get("provider")
+            )
+            target.config = seal_config(cfg)
+            target.status = "connected"
+            await db.commit()
+
+    hybrid_hint = ""
+    if looks_like_external_voice_id(vid):
+        hybrid_hint = " With engine=xAI + a Text-to-Speech plugin key, live calls use xAI brain and this clone for TTS."
+    return {
+        "success": True,
+        "voice_id": vid,
+        "accent": accent,
+        "voices": voices,
+        "message": f"Active voice set to {label or vid}.{hybrid_hint}",
+    }
 
 
 @router.post("/telephony-hub/provision")

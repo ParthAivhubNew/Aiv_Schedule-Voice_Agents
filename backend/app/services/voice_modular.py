@@ -16,7 +16,7 @@ from sqlalchemy.future import select
 from app.database import AsyncSessionLocal
 from app.models.models import CompanyProfile, LiveCall
 from app.services.llm_gateway import call_open_chat_llm
-from app.services.voice_plugin_plan import VoicePlan
+from app.services.voice_plugin_plan import VoicePlan, looks_like_external_voice_id
 from app.services.xai_voice_service import (
     BridgedVoiceSession,
     _update_call_transcript,
@@ -52,6 +52,37 @@ def _ulaw_frames(raw: bytes):
         yield base64.b64encode(chunk).decode("ascii")
 
 
+def _resolve_cartesia_vid(voice_hint: str, voice_id: Optional[str]) -> str:
+    """Prefer explicit clone UUID; never drop a custom id for the default sonic voice."""
+    explicit = (voice_id or "").strip()
+    if explicit:
+        return explicit
+    hint = (voice_hint or "").strip()
+    if not hint:
+        return CARTESIA_VOICES["sonic"]
+    mapped = CARTESIA_VOICES.get(hint.lower())
+    if mapped:
+        return mapped
+    if looks_like_external_voice_id(hint):
+        return hint
+    return CARTESIA_VOICES["sonic"]
+
+
+def _resolve_eleven_vid(voice_hint: str, voice_id: Optional[str]) -> str:
+    explicit = (voice_id or "").strip()
+    if explicit:
+        return explicit
+    hint = (voice_hint or "").strip()
+    if not hint:
+        return ELEVEN_VOICES["rachel"]
+    mapped = ELEVEN_VOICES.get(hint.lower())
+    if mapped:
+        return mapped
+    if looks_like_external_voice_id(hint):
+        return hint
+    return ELEVEN_VOICES["rachel"]
+
+
 async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: bool = False) -> None:
     tts = plan.tts
     if not tts or not text.strip():
@@ -63,7 +94,8 @@ async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: 
     voice_hint = (tts.voice_id or plan.voice_name or "rachel").strip()
     raw = b""
     try:
-        if "cartesia" in provider or voice_hint.lower() == "sonic":
+        use_cartesia = "cartesia" in provider or voice_hint.lower() == "sonic"
+        if use_cartesia and "eleven" not in provider:
             raw = await _cartesia_ulaw(tts.api_key, voice_hint, clean, tts.voice_id)
         else:
             raw = await _eleven_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
@@ -79,7 +111,7 @@ async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: 
 
 
 async def _eleven_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, model: str) -> bytes:
-    vid = voice_id or ELEVEN_VOICES.get(voice_hint.lower()) or ELEVEN_VOICES["rachel"]
+    vid = _resolve_eleven_vid(voice_hint, voice_id)
     model_id = model or "eleven_turbo_v2_5"
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=ulaw_8000"
     async with httpx.AsyncClient(timeout=20.0) as client:
@@ -93,7 +125,7 @@ async def _eleven_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, 
 
 
 async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str) -> bytes:
-    vid = voice_id or CARTESIA_VOICES.get(voice_hint.lower()) or CARTESIA_VOICES["sonic"]
+    vid = _resolve_cartesia_vid(voice_hint, voice_id)
     async with httpx.AsyncClient(timeout=20.0) as client:
         res = await client.post(
             "https://api.cartesia.ai/tts/bytes",
