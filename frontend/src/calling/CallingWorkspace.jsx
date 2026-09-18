@@ -1563,7 +1563,7 @@ export function CallingWorkspace({
           }
           .calling-scroll::-webkit-scrollbar-track { background: #E4E1D9; border-radius: 99px; }
         `}</style>
-        <div style={{ padding: "16px 28px", borderBottom: `1px solid ${C.border}`, background: "rgba(255,255,255,0.9)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ padding: "16px 28px", borderBottom: `1px solid ${C.border}`, background: "rgba(255,255,255,0.9)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, position: "relative", zIndex: 60, overflow: "visible" }}>
           <div>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.textInk }}>{titles[page][0]}</div>
             <div style={{ fontSize: 13, color: C.slate, marginTop: 4 }}>{titles[page][1]}</div>

@@ -3373,8 +3373,8 @@ export function SocialWorkspace({
                 <span style={{ ...chipBtn, background: C.paperSoft, borderColor: C.border, color: C.slate, cursor: "default" }} title="Date used when nothing is pinned">
                   {dayLabel(dateDraft)}
                 </span>
-                <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-                  <button type="button" onClick={openDatePicker} style={chipBtn} title="Open calendar">
+                <span style={{ position: "relative", display: "inline-flex" }}>
+                  <button type="button" onClick={openDatePicker} style={{ ...chipBtn, position: "relative", zIndex: 1 }} title="Open calendar">
                     <CalendarDays size={12} /> Pick date
                   </button>
                   <input
@@ -3386,17 +3386,18 @@ export function SocialWorkspace({
                       if (v) addComposerDate(v);
                     }}
                     aria-label="Pick date"
+                    tabIndex={-1}
                     style={{
                       position: "absolute",
-                      inset: 0,
-                      opacity: 0.011,
-                      width: "100%",
-                      height: "100%",
+                      left: 0,
+                      top: 0,
+                      width: 1,
+                      height: 1,
+                      opacity: 0,
                       border: "none",
                       padding: 0,
                       margin: 0,
-                      cursor: "pointer",
-                      zIndex: 2,
+                      pointerEvents: "none",
                     }}
                   />
                 </span>
