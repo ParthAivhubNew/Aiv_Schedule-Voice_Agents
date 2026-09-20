@@ -9236,17 +9236,36 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     setRowState((s) => ({ ...s, [rowKey]: { ...(s[rowKey] || {}), ...patch } }));
 
   const handleConnect = (rowKey) =>
-    setRow(rowKey, { phase: "editing", keyValue: "", phoneValue: profile?.callerId || "", agentIdValue: "", errorMsg: "", testResult: null });
+    setRow(rowKey, { phase: "editing", keyValue: "", phoneValue: profile?.callerId || "", agentIdValue: "", accountSidValue: "", errorMsg: "", testResult: null });
 
   const handleCancel = (rowKey) =>
     setRowState((s) => { const n = { ...s }; delete n[rowKey]; return n; });
 
   const handleTest = async (groupName, itemName, rowKey) => {
-    const key = ((rowState[rowKey] || {}).keyValue || "").trim();
+    const row = rowState[rowKey] || {};
+    const key = (row.keyValue || "").trim();
     if (!key) { setRow(rowKey, { errorMsg: "API key cannot be empty." }); return; }
+    const isTwilio = String(itemName || "").toLowerCase().includes("twilio");
+    const sidCandidate = (row.accountSidValue || row.agentIdValue || "").trim();
+    const accountSid = isTwilio
+      ? (sidCandidate.startsWith("AC") ? sidCandidate : (row.accountSidValue || "").trim())
+      : undefined;
+    if (isTwilio && (!accountSid || !accountSid.startsWith("AC") || accountSid.length !== 34)) {
+      setRow(rowKey, { errorMsg: "Twilio needs Account SID (AC…, 34 chars) in the Account SID field — not Voice Agent ID." });
+      return;
+    }
+    if (isTwilio && (key.startsWith("xai-") || key.length !== 32)) {
+      setRow(rowKey, { errorMsg: "Paste the Twilio Auth Token (32 characters from console.twilio.com) — not an xAI key." });
+      return;
+    }
     setRow(rowKey, { phase: "testing", errorMsg: "", testResult: null });
     try {
-      const res = await api.testConnection({ layer: groupName, provider: itemName, api_key: key });
+      const res = await api.testConnection({
+        layer: groupName,
+        provider: itemName,
+        api_key: key,
+        account_sid: accountSid || undefined,
+      });
       setRow(rowKey, { phase: "tested_ok", testResult: res.details || "Authentication verified! Ready to save." });
     } catch (err) {
       setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Authentication rejected by provider." });
@@ -9256,9 +9275,19 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const handleSave = async (groupName, itemName, rowKey) => {
     const row = rowState[rowKey] || {};
     const key = (row.keyValue || "").trim();
+    const isTwilio = String(itemName || "").toLowerCase().includes("twilio");
+    const sidCandidate = (row.accountSidValue || row.agentIdValue || "").trim();
+    const accountSid = isTwilio
+      ? (sidCandidate.startsWith("AC") ? sidCandidate : (row.accountSidValue || "").trim())
+      : undefined;
     setRow(rowKey, { phase: "saving" });
     try {
-      const res = await api.testAndSaveConnection({ layer: groupName, provider: itemName, api_key: key });
+      const res = await api.testAndSaveConnection({
+        layer: groupName,
+        provider: itemName,
+        api_key: key,
+        account_sid: accountSid || undefined,
+      });
       setCredsState((s) =>
         s.map((g) =>
           g.group === groupName
@@ -9269,6 +9298,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       if (row.phoneValue && setProfile) {
         setProfile((prev) => ({ ...prev, callerId: row.phoneValue }));
       }
+      try {
+        if (isTwilio && accountSid) localStorage.setItem("aivhub_twilio_sid", accountSid);
+      } catch (_) {}
       handleCancel(rowKey);
       setNotifications((ns) => [
         { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and saved!${row.phoneValue ? ` (Caller ID: ${row.phoneValue})` : ""}`, time: "just now", unread: true, type: "success" },
@@ -9496,7 +9528,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                           <div style={{ borderTop: `1px solid ${C.border}`, background: C.paper, padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                               <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                {it.name} API Key / Token
+                                {String(it.name || "").toLowerCase().includes("twilio")
+                                  ? "Twilio Auth Token"
+                                  : `${it.name} API Key / Token`}
                               </label>
                               <div style={{ position: "relative", width: "100%" }}>
                                 <input
@@ -9511,7 +9545,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                       else handleTest(group.group, it.name, rowKey);
                                     }
                                   }}
-                                  placeholder="Paste API key / token to test & connect..."
+                                  placeholder={String(it.name || "").toLowerCase().includes("twilio")
+                                    ? "Paste 32-character Auth Token from console.twilio.com"
+                                    : "Paste API key / token to test & connect..."}
                                   style={{ width: "100%", boxSizing: "border-box", padding: "8px 38px 8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : phase === "tested_ok" ? C.green : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none", background: "#fff" }}
                                 />
                                 <button
@@ -9525,7 +9561,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               </div>
                             </div>
 
-                            {/* Optional Phone Number & Agent ID fields for xAI / Telephony / Voice */}
+                            {/* Optional Phone Number & Agent ID / Twilio Account SID */}
                             {(it.name.toLowerCase().includes("xai") || group.group === "Telephony" || group.group === "Voice Orchestration" || it.name.toLowerCase().includes("twilio")) && (
                               <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 10, marginTop: 4 }}>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -9542,13 +9578,28 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                 </div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                   <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                    Voice Agent ID (Optional)
+                                    {String(it.name || "").toLowerCase().includes("twilio")
+                                      ? "Account SID (required)"
+                                      : "Voice Agent ID (Optional)"}
                                   </label>
                                   <input
                                     type="text"
-                                    value={rs.agentIdValue || ""}
-                                    onChange={(e) => setRow(rowKey, { agentIdValue: e.target.value })}
-                                    placeholder="agent_... or sid_..."
+                                    value={
+                                      String(it.name || "").toLowerCase().includes("twilio")
+                                        ? (rs.accountSidValue || rs.agentIdValue || "")
+                                        : (rs.agentIdValue || "")
+                                    }
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (String(it.name || "").toLowerCase().includes("twilio")) {
+                                        setRow(rowKey, { accountSidValue: v, agentIdValue: v, errorMsg: "" });
+                                      } else {
+                                        setRow(rowKey, { agentIdValue: v });
+                                      }
+                                    }}
+                                    placeholder={String(it.name || "").toLowerCase().includes("twilio")
+                                      ? "ACxxxxxxxx… (34 characters)"
+                                      : "agent_... or sid_..."}
                                     style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
                                   />
                                 </div>
