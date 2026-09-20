@@ -184,6 +184,65 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         "details": validation.get("details", "Verified & Active")
     }
 
+class ClearKeyRequest(BaseModel):
+    layer: Optional[str] = None
+    provider: Optional[str] = None
+    id: Optional[str] = None
+
+
+@router.post("/clear-key")
+async def clear_connection_key(req: ClearKeyRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Remove stored API key / secrets for a provider. Keeps the row slot
+    as not_configured so the Connections UI still lists the provider.
+    """
+    existing = None
+    if req.id:
+        result = await db.execute(select(Connection).where(Connection.id == req.id))
+        existing = result.scalars().first()
+
+    if not existing and req.layer and req.provider:
+        result = await db.execute(
+            select(Connection).where(
+                Connection.group_name == req.layer,
+                Connection.name == req.provider,
+            )
+        )
+        existing = result.scalars().first()
+
+    if not existing and req.provider:
+        # Fuzzy: name equals or contains provider (handles slight label drift)
+        result = await db.execute(select(Connection))
+        needle = (req.provider or "").strip().lower()
+        layer = (req.layer or "").strip().lower()
+        for c in result.scalars().all():
+            name_l = (c.name or "").lower()
+            group_ok = (not layer) or ((c.group_name or "").lower() == layer)
+            if group_ok and (name_l == needle or needle in name_l or name_l in needle):
+                existing = c
+                break
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="No saved key found for that provider.")
+
+    prev = open_config(existing.config if isinstance(existing.config, dict) else {})
+    existing.status = "not_configured"
+    existing.api_key_masked = None
+    existing.config = seal_config({
+        "provider": prev.get("provider"),
+        "base_url": prev.get("base_url"),
+        "model": prev.get("model"),
+    })
+    await db.commit()
+    return {
+        "success": True,
+        "id": existing.id,
+        "provider": existing.name,
+        "layer": existing.group_name,
+        "status": "not_configured",
+    }
+
+
 @router.post("/reset-demo-data")
 async def reset_demo_data(db: AsyncSession = Depends(get_db)):
     """
@@ -554,11 +613,16 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
         upsert_voice_list,
     )
     from app.services.secret_box import seal_config
-    from app.services.voice_plugin_plan import looks_like_external_voice_id
+    from app.services.voice_plugin_plan import looks_like_external_voice_id, looks_like_api_key
 
     vid_raw = (req.voice_id or "").strip()
     if not vid_raw:
         raise HTTPException(status_code=400, detail="voice_id is required.")
+    if looks_like_api_key(vid_raw):
+        raise HTTPException(
+            status_code=400,
+            detail="That looks like an API key, not a Voice ID. Save the Cartesia API key under Connections → Text-to-Speech → Cartesia. Here paste only the Voice UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx) from Cartesia → Voices.",
+        )
     vid, accent = _split_voice_choice(vid_raw, req.accent)
     conn = await _orchestration_conn(db)
     voices = stored_custom_voices(conn)

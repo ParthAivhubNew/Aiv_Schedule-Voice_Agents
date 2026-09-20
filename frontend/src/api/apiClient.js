@@ -2,23 +2,39 @@ const API_BASE = "/api";
 
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const { timeoutMs, signal: outerSignal, ...fetchOptions } = options;
   const headers = {
     'Content-Type': 'application/json',
-    ...(options.headers || {}),
+    ...(fetchOptions.headers || {}),
   };
 
-  if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
-    options.body = JSON.stringify(options.body);
+  if (fetchOptions.body && typeof fetchOptions.body === 'object' && !(fetchOptions.body instanceof FormData)) {
+    fetchOptions.body = JSON.stringify(fetchOptions.body);
   }
 
-  if (options.body instanceof FormData) {
+  if (fetchOptions.body instanceof FormData) {
     delete headers['Content-Type'];
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer = null;
+  if (timeoutMs && timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+  if (outerSignal) {
+    if (outerSignal.aborted) controller.abort();
+    else outerSignal.addEventListener("abort", () => controller.abort(), { once: true });
   }
 
   try {
     const response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers,
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -41,11 +57,16 @@ export async function apiRequest(endpoint, options = {}) {
 
     return await response.json();
   } catch (error) {
+    if (timedOut) {
+      throw new Error("Request timed out — backend may be restarting or unreachable. Try again.");
+    }
     if (error && (error.name === "AbortError" || error.message === "The user aborted a request.")) {
       throw error;
     }
     console.error(`API Error on ${url}:`, error);
     throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -110,8 +131,9 @@ export const api = {
   // Connections & Key Testing
   getConnections: () => apiRequest('/connections'),
   addConnection: (conn) => apiRequest('/connections', { method: 'POST', body: conn }),
-  testConnection: (payload) => apiRequest('/connections/test', { method: 'POST', body: payload }),
-  testAndSaveConnection: (payload) => apiRequest('/connections/test-and-save', { method: 'POST', body: payload }),
+  testConnection: (payload) => apiRequest('/connections/test', { method: 'POST', body: payload, timeoutMs: 15000 }),
+  testAndSaveConnection: (payload) => apiRequest('/connections/test-and-save', { method: 'POST', body: payload, timeoutMs: 20000 }),
+  clearConnectionKey: (payload) => apiRequest('/connections/clear-key', { method: 'POST', body: payload, timeoutMs: 12000 }),
   resetDemoData: () => apiRequest('/connections/reset-demo-data', { method: 'POST' }),
   getTelephonyHub: () => apiRequest('/connections/telephony-hub'),
   provisionTelephonyHub: (payload) => apiRequest('/connections/telephony-hub/provision', { method: 'POST', body: payload }),
@@ -189,6 +211,8 @@ export const api = {
   saveCalcomAccount: (payload) => apiRequest('/calcom/accounts', { method: 'POST', body: payload }),
   deleteCalcomAccount: (id) => apiRequest(`/calcom/accounts/${id}`, { method: 'DELETE' }),
   testCalcomAccount: (id) => apiRequest(`/calcom/accounts/${id}/test`, { method: 'POST' }),
+  getCalcomInvitePreview: (query = 'role=attendee') => apiRequest(`/calcom/invite-preview?${query}`),
+  saveCalcomInviteTemplate: (payload) => apiRequest('/calcom/invite-template', { method: 'POST', body: payload }),
 
   calcom: {
     getOverview: () => apiRequest('/calcom/overview'),

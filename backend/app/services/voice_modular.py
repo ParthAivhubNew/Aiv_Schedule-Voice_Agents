@@ -126,23 +126,44 @@ async def _eleven_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, 
 
 async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str) -> bytes:
     vid = _resolve_cartesia_vid(voice_hint, voice_id)
+    # sonic-english / sonic are sunset; sonic-2 still serves mulaw telephony today.
+    model_candidates = ("sonic-2", "sonic-turbo", "sonic-3", "sonic-3.5", "sonic-latest")
+    last_err: Optional[Exception] = None
     async with httpx.AsyncClient(timeout=20.0) as client:
-        res = await client.post(
-            "https://api.cartesia.ai/tts/bytes",
-            headers={
-                "X-API-Key": api_key,
-                "Cartesia-Version": "2024-06-10",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model_id": "sonic-english",
-                "transcript": text,
-                "voice": {"mode": "id", "id": vid},
-                "output_format": {"container": "raw", "encoding": "pcm_mulaw", "sample_rate": 8000},
-            },
-        )
-        res.raise_for_status()
-        return res.content
+        for model_id in model_candidates:
+            try:
+                res = await client.post(
+                    "https://api.cartesia.ai/tts/bytes",
+                    headers={
+                        "X-API-Key": api_key,
+                        "Cartesia-Version": "2024-06-10",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model_id": model_id,
+                        "transcript": text,
+                        "voice": {"mode": "id", "id": vid},
+                        "language": "en",
+                        "output_format": {
+                            "container": "raw",
+                            "encoding": "pcm_mulaw",
+                            "sample_rate": 8000,
+                        },
+                    },
+                )
+                if res.status_code == 200 and res.content:
+                    logger.info(
+                        f"[MODULAR] Cartesia TTS ok model_id={model_id} bytes={len(res.content)} voice={vid[:12]}…"
+                    )
+                    return res.content
+                last_err = RuntimeError(f"Cartesia {model_id} HTTP {res.status_code}: {res.text[:180]}")
+                # Sunset / bad model → try next; auth errors stop early
+                if res.status_code in (401, 403):
+                    raise last_err
+            except Exception as err:
+                last_err = err
+                continue
+    raise RuntimeError(f"Cartesia TTS failed for voice {vid[:12]}…: {last_err}")
 
 
 async def _greeting_line(is_inbound: bool, prospect_name: Optional[str]) -> str:

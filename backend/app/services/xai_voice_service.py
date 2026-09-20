@@ -206,6 +206,10 @@ class BridgedVoiceSession:
 
     async def _flush_if_released(self) -> None:
         if not self._live or not self._released:
+            logger.debug(
+                f"[XAI-BRIDGE] Hold buffer call={self.call_id} live={self._live} "
+                f"released={self._released} pending={len(self._buf)}"
+            )
             return
         chunks = self._buf
         self._buf = []
@@ -629,16 +633,30 @@ async def build_xai_system_instructions(
     faq_text = "\n".join(faq_lines) if faq_lines else "None provided yet."
 
     calendar_brief = ""
+    booking_rules = ""
+    hangup_rules = ""
     try:
         from app.services.calendar_service import calendar_service
+        from app.services.booking_policy import (
+            normalize_booking_policy,
+            voice_booking_instructions,
+            voice_hangup_instructions,
+        )
         async with AsyncSessionLocal() as cal_db:
             calendar_brief = await calendar_service.get_availability_brief(cal_db, days=5, prospect_tz=prospect_tz)
+            setting = await calendar_service.get_or_create_settings(cal_db)
+            policy = normalize_booking_policy(getattr(setting, "booking_policy", None))
+            booking_rules = voice_booking_instructions(policy)
+            hangup_rules = voice_hangup_instructions(policy)
     except Exception as cal_err:
         logger.warning(f"Could not load live calendar for voice prompt: {cal_err}")
         calendar_brief = (
             f"LIVE CLOCK for speech: {current_date_str} at {current_time_str}. "
             "Calendar lookup failed — call check_calendar_availability before offering a time."
         )
+        from app.services.booking_policy import voice_booking_instructions, voice_hangup_instructions
+        booking_rules = voice_booking_instructions(None)
+        hangup_rules = voice_hangup_instructions(None)
 
     target_name = clean_person_label(prospect_name) or "there"
     target_first_name = greeting_first_name(target_name)
@@ -746,22 +764,9 @@ How to use these:
 - If a detail is still missing after search: say it is not on this call and a specialist will confirm on the walkthrough — or offer to email what is on the site. Do not guess.
 - Industry only if it helps ("we work in {industry}") — never dump the whole fact list.
 
-CRITICAL MEETING BOOKING (FLEXIBLE — NOT RIGID):
-1. Goal: book a 15-minute discovery when they are willing. You are a coordinator, not a form.
-2. CLOCK: Use the local wall-clock below. Never guess the day or year.
-3. CALENDAR: Only offer spoken times from the list (or a fresh check_calendar_availability). Never invent a slot.
-4. If they ask for afternoon / after lunch / "any afternoon" / a specific PM time:
-   - Call check_calendar_availability for that day (or the week) and prefer slots at/after 12:00.
-   - Do NOT only offer morning slots when they asked for afternoon.
-5. If they are vague ("sometime next week", "after 3", "Thursday-ish"):
-   - Call check_calendar_availability with that phrasing.
-   - Offer 2–3 real openings in their window. Do not force "tomorrow or Friday".
-6. If their preferred time is taken: say that window is packed, then offer the nearest openings in the SAME part of day when possible. Do not argue.
-7. If they want evening/weekend we cannot do: "That evening's packed — I have two windows earlier the same day, or the next morning." Never mention timezones, UK, GMT, BST, IST, "your time", "our time", or converting clocks.
-8. Agree the time FIRST. Then ask for email. Do not block exploring times until you have an email.
-9. When email + day + time are agreed, call book_calendar_meeting with the time they heard (spoken local). Repeat email back once.
-10. If they only want an overview email now, take the address and do not force a meeting.
-11. If they ask you to "send an invite" / "send a demo invite": treat that as booking intent — get a time they can do, then email, then book_calendar_meeting.
+{booking_rules}
+
+{hangup_rules}
 
 OBJECTION & HESITATION HANDLING (EMPATHETIC & HUMAN):
 - If they say "I'm busy" / "In a meeting":
@@ -831,7 +836,14 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "name": "book_calendar_meeting",
-            "description": "Books a 15-minute discovery on the REAL company calendar and emails the invite. Use only after a time from check_calendar_availability (or the live slot list) is agreed. Email can be collected just before this call.",
+            "description": (
+                "Books a 15-minute discovery on the REAL company calendar. "
+                "STRICT prerequisites — call only at full finalize: (1) meeting format agreed, "
+                "(2) day/time agreed from check_calendar_availability (do not book mid-call before they are ready), "
+                "(3) prospect gave email (email_confirmed=true once they provided it), "
+                "(4) if needs=confirm_existing was returned earlier, prospect chose replace_existing or keep_both. "
+                "WhatsApp is NOT a valid format."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -845,18 +857,34 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
                     },
                     "email": {
                         "type": "string",
-                        "description": "The prospect's confirmed email address to send the calendar invite and video meeting link."
+                        "description": "Prospect email they gave for the invite."
+                    },
+                    "email_confirmed": {
+                        "type": "boolean",
+                        "description": "True once they have given an email address and you are ready to finalize the booking."
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Meeting type id from THIS business's enabled booking_policy (never a notify channel like whatsapp).",
                     },
                     "phone": {
                         "type": "string",
-                        "description": "The prospect's direct phone number or mobile."
+                        "description": "Prospect phone (required for format=phone)."
                     },
                     "notes": {
                         "type": "string",
-                        "description": "Short topic, interest, or meeting note requested by the prospect."
+                        "description": "Short topic or meeting note."
+                    },
+                    "replace_existing": {
+                        "type": "boolean",
+                        "description": "True if they want to cancel/replace their existing upcoming booking with this new one."
+                    },
+                    "keep_both": {
+                        "type": "boolean",
+                        "description": "True if they want to keep the old booking AND add this new one."
                     }
                 },
-                "required": ["date", "time", "email"]
+                "required": ["date", "time", "email", "format", "email_confirmed"]
             }
         },
         {
@@ -880,6 +908,30 @@ def get_xai_tool_definitions() -> List[Dict[str, Any]]:
                     }
                 },
                 "required": ["date"]
+            }
+        },
+        {
+            "type": "function",
+            "name": "end_call",
+            "description": (
+                "Ends the phone call after wrap-up. ONLY call this AFTER you followed "
+                "this business's WRAP-UP rules (ask-before-hangup + goodbye if required). "
+                "If they still have a question, do NOT call this — keep talking. "
+                "Schedules hangup after a short delay so the goodbye can finish speaking."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "delay_seconds": {
+                        "type": "number",
+                        "description": "Seconds to wait before disconnect (uses business Call Rules default if omitted)."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Short reason e.g. conversation_complete, prospect_said_goodbye."
+                    }
+                },
+                "required": []
             }
         }
     ]
@@ -943,21 +995,70 @@ async def execute_xai_tool(
         elif name == "book_calendar_meeting":
             from app.services.calendar_service import calendar_service, parse_spoken_date, _norm_time
             from app.services.timezone_service import display_hhmm
+            from app.services.booking_policy import (
+                normalize_booking_policy,
+                resolve_meeting_type,
+                enabled_meeting_types,
+                enabled_notify_channels,
+            )
 
             raw_date = args.get("date", "Tomorrow")
             time_val = _norm_time(args.get("time", "14:00"))
             email_val = (args.get("email") or "").strip()
             phone_val = (args.get("phone") or "").strip()
             notes_val = args.get("notes", "Discovery call booked via voice agent")
-
-            if not email_val or "@" not in email_val:
-                return {
-                    "success": False,
-                    "needs": "email",
-                    "message": "Need a real email before booking so we can send the calendar invite. Ask for it, then call this tool again.",
-                }
+            email_confirmed = bool(args.get("email_confirmed"))
+            replace_existing = bool(args.get("replace_existing"))
+            keep_both = bool(args.get("keep_both"))
+            fmt_raw = str(args.get("format") or args.get("format_type") or "").strip()
 
             async with AsyncSessionLocal() as db:
+                setting = await calendar_service.get_or_create_settings(db)
+                policy = normalize_booking_policy(getattr(setting, "booking_policy", None))
+                enabled = enabled_meeting_types(policy)
+                notify = enabled_notify_channels(policy)
+                if not enabled:
+                    return {
+                        "success": False,
+                        "needs": "format",
+                        "message": "This business has no meeting types enabled. Do not book — offer email follow-up.",
+                    }
+
+                resolved = resolve_meeting_type(policy, fmt_raw or policy.get("default_meeting_type"))
+                if not resolved:
+                    labels = ", ".join(f"{t['label']} ({t['id']})" for t in enabled)
+                    notify_names = ", ".join(n["label"] for n in notify) if notify else "none"
+                    return {
+                        "success": False,
+                        "needs": "format",
+                        "allowed_formats": [t["id"] for t in enabled],
+                        "message": (
+                            f"Ask which meeting type they want from: {labels}. "
+                            f"Notify channels ({notify_names}) are not meeting types."
+                        ),
+                    }
+                format_type = resolved["id"]
+                platform = resolved.get("default_platform") or (
+                    "Phone" if format_type == "phone" else "In person" if format_type == "in_person" else "Google Meet"
+                )
+
+                if not email_val or "@" not in email_val:
+                    return {
+                        "success": False,
+                        "needs": "email",
+                        "message": "Need a real email before booking. Ask for it, then call again with email_confirmed=true.",
+                    }
+                if policy.get("require_email_confirm", False) and not email_confirmed:
+                    return {
+                        "success": False,
+                        "needs": "email_confirm",
+                        "email": email_val,
+                        "message": (
+                            f"Read back this email once and wait for yes: {email_val}. "
+                            "Then call book_calendar_meeting again with the same email and email_confirmed=true."
+                        ),
+                    }
+
                 host_tz, p_tz, phone, setting = await _resolve_call_clocks(
                     db, call_id=call_id, prospect_id=prospect_id
                 )
@@ -978,6 +1079,52 @@ async def execute_xai_tool(
                 spoken_label = target.strftime("%A, %d %B %Y")
                 hours_label = f"{setting.working_hours_start or '09:00'}–{setting.working_hours_end or '17:30'}"
 
+                # Existing upcoming bookings for same person/email — confirm before overwrite
+                existing_hits = []
+                if policy.get("confirm_existing_bookings", True):
+                    m_res = await db.execute(select(Meeting).where(Meeting.status == "upcoming"))
+                    email_l = email_val.lower()
+                    name_l = (prospect_name or "").lower()
+                    for m in m_res.scalars().all():
+                        att = (m.attendee_email or "").strip().lower()
+                        pname = (m.prospect or m.attendee or "").strip().lower()
+                        match = False
+                        if att and att == email_l:
+                            match = True
+                        elif name_l and name_l not in ("there", "prospect", "caller") and (
+                            name_l == pname or name_l in pname or pname in name_l
+                        ):
+                            match = True
+                        if match:
+                            existing_hits.append({
+                                "id": m.id,
+                                "date": m.date,
+                                "time": display_hhmm(m.time) if m.time else m.time,
+                                "format": m.format or "video",
+                                "email": m.attendee_email,
+                            })
+
+                if existing_hits and not replace_existing and not keep_both:
+                    old = existing_hits[0]
+                    return {
+                        "success": False,
+                        "needs": "confirm_existing",
+                        "existing": existing_hits,
+                        "message": (
+                            f"They already have an upcoming {old.get('format') or 'meeting'} on {old.get('date')} at {old.get('time')}. "
+                            "Ask: keep that one, replace it with this new time, or keep both? "
+                            "Then call again with replace_existing=true or keep_both=true."
+                        ),
+                    }
+
+                if replace_existing and existing_hits:
+                    for hit in existing_hits:
+                        old = (await db.execute(select(Meeting).where(Meeting.id == hit["id"]))).scalars().first()
+                        if old:
+                            old.status = "cancelled"
+                            old.cancellation_reason = "Replaced with new slot on voice call"
+                            old.prep = (old.prep or "") + " | Replaced on voice call"
+
                 booked = await calendar_service.create_booking(
                     db,
                     prospect_name=prospect_name,
@@ -986,12 +1133,13 @@ async def execute_xai_tool(
                     time_str=time_val,
                     notes=notes_val,
                     mission_name=mission_name,
-                    format_type="video",
-                    platform="Google Meet",
+                    format_type=format_type,
+                    platform=platform,
                     prospect_timezone=p_tz,
                     prospect_phone=phone,
                     time_is_prospect_local=True,
                     enforce_hours=True,
+                    duration_minutes=int(policy.get("duration_minutes") or setting.default_duration or 15),
                 )
 
                 if not booked.get("success"):
@@ -1004,8 +1152,8 @@ async def execute_xai_tool(
                         "requested_time": time_val,
                         "available_slots": [display_hhmm(t) for t in alts],
                         "message": (
-                            f"That window is packed. Offer these instead: {alt_spoken}. "
-                            "Do not mention timezones. Do not book the requested time."
+                            f"That window just filled or is packed. Offer these instead: {alt_spoken}. "
+                            "Call check_calendar_availability again if needed. Do not book the requested time."
                         ),
                     }
 
@@ -1014,7 +1162,10 @@ async def execute_xai_tool(
 
                 if call_record:
                     call_record.booked = True
-                    log_notes = f"System: Meeting booked for {spoken_date} at {spoken_time} (diary {booked.get('date')} {booked.get('time')} {host_tz}) | Email: {email_val}"
+                    log_notes = (
+                        f"System: Meeting booked ({format_type}) for {spoken_date} at {spoken_time} "
+                        f"(diary {booked.get('date')} {booked.get('time')} {host_tz}) | Email: {email_val}"
+                    )
                     call_record.transcript = (call_record.transcript or []) + [log_notes]
 
                 if prospect_id:
@@ -1022,7 +1173,7 @@ async def execute_xai_tool(
                     p = p_res.scalars().first()
                     if p:
                         p.status = "meeting_booked"
-                        p.note = f"Booked: {spoken_date} at {spoken_time} ({notes_val})"
+                        p.note = f"Booked ({format_type}): {spoken_date} at {spoken_time} ({notes_val})"
                         p.email = email_val
                         if phone_val:
                             p.phone = phone_val
@@ -1034,6 +1185,10 @@ async def execute_xai_tool(
                     mission=mission_name,
                     window=hours_label,
                     status="scheduled",
+                    kind=format_type,
+                    email=email_val,
+                    phone=phone or None,
+                    video_link=booked.get("videoLink") if format_type == "video" else None,
                 ))
                 await db.commit()
 
@@ -1045,6 +1200,7 @@ async def execute_xai_tool(
                 "meetingId": meeting_id,
                 "date": booked.get("date"),
                 "time": booked.get("time"),
+                "format": format_type,
                 "hostTimezone": booked.get("hostTimezone"),
                 "prospectTime": booked.get("prospectTime"),
                 "email": email_val,
@@ -1054,24 +1210,44 @@ async def execute_xai_tool(
             await log_process_event(
                 subsystem="calendar",
                 process_name="xai_tool_meeting_booked",
-                message=f"Meeting booked for {prospect_name} on {spoken_date} at {spoken_time}. Email sent={mail.get('attendee')}.",
+                message=f"Meeting booked ({format_type}) for {prospect_name} on {spoken_date} at {spoken_time}. Email sent={mail.get('attendee')}.",
                 level="SUCCESS",
                 duration_ms=elapsed,
-                details={"callId": call_id, "meetingId": meeting_id, "date": booked.get("date"), "time": booked.get("time"), "email": email_val, "mail": mail},
+                details={"callId": call_id, "meetingId": meeting_id, "date": booked.get("date"), "time": booked.get("time"), "email": email_val, "format": format_type, "mail": mail},
             )
 
-            # Never expose mail failure to the model — it starts inventing "email problem" lines.
+            fmt_speak = resolved.get("speak_as") or resolved.get("label") or format_type
+            notify_hint = ""
+            if policy.get("offer_notify_after_book") and notify:
+                notify_hint = (
+                    " Optionally ask if they also want a confirmation via: "
+                    + ", ".join(n["label"] for n in notify)
+                    + " — notify-only, not a meeting type."
+                )
+            mail_ok = bool(mail.get("attendee"))
+            join = booked.get("videoLink") if format_type == "video" else None
+            if mail_ok:
+                mail_line = " and they will get the join link / invite by email."
+            elif join:
+                mail_line = (
+                    f". Speak the join link clearly once ({join}) — email invite may not have sent from this environment."
+                )
+            else:
+                mail_line = ". Confirm verbally; email invite may not have sent from this environment."
             return {
                 "success": True,
                 "meeting_id": meeting_id,
                 "date": spoken_label,
                 "time": spoken_time,
-                "video_link": booked.get("videoLink"),
+                "format": format_type,
+                "video_link": join,
+                "email_sent": mail_ok,
                 "message": (
-                    f"Confirmed {spoken_label} at {spoken_time}. "
-                    "Tell them the walkthrough is locked and they will get the Meet link / invite details. "
-                    "Do NOT mention email, Gmail, SMTP, app passwords, delivery problems, or any tech issue. "
-                    "Never mention timezones."
+                    f"Confirmed {fmt_speak} on {spoken_label} at {spoken_time}. "
+                    "Tell them it is locked"
+                    + mail_line
+                    + " Do NOT mention email delivery tech. Never mention timezones."
+                    + notify_hint
                 ),
             }
 
@@ -1196,6 +1372,53 @@ async def execute_xai_tool(
                     "message": f"For {date_label} we can do: {', '.join(open_slots[:6])}. Offer two of these. Speak only these times. Never mention timezones.",
                 }
 
+        elif name == "end_call":
+            from app.services.booking_policy import hangup_delay_seconds, normalize_booking_policy
+            policy_delay = 4.0
+            try:
+                from app.services.calendar_service import calendar_service
+                async with AsyncSessionLocal() as pol_db:
+                    setting = await calendar_service.get_or_create_settings(pol_db)
+                    policy_delay = hangup_delay_seconds(
+                        normalize_booking_policy(getattr(setting, "booking_policy", None))
+                    )
+            except Exception:
+                policy_delay = 4.0
+
+            delay = args.get("delay_seconds", policy_delay)
+            try:
+                delay = float(delay)
+            except Exception:
+                delay = policy_delay
+            delay = max(2.0, min(delay, 15.0))
+            reason = str(args.get("reason") or "conversation_complete").strip()[:120]
+
+            async def _delayed_hangup(cid: str, wait: float, why: str):
+                try:
+                    await asyncio.sleep(wait)
+                    async with AsyncSessionLocal() as db:
+                        from app.api.calls import terminate_live_call
+                        result = await terminate_live_call(cid, db, ended_by="agent")
+                        await log_process_event(
+                            subsystem="telephony",
+                            process_name="agent_end_call",
+                            message=f"Agent end_call for {cid} after {wait}s ({why}) → ok={result.get('ok')}",
+                            level="INFO",
+                            details={"callId": cid, "delay": wait, "reason": why, "result": result},
+                        )
+                except Exception as hang_err:
+                    logger.warning(f"[end_call] delayed hangup failed for {cid}: {hang_err}")
+
+            asyncio.create_task(_delayed_hangup(call_id, delay, reason))
+            return {
+                "ok": True,
+                "hangup_in_seconds": delay,
+                "message": (
+                    f"Line will disconnect in about {int(delay)} seconds. "
+                    "Speak the business goodbye now if you have not already."
+                ),
+            }
+
         else:
             return {"error": f"Unknown tool: {name}"}
 
@@ -1256,11 +1479,11 @@ async def join_xai_call_session(
 
     try:
         from app.models.models import Connection
+        from app.services.secret_box import config_get_secret
         async with AsyncSessionLocal() as db:
             c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
             c = c_res.scalars().first()
             if c and c.config and isinstance(c.config, dict):
-                from app.services.secret_box import config_get_secret
                 stored_key = config_get_secret(c.config, "api_key", "auth_token")
                 if stored_key:
                     api_key = stored_key
@@ -1276,6 +1499,18 @@ async def join_xai_call_session(
                     prefix_ms = int(c.config.get("prefix_padding_ms"))
                 if c.config.get("temperature"):
                     temp_val = float(c.config.get("temperature"))
+            # Fallback: LLM · xAI key when Voice Orchestration has none
+            if not api_key or str(api_key).startswith("mock"):
+                llm_res = await db.execute(select(Connection).where(Connection.group_name == "LLM"))
+                for lc in llm_res.scalars().all():
+                    if "xai" not in (lc.name or "").lower() and "grok" not in (lc.name or "").lower():
+                        continue
+                    llm_key = config_get_secret(lc.config if isinstance(lc.config, dict) else {}, "api_key", "auth_token")
+                    if llm_key and str(llm_key).startswith("xai-"):
+                        api_key = llm_key
+                        settings.XAI_API_KEY = llm_key
+                        settings.VOICE_ENGINE_MODE = "live"
+                        break
     except Exception as k_err:
         logger.warning(f"Could not load xAI config from DB: {k_err}")
 
@@ -1508,10 +1743,14 @@ async def join_xai_call_session(
             ext_tts_buf = ""
             ext_tts_queue: asyncio.Queue = asyncio.Queue()
             ext_tts_worker: Optional[asyncio.Task] = None
+            ext_tts_failed = False
+            ext_tts_chars_fed = 0  # deltas queued this assistant turn (0 → speak full final text)
+            ext_tts_turn_spoken = False
             if use_external_tts and audio_bridge:
                 audio_bridge._barge = asyncio.Event()
 
                 async def _ext_tts_worker_loop():
+                    nonlocal ext_tts_failed
                     from app.services.voice_modular import _speak
                     while True:
                         phrase = await ext_tts_queue.get()
@@ -1523,19 +1762,25 @@ async def join_xai_call_session(
                         if getattr(audio_bridge, "_barge", None) and audio_bridge._barge.is_set():
                             audio_bridge._barge = asyncio.Event()
                         try:
+                            logger.info(f"[XAI-WS] External TTS speak ({len(phrase)} chars): {phrase[:80]}…")
                             await _speak(audio_bridge, voice_plan, phrase, pace=True)
                         except asyncio.CancelledError:
                             raise
                         except Exception as speak_err:
-                            logger.warning(f"[XAI-WS] External TTS speak failed: {speak_err}")
+                            ext_tts_failed = True
+                            logger.warning(
+                                f"[XAI-WS] External TTS speak failed — falling back to xAI audio: {speak_err}"
+                            )
 
                 ext_tts_worker = asyncio.create_task(_ext_tts_worker_loop())
                 _ext_tts_cleanup["worker"] = ext_tts_worker
                 _ext_tts_cleanup["queue"] = ext_tts_queue
 
             async def _cancel_ext_tts():
-                nonlocal ext_tts_buf
+                nonlocal ext_tts_buf, ext_tts_chars_fed, ext_tts_turn_spoken
                 ext_tts_buf = ""
+                ext_tts_chars_fed = 0
+                ext_tts_turn_spoken = False
                 if audio_bridge is not None:
                     if getattr(audio_bridge, "_barge", None) is None:
                         audio_bridge._barge = asyncio.Event()
@@ -1548,11 +1793,12 @@ async def join_xai_call_session(
                         break
 
             async def _feed_ext_tts(delta: str, force_flush: bool = False):
-                nonlocal ext_tts_buf
+                nonlocal ext_tts_buf, ext_tts_chars_fed
                 if not use_external_tts:
                     return
                 if delta:
                     ext_tts_buf += delta
+                    ext_tts_chars_fed += len(delta)
                 while True:
                     m = re.search(r"([.!?])(\s+|$)", ext_tts_buf)
                     if not m:
@@ -1566,6 +1812,21 @@ async def join_xai_call_session(
                     phrase = ext_tts_buf.strip()
                     ext_tts_buf = ""
                     await ext_tts_queue.put(phrase)
+
+            async def _ensure_ext_tts_for_turn(final_text: str):
+                """xAI often delivers transcript only on response.done — no deltas. Speak that once."""
+                nonlocal ext_tts_chars_fed, ext_tts_buf, ext_tts_turn_spoken
+                if not use_external_tts or ext_tts_turn_spoken:
+                    return
+                await _feed_ext_tts("", force_flush=True)
+                text = (final_text or "").strip()
+                if text and ext_tts_chars_fed == 0:
+                    logger.info(f"[XAI-WS] External TTS from final transcript ({len(text)} chars)")
+                    await ext_tts_queue.put(text)
+                    ext_tts_chars_fed = len(text)
+                if ext_tts_chars_fed > 0 or text:
+                    ext_tts_turn_spoken = True
+                ext_tts_buf = ""
 
             # 2. Set up instant first-turn greeting trigger
             target_raw = prospect_name or (call_obj.prospect if call_obj else None) or "there"
@@ -1750,6 +2011,11 @@ async def join_xai_call_session(
                     if not greeting_dispatched:
                         await dispatch_opening_greeting("human_speech")
 
+                if event_type == "response.created":
+                    ext_tts_chars_fed = 0
+                    ext_tts_turn_spoken = False
+                    ext_tts_buf = ""
+
                 if event_type in (
                     "response.audio.started",
                     "output_audio_buffer.started",
@@ -1757,8 +2023,8 @@ async def join_xai_call_session(
                     "response.audio.delta",
                 ):
                     greeting_audio_started = True
-                    # Hybrid: drop xAI speaker audio — Cartesia/ElevenLabs owns the mouth
-                    if use_external_tts:
+                    # Hybrid: prefer Cartesia/ElevenLabs; if that path dies, keep xAI audio so the line is not silent
+                    if use_external_tts and not ext_tts_failed:
                         continue
                     delta_audio = event.get("delta") or event.get("audio")
                     if audio_bridge and delta_audio:
@@ -1813,7 +2079,7 @@ async def join_xai_call_session(
                     if final_text:
                         current_ai_text = final_text
                     if use_external_tts:
-                        await _feed_ext_tts("", force_flush=True)
+                        await _ensure_ext_tts_for_turn(current_ai_text or final_text)
                     await commit_ai_turn()
 
                 elif event_type == "response.output_item.done":
@@ -1823,6 +2089,8 @@ async def join_xai_call_session(
                             text_part = content_part.get("transcript") or content_part.get("text")
                             if text_part and not current_ai_text:
                                 current_ai_text = text_part
+                        if use_external_tts and current_ai_text:
+                            await _ensure_ext_tts_for_turn(current_ai_text)
                         await commit_ai_turn()
 
                 elif event_type == "response.done":
@@ -1834,7 +2102,7 @@ async def join_xai_call_session(
                                 if text_part and not current_ai_text:
                                     current_ai_text = text_part
                     if use_external_tts:
-                        await _feed_ext_tts("", force_flush=True)
+                        await _ensure_ext_tts_for_turn(current_ai_text)
                     await commit_ai_turn()
 
                 # User started speaking - commit any in-flight AI speech

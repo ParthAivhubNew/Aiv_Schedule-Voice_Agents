@@ -10,6 +10,25 @@ from app.services.process_logger import log_process_event
 
 logger = logging.getLogger("telephony_provider")
 
+# Default public host used when PUBLIC_BASE_URL is local / unset (Lightning Spaces).
+_DEFAULT_PUBLIC_HOST = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai"
+
+
+def public_http_base() -> str:
+    raw = (getattr(settings, "PUBLIC_BASE_URL", None) or "").strip().rstrip("/")
+    if not raw or "127.0.0.1" in raw or "localhost" in raw:
+        return _DEFAULT_PUBLIC_HOST
+    return raw
+
+
+def public_wss_base() -> str:
+    http = public_http_base()
+    if http.startswith("https://"):
+        return "wss://" + http[len("https://"):]
+    if http.startswith("http://"):
+        return "ws://" + http[len("http://"):]
+    return http
+
 
 def normalize_phone_number(number: str) -> str:
     """Normalizes phone number to standard E.164 format where possible."""
@@ -131,11 +150,13 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
 
         meta = metadata or {}
         prospect_name = meta.get("prospect") or "there"
-        webhook_base = meta.get("status_callback_url") or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/calls/twilio/status-callback"
+        http_base = public_http_base()
+        wss_base = public_wss_base()
+        webhook_base = meta.get("status_callback_url") or f"{http_base}/api/calls/twilio/status-callback"
 
-        action_url = meta.get("dial_action_url") or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/calls/twilio/dial-action"
+        action_url = meta.get("dial_action_url") or f"{http_base}/api/calls/twilio/dial-action"
         internal_call_id = meta.get("call_id") or "call_outbound"
-        media_stream_url = meta.get("media_stream_url") or "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
+        media_stream_url = (meta.get("media_stream_url") or "").strip() or f"{wss_base}/ws/media-stream"
 
         # Bidirectional stream: xAI speaks μ-law over WS. Greeting is pre-buffered while the
         # phone still rings so pickup has no dead air. No SIP after the human is on the line.
@@ -211,12 +232,26 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
         token = (creds.get("api_key") or creds.get("auth_token") or settings.TWILIO_AUTH_TOKEN or "").strip()
 
         if not sid or not token:
+            logger.warning("[Twilio] hangup_call missing Account SID / Auth Token — PSTN leg will stay up")
             return False
 
         url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls/{call_id}.json"
         async with httpx.AsyncClient(timeout=8.0) as client:
             res = await client.post(url, data={"Status": "completed"}, auth=(sid, token))
-            return res.status_code == 200
+            if res.status_code == 200:
+                return True
+            # Already finished is success for End Call
+            if res.status_code == 404:
+                logger.info(f"[Twilio] hangup_call {call_id} already gone (404)")
+                return True
+            try:
+                status = (res.json() or {}).get("status")
+                if status in ("completed", "canceled", "failed", "busy", "no-answer"):
+                    return True
+            except Exception:
+                pass
+            logger.warning(f"[Twilio] hangup_call {call_id} → HTTP {res.status_code}: {res.text[:160]}")
+            return False
 
     async def get_call_status(
         self,
@@ -283,7 +318,7 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
         url = "https://api.telnyx.com/v2/calls"
         meta = metadata or {}
         internal_call_id = str(meta.get("call_id") or "call_outbound")
-        media_stream_url = meta.get("media_stream_url") or "wss://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/ws/media-stream"
+        media_stream_url = meta.get("media_stream_url") or f"{public_wss_base()}/ws/media-stream"
         payload: Dict[str, Any] = {
             "to": to_clean,
             "from": from_clean,

@@ -128,6 +128,7 @@ import { EDITION_EVENT, getSchedulerEdition, setSchedulerEdition } from "./sched
 import { humanizeAiReply } from "./scheduler/chatClean";
 import { CallingWorkspace } from "./calling/CallingWorkspace";
 import { CALLING_EDITION_EVENT, getCallingEdition, setCallingEdition } from "./calling/callingEdition";
+import { BookingPolicyEditor } from "./components/BookingPolicyEditor";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -174,6 +175,24 @@ function prettyProvider(raw, fallback) {
     twilio: "Twilio",
   };
   return map[s.toLowerCase()] || s;
+}
+
+function isCartesiaUuid(v) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "").trim());
+}
+
+function looksLikeApiKeyNotVoiceId(v) {
+  const s = String(v || "").trim().toLowerCase();
+  if (!s) return false;
+  return /^(sk_|sk-|sk_car_|xai-|whsec_|api_|key_|el_)/.test(s);
+}
+
+function isValidCloneVoiceId(v) {
+  const s = String(v || "").trim();
+  if (!s || looksLikeApiKeyNotVoiceId(s)) return false;
+  if (isCartesiaUuid(s)) return true;
+  // ElevenLabs-style ids
+  return /^[A-Za-z0-9]{16,}$/.test(s);
 }
 
 function liveStackLabels(hub) {
@@ -5369,7 +5388,7 @@ const PROFILE_TABS = [
   { id: "identity", label: "Identity", icon: Users },
   { id: "knowledge", label: "Knowledge Sources", icon: BookOpen },
   { id: "services", label: "Services", icon: Package },
-  { id: "script", label: "Call Script & FAQ", icon: HelpCircle },
+  { id: "script", label: "Call Script & Rules", icon: HelpCircle },
   { id: "compliance", label: "Compliance", icon: ShieldCheck },
 ];
 
@@ -5381,7 +5400,7 @@ const SOURCE_TYPES = [
   { id: "Manual text", label: "Direct Text / Notes", icon: PenLine, placeholder: "Paste raw objection rebuttals, customer Q&As, or pricing rules here...", hint: "Paste custom scripts or internal knowledge directly into the AI's memory." },
 ];
 
-function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false, voiceName, setVoiceName }) {
+function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false, voiceName, setVoiceName, onDirtyChange }) {
   const [tab, setTab] = useState("identity");
   const [saved, setSaved] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
@@ -5391,12 +5410,61 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
   const [testResults, setTestResults] = useState(null);
   const [testingQuery, setTestingQuery] = useState(false);
   const [resyncingId, setResyncingId] = useState(null);
+  const [bookingPolicy, setBookingPolicy] = useState(null);
+  const [calSettingsBase, setCalSettingsBase] = useState(null);
+  const [dirty, setDirty] = useState(false);
 
-  const update = (k, v) => setProfile((p) => {
-    const next = { ...p, [k]: v };
-    try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
-    return next;
-  });
+  useEffect(() => {
+    api.getCalcomSettings()
+      .then((s) => {
+        if (!s) return;
+        setCalSettingsBase(s);
+        setBookingPolicy(s.booking_policy || {});
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (typeof onDirtyChange === "function") onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  const markDirty = () => setDirty(true);
+
+  const confirmLeave = (message) => {
+    if (!dirty) return true;
+    return window.confirm(message || "You have unsaved changes. Leave without saving?");
+  };
+
+  const requestTab = (nextId) => {
+    if (nextId === tab) return;
+    if (!confirmLeave("You have unsaved changes on this page. Switch tabs without saving?")) return;
+    setTab(nextId);
+  };
+
+  const update = (k, v) => {
+    markDirty();
+    setProfile((p) => {
+      const next = { ...p, [k]: v };
+      try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
+
+  const setBookingPolicyDirty = (next) => {
+    markDirty();
+    setBookingPolicy(next);
+  };
 
   const save = async () => {
     setSaved(true);
@@ -5410,6 +5478,16 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
       await api.updateProfile(profile);
       await api.saveServices(services);
       await api.saveFaqs(faq);
+      if (calSettingsBase && bookingPolicy != null) {
+        try {
+          const payload = { ...calSettingsBase, booking_policy: bookingPolicy || {} };
+          const savedCal = await api.saveCalcomSettings(payload);
+          setCalSettingsBase(savedCal || payload);
+          setBookingPolicy((savedCal || payload).booking_policy || bookingPolicy);
+        } catch (calErr) {
+          console.warn("Call rules save warning:", calErr);
+        }
+      }
       if (voiceName) {
         try {
           await api.selectVoice({
@@ -5426,8 +5504,9 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           });
         } catch (_) {}
       }
+      setDirty(false);
       if (typeof setNotifications === "function") {
-        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, services & FAQs saved to database", time: "just now", unread: true, type: "success" }, ...ns]);
+        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, call rules & FAQs saved", time: "just now", unread: true, type: "success" }, ...ns]);
       }
     } catch (err) {
       console.warn("Backend updateProfile warning:", err);
@@ -5520,41 +5599,59 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
   };
 
 
-  const addService = () => setServices((s) => {
-    const next = [...s, { id: "sv_" + Date.now(), name: "", ideal: "", desc: "" }];
-    try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
-    return next;
-  });
+  const addService = () => {
+    markDirty();
+    setServices((s) => {
+      const next = [...s, { id: "sv_" + Date.now(), name: "", ideal: "", desc: "" }];
+      try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
 
-  const updateService = (id, k, v) => setServices((s) => {
-    const next = s.map((x) => (x.id === id ? { ...x, [k]: v } : x));
-    try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
-    return next;
-  });
+  const updateService = (id, k, v) => {
+    markDirty();
+    setServices((s) => {
+      const next = s.map((x) => (x.id === id ? { ...x, [k]: v } : x));
+      try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
 
-  const removeService = (id) => setServices((s) => {
-    const next = s.filter((x) => x.id !== id);
-    try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
-    return next;
-  });
+  const removeService = (id) => {
+    markDirty();
+    setServices((s) => {
+      const next = s.filter((x) => x.id !== id);
+      try { localStorage.setItem("aivhub_services", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
 
-  const addFaq = () => setFaq((f) => {
-    const next = [...f, { id: "f_" + Date.now(), q: "", a: "" }];
-    try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
-    return next;
-  });
+  const addFaq = () => {
+    markDirty();
+    setFaq((f) => {
+      const next = [...f, { id: "f_" + Date.now(), q: "", a: "" }];
+      try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
 
-  const updateFaq = (id, k, v) => setFaq((f) => {
-    const next = f.map((x) => (x.id === id ? { ...x, [k]: v } : x));
-    try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
-    return next;
-  });
+  const updateFaq = (id, k, v) => {
+    markDirty();
+    setFaq((f) => {
+      const next = f.map((x) => (x.id === id ? { ...x, [k]: v } : x));
+      try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
 
-  const removeFaq = (id) => setFaq((f) => {
-    const next = f.filter((x) => x.id !== id);
-    try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
-    return next;
-  });
+  const removeFaq = (id) => {
+    markDirty();
+    setFaq((f) => {
+      const next = f.filter((x) => x.id !== id);
+      try { localStorage.setItem("aivhub_faq", JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
 
   const renderProfileTabs = (mode) => (
     <div style={mode === "pills"
@@ -5569,7 +5666,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           <button
             key={t.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => requestTab(t.id)}
             style={pill ? {
               display: "flex",
               alignItems: "center",
@@ -6272,6 +6369,18 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
               </div>
 
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
+                <SectionIntro
+                  icon={Sliders}
+                  title="Call rules (booking)"
+                  desc="How the voice agent books meetings on live calls — built-in steps plus your free-text rules. Saved with the button below."
+                />
+                <BookingPolicyEditor
+                  bookingPolicy={bookingPolicy}
+                  onChange={setBookingPolicyDirty}
+                />
+              </div>
+
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
                 <SectionIntro icon={HelpCircle} title="Common questions & approved answers" desc="When a prospect asks something the AI hasn't heard before, it falls back to these — write answers the way you'd want a new hire to say them." />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {faq.map((f) => (
@@ -6289,9 +6398,15 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                   </button>
               </div>
 
+              {dirty ? (
+                <div style={{ padding: "10px 14px", borderRadius: 8, background: "#FFFBEB", border: "1px solid #FCD34D", color: "#92400E", fontSize: 13, fontWeight: 600 }}>
+                  Unsaved changes — click Save before leaving this page.
+                </div>
+              ) : null}
+
               <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}>
                 Save
-                  </button>
+              </button>
             </div>
           )}
 
@@ -6811,12 +6926,12 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
 
   return (
     <div style={{
-      background: isExpanded ? "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)" : "#fff",
+      background: "#fff",
       borderRadius: 16,
       padding: isExpanded ? "20px 24px" : "14px 16px",
-      color: isExpanded ? "#F8FAFC" : C.textInk,
-      border: `1px solid ${isExpanded ? "rgba(255, 255, 255, 0.12)" : C.border}`,
-      boxShadow: isExpanded ? "0 10px 30px rgba(0, 0, 0, 0.25)" : "0 8px 28px rgba(18,20,28,0.06)",
+      color: C.textInk,
+      border: `1px solid ${C.border}`,
+      boxShadow: "0 8px 28px rgba(18,20,28,0.06)",
       marginBottom: 20
     }}>
       <div
@@ -6828,17 +6943,17 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
       >
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ background: isExpanded ? "#22C55E" : C.teal, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />
-            <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: isExpanded ? "#4ADE80" : C.slate }}>
+            <span style={{ background: C.teal, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />
+            <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slate }}>
               Direct outbound
             </span>
           </div>
           {isExpanded ? (
             <>
-              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 18, color: "#fff", margin: "6px 0 2px" }}>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 18, color: C.textInk, margin: "6px 0 2px" }}>
                 Dial one number
               </h2>
-              <p style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#94A3B8", margin: 0, maxWidth: 680, lineHeight: 1.4 }}>
+              <p style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, margin: 0, maxWidth: 680, lineHeight: 1.4 }}>
                 Test a single live line. Same voice stack as list calls. List page already dials the file — use this only for a one-off.
               </p>
             </>
@@ -6855,11 +6970,11 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
               type="button"
               onClick={onViewLiveCalls}
               style={{
-                background: "rgba(255, 255, 255, 0.08)",
-                border: "1px solid rgba(255, 255, 255, 0.18)",
+                background: C.cobaltSoft,
+                border: "1px solid #C7D7FA",
                 borderRadius: 8,
                 padding: "6px 12px",
-                color: "#F1F5F9",
+                color: C.cobaltDeep,
                 fontFamily: FONT_BODY,
                 fontSize: 12,
                 fontWeight: 600,
@@ -6869,18 +6984,18 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 gap: 5
               }}
             >
-              <Activity size={12} color="#38BDF8" /> Live
+              <Activity size={12} color={C.cobalt} /> Live
             </button>
           )}
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
             style={{
-              background: isExpanded ? "rgba(255, 255, 255, 0.08)" : C.cobaltSoft,
-              border: `1px solid ${isExpanded ? "rgba(255, 255, 255, 0.18)" : "#C7D7FA"}`,
+              background: C.cobaltSoft,
+              border: "1px solid #C7D7FA",
               borderRadius: 8,
               padding: "7px 12px",
-              color: isExpanded ? "#F1F5F9" : C.cobaltDeep,
+              color: C.cobaltDeep,
               fontFamily: FONT_BODY,
               fontSize: 12,
               fontWeight: 700,
@@ -6899,8 +7014,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
       {isExpanded && (
         <form onSubmit={handleDial} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Quick Dial Saved Contacts Bar */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "rgba(255,255,255,0.05)", padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.08)" }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#F8FAFC", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               ⚡ Quick Dial:
             </span>
             {savedContacts.map((sc) => (
@@ -6912,11 +7027,11 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                   setProspectName(sc.name);
                 }}
                 style={{
-                  background: toNumber === sc.phone ? "#2563EB" : "rgba(37, 99, 235, 0.2)",
-                  border: `1px solid ${toNumber === sc.phone ? "#60A5FA" : "rgba(96, 165, 250, 0.4)"}`,
+                  background: toNumber === sc.phone ? C.cobalt : "#fff",
+                  border: `1px solid ${toNumber === sc.phone ? C.cobalt : C.border}`,
                   borderRadius: 16,
                   padding: "4px 10px",
-                  color: "#EFF6FF",
+                  color: toNumber === sc.phone ? "#fff" : C.textInk,
                   fontFamily: FONT_BODY,
                   fontSize: 11.5,
                   fontWeight: 600,
@@ -6927,7 +7042,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 }}
               >
                 <span>📞 {sc.name}</span>
-                <span style={{ opacity: 0.8, fontSize: 10.5 }}>({sc.phone})</span>
+                <span style={{ opacity: 0.75, fontSize: 10.5 }}>({sc.phone})</span>
               </button>
             ))}
           </div>
@@ -6935,8 +7050,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
             {/* Destination Number */}
             <div>
-              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 5 }}>
-                Destination Number <span style={{ color: "#F87171" }}>*</span>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 5 }}>
+                Destination Number <span style={{ color: C.red }}>*</span>
               </label>
               <input
                 type="text"
@@ -6947,22 +7062,22 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                   width: "100%",
                   padding: "9px 12px",
                   borderRadius: 7,
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "rgba(15, 23, 42, 0.8)",
-                  color: "#fff",
+                  border: `1px solid ${C.border}`,
+                  background: "#fff",
+                  color: C.textInk,
                   fontFamily: FONT_MONO,
                   fontSize: 13.5,
                   boxSizing: "border-box"
                 }}
               />
-              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 3 }}>
+              <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
                 UK mobile (+447...) or international
               </div>
             </div>
 
             {/* Prospect Name */}
             <div>
-              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 5 }}>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 5 }}>
                 Prospect / Contact Name
               </label>
               <input
@@ -6974,22 +7089,22 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                   width: "100%",
                   padding: "9px 12px",
                   borderRadius: 7,
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "rgba(15, 23, 42, 0.8)",
-                  color: "#fff",
+                  border: `1px solid ${C.border}`,
+                  background: "#fff",
+                  color: C.textInk,
                   fontFamily: FONT_BODY,
                   fontSize: 13,
                   boxSizing: "border-box"
                 }}
               />
-              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 3 }}>
+              <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
                 AI addresses them by name
               </div>
             </div>
 
             {/* Carrier Plugin */}
             <div>
-              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 5 }}>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 5 }}>
                 Carrier Plugin
               </label>
               <select
@@ -6999,9 +7114,9 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                   width: "100%",
                   padding: "9px 12px",
                   borderRadius: 7,
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "#0F172A",
-                  color: "#38BDF8",
+                  border: `1px solid ${C.border}`,
+                  background: "#fff",
+                  color: C.textInk,
                   fontFamily: FONT_BODY,
                   fontSize: 13,
                   fontWeight: 600,
@@ -7013,14 +7128,14 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 <option value="generic_sip">Generic SIP / PBX</option>
                 <option value="simulation">Local Simulator (Free Test)</option>
               </select>
-              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 3 }}>
+              <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
                 Multi-provider adapter
               </div>
             </div>
 
             {/* Caller ID */}
             <div>
-              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#CBD5E1", marginBottom: 5 }}>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 5 }}>
                 Caller ID (From)
               </label>
               <input
@@ -7032,15 +7147,15 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                   width: "100%",
                   padding: "9px 12px",
                   borderRadius: 7,
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "rgba(15, 23, 42, 0.8)",
-                  color: "#38BDF8",
+                  border: `1px solid ${C.border}`,
+                  background: "#fff",
+                  color: C.textInk,
                   fontFamily: FONT_MONO,
                   fontSize: 13,
                   boxSizing: "border-box"
                 }}
               />
-              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 3 }}>
+              <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
                 Presented phone line
               </div>
             </div>
@@ -7049,18 +7164,18 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
           {/* Twilio credentials vault */}
           {carrierChoice === "twilio" && (
             <div style={{
-              background: "rgba(15, 23, 42, 0.7)",
-              border: "1px solid rgba(255,255,255,0.12)",
+              background: "#F8FAFC",
+              border: `1px solid ${C.border}`,
               borderRadius: 10,
               padding: "12px 14px",
               marginTop: 6
             }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#E2E8F0" }}>
-                  <KeyRound size={13} color="#38BDF8" />
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: C.textInk }}>
+                  <KeyRound size={13} color={C.cobalt} />
                   <span>Twilio Account Credentials (Saved Safely)</span>
                   {accountSid && authToken && (
-                    <span style={{ fontSize: 10, color: "#34D399", background: "rgba(52,211,153,0.15)", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>
+                    <span style={{ fontSize: 10, color: "#065F46", background: "#D1FAE5", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>
                       ✓ Saved & Active
                     </span>
                   )}
@@ -7078,9 +7193,9 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                         } catch (_) {}
                       }}
                       style={{
-                        background: "transparent",
-                        color: "#94A3B8",
-                        border: "1px solid rgba(255,255,255,0.2)",
+                        background: "#fff",
+                        color: C.slate,
+                        border: `1px solid ${C.border}`,
                         borderRadius: 6,
                         padding: "5px 10px",
                         fontSize: 11,
@@ -7114,7 +7229,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 </div>
               </div>
               {!accountSid && !authToken && (
-                <div style={{ fontSize: 11, color: "#34D399", background: "rgba(52,211,153,0.1)", padding: "6px 10px", borderRadius: 6, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ fontSize: 11, color: "#065F46", background: "#ECFDF5", padding: "6px 10px", borderRadius: 6, marginBottom: 8, display: "flex", alignItems: "center", gap: 6, border: "1px solid #A7F3D0" }}>
                   <span>🛡️</span>
                   <span><strong>Active:</strong> Using verified Twilio credentials stored securely in the server vault (+447307216767). You do not need to enter credentials manually.</span>
                 </div>
@@ -7123,11 +7238,11 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                    <label style={{ fontSize: 10.5, color: "#94A3B8" }}>Twilio Account SID</label>
+                    <label style={{ fontSize: 10.5, color: C.slate }}>Twilio Account SID</label>
                     <span style={{
                       fontSize: 9.5,
                       fontWeight: 600,
-                      color: !accountSid ? "#64748B" : (accountSid.length === 34 && accountSid.startsWith("AC") ? "#34D399" : "#F87171")
+                      color: !accountSid ? C.slateLight : (accountSid.length === 34 && accountSid.startsWith("AC") ? "#059669" : C.red)
                     }}>
                       {accountSid ? `${accountSid.length}/34 chars ${accountSid.length === 34 && accountSid.startsWith("AC") ? "✓" : "(incomplete)"}` : "Required (34 chars)"}
                     </span>
@@ -7141,9 +7256,9 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                       width: "100%",
                       padding: "8px 10px",
                       borderRadius: 6,
-                      border: `1px solid ${accountSid && (accountSid.length !== 34 || !accountSid.startsWith("AC")) ? "rgba(239, 68, 68, 0.6)" : "rgba(255,255,255,0.2)"}`,
-                      background: "#0F172A",
-                      color: "#fff",
+                      border: `1px solid ${accountSid && (accountSid.length !== 34 || !accountSid.startsWith("AC")) ? "#FCA5A5" : C.border}`,
+                      background: "#fff",
+                      color: C.textInk,
                       fontFamily: FONT_MONO,
                       fontSize: 12,
                       boxSizing: "border-box"
@@ -7152,11 +7267,11 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 </div>
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                    <label style={{ fontSize: 10.5, color: "#94A3B8" }}>Twilio Auth Token</label>
+                    <label style={{ fontSize: 10.5, color: C.slate }}>Twilio Auth Token</label>
                     <span style={{
                       fontSize: 9.5,
                       fontWeight: 600,
-                      color: !authToken ? "#64748B" : (authToken.length === 32 ? "#34D399" : "#F87171")
+                      color: !authToken ? C.slateLight : (authToken.length === 32 ? "#059669" : C.red)
                     }}>
                       {authToken ? `${authToken.length}/32 chars ${authToken.length === 32 ? "✓" : "(incomplete)"}` : "Required (32 chars)"}
                     </span>
@@ -7170,9 +7285,9 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                       width: "100%",
                       padding: "8px 10px",
                       borderRadius: 6,
-                      border: `1px solid ${authToken && authToken.length !== 32 ? "rgba(239, 68, 68, 0.6)" : "rgba(255,255,255,0.2)"}`,
-                      background: "#0F172A",
-                      color: "#fff",
+                      border: `1px solid ${authToken && authToken.length !== 32 ? "#FCA5A5" : C.border}`,
+                      background: "#fff",
+                      color: C.textInk,
                       fontFamily: FONT_MONO,
                       fontSize: 12,
                       boxSizing: "border-box"
@@ -7182,12 +7297,12 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
               </div>
 
               {saveStatus?.success && (
-                <div style={{ marginTop: 8, fontSize: 11.5, color: "#34D399", fontWeight: 600 }}>
+                <div style={{ marginTop: 8, fontSize: 11.5, color: "#059669", fontWeight: 600 }}>
                   {saveStatus.success}
                 </div>
               )}
               {saveStatus?.error && (
-                <div style={{ marginTop: 8, fontSize: 11.5, color: "#F87171", fontWeight: 600 }}>
+                <div style={{ marginTop: 8, fontSize: 11.5, color: C.red, fontWeight: 600 }}>
                   ⚠ {saveStatus.error}
                 </div>
               )}
@@ -7197,9 +7312,9 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
           {/* Error Alert */}
           {dialError && (
             <div style={{
-              background: "rgba(239, 68, 68, 0.2)",
-              border: "1px solid #EF4444",
-              color: "#FCA5A5",
+              background: C.redSoft,
+              border: "1px solid #FCA5A5",
+              color: C.red,
               borderRadius: 8,
               padding: "9px 12px",
               fontSize: 12.5,
@@ -7207,7 +7322,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
               alignItems: "center",
               gap: 8
             }}>
-              <AlertTriangle size={14} color="#EF4444" />
+              <AlertTriangle size={14} color={C.red} />
               <span>{dialError}</span>
             </div>
           )}
@@ -7215,9 +7330,9 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
           {/* Success Alert */}
           {dialResult && (
             <div style={{
-              background: "rgba(34, 197, 94, 0.2)",
-              border: "1px solid #22C55E",
-              color: "#86EFAC",
+              background: C.greenSoft,
+              border: "1px solid #A7F3D0",
+              color: "#065F46",
               borderRadius: 8,
               padding: "10px 14px",
               fontSize: 12.5,
@@ -7227,7 +7342,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
             }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
-                  <CheckCircle2 size={15} color="#22C55E" />
+                  <CheckCircle2 size={15} color="#059669" />
                   <span>Call Dispatched! (Status: {dialResult.status})</span>
                 </div>
                 {onViewLiveCalls && (
@@ -7235,8 +7350,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                     type="button"
                     onClick={onViewLiveCalls}
                     style={{
-                      background: "#22C55E",
-                      color: "#0F172A",
+                      background: C.green,
+                      color: "#fff",
                       border: "none",
                       borderRadius: 6,
                       padding: "4px 10px",
@@ -7252,7 +7367,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                   </button>
                 )}
               </div>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: "#CBD5E1" }}>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.slate }}>
                 SID: <strong>{dialResult.call_id}</strong> • Carrier: <strong>{dialResult.carrier}</strong> • SIP: <strong>{dialResult.bridge_sip_uri}</strong>
               </div>
             </div>
@@ -7264,7 +7379,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
               type="submit"
               disabled={dialing}
               style={{
-                background: dialing ? "#475569" : "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                background: dialing ? C.slateLight : C.ink,
                 color: "#fff",
                 border: "none",
                 borderRadius: 7,
@@ -7276,7 +7391,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 7,
-                boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)"
+                boxShadow: "0 4px 14px rgba(0,0,0,0.12)"
               }}
             >
               {dialing ? (
@@ -7363,11 +7478,17 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
       key: "voice",
       title: "Voice ID",
       layer: "Text-to-Speech",
-      value: hybrid
-        ? (hubData?.ttsVoiceId || hubData?.voiceName || "—")
-        : (hubData?.voiceName || "—"),
-      ok: !!(hubData?.voiceName && String(hubData.voiceName).length > 1),
-      hint: hybrid ? "External clone ID" : "Saved engine persona (ara / rex / …)",
+      value: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
+        ? "API key pasted by mistake"
+        : (hybrid
+          ? (hubData?.ttsVoiceId || hubData?.voiceName || "—")
+          : (hubData?.voiceName || "—")),
+      ok: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
+        ? false
+        : !!(hubData?.voiceName && String(hubData.voiceName).length > 1 && (!hybrid || isValidCloneVoiceId(hubData.voiceName))),
+      hint: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
+        ? "Paste Cartesia Voice UUID on Line setup"
+        : (hybrid ? "Must be Cartesia UUID with dashes" : "Saved engine persona (ara / rex / …)"),
       needPlugin: false,
     },
   ];
@@ -7376,9 +7497,9 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
     <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>Call plugin stack</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>What Calling uses</div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 4, maxWidth: 560, lineHeight: 1.45 }}>
-            Every live-call piece is a plugin. Add keys under the matching layer. Swap anytime — next call uses the new stack.
+            Live pieces for the next call. Connect keys under Connections. Yellow = still needed.
           </div>
         </div>
         <button
@@ -7386,7 +7507,7 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
           onClick={() => onOpenCredentials && onOpenCredentials()}
           style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}
         >
-          Manage all plugins
+          Connect providers
         </button>
       </div>
 
@@ -7481,6 +7602,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [accountSid, setAccountSid] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
   const [voiceName, setVoiceName] = useState("rex");
+  const [speakMode, setSpeakMode] = useState("builtin"); // builtin | clone
   const [customVoices, setCustomVoices] = useState([]);
   const [cloneName, setCloneName] = useState("My voice");
   const [pasteVoiceId, setPasteVoiceId] = useState("");
@@ -7522,7 +7644,10 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         setHubData(data);
         if (data.phoneNumber) setPhoneNumber(data.phoneNumber);
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
-        if (data.voiceName) setVoiceName(data.voiceName);
+        if (data.voiceName) {
+          setVoiceName(data.voiceName);
+          setSpeakMode(isValidCloneVoiceId(data.voiceName) ? "clone" : "builtin");
+        }
         if (Array.isArray(data.customVoices)) setCustomVoices(data.customVoices);
         if (data.xaiCloneApiBlocked) setXaiCloneBlocked(true);
         if (data.silenceDurationMs) setSilenceDurationMs(data.silenceDurationMs);
@@ -7691,26 +7816,31 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const linkPastedVoice = async () => {
     const vid = pasteVoiceId.trim();
     if (!vid) {
-      setCloneErr("Paste a Voice ID from your TTS provider (Cartesia UUID, ElevenLabs id, etc.).");
+      setCloneErr("Paste a Cartesia Voice UUID (xxxxxxxx-xxxx-…), not the API key.");
+      return;
+    }
+    if (looksLikeApiKeyNotVoiceId(vid)) {
+      setCloneErr("That is an API key. Save it under Connections → Cartesia. Here paste only the Voice UUID from Cartesia → Voices.");
+      return;
+    }
+    if (!isValidCloneVoiceId(vid)) {
+      setCloneErr("Voice ID must be a Cartesia UUID (with dashes) or an ElevenLabs voice id.");
       return;
     }
     setCloning(true);
     setCloneErr("");
     try {
-      const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(vid);
-      const shortXai = /^[a-z0-9]{6,12}$/i.test(vid) && !looksUuid && vid.length <= 12;
-      let provider = "custom";
-      if (looksUuid) provider = "cartesia";
-      else if (engineChoice === "xai" && shortXai) provider = "xai";
-      else if (vid.length >= 16) provider = "elevenlabs";
+      const looksUuid = isCartesiaUuid(vid);
+      let provider = looksUuid ? "cartesia" : (vid.length >= 16 ? "elevenlabs" : "custom");
       const res = await api.selectVoice({
         voice_id: vid,
         label: cloneName.trim() || vid,
         provider,
       });
       setVoiceName(vid);
+      setSpeakMode("clone");
       if (res.voices) setCustomVoices(res.voices);
-      setCloneMsg(res.message || `Voice linked (${provider}). Ensure Connections → Text-to-Speech has that provider's API key.`);
+      setCloneMsg(res.message || `Clone linked (${provider}). Active voice set.`);
       setPasteVoiceId("");
       try { await fetchStatus(); } catch (_) { /* ignore */ }
     } catch (err) {
@@ -7862,12 +7992,12 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       {/* 1. HERO ACTIVE STACK CARD */}
       <div
         style={{
-          background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+          background: "#fff",
           borderRadius: 14,
           padding: "24px 28px",
-          color: "#fff",
-          border: "1px solid #334155",
-          boxShadow: "0 10px 25px -5px rgba(0,0,0,0.15)",
+          color: C.textInk,
+          border: `1px solid ${C.border}`,
+          boxShadow: "0 8px 28px rgba(18,20,28,0.06)",
           display: "flex",
           flexDirection: "column",
           gap: 18
@@ -7875,18 +8005,18 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 10, background: "rgba(59, 130, 246, 0.2)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(59, 130, 246, 0.3)" }}>
-              <Radio size={22} color="#60A5FA" />
+            <div style={{ width: 44, height: 44, borderRadius: 10, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #C7D7FA" }}>
+              <Radio size={22} color={C.cobalt} />
             </div>
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Active Voice & Telephony Trunk</span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 12, background: "rgba(16, 185, 129, 0.2)", border: "1px solid rgba(16, 185, 129, 0.3)", color: "#34D399", fontSize: 11, fontWeight: 600 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Active Voice & Telephony Trunk</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 12, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46", fontSize: 11, fontWeight: 600 }}>
                   <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10B981" }} /> Live Call Ready
                 </span>
               </div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#94A3B8", marginTop: 2 }}>
-                {hubData.liveNote || "Provider-agnostic speech-to-speech carrier bridge with dynamic pgvector RAG context."}
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 2 }}>
+                {hubData.liveNote || "Live line status for the next call."}
               </div>
             </div>
           </div>
@@ -7896,11 +8026,11 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               onClick={handlePing}
               disabled={pinging}
               style={{
-                background: "rgba(255, 255, 255, 0.08)",
-                border: "1px solid rgba(255, 255, 255, 0.15)",
+                background: C.cobaltSoft,
+                border: "1px solid #C7D7FA",
                 borderRadius: 8,
                 padding: "8px 14px",
-                color: "#F1F5F9",
+                color: C.cobaltDeep,
                 fontFamily: FONT_BODY,
                 fontSize: 12.5,
                 fontWeight: 600,
@@ -7917,22 +8047,22 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         </div>
 
         {/* Status Metrics Bar */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, paddingTop: 14, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
           <div>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Inbound Caller Line</div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 15, fontWeight: 700, color: "#38BDF8", marginTop: 4 }}>{hubData.phoneNumber}</div>
+            <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Inbound Caller Line</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 15, fontWeight: 700, color: C.cobaltDeep, marginTop: 4 }}>{hubData.phoneNumber}</div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Carrier Route</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: "#F8FAFC", marginTop: 4 }}>{hubData.activeCarrier} (Direct SIP)</div>
+            <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Carrier Route</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{hubData.activeCarrier} (Direct SIP)</div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Voice AI Engine</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: "#A78BFA", marginTop: 4 }}>{hubData.activeEngine} ({hubData.voiceName})</div>
+            <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Voice AI Engine</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{hubData.activeEngine} ({hubData.voiceName})</div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>SIP Inbound FQDN</div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: "#CBD5E1", marginTop: 4 }}>{hubData.xaiFqdn}:5060</div>
+            <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>SIP Inbound FQDN</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: C.slate, marginTop: 4 }}>{hubData.xaiFqdn}:5060</div>
           </div>
         </div>
 
@@ -7941,20 +8071,20 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           return (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, paddingTop: 4 }}>
               <div>
-                <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Live engine</div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: "#FDE68A", marginTop: 4 }}>{labels.engine}</div>
+                <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Live engine</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{labels.engine}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>LLM</div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: "#F8FAFC", marginTop: 4 }}>{labels.llm}</div>
+                <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>LLM</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{labels.llm}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>STT</div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: "#F8FAFC", marginTop: 4 }}>{labels.stt}</div>
+                <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>STT</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{labels.stt}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>TTS</div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: "#F8FAFC", marginTop: 4 }}>{labels.tts}</div>
+                <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>TTS</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{labels.tts}</div>
               </div>
             </div>
           );
@@ -7962,12 +8092,12 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
 
         {/* Live Ping Result Banner */}
         {pingResult && (
-          <div style={{ padding: "10px 14px", borderRadius: 8, background: pingResult.success ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", border: `1px solid ${pingResult.success ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)"}`, display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12.5 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, color: pingResult.success ? "#34D399" : "#F87171" }}>
+          <div style={{ padding: "10px 14px", borderRadius: 8, background: pingResult.success ? C.greenSoft : C.redSoft, border: `1px solid ${pingResult.success ? "#A7F3D0" : "#FCA5A5"}`, display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12.5, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: pingResult.success ? "#065F46" : C.red }}>
               {pingResult.success ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
-              <span>{pingResult.success ? `Webhook Healthy! Roundtrip latency: ${pingResult.latencyMs}ms` : `Diagnostic ping failed: ${pingResult.details?.error || "Check server"}`}</span>
+              <span>{pingResult.success ? `Webhook healthy · ${pingResult.latencyMs}ms` : `Ping failed: ${pingResult.details?.error || "Check server"}`}</span>
             </div>
-            <span style={{ fontFamily: FONT_MONO, color: "#94A3B8", fontSize: 11 }}>HTTP {pingResult.statusCode}</span>
+            <span style={{ fontFamily: FONT_MONO, color: C.slate, fontSize: 11 }}>HTTP {pingResult.statusCode}</span>
           </div>
         )}
       </div>
@@ -8104,17 +8234,16 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               );
             })}
           </div>
-          <div style={{ marginTop: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: "#5B21B6", background: "#F5F3FF", border: "1px solid #DDD6FE", borderRadius: 8, padding: "8px 12px" }}>
+          <div style={{ marginTop: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
             {engineChoice === "modular"
-              ? "Live path = Connections plugins only: Speech-to-Text → LLM → Text-to-Speech. Paste your TTS Voice ID in Step 3."
+              ? "Uses Connections STT → LLM → TTS."
               : engineChoice === "openai"
-                ? "OpenAI built-in voices only. For a cloned voice, pick xAI (hybrid TTS) or Modular."
+                ? "OpenAI built-in voices only."
                 : engineChoice === "simulation"
-                  ? "Scripted demo engine. No live carrier audio plugins."
+                  ? "Demo mode — no live carrier."
                   : hubData.externalTts
-                    ? `Hybrid ON: xAI brain/STT + ${hubData.ttsName || hubData.ttsProvider || "TTS plugin"} mouth.`
-                    : "xAI brain/STT. To use YOUR voice: Connections → Text-to-Speech (Cartesia/ElevenLabs/…) + paste Voice ID in Step 3 below."}
-            {hubData.liveNote ? ` · ${hubData.liveNote}` : ""}
+                    ? `Hybrid: xAI + ${hubData.ttsName || hubData.ttsProvider || "TTS"}.`
+                    : "xAI built-in voice. Link a TTS Voice ID below for your clone."}
           </div>
         </div>
 
@@ -8201,202 +8330,191 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               </div>
             )}
 
-            <div>
-              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                Active voice (presets + linked clones)
-              </label>
-              <select
-                value={voiceName}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setVoiceName(v);
-                  const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-                  const fromList = customVoices.find((x) => x.voice_id === v);
-                  const builtins = ["rex", "ara", "eve", "leo", "rex-uk", "ara-uk", "eve-uk", "leo-uk", "rachel", "adam", "sonic"];
-                  const provider = fromList?.provider
-                    || (looksUuid ? "cartesia" : (v.length >= 16 && !builtins.includes(v) ? "elevenlabs" : "xai"));
-                  api.selectVoice({
-                    voice_id: v,
-                    label: fromList?.name
-                      || (v === "rex-uk" ? "Rex UK — Sam (British, male)"
-                        : v === "ara-uk" ? "Ara UK (British, female)"
-                        : v === "eve-uk" ? "Eve UK (British, female)"
-                        : v),
-                    provider,
-                    accent: String(v || "").includes("-uk") ? "british" : undefined,
-                  }).then(() => fetchStatus()).catch(() => {});
-                }}
-                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
-              >
-                {engineChoice === "xai" ? (
-                  <optgroup label="xAI built-in (only if no TTS plugin)">
-                    <option value="rex-uk">Rex UK (British male)</option>
-                    <option value="rex">Rex (Male)</option>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 8 }}>
+                Who speaks on the call?
+              </div>
+
+              {looksLikeApiKeyNotVoiceId(voiceName) && (
+                <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 8, background: "#FEF2F2", border: "1px solid #FECACA", fontSize: 12.5, color: "#991B1B", lineHeight: 1.45 }}>
+                  Active voice is set to an <b>API key</b> (`{String(voiceName).slice(0, 12)}…`). That cannot speak. Save the key under <b>Connections → Cartesia</b>, then paste your Cartesia <b>Voice UUID</b> below (looks like <code>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>).
+                </div>
+              )}
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSpeakMode("builtin");
+                    const fallback = ["ara-uk", "ara", "rex-uk", "rex", "eve-uk", "eve"].includes(voiceName) ? voiceName : "ara-uk";
+                    setVoiceName(fallback);
+                    api.selectVoice({
+                      voice_id: fallback,
+                      label: fallback === "ara-uk" ? "Ara UK (British, female)" : fallback,
+                      provider: "xai",
+                      accent: String(fallback).includes("-uk") ? "british" : undefined,
+                    }).then(() => fetchStatus()).catch(() => {});
+                  }}
+                  style={{
+                    textAlign: "left",
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    border: `2px solid ${speakMode === "builtin" && !looksLikeApiKeyNotVoiceId(voiceName) ? C.cobalt : C.border}`,
+                    background: speakMode === "builtin" && !looksLikeApiKeyNotVoiceId(voiceName) ? "#F8FAFC" : "#fff",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>Built-in xAI voice</div>
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4, lineHeight: 1.4 }}>Ara / Rex / Eve — no Cartesia needed</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSpeakMode("clone")}
+                  style={{
+                    textAlign: "left",
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    border: `2px solid ${speakMode === "clone" || looksLikeApiKeyNotVoiceId(voiceName) ? C.cobalt : C.border}`,
+                    background: speakMode === "clone" || looksLikeApiKeyNotVoiceId(voiceName) ? "#F8FAFC" : "#fff",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>My Cartesia clone</div>
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4, lineHeight: 1.4 }}>Needs Cartesia key + Voice UUID</div>
+                </button>
+              </div>
+
+              {speakMode === "builtin" && !looksLikeApiKeyNotVoiceId(voiceName) ? (
+                <div>
+                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                    Pick built-in voice
+                  </label>
+                  <select
+                    value={["rex-uk", "rex", "ara-uk", "ara", "eve-uk", "eve"].includes(voiceName) ? voiceName : "ara-uk"}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setVoiceName(v);
+                      api.selectVoice({
+                        voice_id: v,
+                        label: v === "rex-uk" ? "Rex UK — Sam (British, male)"
+                          : v === "ara-uk" ? "Ara UK (British, female)"
+                          : v === "eve-uk" ? "Eve UK (British, female)"
+                          : v,
+                        provider: "xai",
+                        accent: String(v || "").includes("-uk") ? "british" : undefined,
+                      }).then(() => fetchStatus()).catch(() => {});
+                    }}
+                    style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+                  >
                     <option value="ara-uk">Ara UK (British female)</option>
                     <option value="ara">Ara (Female)</option>
+                    <option value="rex-uk">Rex UK (British male)</option>
+                    <option value="rex">Rex (Male)</option>
                     <option value="eve-uk">Eve UK (British female)</option>
                     <option value="eve">Eve (Female)</option>
-                  </optgroup>
-                ) : engineChoice === "openai" ? (
-                  <optgroup label="OpenAI presets">
-                    <option value="alloy">Alloy</option>
-                    <option value="echo">Echo</option>
-                    <option value="shimmer">Shimmer</option>
-                    <option value="onyx">Onyx</option>
-                  </optgroup>
-                ) : (
-                  <optgroup label="Preset shortcuts (need matching TTS plugin)">
-                    <option value="sonic">Cartesia Sonic (stock)</option>
-                    <option value="rachel">ElevenLabs Rachel (stock)</option>
-                    <option value="adam">ElevenLabs Adam (stock)</option>
-                  </optgroup>
-                )}
-                {customVoices.length > 0 && (
-                  <optgroup label="Your linked clones">
-                    {customVoices.map((v) => (
-                      <option key={v.voice_id} value={v.voice_id}>
-                        {v.name || v.voice_id}{v.provider ? ` · ${v.provider}` : ""}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {voiceName && !["ara", "ara-uk", "eve", "eve-uk", "rex", "rex-uk", "leo", "alloy", "echo", "shimmer", "onyx", "rachel", "adam", "sonic"].includes(voiceName) && !customVoices.some((v) => v.voice_id === voiceName) && (
-                  <option value={voiceName}>Custom ({voiceName})</option>
-                )}
-              </select>
-              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
-                Cloned voices appear after you paste a Voice ID below. Stock presets need the matching TTS plugin in Connections.
-              </div>
-            </div>
-
-            {(engineChoice === "xai" || engineChoice === "modular") && (
-            <div style={{ gridColumn: "1 / -1", border: "1px solid #6EE7B7", background: "#ECFDF5", borderRadius: 12, padding: 16 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#065F46", marginBottom: 6 }}>
-                Your TTS Voice ID (Cartesia, ElevenLabs, or any plugin)
-              </div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#047857", lineHeight: 1.5, marginBottom: 12 }}>
-                <b>1.</b> Connections → <b>Text-to-Speech</b> → add provider (Cartesia / ElevenLabs / Other) + API key.<br />
-                <b>2.</b> Copy Voice ID from that provider’s dashboard (Cartesia = UUID).<br />
-                <b>3.</b> Paste here → <b>Link Voice ID</b>. {engineChoice === "xai" ? "xAI keeps brain/STT; TTS plugin speaks." : "Modular uses Connections STT + LLM + this TTS voice."}
-              </div>
-              {hubData.externalTts ? (
-                <div style={{ fontSize: 12, color: "#065F46", marginBottom: 10, background: "#D1FAE5", borderRadius: 8, padding: "8px 10px" }}>
-                  Hybrid ON · TTS plugin: <b>{hubData.ttsName || hubData.ttsProvider}</b>
-                  {hubData.ttsVoiceId ? <> · Voice ID: <code style={{ fontSize: 11 }}>{hubData.ttsVoiceId}</code></> : ""}
+                  </select>
                 </div>
               ) : (
-                <div style={{ fontSize: 12, color: "#1E40AF", marginBottom: 10, background: "#EFF6FF", borderRadius: 8, padding: "8px 10px" }}>
-                  Live mouth = xAI built-in (<b>{hubData.voiceName || "rex"}</b>). TTS plugins idle until you Link a clone Voice ID below.
-                </div>
-              )}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 10 }}>
-                <input
-                  type="text"
-                  value={cloneName}
-                  onChange={(e) => setCloneName(e.target.value)}
-                  placeholder="Label (e.g. My Cartesia clone)"
-                  style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
-                />
-                <input
-                  type="text"
-                  value={pasteVoiceId}
-                  onChange={(e) => setPasteVoiceId(e.target.value)}
-                  placeholder="Paste Voice ID (Cartesia UUID / ElevenLabs id / …)"
-                  style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13 }}
-                />
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: pasteVoiceId.trim() ? "#065F46" : "#E7E5E4", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, fontSize: 13, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed" }}>
-                  {cloning ? "Linking…" : "Link Voice ID"}
-                </button>
-                <span style={{ fontSize: 12, color: "#047857" }}>Works with any TTS plugin — not locked to one vendor.</span>
-              </div>
-              {cloneMsg && <div style={{ marginTop: 8, fontSize: 12.5, color: "#059669" }}>{cloneMsg}</div>}
-              {cloneErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{cloneErr}</div>}
-              {customVoices.length > 0 && (
-                <div style={{ marginTop: 10, fontSize: 12, color: C.slate }}>
-                  Linked: {customVoices.map((v) => `${v.name || v.voice_id}${v.provider ? ` (${v.provider})` : ""}`).join(" · ")}
-                </div>
-              )}
-
-              <details style={{ marginTop: 14 }}>
-                <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: "#065F46" }}>
-                  Optional: record in-app (ElevenLabs only)
-                </summary>
-                <div style={{ marginTop: 10, fontSize: 12, color: "#047857", marginBottom: 8 }}>
-                  Needs ElevenLabs key in Connections → Text-to-Speech. For Cartesia, clone on cartesia.ai then paste UUID above.
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                  {recState !== "recording" ? (
-                    <button type="button" onClick={startRecording} style={{ background: "#065F46", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <Mic size={14} /> Record
-                    </button>
-                  ) : (
-                    <button type="button" onClick={stopRecording} style={{ background: "#B91C1C", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <Square size={12} /> Stop ({recSec}s)
-                    </button>
-                  )}
-                  <button type="button" onClick={uploadClone} disabled={cloning || !recBlob} style={{ background: recBlob ? C.ink : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: recBlob && !cloning ? "pointer" : "not-allowed" }}>
-                    {cloning ? "Cloning…" : "Save recording → ElevenLabs"}
-                  </button>
-                </div>
-              </details>
-
-              {engineChoice === "xai" && (
-                <details style={{ marginTop: 10 }}>
-                  <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: "#92400E" }}>
-                    Advanced: xAI Enterprise custom voice (usually skip — use Cartesia/ElevenLabs instead)
-                  </summary>
-                  <div style={{ marginTop: 8, fontSize: 12, color: "#78350F", lineHeight: 1.45 }}>
-                    xAI in-app clone API is Enterprise-only. Prefer Cartesia/ElevenLabs Voice ID above.
-                    Or paste an 8-char ID from <a href="https://console.x.ai" target="_blank" rel="noreferrer" style={{ color: "#6D28D9" }}>console.x.ai → Custom Voices</a> in the Voice ID field.
+                <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, background: "#F8FAFC", display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45 }}>
+                    <b style={{ color: C.textInk }}>Step A.</b> Connections → Cartesia → save API key.<br />
+                    <b style={{ color: C.textInk }}>Step B.</b> Cartesia website → Voices → copy <b>Voice ID</b> (UUID with dashes).<br />
+                    <b style={{ color: C.textInk }}>Step C.</b> Paste UUID here and Link — then it becomes the active speak voice.
                   </div>
-                </details>
+
+                  {customVoices.filter((v) => isValidCloneVoiceId(v.voice_id)).length > 0 && (
+                    <div>
+                      <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                        Linked clones
+                      </label>
+                      <select
+                        value={isValidCloneVoiceId(voiceName) ? voiceName : ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (!v) return;
+                          setVoiceName(v);
+                          const fromList = customVoices.find((x) => x.voice_id === v);
+                          api.selectVoice({
+                            voice_id: v,
+                            label: fromList?.name || v,
+                            provider: fromList?.provider || (isCartesiaUuid(v) ? "cartesia" : "elevenlabs"),
+                          }).then(() => fetchStatus()).catch(() => {});
+                        }}
+                        style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+                      >
+                        <option value="" disabled>Select a linked clone…</option>
+                        {customVoices.filter((v) => isValidCloneVoiceId(v.voice_id)).map((v) => (
+                          <option key={v.voice_id} value={v.voice_id}>
+                            {v.name || v.voice_id}{v.provider ? ` · ${v.provider}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                      Link new Cartesia Voice UUID
+                    </label>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr auto", gap: 8, alignItems: "center" }}>
+                      <input
+                        type="text"
+                        value={cloneName}
+                        onChange={(e) => setCloneName(e.target.value)}
+                        placeholder="Label (e.g. My voice)"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+                      />
+                      <input
+                        type="text"
+                        value={pasteVoiceId}
+                        onChange={(e) => setPasteVoiceId(e.target.value)}
+                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13, background: "#fff" }}
+                      />
+                      <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: pasteVoiceId.trim() ? C.ink : "#E7E5E4", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}>
+                        {cloning ? "…" : "Link"}
+                      </button>
+                    </div>
+                    {cloneMsg && <div style={{ marginTop: 8, fontSize: 12.5, color: "#059669" }}>{cloneMsg}</div>}
+                    {cloneErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{cloneErr}</div>}
+                  </div>
+
+                  {isValidCloneVoiceId(voiceName) && (
+                    <div style={{ fontSize: 12.5, color: "#065F46", fontWeight: 600 }}>
+                      Active clone: {customVoices.find((v) => v.voice_id === voiceName)?.name || "My voice"} · {voiceName.slice(0, 8)}…
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-            )}
-
-            {(engineChoice === "openai" || engineChoice === "simulation") && (
-            <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, background: "#F8FAFC", borderRadius: 12, padding: 16 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 6 }}>Own-voice clone not available on this engine</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>
-                {engineChoice === "openai"
-                  ? "OpenAI Realtime = fixed presets only. Switch engine to xAI (Grok + any TTS plugin) or Modular to use a Cartesia/ElevenLabs Voice ID."
-                  : "Simulated engine uses scripted audio. Switch to xAI or Modular for a real cloned voice."}
-              </div>
-            </div>
-            )}
 
             <div>
               <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                Turn-Taking Latency & Responsiveness
+                Response speed
               </label>
               <select
                 value={silenceDurationMs}
                 onChange={(e) => setSilenceDurationMs(Number(e.target.value))}
                 style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
               >
-                <option value={320}>Ultra-Snappy (320ms — Instant back-and-forth flow, zero awkward pause)</option>
-                <option value={380}>Balanced Natural (380ms — Recommended human conversational rhythm)</option>
-                <option value={500}>Relaxed Pacing (500ms — Thoughtful, deliberate)</option>
+                <option value={320}>Fast (320ms)</option>
+                <option value={380}>Balanced (380ms)</option>
+                <option value={500}>Relaxed (500ms)</option>
               </select>
-              <div style={{ fontSize: 11, color: "#059669", marginTop: 4 }}>
-                ⚡ Eliminates slow robotic silence: voice replies immediately after caller finishes speaking.
-              </div>
             </div>
 
             <div>
               <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                Vocal Warmth & Natural Inflection
+                Voice style
               </label>
               <select
                 value={temperature}
                 onChange={(e) => setTemperature(Number(e.target.value))}
                 style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
               >
-                <option value={0.85}>High Warmth & Dynamic Cadence (0.85 — Melodic human pitch & breathing)</option>
-                <option value={0.80}>Balanced Consultative (0.80 — Warm, confident, articulate)</option>
-                <option value={0.70}>Focused Neutral (0.70 — Structured executive)</option>
+                <option value={0.85}>Warm</option>
+                <option value={0.80}>Balanced</option>
+                <option value={0.70}>Neutral</option>
               </select>
             </div>
           </div>
@@ -9149,6 +9267,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const [credsState, setCredsState] = useState(CONNECTIONS);
   const [rowState, setRowState] = useState({});
   const [liveHub, setLiveHub] = useState(null);
+  const [deleteKeyConfirm, setDeleteKeyConfirm] = useState(null); // { groupName, item, rowKey, deleting }
   const liveLabels = liveHub ? liveStackLabels(liveHub) : null;
 
   useEffect(() => {
@@ -9168,7 +9287,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               ...group,
               items: (group.items || []).map((it) => {
                 const live = backendMap[`${group.group}|${it.name}`];
-                return live ? { ...it, status: live.status, apiKeyMasked: live.apiKeyMasked } : it;
+                return live ? { ...it, id: live.id, status: live.status, apiKeyMasked: live.apiKeyMasked } : it;
               }),
             }));
           });
@@ -9268,7 +9387,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       });
       setRow(rowKey, { phase: "tested_ok", testResult: res.details || "Authentication verified! Ready to save." });
     } catch (err) {
-      setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Authentication rejected by provider." });
+      const msg = err?.name === "AbortError"
+        ? "Test cancelled."
+        : (err?.message || "Authentication rejected by provider.");
+      setRow(rowKey, { phase: "tested_fail", errorMsg: msg });
     }
   };
 
@@ -9291,7 +9413,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       setCredsState((s) =>
         s.map((g) =>
           g.group === groupName
-            ? { ...g, items: (g.items || []).map((x) => x.name === itemName ? { ...x, status: "connected", apiKeyMasked: res.maskedKey } : x) }
+            ? { ...g, items: (g.items || []).map((x) => x.name === itemName ? { ...x, id: res.id || x.id, status: "connected", apiKeyMasked: res.maskedKey } : x) }
             : g
         )
       );
@@ -9309,6 +9431,54 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       flash();
     } catch (err) {
       setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Save failed." });
+    }
+  };
+
+  const requestDeleteKey = (groupName, item, rowKey) => {
+    if (!item || item.status !== "connected") return;
+    setDeleteKeyConfirm({ groupName, item, rowKey, deleting: false });
+  };
+
+  const confirmDeleteKey = async () => {
+    if (!deleteKeyConfirm) return;
+    const { groupName, item, rowKey } = deleteKeyConfirm;
+    setDeleteKeyConfirm((s) => (s ? { ...s, deleting: true } : s));
+    setRow(rowKey, { phase: "saving", errorMsg: "" });
+    try {
+      await api.clearConnectionKey({
+        id: item.id || undefined,
+        layer: groupName,
+        provider: item.name,
+      });
+      setCredsState((s) =>
+        s.map((g) =>
+          g.group === groupName
+            ? {
+                ...g,
+                items: (g.items || []).map((x) =>
+                  x.name === item.name
+                    ? { ...x, status: "not_configured", apiKeyMasked: undefined, id: undefined }
+                    : x
+                ),
+              }
+            : g
+        )
+      );
+      handleCancel(rowKey);
+      setDeleteKeyConfirm(null);
+      setNotifications((ns) => [
+        { id: "n_" + Date.now(), text: `Deleted ${item.name} API key.`, time: "just now", unread: true, type: "success" },
+        ...ns,
+      ]);
+      flash();
+    } catch (err) {
+      setRow(rowKey, { phase: "idle", errorMsg: "" });
+      handleCancel(rowKey);
+      setDeleteKeyConfirm(null);
+      setNotifications((ns) => [
+        { id: "n_" + Date.now(), text: err.message || `Failed to delete ${item.name} key.`, time: "just now", unread: true, type: "error" },
+        ...ns,
+      ]);
     }
   };
 
@@ -9339,7 +9509,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 
   return (
     <>
-      {!embedded && <TopBar title="Connections & Providers" subtitle="Layer routing, API keys and live credential testing" notifications={notifications} setNotifications={setNotifications} />}
+      {!embedded && <TopBar title="AI config" subtitle="Line setup · Connections · what each feature uses" notifications={notifications} setNotifications={setNotifications} />}
       <div style={{ padding: embedded ? 0 : "20px 32px" }}>
 
         <div style={{
@@ -9355,16 +9525,16 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         }}>
           {(embedded
             ? [
-                { id: "telephony-hub", label: "Voice stack" },
-                { id: "credentials", label: "API keys" },
-                { id: "routing", label: "Models" },
+                { id: "telephony-hub", label: "Line setup" },
+                { id: "credentials", label: "Connections" },
+                { id: "routing", label: "What runs where" },
                 { id: "docs", label: "Setup guide" },
               ]
             : [
-                { id: "telephony-hub", label: "Voice & Telephony Trunking Hub" },
-                { id: "routing", label: "Layer Routing & Models" },
-                { id: "credentials", label: "API Credentials" },
-                { id: "docs", label: "Step-by-Step Setup Guide" },
+                { id: "telephony-hub", label: "Line setup" },
+                { id: "credentials", label: "Connections" },
+                { id: "routing", label: "What runs where" },
+                { id: "docs", label: "Setup guide" },
               ]
           ).map((t) => (
             <button
@@ -9412,32 +9582,153 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
           />
         )}
 
-        {/* TAB 1: Layer Routing */}
+        {/* TAB: What runs where — feature → provider map (not a second key vault) */}
         {activeTab === "routing" && (
           <>
-            <div style={{ marginBottom: 16, padding: "14px 16px", borderRadius: 10, background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#065F46", marginBottom: 4 }}>Real plugins live on AI config + Credentials</div>
-              <div style={{ fontSize: 12.5, color: "#047857", lineHeight: 1.45 }}>
-                Open <b>AI config</b> → <b>Call plugin stack</b> (Phone, STT, LLM, TTS, Voice ID) and click Add/Change.
-                Or use the <b>API Credentials</b> tab to paste keys per layer. The table below is a preference map only — it does not replace live Connections keys.
+            <div style={{ marginBottom: 16, padding: "14px 16px", borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#1E40AF", marginBottom: 4 }}>What runs where</div>
+              <div style={{ fontSize: 12.5, color: "#1D4ED8", lineHeight: 1.45 }}>
+                Live stack only — what the next call will actually use. Bottom dropdowns are <b>preferences only</b> (not keys). Paste keys under <b>Connections</b>. Pick speak voice under <b>Line setup</b>.
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab("telephony-hub")}
-                style={{ marginTop: 10, background: "#065F46", color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-              >
-                Open call plugin stack
-              </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("credentials")}
+                  style={{ background: "#1E40AF", color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Open Connections
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("telephony-hub")}
+                  style={{ background: "#fff", color: "#1E40AF", border: "1px solid #93C5FD", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Open Line setup
+                </button>
+              </div>
             </div>
-            {liveLabels && !embedded && (
-              <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#1E40AF", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Live on server</div>
+
+            {looksLikeApiKeyNotVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId) && (
+              <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", fontSize: 13, color: "#991B1B", lineHeight: 1.45 }}>
+                <b>Speak voice mis-set:</b> you linked a Cartesia <b>API key</b> as the Voice ID. Go Line setup → <b>My Cartesia clone</b> → paste the Voice <b>UUID</b> from Cartesia Voices (with dashes). Keep the API key only in Connections.
+              </div>
+            )}
+
+            {liveLabels && (
+              <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#065F46", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Live on this server</div>
                 <div style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>
                   {liveLabels.engine} · LLM {liveLabels.llm} · STT {liveLabels.stt} · TTS {liveLabels.tts} · {liveLabels.carrier}
                 </div>
-                {liveHub.liveNote ? <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{liveHub.liveNote}</div> : null}
+                {liveHub?.liveNote ? <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{liveHub.liveNote}</div> : null}
+                {isValidCloneVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId) && liveHub?.externalTts ? (
+                  <div style={{ fontSize: 12, color: "#047857", marginTop: 4, fontWeight: 600 }}>Hybrid ON — Cartesia clone speaks; xAI listens & thinks.</div>
+                ) : looksLikeApiKeyNotVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId) ? (
+                  <div style={{ fontSize: 12, color: "#B91C1C", marginTop: 4, fontWeight: 600 }}>Not ready — Voice ID is an API key. Paste UUID instead.</div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "#B45309", marginTop: 4 }}>Hybrid OFF — built-in xAI voice. For Cartesia: Connections key + Line setup UUID.</div>
+                )}
               </div>
             )}
+
+            <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.2fr 1.4fr 0.7fr", padding: "11px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em", gap: 8 }}>
+                <div>Feature</div><div>Uses</div><div>Does</div><div>Status</div>
+              </div>
+              {[
+                {
+                  feature: "Calling · ring & media",
+                  uses: liveLabels?.carrier || liveHub?.activeCarrier || "Telephony plugin",
+                  does: "Places/receives PSTN calls (Twilio / Telnyx / SIP).",
+                  ok: !!(liveHub?.activeCarrier || liveHub?.phoneNumber || profile?.callerId),
+                },
+                {
+                  feature: "Calling · listen",
+                  uses: liveLabels?.stt || "Inside call engine",
+                  does: "Turns caller audio into text for the AI.",
+                  ok: !!(liveHub?.liveEngine && liveHub.liveEngine !== "simulation"),
+                },
+                {
+                  feature: "Calling · think",
+                  uses: liveLabels?.llm || liveLabels?.engine || "Call engine",
+                  does: "Replies, objections, booking logic.",
+                  ok: !!(liveHub?.liveEngine && liveHub.liveEngine !== "simulation")
+                    && (!!liveHub?.hasApiKey
+                      || (credsState.find((g) => g.group === "LLM")?.items || []).some((i) => i.status === "connected" && /xai|grok/i.test(i.name || ""))),
+                },
+                (() => {
+                  const badKey = looksLikeApiKeyNotVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId);
+                  const goodClone = isValidCloneVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId);
+                  const cartesiaKey = (credsState.find((g) => g.group === "Text-to-Speech")?.items || []).some((i) => /cartesia/i.test(i.name || "") && i.status === "connected");
+                  if (badKey) {
+                    return {
+                      feature: "Calling · speak",
+                      uses: "Broken — API key used as Voice ID",
+                      does: "Paste Cartesia Voice UUID on Line setup (not the sk_car_ key).",
+                      ok: false,
+                    };
+                  }
+                  if (liveHub?.externalTts || goodClone) {
+                    return {
+                      feature: "Calling · speak",
+                      uses: liveLabels?.tts || liveHub?.ttsName || "Cartesia clone",
+                      does: cartesiaKey && goodClone
+                        ? "Cartesia clone speaks on the line."
+                        : "Clone selected — also need Cartesia key in Connections.",
+                      ok: !!(cartesiaKey && goodClone),
+                    };
+                  }
+                  return {
+                    feature: "Calling · speak",
+                    uses: liveHub?.voiceName ? `Built-in (${liveHub.voiceName})` : "Engine voice",
+                    does: "xAI built-in voice. For your clone: Cartesia key + UUID on Line setup.",
+                    ok: !!(liveHub?.voiceName),
+                  };
+                })(),
+                {
+                  feature: "Schedule · book",
+                  uses: "Cal.com / calendar connection",
+                  does: "Availability + confirmed meetings from live calls.",
+                  ok: (credsState.find((g) => g.group === "Calendar")?.items || []).some((i) => i.status === "connected" && i.apiKeyMasked && !String(i.apiKeyMasked).includes("Not")),
+                },
+                {
+                  feature: "List AI · enrich",
+                  uses: "LLM + discovery keys",
+                  does: "Find phones/emails for rows before dial.",
+                  ok: (credsState.find((g) => g.group === "LLM")?.items || []).some((i) => i.status === "connected")
+                    || !!(liveHub?.liveEngine && liveHub.liveEngine !== "simulation"),
+                },
+              ].map((row, idx) => (
+                <div
+                  key={row.feature}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.1fr 1.2fr 1.4fr 0.7fr",
+                    padding: "13px 18px",
+                    borderTop: `1px solid ${C.border}`,
+                    alignItems: "start",
+                    gap: 8,
+                    background: row.ok ? "#fff" : "#FFFBEB",
+                  }}
+                >
+                  <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.textInk }}>{row.feature}</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, wordBreak: "break-word" }}>{row.uses}</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.4 }}>{row.does}</div>
+                  <div>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
+                      background: row.ok ? "#D1FAE5" : "#FEF3C7", color: row.ok ? "#065F46" : "#92400E",
+                    }}>
+                      {row.ok ? "In use" : "Needed"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 12, color: C.slate, marginBottom: 10, lineHeight: 1.45 }}>
+              <b>Preference picks below do not connect keys.</b> Example: choosing “Cartesia Sonic” here only sets a preference label — live Cartesia needs Connections key + Line setup Voice UUID.
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
               {[
                 { id: "paid", title: "Paid / Managed", desc: "Best-in-class APIs. Fastest to run, no infra." },
@@ -9454,7 +9745,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "11px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                <div>Layer</div><div>Provider / Model</div><div>Status</div>
+                <div>Layer</div><div>Preferred model</div><div>Note</div>
               </div>
               {LAYERS.map((l) => {
                 const val = custom[l.key] || l.paid;
@@ -9463,7 +9754,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 const options = baseOpts.includes(val) ? baseOpts : [val, ...baseOpts];
                 return (
                   <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                    <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
+                    <div>
+                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
+                      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>{l.desc}</div>
+                    </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <select value={val} onChange={(e) => updateLayer(l.key, e.target.value)}
                         style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}>
@@ -9473,10 +9767,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                         {oss ? "SELF-HOSTED" : "PAID API"}
                       </span>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: 999, background: C.green }} />
-                      <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Connected</span>
-                    </div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Preference only</div>
                   </div>
                 );
               })}
@@ -9484,9 +9775,21 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
           </>
         )}
 
-        {/* TAB 2: API Credentials */}
+        {/* TAB: Connections — single place to paste keys + see what's in use */}
         {activeTab === "credentials" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div style={{ padding: "14px 16px", borderRadius: 10, background: "#F8FAFC", border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk, marginBottom: 4 }}>Connections</div>
+              <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45 }}>
+                One place for API keys. Rows highlighted <b>In use · Calling</b> are what the live call stack is using now. Line phone / Activate stay under <b>Line setup</b>.
+              </div>
+              {liveLabels && (
+                <div style={{ marginTop: 10, fontSize: 12.5, color: C.ink, fontWeight: 600 }}>
+                  Calling now: {liveLabels.carrier} · {liveLabels.engine} · speak {liveLabels.tts}
+                  {liveHub?.externalTts ? " (hybrid)" : ""}
+                </div>
+              )}
+            </div>
             {credsState.map((group) => (
               <div key={group.group}>
                 <div style={{ marginBottom: 8 }}>
@@ -9499,21 +9802,57 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                     const rowKey = group.group + "|" + it.name;
                     const rs = rowState[rowKey] || {};
                     const phase = rs.phase || "idle";
+                    const nameL = String(it.name || "").toLowerCase();
+                    const carrierL = String(liveHub?.activeCarrier || liveLabels?.carrier || "").toLowerCase();
+                    const ttsL = String(liveHub?.ttsProvider || liveHub?.ttsName || liveLabels?.tts || "").toLowerCase();
+                    const engL = String(liveHub?.liveEngine || liveHub?.activeEngine || "").toLowerCase();
+                    let usedBy = "";
+                    if (group.group === "Telephony" && carrierL && nameL.includes(carrierL.split(/\s+/)[0])) {
+                      usedBy = "In use · Calling";
+                    } else if (group.group === "Text-to-Speech" && liveHub?.externalTts && (nameL.includes("cartesia") && ttsL.includes("cartesia") || nameL.includes("eleven") && ttsL.includes("eleven") || (ttsL && nameL.includes(ttsL.split(/\s+/)[0])))) {
+                      usedBy = "In use · Calling speak";
+                    } else if (group.group === "Voice Orchestration" && (nameL.includes("xai") && engL.includes("xai") || nameL.includes("openai") && engL.includes("openai"))) {
+                      usedBy = "In use · Calling engine";
+                    } else if (group.group === "Speech-to-Text" && String(liveHub?.liveEngine || "").toLowerCase() === "modular" && liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase())) {
+                      usedBy = "In use · Calling listen";
+                    } else if (group.group === "LLM" && String(liveHub?.liveEngine || "").toLowerCase() === "modular" && liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase())) {
+                      usedBy = "In use · Calling think";
+                    } else if (group.group === "Calendar" && it.status === "connected") {
+                      usedBy = "In use · Schedule";
+                    }
+                    const highlighted = !!usedBy;
                     return (
-                      <div key={it.name} style={{ borderTop: idx === 0 ? "none" : `1px solid ${C.border}` }}>
+                      <div key={it.name} style={{ borderTop: idx === 0 ? "none" : `1px solid ${C.border}`, background: highlighted ? "#F0FDF4" : undefined }}>
                         {/* Main row */}
                         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px" }}>
-                          <div style={{ width: 210, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{it.name}</div>
+                          <div style={{ width: 210, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>
+                            {it.name}
+                            {highlighted && (
+                              <div style={{ fontSize: 10.5, fontWeight: 700, color: "#065F46", marginTop: 3, letterSpacing: "0.02em" }}>{usedBy}</div>
+                            )}
+                          </div>
                           <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12, color: C.slateLight }}>
                             {it.apiKeyMasked || (it.status === "connected" ? "••••••••••••" : "Not configured")}
                           </div>
                           <Badge status={it.status} small />
 
                           {phase === "idle" && (
-                            <button onClick={() => handleConnect(rowKey)}
-                              style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer", whiteSpace: "nowrap" }}>
-                              {it.status === "connected" ? "Update Key" : "Connect"}
-                            </button>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                              <button onClick={() => handleConnect(rowKey)}
+                                style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                {it.status === "connected" ? "Update key" : "Connect"}
+                              </button>
+                              {it.status === "connected" && (
+                                <button
+                                  type="button"
+                                  onClick={() => requestDeleteKey(group.group, it, rowKey)}
+                                  title="Delete saved API key"
+                                  style={{ background: "#fff", border: `1px solid #F0C4B8`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.red, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}
+                                >
+                                  <Trash2 size={13} /> Delete key
+                                </button>
+                              )}
+                            </div>
                           )}
                           {phase !== "idle" && (
                             <button onClick={() => handleCancel(rowKey)}
@@ -9685,6 +10024,117 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       )}
 
       {showAdd && <AddIntegrationModal onClose={() => setShowAdd(false)} onAddSuccess={handleAddSuccess} />}
+
+      {deleteKeyConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-key-confirm-title"
+          onClick={() => !deleteKeyConfirm.deleting && setDeleteKeyConfirm(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(15, 23, 42, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              background: "#fff",
+              borderRadius: 14,
+              border: `1px solid ${C.border}`,
+              boxShadow: "0 24px 60px rgba(15,23,42,0.28)",
+              padding: "22px 24px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  background: C.redSoft,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}>
+                  <Trash2 size={18} color={C.red} />
+                </div>
+                <h3 id="delete-key-confirm-title" style={{ margin: 0, fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.textInk }}>
+                  Delete API key?
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !deleteKeyConfirm.deleting && setDeleteKeyConfirm(null)}
+                style={{ background: "none", border: "none", cursor: deleteKeyConfirm.deleting ? "wait" : "pointer", color: C.slate, padding: 4 }}
+                aria-label="Close"
+                disabled={deleteKeyConfirm.deleting}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p style={{ margin: "0 0 18px", fontSize: 13.5, lineHeight: 1.5, color: C.slate }}>
+              Remove the saved key for <b style={{ color: C.textInk }}>{deleteKeyConfirm.item?.name}</b>? You can paste a new key later. Live calls using this provider will stop working until a key is saved again.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setDeleteKeyConfirm(null)}
+                disabled={deleteKeyConfirm.deleting}
+                style={{
+                  background: "#fff",
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  padding: "9px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: deleteKeyConfirm.deleting ? "wait" : "pointer",
+                  color: C.textInk,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteKey}
+                disabled={deleteKeyConfirm.deleting}
+                style={{
+                  background: C.red,
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "9px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: deleteKeyConfirm.deleting ? "wait" : "pointer",
+                  color: "#fff",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                {deleteKeyConfirm.deleting ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" /> Deleting…
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} /> Delete key
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -13749,10 +14199,10 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               {/* Working Hours & Availability Guardrails */}
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 4 }}>
-                  Availability & Meeting Preferences
+                  Availability
                 </div>
                 <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16 }}>
-                  Set your default meeting length, platform, and daily working hours for slot booking.
+                  Hours, length, and platform. Call rules live under Company → Call Script & Rules.
                 </div>
 
                 {/* Duration Buttons */}

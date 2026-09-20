@@ -234,6 +234,98 @@ def _pretty_datetime(date_iso: str, time_hhmm: str, tz_name: str) -> str:
         return f"{date_iso} · {display_hhmm(time_hhmm)} {short_label(tz_name)}"
 
 
+def _invite_token_context(
+    *,
+    greeting_name: str,
+    host_name: str,
+    company_name: str,
+    company_website: str,
+    duration: str,
+    when_primary: str,
+    when_secondary: Optional[str],
+    join_url: str,
+    platform_label: str,
+    is_host: bool,
+    meeting_title: str = "",
+) -> Dict[str, str]:
+    site = (company_website or "").strip()
+    if site and not site.startswith("http"):
+        site = "https://" + site
+    brand = company_name or host_name or "Company"
+    if is_host:
+        headline = "New meeting on your calendar"
+        cta = "Open meeting link"
+        intro = f"{greeting_name or 'Someone'} just booked a {duration or '15 min'} session with you."
+    else:
+        headline = "You're confirmed"
+        cta = "Join the meeting"
+        intro = f"You're booked with {host_name or brand} at {brand} for a {duration or '15 min'} session."
+
+    def esc(v: Any) -> str:
+        return html_lib.escape(str(v or ""), quote=False)
+
+    def esc_attr(v: Any) -> str:
+        return html_lib.escape(str(v or ""), quote=True)
+
+    return {
+        "greeting_name": esc(greeting_name or "there"),
+        "host_name": esc(host_name or brand),
+        "company_name": esc(brand),
+        "company_website": esc(site),
+        "company_website_href": esc_attr(site),
+        "duration": esc(duration or "15 min"),
+        "when": esc(when_primary),
+        "when_secondary": esc(when_secondary or ""),
+        "join_url": esc(join_url),
+        "join_url_href": esc_attr(join_url),
+        "platform": esc(platform_label or "Video call"),
+        "meeting_title": esc(meeting_title or ""),
+        "headline": esc(headline),
+        "cta_label": esc(cta),
+        "intro": esc(intro),
+        "role": "host" if is_host else "attendee",
+    }
+
+
+def _apply_invite_template(template: str, ctx: Dict[str, str]) -> str:
+    out = template
+    for key, val in ctx.items():
+        out = out.replace("{{" + key + "}}", val)
+        out = out.replace("{{ " + key + " }}", val)
+    return out
+
+
+def _sanitize_invite_html(raw: Optional[str]) -> str:
+    """Light strip of scriptable bits; full HTML ownership stays with the business."""
+    text = str(raw or "")
+    if len(text) > 200_000:
+        text = text[:200_000]
+    # Drop script blocks and inline handlers (best-effort)
+    text = re.sub(r"(?is)<script[^>]*>.*?</script>", "", text)
+    text = re.sub(r"(?is)<iframe[^>]*>.*?</iframe>", "", text)
+    text = re.sub(r"(?i)\son\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", "", text)
+    return text.strip()
+
+
+def _resolve_booking_email_html(
+    custom_template: Optional[str],
+    **kwargs,
+) -> tuple:
+    """Returns (html, source) where source is 'custom' or 'default'."""
+    custom = (custom_template or "").strip()
+    if custom:
+        ctx = _invite_token_context(**kwargs)
+        return _apply_invite_template(custom, ctx), "custom"
+    return _booking_email_html(**kwargs), "default"
+
+
+INVITE_HTML_TOKENS = [
+    "greeting_name", "host_name", "company_name", "company_website", "company_website_href",
+    "duration", "when", "when_secondary", "join_url", "join_url_href", "platform",
+    "meeting_title", "headline", "cta_label", "intro", "role",
+]
+
+
 def _booking_email_html(
     *,
     greeting_name: str,
@@ -246,6 +338,7 @@ def _booking_email_html(
     join_url: str,
     platform_label: str,
     is_host: bool,
+    meeting_title: str = "",
 ) -> str:
     who = html_lib.escape(greeting_name or "there")
     host = html_lib.escape(host_name or company_name)
@@ -253,63 +346,133 @@ def _booking_email_html(
     when = html_lib.escape(when_primary)
     extra = html_lib.escape(when_secondary) if when_secondary else ""
     url = html_lib.escape(join_url, quote=True)
-    plat = html_lib.escape(platform_label)
+    plat = html_lib.escape(platform_label or "Video call")
     dur = html_lib.escape(duration or "15 min")
+    title_raw = (meeting_title or "").strip()
+    title = html_lib.escape(title_raw) if title_raw else ""
+    monogram = html_lib.escape((company_name or host_name or "M")[:1].upper())
     site = (company_website or "").strip()
     if site and not site.startswith("http"):
         site = "https://" + site
+    site_display = site.replace("https://", "").replace("http://", "").rstrip("/") if site else ""
     site_html = (
-        f' · <a href="{html_lib.escape(site, quote=True)}" style="color:#0F766E;text-decoration:none;">{html_lib.escape(site.replace("https://", "").replace("http://", ""))}</a>'
+        f'<a href="{html_lib.escape(site, quote=True)}" style="color:#0F766E;text-decoration:none;font-weight:600;">{html_lib.escape(site_display)}</a>'
         if site
         else ""
     )
-    headline = "You are confirmed" if not is_host else "New booking on your diary"
-    intro = (
-        f"You are booked with {host} at {brand} for a {dur} intro."
-        if not is_host
-        else f"{who} booked a {dur} intro with you."
-    )
-    extra_label = "Guest time" if is_host else "Host time"
+    if is_host:
+        headline = "New meeting on your calendar"
+        intro = f"<strong>{who}</strong> just booked a {dur} session with you."
+        cta = "Open meeting link"
+        badge = "Host copy"
+    else:
+        headline = "You're confirmed"
+        intro = f"You're booked with <strong>{host}</strong> at <strong>{brand}</strong> for a {dur} session."
+        cta = "Join the meeting"
+        badge = "Invitation"
+    extra_label = "Guest time" if is_host else "Also shown as"
     second_row = (
-        f'<tr><td style="padding:0 0 14px 0;font-size:13px;color:#64748B;line-height:1.45;">{extra_label}: {extra}</td></tr>'
+        f"""<tr>
+          <td style="padding:12px 0 0 0;border-top:1px solid #E8ECF0;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#64748B;margin-bottom:4px;">{extra_label}</div>
+            <div style="font-size:14px;color:#334155;line-height:1.45;">{extra}</div>
+          </td>
+        </tr>"""
         if extra
         else ""
     )
+    title_block = (
+        f"""<tr>
+          <td style="padding:0 0 14px 0;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#0F766E;margin-bottom:4px;">Session</div>
+            <div style="font-size:16px;font-weight:700;color:#0F172A;line-height:1.35;">{title}</div>
+          </td>
+        </tr>"""
+        if title
+        else ""
+    )
+    # Parse day bits from when_primary for ticket look (best-effort; falls back to full string)
+    day_num, day_mon, day_rest = "", "", when
+    try:
+        parts = when_primary.split("·")
+        left = parts[0].strip() if parts else when_primary
+        day_rest = parts[1].strip() if len(parts) > 1 else ""
+        # e.g. "Monday, 21 September 2026"
+        toks = left.replace(",", "").split()
+        if len(toks) >= 3 and toks[1].isdigit():
+            day_num = toks[1]
+            day_mon = toks[2][:3].upper()
+            day_rest = (toks[0] + (" · " + day_rest if day_rest else "")).strip()
+        else:
+            day_num = ""
+            day_mon = ""
+            day_rest = when_primary
+    except Exception:
+        day_num, day_mon, day_rest = "", "", when_primary
+
+    ticket_left = ""
+    if day_num:
+        ticket_left = f"""
+            <td width="72" valign="top" style="padding:0 16px 0 0;">
+              <div style="background:#0F172A;border-radius:12px;text-align:center;padding:12px 8px;">
+                <div style="font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:700;color:#FFFFFF;line-height:1;">{html_lib.escape(day_num)}</div>
+                <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.12em;color:#94A3B8;margin-top:4px;">{html_lib.escape(day_mon)}</div>
+              </div>
+            </td>"""
+    when_main = html_lib.escape(day_rest or when_primary)
+
     return f"""<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#F1F5F9;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;padding:24px 12px;">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#E8EDF2;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#E8EDF2;padding:28px 12px;">
   <tr><td align="center">
-    <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #E2E8F0;">
-      <tr><td style="background:#0F766E;padding:22px 28px;">
-        <div style="font-family:Arial,sans-serif;font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:#99F6E4;font-weight:700;">{brand}</div>
-        <div style="font-family:Arial,sans-serif;font-size:22px;color:#ffffff;font-weight:700;margin-top:6px;">{headline}</div>
+    <table role="presentation" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #D8DEE6;box-shadow:0 12px 40px rgba(15,23,42,0.08);">
+      <tr><td style="background:#0F172A;padding:22px 28px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td width="48" valign="middle">
+              <div style="width:44px;height:44px;border-radius:12px;background:#0F766E;text-align:center;line-height:44px;font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:700;color:#FFFFFF;">{monogram}</div>
+            </td>
+            <td valign="middle" style="padding-left:14px;">
+              <div style="font-family:Arial,sans-serif;font-size:12px;letter-spacing:0.16em;text-transform:uppercase;color:#94A3B8;font-weight:700;">{badge}</div>
+              <div style="font-family:Arial,sans-serif;font-size:18px;color:#FFFFFF;font-weight:700;margin-top:2px;">{brand}</div>
+            </td>
+          </tr>
+        </table>
       </td></tr>
-      <tr><td style="padding:28px;">
-        <p style="margin:0 0 16px 0;font-family:Arial,sans-serif;font-size:15px;color:#0F172A;line-height:1.5;">Hi {who},</p>
-        <p style="margin:0 0 22px 0;font-family:Arial,sans-serif;font-size:15px;color:#334155;line-height:1.55;">{intro}</p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFC;border-radius:12px;border:1px solid #E2E8F0;">
-          <tr><td style="padding:18px 20px;font-family:Arial,sans-serif;">
+      <tr><td style="height:4px;background:linear-gradient(90deg,#0F766E 0%,#14B8A6 55%,#F59E0B 100%);font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td style="padding:32px 28px 8px 28px;">
+        <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#0F172A;font-weight:700;line-height:1.25;margin:0 0 10px 0;">{headline}</div>
+        <p style="margin:0 0 8px 0;font-family:Arial,sans-serif;font-size:15px;color:#0F172A;">Hi {who},</p>
+        <p style="margin:0 0 24px 0;font-family:Arial,sans-serif;font-size:15px;color:#475569;line-height:1.55;">{intro}</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7F9FB;border-radius:16px;border:1px solid #E2E8F0;">
+          <tr><td style="padding:20px 22px;font-family:Arial,sans-serif;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-              <tr><td style="padding:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#0F766E;">When</td></tr>
-              <tr><td style="padding:0 0 14px 0;font-size:16px;font-weight:700;color:#0F172A;line-height:1.4;">{when}</td></tr>
+              {title_block}
+              <tr>
+                {ticket_left}
+                <td valign="middle">
+                  <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#0F766E;margin-bottom:4px;">When</div>
+                  <div style="font-size:16px;font-weight:700;color:#0F172A;line-height:1.4;">{when_main}</div>
+                  <div style="font-size:13px;color:#64748B;margin-top:6px;">{dur} · {plat}</div>
+                </td>
+              </tr>
               {second_row}
-              <tr><td style="padding:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#0F766E;">Duration</td></tr>
-              <tr><td style="padding:0 0 14px 0;font-size:15px;color:#0F172A;">{dur}</td></tr>
-              <tr><td style="padding:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#0F766E;">Join</td></tr>
-              <tr><td style="padding:0;font-size:14px;color:#0F172A;">{plat}</td></tr>
             </table>
           </td></tr>
         </table>
-        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 8px 0;">
-          <tr><td style="border-radius:10px;background:#0F766E;">
-            <a href="{url}" style="display:inline-block;padding:14px 28px;font-family:Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;">Join video call</a>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:26px 0 10px 0;">
+          <tr><td align="center" style="border-radius:12px;background:#0F766E;">
+            <a href="{url}" style="display:block;padding:16px 28px;font-family:Arial,sans-serif;font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;text-align:center;">{cta} →</a>
           </td></tr>
         </table>
-        <p style="margin:0 0 20px 0;font-family:Arial,sans-serif;font-size:12px;color:#64748B;word-break:break-all;">{html_lib.escape(join_url)}</p>
-        <p style="margin:0;font-family:Arial,sans-serif;font-size:13px;color:#64748B;line-height:1.5;">A calendar file is attached — add it to Google Calendar, Outlook, or Apple Calendar. See you then.</p>
+        <p style="margin:0 0 18px 0;font-family:Arial,sans-serif;font-size:11px;color:#94A3B8;word-break:break-all;text-align:center;line-height:1.4;">{html_lib.escape(join_url)}</p>
+        <p style="margin:0 0 8px 0;font-family:Arial,sans-serif;font-size:13px;color:#64748B;line-height:1.55;text-align:center;">
+          A calendar file (.ics) is attached — add it to Google Calendar, Outlook, or Apple Calendar.
+        </p>
       </td></tr>
-      <tr><td style="padding:16px 28px;background:#F8FAFC;border-top:1px solid #E2E8F0;font-family:Arial,sans-serif;font-size:11px;color:#94A3B8;">
-        Sent by {brand}{site_html}
+      <tr><td style="padding:18px 28px 22px 28px;border-top:1px solid #E8ECF0;font-family:Arial,sans-serif;font-size:12px;color:#94A3B8;text-align:center;line-height:1.5;">
+        Sent by <strong style="color:#475569;">{brand}</strong>{(" · " + site_html) if site_html else ""}
       </td></tr>
     </table>
   </td></tr>
@@ -415,12 +578,18 @@ class CalendarService:
             "working_days", "working_hours_by_day", "slot_step_minutes", "flex_minutes",
             "buffer_before", "buffer_after",
             "auto_email_attendee", "auto_email_host",
-            "prospect_timezone_override",
+            "prospect_timezone_override", "booking_policy",
+            "invite_html_attendee", "invite_html_host",
         ]:
             if field in data:
                 val = data[field]
                 if field == "prospect_timezone_override" and not str(val or "").strip():
                     val = None
+                if field == "booking_policy" and isinstance(val, dict):
+                    from app.services.booking_policy import normalize_booking_policy
+                    val = normalize_booking_policy(val)
+                if field in ("invite_html_attendee", "invite_html_host"):
+                    val = _sanitize_invite_html(val) or None
                 if field == "api_key":
                     raw = str(val or "").strip()
                     if not raw or is_masked(raw):
@@ -1092,7 +1261,7 @@ class CalendarService:
                 logger.debug(f"Cal.com cancellation API error: {e}")
 
         meeting.status = "cancelled"
-        meeting.cancellation_reason = reason
+        meeting.cancellation_reason = reason or "Cancelled by host"
         await db.commit()
 
         try:
@@ -1462,7 +1631,9 @@ class CalendarService:
         subject = (meeting.mission or "").strip() or f"Confirmed: {company} — {attendee_when}"
         if not subject.lower().startswith("confirmed"):
             subject = f"Confirmed: {subject}"
-        html = _booking_email_html(
+        meeting_title = (meeting.mission or "").strip()
+        html, _src = _resolve_booking_email_html(
+            getattr(setting, "invite_html_attendee", None),
             greeting_name=first,
             host_name=host_name,
             company_name=company,
@@ -1473,6 +1644,7 @@ class CalendarService:
             join_url=video_link,
             platform_label=plat,
             is_host=False,
+            meeting_title=meeting_title,
         )
         text = (
             f"Hi {first},\n\nYou are booked with {host_name} at {company} for a {dur} intro.\n"
@@ -1484,7 +1656,8 @@ class CalendarService:
             if not sent.get("ok"):
                 result["error"] = sent.get("error")
         if setting.auto_email_host and meeting.host_email:
-            host_html = _booking_email_html(
+            host_html, _hs = _resolve_booking_email_html(
+                getattr(setting, "invite_html_host", None) or getattr(setting, "invite_html_attendee", None),
                 greeting_name=host_name,
                 host_name=host_name,
                 company_name=company,
@@ -1495,6 +1668,7 @@ class CalendarService:
                 join_url=video_link,
                 platform_label=plat,
                 is_host=True,
+                meeting_title=meeting_title,
             )
             host_text = (
                 f"Hi {meeting.host},\n\n{meeting.prospect} ({meeting.attendee_email}) booked a {dur} intro.\n"
@@ -1512,6 +1686,118 @@ class CalendarService:
             if not sent_h.get("ok") and not result["error"]:
                 result["error"] = sent_h.get("error")
         return result
+
+    async def preview_booking_invite(
+        self,
+        db: AsyncSession,
+        *,
+        role: str = "attendee",
+        prospect_name: Optional[str] = None,
+        when_iso_date: Optional[str] = None,
+        when_time: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Sample HTML invite using this tenant's company profile + calendar settings."""
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        setting = await self.get_or_create_settings(db)
+        brand = await self._company_brand(db)
+        company = brand["name"]
+        host_name = (setting.host_name or brand.get("caller") or company).strip()
+        host_email = (setting.host_email or "").strip()
+        tz = setting.timezone or "Europe/London"
+        try:
+            z = ZoneInfo(tz)
+        except Exception:
+            z = ZoneInfo("UTC")
+            tz = "UTC"
+        if when_iso_date and when_time:
+            date_iso, time_hhmm = when_iso_date, when_time
+        else:
+            nxt = datetime.now(z) + timedelta(days=1)
+            # snap to next weekday-ish sample mid-morning
+            while nxt.weekday() >= 5:
+                nxt += timedelta(days=1)
+            date_iso = nxt.strftime("%Y-%m-%d")
+            time_hhmm = setting.working_hours_start or "10:00"
+        when_label = _pretty_datetime(date_iso, time_hhmm, tz)
+        dur_min = int(setting.default_duration or 15)
+        dur = f"{dur_min} min"
+        plat_raw = (setting.default_platform or "google_meet").replace("_", " ").title()
+        if "meet" in plat_raw.lower() and "google" not in plat_raw.lower():
+            plat_raw = "Google Meet"
+        join = "https://meet.example.com/preview-join-link"
+        guest = (prospect_name or "Alex").strip() or "Alex"
+        is_host = str(role or "").lower() == "host"
+        title = f"{dur} with {company}"
+        custom_tpl = (
+            getattr(setting, "invite_html_host", None)
+            if is_host
+            else getattr(setting, "invite_html_attendee", None)
+        )
+        if is_host and not (custom_tpl or "").strip():
+            custom_tpl = getattr(setting, "invite_html_attendee", None)
+        html, source = _resolve_booking_email_html(
+            custom_tpl,
+            greeting_name=guest if not is_host else host_name.split()[0],
+            host_name=host_name,
+            company_name=company,
+            company_website=brand.get("website") or "",
+            duration=dur,
+            when_primary=when_label,
+            when_secondary=None,
+            join_url=join,
+            platform_label=plat_raw,
+            is_host=is_host,
+            meeting_title=title,
+        )
+        if is_host:
+            subject = f"New booking: {guest} — {when_label}"
+        else:
+            subject = f"Confirmed: {company} — {when_label}"
+        raw_custom = (custom_tpl or "").strip()
+        return {
+            "subject": subject,
+            "from": host_email or "(set Communication Account)",
+            "html": html,
+            "role": "host" if is_host else "attendee",
+            "company": company,
+            "hostName": host_name,
+            "when": when_label,
+            "platform": plat_raw,
+            "duration": dur,
+            "source": source,
+            "customHtml": raw_custom,
+            "hasCustom": bool(raw_custom),
+            "tokens": INVITE_HTML_TOKENS,
+        }
+
+    async def save_invite_template(
+        self,
+        db: AsyncSession,
+        *,
+        role: str = "attendee",
+        html: Optional[str] = None,
+        clear: bool = False,
+    ) -> Dict[str, Any]:
+        setting = await self.get_or_create_settings(db)
+        cleaned = None if clear else (_sanitize_invite_html(html) or None)
+        role_l = str(role or "attendee").lower()
+        if role_l == "host":
+            setting.invite_html_host = cleaned
+        elif role_l == "both":
+            setting.invite_html_attendee = cleaned
+            setting.invite_html_host = cleaned
+        else:
+            setting.invite_html_attendee = cleaned
+        await db.commit()
+        await db.refresh(setting)
+        return {
+            "ok": True,
+            "role": role_l if role_l in ("host", "both", "attendee") else "attendee",
+            "hasCustomAttendee": bool((setting.invite_html_attendee or "").strip()),
+            "hasCustomHost": bool((setting.invite_html_host or "").strip()),
+        }
 
     async def get_communication_accounts(self, db: AsyncSession) -> List[Dict[str, Any]]:
         """Retrieves all connected communication accounts (Gmail, Outlook, SMTP, Zoom)."""

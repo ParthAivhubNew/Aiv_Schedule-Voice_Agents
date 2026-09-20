@@ -56,10 +56,46 @@ class SettingsPayload(BaseModel):
     auto_email_attendee: Optional[bool] = None
     auto_email_host: Optional[bool] = None
     prospect_timezone_override: Optional[str] = None
+    booking_policy: Optional[Dict[str, Any]] = None
+    invite_html_attendee: Optional[str] = None
+    invite_html_host: Optional[str] = None
+
+
+def _settings_public(st) -> Dict[str, Any]:
+    from app.services.secret_box import mask_secret, open_secret
+    from app.services.booking_policy import normalize_booking_policy
+    plain = open_secret(st.api_key) if st.api_key else ""
+    return {
+        "host_email": st.host_email,
+        "host_name": st.host_name,
+        "api_key": mask_secret(plain) if plain else None,
+        "has_api_key": bool(plain or st.api_key),
+        "base_url": st.base_url,
+        "default_event_type_slug": st.default_event_type_slug,
+        "default_duration": st.default_duration,
+        "default_platform": st.default_platform,
+        "timezone": st.timezone,
+        "working_hours_start": st.working_hours_start,
+        "working_hours_end": st.working_hours_end,
+        "working_days": st.working_days,
+        "working_hours_by_day": st.working_hours_by_day or {},
+        "slot_step_minutes": st.slot_step_minutes or 15,
+        "flex_minutes": st.flex_minutes or 0,
+        "buffer_before": st.buffer_before,
+        "buffer_after": st.buffer_after,
+        "auto_email_attendee": st.auto_email_attendee,
+        "auto_email_host": st.auto_email_host,
+        "prospect_timezone_override": st.prospect_timezone_override or "",
+        "booking_policy": normalize_booking_policy(getattr(st, "booking_policy", None)),
+        "has_invite_html_attendee": bool((getattr(st, "invite_html_attendee", None) or "").strip()),
+        "has_invite_html_host": bool((getattr(st, "invite_html_host", None) or "").strip()),
+    }
+
 
 @router.get("/overview")
 async def get_overview(db: AsyncSession = Depends(get_db)):
     return await calendar_service.get_overview_stats(db)
+
 
 @router.get("/event-types")
 async def list_event_types(db: AsyncSession = Depends(get_db)):
@@ -147,62 +183,16 @@ async def cancel_booking(booking_id: str, payload: CancelBookingPayload, db: Asy
 
 @router.get("/settings")
 async def get_settings(db: AsyncSession = Depends(get_db)):
-    from app.services.secret_box import mask_secret, open_secret
     st = await calendar_service.get_or_create_settings(db)
-    plain = open_secret(st.api_key) if st.api_key else ""
-    return {
-        "host_email": st.host_email,
-        "host_name": st.host_name,
-        "api_key": mask_secret(plain) if plain else None,
-        "has_api_key": bool(plain or st.api_key),
-        "base_url": st.base_url,
-        "default_event_type_slug": st.default_event_type_slug,
-        "default_duration": st.default_duration,
-        "default_platform": st.default_platform,
-        "timezone": st.timezone,
-        "working_hours_start": st.working_hours_start,
-        "working_hours_end": st.working_hours_end,
-        "working_days": st.working_days,
-        "working_hours_by_day": st.working_hours_by_day or {},
-        "slot_step_minutes": st.slot_step_minutes or 15,
-        "flex_minutes": st.flex_minutes or 0,
-        "buffer_before": st.buffer_before,
-        "buffer_after": st.buffer_after,
-        "auto_email_attendee": st.auto_email_attendee,
-        "auto_email_host": st.auto_email_host,
-        "prospect_timezone_override": st.prospect_timezone_override or "",
-    }
+    return _settings_public(st)
 
 @router.post("/settings")
 async def update_settings(payload: SettingsPayload, db: AsyncSession = Depends(get_db)):
-    from app.services.secret_box import mask_secret, open_secret
     data = payload.dict(exclude_unset=True)
     st = await calendar_service.save_settings(db, data)
-    plain = open_secret(st.api_key) if st.api_key else ""
     return {
         "success": True,
-        "settings": {
-            "host_email": st.host_email,
-            "host_name": st.host_name,
-            "api_key": mask_secret(plain) if plain else None,
-            "has_api_key": bool(plain or st.api_key),
-            "base_url": st.base_url,
-            "default_event_type_slug": st.default_event_type_slug,
-            "default_duration": st.default_duration,
-            "default_platform": st.default_platform,
-            "timezone": st.timezone,
-            "working_hours_start": st.working_hours_start,
-            "working_hours_end": st.working_hours_end,
-            "working_days": st.working_days,
-            "working_hours_by_day": st.working_hours_by_day or {},
-            "slot_step_minutes": st.slot_step_minutes or 15,
-            "flex_minutes": st.flex_minutes or 0,
-            "buffer_before": st.buffer_before,
-            "buffer_after": st.buffer_after,
-            "auto_email_attendee": st.auto_email_attendee,
-            "auto_email_host": st.auto_email_host,
-            "prospect_timezone_override": st.prospect_timezone_override or "",
-        }
+        "settings": _settings_public(st),
     }
 
 @router.post("/test-connection")
@@ -273,6 +263,40 @@ async def save_communication_account(payload: CommunicationAccountPayload, db: A
 async def delete_communication_account(account_id: str, db: AsyncSession = Depends(get_db)):
     success = await calendar_service.delete_communication_account(db, account_id)
     return {"success": success, "accountId": account_id}
+
+@router.get("/invite-preview")
+async def invite_preview(
+    role: str = Query("attendee"),
+    prospect_name: Optional[str] = Query(None),
+    date: Optional[str] = Query(None),
+    time: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Live HTML preview of the meeting invite email (uses company profile + settings)."""
+    return await calendar_service.preview_booking_invite(
+        db,
+        role=role,
+        prospect_name=prospect_name,
+        when_iso_date=date,
+        when_time=time,
+    )
+
+
+class InviteTemplatePayload(BaseModel):
+    role: Optional[str] = "attendee"  # attendee | host | both
+    html: Optional[str] = None
+    clear: Optional[bool] = False
+
+
+@router.post("/invite-template")
+async def save_invite_template(payload: InviteTemplatePayload, db: AsyncSession = Depends(get_db)):
+    return await calendar_service.save_invite_template(
+        db,
+        role=payload.role or "attendee",
+        html=payload.html,
+        clear=bool(payload.clear),
+    )
+
 
 @router.post("/accounts/{account_id}/test")
 async def test_communication_account(account_id: str, db: AsyncSession = Depends(get_db)):

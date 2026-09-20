@@ -133,6 +133,9 @@ async def lifespan(app: FastAPI):
             ("working_hours_by_day", "JSON"),
             ("slot_step_minutes", "INTEGER DEFAULT 15"),
             ("flex_minutes", "INTEGER DEFAULT 0"),
+            ("booking_policy", "JSON"),
+            ("invite_html_attendee", "TEXT"),
+            ("invite_html_host", "TEXT"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE calcom_settings ADD COLUMN IF NOT EXISTS {col} {col_type};"))

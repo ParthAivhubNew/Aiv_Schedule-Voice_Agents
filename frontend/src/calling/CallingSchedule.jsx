@@ -16,13 +16,35 @@ import {
 } from "lucide-react";
 import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
+import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
 
-const KINDS = [
+const FALLBACK_KINDS = [
   { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone, color: C.cobalt },
   { id: "video", label: "Video meeting", hint: "Join URL", Icon: Video, color: C.teal },
-  { id: "whatsapp", label: "WhatsApp", hint: "Confirm on chat", Icon: MessageCircle, color: "#25D366" },
   { id: "in_person", label: "In person", hint: "Address", Icon: MapPin, color: C.amber },
 ];
+
+const KIND_ICON = { phone: Phone, video: Video, in_person: MapPin };
+const KIND_COLOR = { phone: C.cobalt, video: C.teal, in_person: C.amber };
+
+function kindsFromPolicy(policy) {
+  const types = (policy && policy.meeting_types) || [];
+  const enabled = types.filter((t) => t && t.enabled !== false && t.id);
+  if (!enabled.length) return FALLBACK_KINDS;
+  return enabled.map((t) => ({
+    id: t.id,
+    label: t.label || t.id,
+    hint: t.hint || "",
+    Icon: KIND_ICON[t.id] || PhoneCall,
+    color: KIND_COLOR[t.id] || C.cobalt,
+    default_platform: t.default_platform,
+  }));
+}
+
+function notifyFromPolicy(policy) {
+  const ch = ((policy && policy.notify_channels) || []).filter((n) => n && n.enabled !== false);
+  return ch;
+}
 
 const SLOT_STEP = 30;
 
@@ -66,13 +88,14 @@ function extractUrl(raw) {
 }
 
 function inferKind(s) {
-  if (s.kind && s.kind !== "phone") return s.kind;
+  // WhatsApp is notify-only — never a meeting type
+  if (s.kind === "whatsapp") return "phone";
+  if (s.kind && ["phone", "video", "in_person"].includes(s.kind)) return s.kind;
   const m = String(s.mission || s.kind || s.format || "").toLowerCase();
-  if (m.includes("video")) return "video";
-  if (m.includes("whatsapp") || m.includes("whats app")) return "whatsapp";
-  if (m.includes("person") || m.includes("office")) return "in_person";
+  if (m.includes("video") || m.includes("meet") || m.includes("zoom") || m.includes("teams")) return "video";
+  if (m.includes("person") || m.includes("office") || m.includes("cafe")) return "in_person";
   if (s.videoLink || s.video_link || extractUrl(s.mission)) return "video";
-  return s.kind || "phone";
+  return "phone";
 }
 
 function enrich(s) {
@@ -82,9 +105,57 @@ function enrich(s) {
   return { ...s, kind, videoLink, phone, whatsappTo: s.whatsappTo || s.whatsapp_to || phone };
 }
 
-function kindMeta(kind) {
-  return KINDS.find((k) => k.id === kind) || KINDS[0];
+function kindMeta(kind, kinds) {
+  const list = kinds && kinds.length ? kinds : FALLBACK_KINDS;
+  return list.find((k) => k.id === kind) || list[0];
 }
+
+function isCancelled(s) {
+  const st = String(s?.status || "").toLowerCase();
+  return st === "cancelled" || st === "canceled";
+}
+
+function cancelWhoLabel(reason) {
+  const r = String(reason || "").toLowerCase();
+  if (!r) return "Cancelled";
+  if (/prospect|attendee|caller|guest|they/.test(r)) return "Cancelled by prospect";
+  if (/host|operator|admin|agent|supervisor|user/.test(r)) return "Cancelled by host";
+  return "Cancelled";
+}
+
+function eventChipStyle(ev, kinds) {
+  const cancelled = isCancelled(ev);
+  const meta = kindMeta(ev.kind, kinds);
+  if (cancelled) {
+    return {
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#991B1B",
+      background: "#FEF2F2",
+      borderLeft: "3px solid #EF4444",
+      borderRadius: 5,
+      padding: "3px 5px",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+      textDecoration: "line-through",
+      opacity: 0.95,
+    };
+  }
+  return {
+    fontSize: 10,
+    fontWeight: 700,
+    color: C.ink,
+    background: "#fff",
+    borderLeft: `3px solid ${meta.color || C.cobalt}`,
+    borderRadius: 5,
+    padding: "3px 5px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+}
+
 
 function pad(n) {
   return String(n).padStart(2, "0");
@@ -203,6 +274,13 @@ export function CallingSchedule({
   const [copied, setCopied] = useState("");
   const [cal, setCal] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [selectedDay, setSelectedDay] = useState(todayISO());
+  const [dayExpanded, setDayExpanded] = useState(false);
+  const [invitePreviewOpen, setInvitePreviewOpen] = useState(false);
+  const [bookingPolicy, setBookingPolicy] = useState(null);
+
+  const kinds = useMemo(() => kindsFromPolicy(bookingPolicy), [bookingPolicy]);
+  const notifyChannels = useMemo(() => notifyFromPolicy(bookingPolicy), [bookingPolicy]);
+  const waNotifyEnabled = notifyChannels.some((n) => n.id === "whatsapp");
 
   useEffect(() => {
     if (focusFilter === "list") {
@@ -213,6 +291,13 @@ export function CallingSchedule({
 
   useEffect(() => {
     api.getWhatsappStatus().then(setWaStatus).catch(() => setWaStatus({ mode: "wa_me", configured: false }));
+    api.getCalcomSettings()
+      .then((s) => {
+        if (s && s.booking_policy) setBookingPolicy(s.booking_policy);
+        const def = (s && s.booking_policy && s.booking_policy.default_meeting_type) || "phone";
+        setPlan((p) => ({ ...p, kind: def }));
+      })
+      .catch(() => {});
   }, []);
 
   const workStart = (profile && (profile.weekdayStart || profile.workingHoursStart)) || "09:00";
@@ -233,6 +318,7 @@ export function CallingSchedule({
       email: m.attendeeEmail || m.attendee_email || "",
       notes: m.prep || m.mission || "",
       status: m.status || "upcoming",
+      cancellationReason: m.cancellationReason || m.cancellation_reason || "",
       source: "meeting",
     }));
     const seen = new Set();
@@ -254,7 +340,7 @@ export function CallingSchedule({
       if (filter === "today" && !isToday(s.day || s.date)) return false;
       if (filter === "calls" && s.kind !== "phone") return false;
       if (filter === "video" && s.kind !== "video") return false;
-      if (filter === "whatsapp" && s.kind !== "whatsapp" && !s.notifyWhatsapp) return false;
+      if (filter === "notified" && !s.notifyWhatsapp) return false;
       if (q && !`${s.prospect} ${s.mission || ""} ${s.phone} ${s.day || s.date}`.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -264,7 +350,7 @@ export function CallingSchedule({
     all: items.length,
     today: items.filter((s) => isToday(s.day || s.date)).length,
     video: items.filter((s) => s.kind === "video").length,
-    whatsapp: items.filter((s) => s.kind === "whatsapp" || s.notifyWhatsapp).length,
+    notified: items.filter((s) => s.notifyWhatsapp).length,
   };
 
   const byDay = useMemo(() => {
@@ -302,8 +388,8 @@ export function CallingSchedule({
       onToast("Phone callback needs a number.");
       return;
     }
-    if (plan.kind === "whatsapp" && digitsInPhone(plan.phone).length < 7) {
-      onToast("WhatsApp needs a mobile number.");
+    if (plan.notifyWhatsapp && digitsInPhone(plan.phone).length < 7) {
+      onToast("WhatsApp confirmation needs a mobile number.");
       return;
     }
     if (plan.kind === "video" && !plan.videoLink.trim() && /zoom|teams|google/i.test(plan.platform)) {
@@ -312,27 +398,28 @@ export function CallingSchedule({
     }
     setSaving(true);
     try {
+      const meetingKind = plan.kind === "whatsapp" ? "phone" : plan.kind;
       const res = await api.createScheduleItem({
         day: plan.day.trim(),
         time: plan.time.trim(),
         prospect: plan.prospect.trim(),
-        kind: plan.kind,
+        kind: meetingKind,
         phone: plan.phone.trim() || undefined,
         email: plan.email.trim() || undefined,
         videoLink: plan.videoLink.trim() || undefined,
         video_link: plan.videoLink.trim() || undefined,
-        platform: plan.kind === "video" ? plan.platform : undefined,
+        platform: meetingKind === "video" ? plan.platform : undefined,
         address: plan.address.trim() || undefined,
         notes: plan.notes.trim() || undefined,
         notifyWhatsapp: plan.notifyWhatsapp,
         notify_whatsapp: plan.notifyWhatsapp,
-        whatsappTo: (plan.notifyWhatsapp || plan.kind === "whatsapp") ? plan.phone.trim() : undefined,
+        whatsappTo: plan.notifyWhatsapp ? plan.phone.trim() : undefined,
         honored_quote: plan.phone.trim() || undefined,
         window: `${workStart}–${workEnd}`,
         status: "queued",
         mission: "",
       });
-      onNote(`Scheduled ${kindMeta(plan.kind).label.toLowerCase()} with ${plan.prospect} · ${plan.day} ${plan.time}`, "success");
+      onNote(`Scheduled ${kindMeta(plan.kind, kinds).label.toLowerCase()} with ${plan.prospect} · ${plan.day} ${plan.time}`, "success");
       if (plan.notifyWhatsapp && res && res.whatsapp && !res.whatsapp.sent && res.whatsapp.waMeUrl) {
         window.open(res.whatsapp.waMeUrl, "_blank", "noopener");
         onToast("WhatsApp draft opened — tap send.");
@@ -368,7 +455,7 @@ export function CallingSchedule({
       }
     } catch (e) {
       const digits = digitsInPhone(to);
-      const text = `Hi ${item.prospect}, confirming ${kindMeta(item.kind).label.toLowerCase()} on ${item.day} at ${item.time}.${item.videoLink ? " Join: " + item.videoLink : ""}`;
+      const text = `Hi ${item.prospect}, confirming ${kindMeta(item.kind, kinds).label.toLowerCase()} on ${item.day} at ${item.time}.${item.videoLink ? " Join: " + item.videoLink : ""}`;
       if (digits.length >= 7) {
         window.open(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
         onToast("WhatsApp draft opened.");
@@ -433,8 +520,8 @@ export function CallingSchedule({
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Park a call or meeting</div>
         <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>Name, when, how. Click a free slot on the calendar to fill day & time.</div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-          {KINDS.map((k) => {
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(kinds.length, 3)}, 1fr)`, gap: 8, marginBottom: 14 }}>
+          {kinds.map((k) => {
             const active = plan.kind === k.id;
             const Icon = k.Icon;
             return (
@@ -464,7 +551,7 @@ export function CallingSchedule({
         <Label>Who</Label>
         <input value={plan.prospect} onChange={(e) => patch("prospect", e.target.value)} placeholder="Name" style={{ ...fieldStyle(), marginBottom: 12 }} />
 
-        <Label>{plan.kind === "whatsapp" ? "WhatsApp number" : "Phone"}</Label>
+        <Label>Phone</Label>
         <input value={plan.phone} onChange={(e) => patch("phone", e.target.value)} placeholder="+44…" style={{ ...fieldStyle(), marginBottom: 12 }} />
 
         <Label>Email (optional)</Label>
@@ -516,17 +603,22 @@ export function CallingSchedule({
         <Label>Notes</Label>
         <textarea value={plan.notes} onChange={(e) => patch("notes", e.target.value)} rows={2} placeholder="Topic, what to bring…" style={{ ...fieldStyle(), height: "auto", padding: 10, marginBottom: 12, resize: "vertical" }} />
 
+        {waNotifyEnabled ? (
         <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 14, cursor: "pointer" }}>
           <input type="checkbox" checked={plan.notifyWhatsapp} onChange={(e) => patch("notifyWhatsapp", e.target.checked)} style={{ marginTop: 3 }} />
           <span>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>Send WhatsApp confirmation</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>
+              {notifyChannels.find((n) => n.id === "whatsapp")?.label || "Send WhatsApp confirmation"}
+            </div>
             <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>
-              {waStatus?.configured
-                ? "Twilio WhatsApp sender is live — message goes from the server."
-                : "Opens WhatsApp on this device with time, name, and join link ready to send."}
+              {notifyChannels.find((n) => n.id === "whatsapp")?.hint
+                || (waStatus?.configured
+                  ? "Notify channel — not a meeting type. Message goes from the server."
+                  : "Notify channel — not a meeting type. Opens WhatsApp with time and join link ready.")}
             </div>
           </span>
         </label>
+        ) : null}
 
         <button type="button" disabled={saving} onClick={savePlan} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: "100%" }}>
           {saving ? "Saving…" : "Add to schedule"}
@@ -540,7 +632,7 @@ export function CallingSchedule({
             ["today", `Today (${counts.today})`],
             ["calls", "Calls"],
             ["video", `Video (${counts.video})`],
-            ["whatsapp", `WhatsApp (${counts.whatsapp})`],
+            ["notified", `WA notified (${counts.notified})`],
             ["list", `List view (${(meetings || []).length})`],
           ].map(([id, label]) => (
             <button
@@ -562,6 +654,26 @@ export function CallingSchedule({
               {label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setInvitePreviewOpen(true)}
+            style={{
+              height: 34,
+              padding: "0 12px",
+              borderRadius: 999,
+              border: `1px solid ${C.border}`,
+              background: "#fff",
+              color: C.ink,
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <MessageCircle size={13} /> Invite email
+          </button>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ ...fieldStyle(), width: 160, height: 34, marginLeft: "auto" }} />
         </div>
 
@@ -577,7 +689,7 @@ export function CallingSchedule({
               return `${m.prospect || ""} ${m.attendee || ""} ${m.date || ""} ${m.time || ""}`.toLowerCase().includes(q);
             }).map((m) => {
               const kindId = m.format === "phone" ? "phone" : m.format === "in_person" ? "in_person" : "video";
-              const meta = kindMeta(kindId);
+              const meta = kindMeta(kindId, kinds);
               const Icon = meta.Icon;
               const when = [m.date, m.time].filter(Boolean).join(" ");
               const join = m.videoLink || m.video_link || "";
@@ -617,9 +729,11 @@ export function CallingSchedule({
         <div style={{ ...card(), padding: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 10, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>{monthLabel(cal.year, cal.month)}</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>
+                {monthLabel(cal.year, cal.month)}
+              </div>
               <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                Booked vs free · window {workStart}–{workEnd} · click a day, then a free slot
+                Booked vs free · window {workStart}–{workEnd} · click a day for popup
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -658,6 +772,7 @@ export function CallingSchedule({
               if (!day) return <div key={"e" + i} />;
               const key = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
               const dayEvents = byDay[key] || [];
+              const cancelledCount = dayEvents.filter(isCancelled).length;
               const isSel = selectedDay === key;
               const isTod = key === todayISO();
               const weekend = day.getDay() === 0 || day.getDay() === 6;
@@ -668,6 +783,7 @@ export function CallingSchedule({
                   onClick={() => {
                     setSelectedDay(key);
                     setPlan((p) => ({ ...p, day: key }));
+                    setDayExpanded(true);
                   }}
                   style={{
                     minHeight: 92,
@@ -685,39 +801,25 @@ export function CallingSchedule({
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>{day.getDate()}</span>
                     {dayEvents.length ? (
-                      <span style={{ fontSize: 9, fontWeight: 800, color: C.teal, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
-                        {dayEvents.length} booked
+                      <span style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? "#B91C1C" : C.teal, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
+                        {dayEvents.length} · {cancelledCount ? `${cancelledCount}×` : "booked"}
                       </span>
                     ) : (
                       <span style={{ fontSize: 9, fontWeight: 700, color: C.slateLight }}>open</span>
                     )}
                   </div>
-                  {dayEvents.slice(0, 3).map((ev) => {
-                    const meta = kindMeta(ev.kind);
-                    return (
-                      <div
-                        key={ev.id}
-                        onClick={(e) => { e.stopPropagation(); setOpenId(ev.id); setSelectedDay(key); }}
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          color: C.ink,
-                          background: "#fff",
-                          borderLeft: `3px solid ${meta.color || C.cobalt}`,
-                          borderRadius: 5,
-                          padding: "3px 5px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={`${eventTime(ev)} · ${ev.prospect}`}
-                      >
-                        {eventTime(ev)} · {ev.prospect}
-                      </div>
-                    );
-                  })}
+                  {dayEvents.slice(0, 3).map((ev) => (
+                    <div
+                      key={ev.id}
+                      onClick={(e) => { e.stopPropagation(); setOpenId(ev.id); setSelectedDay(key); setDayExpanded(true); }}
+                      style={eventChipStyle(ev, kinds)}
+                      title={isCancelled(ev) ? `${cancelWhoLabel(ev.cancellationReason)} · ${ev.prospect}` : `${eventTime(ev)} · ${ev.prospect}`}
+                    >
+                      {isCancelled(ev) ? "✕ " : ""}{eventTime(ev)} · {ev.prospect}
+                    </div>
+                  ))}
                   {dayEvents.length > 3 ? (
-                    <div style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more</div>
+                    <div style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more — open day</div>
                   ) : null}
                 </button>
               );
@@ -743,8 +845,9 @@ export function CallingSchedule({
             {daySlots.map((slot) => {
               const hit = selectedEvents.find((e) => eventTime(e) === slot);
               if (hit) {
-                const meta = kindMeta(hit.kind);
+                const meta = kindMeta(hit.kind, kinds);
                 const Icon = meta.Icon;
+                const cancelled = isCancelled(hit);
                 return (
                   <button
                     key={slot}
@@ -752,17 +855,17 @@ export function CallingSchedule({
                     onClick={() => setOpenId(hit.id)}
                     style={{
                       textAlign: "left",
-                      border: `1px solid ${C.border}`,
-                      background: C.ink,
-                      color: "#fff",
+                      border: `1px solid ${cancelled ? "#FECACA" : C.border}`,
+                      background: cancelled ? "#FEF2F2" : C.ink,
+                      color: cancelled ? "#991B1B" : "#fff",
                       borderRadius: 10,
                       padding: "10px 12px",
                       cursor: "pointer",
                     }}
                   >
-                    <div style={{ fontSize: 12, fontWeight: 800 }}>{slot}</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, textDecoration: cancelled ? "line-through" : "none" }}>{slot}</div>
                     <div style={{ fontSize: 11, marginTop: 4, opacity: 0.9, display: "flex", alignItems: "center", gap: 4 }}>
-                      <Icon size={11} /> {hit.prospect}
+                      <Icon size={11} /> {cancelled ? cancelWhoLabel(hit.cancellationReason) : hit.prospect}
                     </div>
                   </button>
                 );
@@ -797,6 +900,174 @@ export function CallingSchedule({
         )}
       </div>
 
+      {invitePreviewOpen ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(18,20,28,0.4)",
+            zIndex: 75,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+          onClick={() => setInvitePreviewOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 680,
+              maxWidth: "100%",
+              maxHeight: "min(860px, calc(100vh - 40px))",
+              overflow: "auto",
+              borderRadius: 16,
+              boxShadow: "0 24px 64px rgba(18,20,28,0.28)",
+              background: "#fff",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 10px 0" }}>
+              <button
+                type="button"
+                onClick={() => setInvitePreviewOpen(false)}
+                style={{ border: "none", background: "transparent", cursor: "pointer" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: "0 14px 14px" }}>
+              <MeetingInvitePreview
+                prospectName={plan.who || undefined}
+                date={plan.day || undefined}
+                time={plan.time || undefined}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {dayExpanded ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(18,20,28,0.4)",
+            zIndex: 70,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+          onClick={() => setDayExpanded(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 640,
+              maxWidth: "100%",
+              height: "min(720px, calc(100vh - 40px))",
+              background: "#fff",
+              borderRadius: 16,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              boxShadow: "0 24px 64px rgba(18,20,28,0.28)",
+              fontFamily: FONT_BODY,
+            }}
+          >
+            <div
+              style={{
+                padding: "14px 18px",
+                borderBottom: `1px solid ${C.border}`,
+                background: "#fff",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>{selectedLabel}</div>
+                <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
+                  {selectedEvents.length
+                    ? `${selectedEvents.length} meeting${selectedEvents.length === 1 ? "" : "s"} · click one for details`
+                    : "No meetings — free day"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDayExpanded(false)}
+                style={{ border: "none", background: "transparent", cursor: "pointer" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 14, display: "grid", gap: 10, alignContent: "start" }}>
+              {!selectedEvents.length ? (
+                <div style={{ padding: 36, textAlign: "center", color: C.slate, fontSize: 13 }}>No meetings on this day.</div>
+              ) : (
+                [...selectedEvents]
+                  .sort((a, b) => eventTime(a).localeCompare(eventTime(b)))
+                  .map((ev) => {
+                    const meta = kindMeta(ev.kind, kinds);
+                    const Icon = meta.Icon;
+                    const cancelled = isCancelled(ev);
+                    return (
+                      <button
+                        key={ev.id}
+                        type="button"
+                        onClick={() => setOpenId(ev.id)}
+                        style={{
+                          textAlign: "left",
+                          padding: "14px 16px",
+                          borderRadius: 12,
+                          border: `1.5px solid ${cancelled ? "#FECACA" : C.border}`,
+                          background: cancelled ? "#FEF2F2" : "#fff",
+                          cursor: "pointer",
+                          display: "grid",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                          <div style={{
+                            fontFamily: FONT_DISPLAY,
+                            fontWeight: 700,
+                            fontSize: 16,
+                            color: cancelled ? "#991B1B" : C.ink,
+                            textDecoration: cancelled ? "line-through" : "none",
+                          }}>
+                            {eventTime(ev)} · {ev.prospect}
+                          </div>
+                          {cancelled ? (
+                            <span style={{ fontSize: 11, fontWeight: 800, color: "#991B1B", background: "#FEE2E2", padding: "4px 8px", borderRadius: 999 }}>
+                              {cancelWhoLabel(ev.cancellationReason)}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, fontWeight: 800, color: C.teal, background: C.tealSoft, padding: "4px 8px", borderRadius: 999 }}>
+                              {ev.status || "booked"}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 13, color: C.slate, display: "flex", gap: 8, alignItems: "center" }}>
+                          <Icon size={14} /> {meta.label}{ev.platform ? ` · ${ev.platform}` : ""}
+                        </div>
+                        {cancelled && ev.cancellationReason ? (
+                          <div style={{ fontSize: 12, color: "#B91C1C" }}>{ev.cancellationReason}</div>
+                        ) : null}
+                      </button>
+                    );
+                  })
+              )}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4, paddingBottom: 4 }}>
+                <span style={{ fontSize: 11, color: C.slate }}>Legend:</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.ink }}>● Active</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#991B1B" }}>● Cancelled (red / strike)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {open && (
         <div
           onClick={() => setOpenId("")}
@@ -812,7 +1083,7 @@ export function CallingSchedule({
             </div>
             <div style={{ fontSize: 13, color: C.slate, display: "grid", gap: 8, marginBottom: 18 }}>
               <div><Calendar size={14} style={{ verticalAlign: "middle" }} /> {open.day || open.date} at {open.time}</div>
-              <div>{kindMeta(open.kind).label}{open.platform ? ` · ${open.platform}` : ""}</div>
+              <div>{kindMeta(open.kind, kinds).label}{open.platform ? ` · ${open.platform}` : ""}</div>
               {open.phone ? <div><Phone size={14} style={{ verticalAlign: "middle" }} /> {open.phone}</div> : null}
               {open.email ? <div>{open.email}</div> : null}
               {open.address ? <div><MapPin size={14} style={{ verticalAlign: "middle" }} /> {open.address}</div> : null}
@@ -844,7 +1115,7 @@ export function CallingSchedule({
             )}
 
             <div style={{ display: "grid", gap: 8 }}>
-              {digitsInPhone(open.phone).length >= 7 && open.kind !== "whatsapp" ? (
+              {digitsInPhone(open.phone).length >= 7 ? (
                 <button type="button" onClick={() => onCall(open)} style={actionBtn(C.teal, "#fff")}>
                   <PhoneCall size={14} /> Call now
                 </button>

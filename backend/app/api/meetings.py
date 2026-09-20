@@ -34,8 +34,10 @@ async def list_meetings(db: AsyncSession = Depends(get_db)):
         "address": m.address,
         "host": m.host,
         "attendee": m.attendee,
+        "attendeeEmail": m.attendee_email or "",
         "prep": m.prep,
         "outcome": m.outcome,
+        "cancellationReason": m.cancellation_reason or "",
         "callTranscript": m.call_transcript or [],
         "meetingTranscript": m.meeting_transcript
     } for m in meetings]

@@ -101,10 +101,23 @@ def _match_provider(name: str) -> str:
     return n.split()[0] if n else ""
 
 
+def looks_like_api_key(vid: str) -> bool:
+    """True when a secret/token was pasted where a Voice ID belongs."""
+    v = (vid or "").strip().lower()
+    if not v:
+        return False
+    return v.startswith((
+        "sk_", "sk-", "sk_car_", "cartesia_", "xai-", "whsec_",
+        "api_", "key_", "bearer ", "el_", "eleven_",
+    ))
+
+
 def looks_like_external_voice_id(vid: str) -> bool:
-    """True for Cartesia UUID / ElevenLabs IVC ids — not xAI builtin names."""
+    """True for Cartesia UUID / ElevenLabs IVC ids — not xAI builtins or API keys."""
     v = (vid or "").strip()
     if not v:
+        return False
+    if looks_like_api_key(v):
         return False
     low = v.lower().replace("-uk", "").replace("_uk", "")
     if low in XAI_BUILTIN_VOICES:
@@ -113,8 +126,10 @@ def looks_like_external_voice_id(vid: str) -> bool:
         return False
     if _UUID_RE.match(v):
         return True
-    # ElevenLabs voice ids are typically 20+ alphanumerics
-    return len(v) >= 16
+    # ElevenLabs voice ids are typically 20+ alphanumerics (not sk_…)
+    if len(v) >= 16 and re.fullmatch(r"[A-Za-z0-9]+", v):
+        return True
+    return False
 
 
 def _strip_voice(v: Any) -> str:
@@ -248,6 +263,10 @@ async def resolve_voice_plan() -> VoicePlan:
 
     openai_key = (engine_cfg.get("api_key") or settings.OPENAI_API_KEY or "").strip()
     xai_key = (engine_cfg.get("api_key") or settings.XAI_API_KEY or "").strip()
+    # Voice Orchestration often empty while LLM · xAI is saved — reuse that for S2S.
+    if (not xai_key or xai_key.startswith("mock")) and llm and llm.api_key and str(llm.api_key).startswith("xai-"):
+        xai_key = llm.api_key.strip()
+        logger.info("Using LLM xAI key for voice S2S (Voice Orchestration key empty).")
     if engine == "openai" and openai_key and not openai_key.startswith("xai-"):
         pass
     elif engine == "openai" and (not openai_key or openai_key.startswith("xai-")):

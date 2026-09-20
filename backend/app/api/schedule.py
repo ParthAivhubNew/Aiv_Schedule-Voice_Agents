@@ -17,7 +17,8 @@ KIND_LABELS = {
     "phone": "Phone callback",
     "video": "Video meeting",
     "in_person": "In person",
-    "whatsapp": "WhatsApp",
+    # legacy — WhatsApp is notify-only, not a meeting type
+    "whatsapp": "Phone callback",
 }
 
 
@@ -119,8 +120,23 @@ async def get_schedule_item(item_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=dict)
 async def create_schedule_item(req: ScheduleItemSchema, db: AsyncSession = Depends(get_db)):
+    from app.services.calendar_service import calendar_service
+    from app.services.booking_policy import normalize_booking_policy, is_valid_meeting_type, enabled_meeting_types
+
     kind = (req.kind or "phone").lower()
-    if kind not in KIND_LABELS:
+    # Notify channels are never meeting types
+    if kind == "whatsapp":
+        kind = "phone"
+        if req.notify_whatsapp is None and req.notifyWhatsapp is None:
+            req.notifyWhatsapp = True
+
+    setting = await calendar_service.get_or_create_settings(db)
+    policy = normalize_booking_policy(getattr(setting, "booking_policy", None))
+    if not is_valid_meeting_type(policy, kind):
+        enabled = enabled_meeting_types(policy)
+        kind = (policy.get("default_meeting_type")
+                or (enabled[0]["id"] if enabled else "phone"))
+    if kind not in ("phone", "video", "in_person") and not is_valid_meeting_type(policy, kind):
         kind = "phone"
     item_id = f"s_{uuid.uuid4().hex[:8]}"
     phone = (req.phone or req.honored_quote or "").strip() or None

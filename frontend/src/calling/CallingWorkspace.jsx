@@ -759,6 +759,7 @@ export function CallingWorkspace({
   const [logs, setLogs] = useState([]);
   const [schedule, setSchedule] = useState([]);
   const [scheduleFocus, setScheduleFocus] = useState(""); // "list" opens booked list inside Schedule
+  const [companyDirty, setCompanyDirty] = useState(false);
   const [listeningId, setListeningId] = useState(null);
   const [takenId, setTakenId] = useState(null);
   const [endingId, setEndingId] = useState(null);
@@ -833,7 +834,17 @@ export function CallingWorkspace({
       setScheduleFocus("list");
       page = "schedule";
     }
-    if (page && SIMPLE_PAGES.has(page)) setPage(page);
+    if (page && SIMPLE_PAGES.has(page)) goPage(page);
+  };
+
+  const goPage = (next) => {
+    if (!next || next === page) return;
+    if (page === "company" && companyDirty && next !== "company") {
+      const ok = window.confirm("You have unsaved company changes. Leave without saving?");
+      if (!ok) return;
+      setCompanyDirty(false);
+    }
+    setPage(next);
   };
 
   useEffect(() => {
@@ -850,13 +861,13 @@ export function CallingWorkspace({
         const parts = hash.split("/");
         if (parts[0] === "voice") {
           const next = callingPageId(parts[1]);
-          if (next) setPage(next);
+          if (next) goPage(next);
         }
       } catch (_) {}
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+  }, [page, companyDirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setDraft({
@@ -1333,7 +1344,7 @@ export function CallingWorkspace({
     const prospectLabel = (r.contact || r.name || "").trim() || phone;
     const optimisticId = `pending_${Date.now()}`;
     setBusy("direct");
-    setPage("live");
+    goPage("live");
     setLiveCalls((prev) => [
       {
         id: optimisticId,
@@ -1646,7 +1657,7 @@ export function CallingWorkspace({
       : `Call all ${prospects.length} phones · 1 at a time?`;
     if (!window.confirm(label)) return;
     setBusy("dial");
-    setPage("live");
+    goPage("live");
     try {
       const res = await api.dialOutboundBatch({
         prospects,
@@ -1674,7 +1685,7 @@ export function CallingWorkspace({
     const prospectLabel = direct.name.trim() || phone;
     const optimisticId = `pending_${Date.now()}`;
     setBusy("direct");
-    setPage("live");
+    goPage("live");
     setLiveCalls((prev) => [
       {
         id: optimisticId,
@@ -1781,7 +1792,7 @@ export function CallingWorkspace({
       await refreshSchedule();
       await refreshLogs();
       setScheduleFocus("list");
-      setPage("schedule");
+      goPage("schedule");
     } catch (e) {
       showToast(e.message || "Book failed");
     }
@@ -1829,7 +1840,7 @@ export function CallingWorkspace({
     logs: ["Call history", "Name from dial form. Search, filter, expand transcript."],
     schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
-    company: ["Company profile", "Identity, knowledge, services, FAQ. Same record classic uses on calls."],
+    company: ["Company profile", "Identity, knowledge, services, Call Script & Rules. Same record classic uses on calls."],
   };
 
   return (
@@ -1845,13 +1856,19 @@ export function CallingWorkspace({
             <div style={{ fontSize: 10, color: "#8B90A0", fontWeight: 600, letterSpacing: "0.06em" }}>VOICE WORKSPACE</div>
           </div>
         </div>
-        <button type="button" onClick={onBackToHub} style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px 12px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.inkLine}`, background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        <button type="button" onClick={() => {
+          if (page === "company" && companyDirty) {
+            if (!window.confirm("You have unsaved company changes. Leave without saving?")) return;
+            setCompanyDirty(false);
+          }
+          onBackToHub();
+        }} style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px 12px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.inkLine}`, background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           <LayoutGrid size={14} /> All plugins
         </button>
         {PAGES.map((p) => {
           const Icon = p.icon;
           return (
-            <button key={p.id} type="button" onClick={() => setPage(p.id)} style={navBtn(page === p.id)}>
+            <button key={p.id} type="button" onClick={() => goPage(p.id)} style={navBtn(page === p.id)}>
               <Icon size={15} />
               <span style={{ flex: 1 }}>{p.label}</span>
               {p.id === "live" && activeLive.length ? (
@@ -1866,6 +1883,10 @@ export function CallingWorkspace({
         <button
           type="button"
           onClick={() => {
+            if (page === "company" && companyDirty) {
+              if (!window.confirm("You have unsaved company changes. Leave without saving?")) return;
+              setCompanyDirty(false);
+            }
             setCallingEdition("classic");
             try { window.history.replaceState(null, "", "#/voice/tasks"); } catch (_) {}
             if (onUseClassic) onUseClassic();
@@ -2606,7 +2627,7 @@ export function CallingWorkspace({
               onSaved={async () => { await refreshSchedule(); await refreshMeetings(); }}
               onCall={(item) => {
                 setDirect({ phone: item.phone || "", name: item.prospect || "" });
-                setPage("list");
+                goPage("list");
               }}
               onToast={showToast}
               onNote={pushNote}
@@ -2630,7 +2651,7 @@ export function CallingWorkspace({
           {page === "company" && (
             <div>
               {isValidElement(companyPanel)
-                ? cloneElement(companyPanel, { notifications, setNotifications, voiceName, setVoiceName })
+                ? cloneElement(companyPanel, { notifications, setNotifications, voiceName, setVoiceName, onDirtyChange: setCompanyDirty })
                 : (
                 <div style={{ display: "grid", gap: 14, maxWidth: 640 }}>
                   <div style={card()}>

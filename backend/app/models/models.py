@@ -283,6 +283,11 @@ class CalcomSetting(Base):
     auto_email_attendee = Column(Boolean, default=True)
     auto_email_host = Column(Boolean, default=True)
     prospect_timezone_override = Column(String, nullable=True)
+    # Per-business meeting types, notify channels, and call booking rules (JSON)
+    booking_policy = Column(JSON, nullable=True)
+    # Bring-your-own invite email HTML ({{tokens}}). Empty = built-in template.
+    invite_html_attendee = Column(Text, nullable=True)
+    invite_html_host = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class ScheduleItem(Base):

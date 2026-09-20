@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, meetingTimeLabel } from "../tokens";
 import { api } from "../api/apiClient";
+import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
 
 export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "overview" }) {
   const [activeTab, setActiveTab] = useState(initialTab || "overview");
@@ -121,6 +122,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
   });
   const [accountTesting, setAccountTesting] = useState(false);
   const [accountTestResult, setAccountTestResult] = useState(null);
+  const [disconnectAccount, setDisconnectAccount] = useState(null);
+  const [disconnectBusy, setDisconnectBusy] = useState(false);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -510,13 +513,25 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
     }
   };
 
-  const handleDeleteAccount = async (id) => {
-    if (!confirm("Are you sure you want to disconnect this communication account?")) return;
+  const handleDeleteAccount = (id) => {
+    const acc = accounts.find((a) => a.id === id) || { id };
+    setDisconnectAccount(acc);
+  };
+
+  const handleConfirmDisconnect = async () => {
+    if (!disconnectAccount?.id) return;
+    setDisconnectBusy(true);
     try {
-      await api.deleteCalcomAccount(id);
+      await api.deleteCalcomAccount(disconnectAccount.id);
+      setDisconnectAccount(null);
+      setSaveMessage("Account disconnected.");
+      setTimeout(() => setSaveMessage(""), 2500);
       await loadData();
     } catch (err) {
-      alert("Failed to disconnect account.");
+      setSaveMessage(err?.message || "Failed to disconnect account.");
+      setTimeout(() => setSaveMessage(""), 4000);
+    } finally {
+      setDisconnectBusy(false);
     }
   };
 
@@ -679,7 +694,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
             { id: "bookings", label: `Bookings & Meetings (${bookings.length})`, icon: Calendar },
             { id: "directBook", label: "Direct Scheduler & Slots", icon: Clock },
             { id: "eventTypes", label: `Event Types (${eventTypes.length})`, icon: Layers },
-            { id: "availability", label: "Availability & Hours", icon: Sliders },
+            { id: "availability", label: "Availability", icon: Sliders },
             { id: "embeds", label: "Embeds & Sharing", icon: Code2 },
             { id: "workflows", label: "Workflows & Reminders", icon: Bell },
             { id: "webConsole", label: "Live Cal.com Web App", icon: Globe },
@@ -1860,10 +1875,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           {activeTab === "availability" && (
             <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 840 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
-                Availability Schedule & Timezone
+                Availability
               </div>
               <div style={{ fontSize: 12, color: "#64748B", marginBottom: 20 }}>
-                Default hours apply to every active day. Override a single day when Friday is shorter, or add flex minutes if a client asks just after close.
+                Working days and hours. Call rules live under Calling → Company → Call Script & Rules.
               </div>
 
               {saveMessage && (
@@ -1871,6 +1886,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                   {saveMessage}
                 </div>
               )}
+
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12, marginTop: 8 }}>
+                Working days & hours
+              </div>
 
               <div style={{ marginBottom: 20 }}>
                 <label style={{ fontSize: 13, fontWeight: 600, color: "#334155", display: "block", marginBottom: 8 }}>
@@ -2102,7 +2121,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                   cursor: "pointer"
                 }}
               >
-                Save Availability Schedule
+                Save Availability
               </button>
             </div>
           )}
@@ -2309,18 +2328,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
               </div>
 
               <div style={{ background: "#F1F5F9", borderRadius: 10, padding: 16, border: "1px solid #E2E8F0" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
-                  Email Invitation Preview:
-                </div>
-                <div style={{ background: "#FFF", borderRadius: 8, padding: 14, border: "1px solid #CBD5E1", fontSize: 12, color: "#334155", lineHeight: 1.5 }}>
-                  <strong>Subject:</strong> Confirmed: Discovery Call with {settings?.host_name || "Jitendra S."}<br />
-                  <strong>From:</strong> {primaryAccount?.config?.email || hostEmail}<br />
-                  <hr style={{ border: "none", borderTop: "1px solid #E2E8F0", margin: "10px 0" }} />
-                  Hi [Attendee Name],<br /><br />
-                  Your video meeting is confirmed for <strong>[Date & Time]</strong>.<br />
-                  You can join directly via Google Meet here: <span style={{ color: "#10B981" }}>https://meet.google.com/aiv-...</span><br /><br />
-                  Looking forward to speaking with you!
-                </div>
+                <MeetingInvitePreview />
               </div>
             </div>
           )}
@@ -2791,6 +2799,102 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           </div>
         </div>
       )}
+
+      {disconnectAccount && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 150,
+            padding: 16,
+          }}
+          onClick={() => !disconnectBusy && setDisconnectAccount(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#FFF",
+              borderRadius: 16,
+              width: "100%",
+              maxWidth: 440,
+              padding: 24,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+              fontFamily: FONT_BODY,
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#E11D48", marginBottom: 6 }}>Disconnect account</div>
+            <div style={{ fontSize: 13, color: "#64748B", marginBottom: 18, lineHeight: 1.45 }}>
+              Remove{" "}
+              <strong style={{ color: "#0F172A" }}>
+                {disconnectAccount.email || disconnectAccount.name || "this communication account"}
+              </strong>
+              ? Meeting invites stop sending from this mailbox until you reconnect.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                disabled={disconnectBusy}
+                onClick={() => setDisconnectAccount(null)}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: "1px solid #CBD5E1",
+                  background: "#FFF",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: disconnectBusy ? "default" : "pointer",
+                }}
+              >
+                Keep connected
+              </button>
+              <button
+                type="button"
+                disabled={disconnectBusy}
+                onClick={handleConfirmDisconnect}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "#E11D48",
+                  color: "#FFF",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: disconnectBusy ? "default" : "pointer",
+                  opacity: disconnectBusy ? 0.7 : 1,
+                }}
+              >
+                {disconnectBusy ? "Disconnecting…" : "Disconnect"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveMessage ? (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 28,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: C.ink || "#0F172A",
+            color: "#fff",
+            padding: "10px 18px",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 600,
+            zIndex: 200,
+            boxShadow: "0 12px 32px rgba(15,23,42,0.28)",
+            fontFamily: FONT_BODY,
+          }}
+        >
+          {saveMessage}
+        </div>
+      ) : null}
 
       {/* Booking Success Dialog */}
       {bookingSuccessModal && (

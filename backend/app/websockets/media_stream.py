@@ -162,6 +162,7 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
     await websocket.accept()
     stream_sid = None
     call_id = None
+    call_sid = None
     logger.info("[TwilioStream] Twilio connected to /ws/media-stream")
 
     try:
@@ -233,12 +234,24 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
 
             elif event_type == "stop":
                 logger.info(f"[TwilioStream] Stream stopped: streamSid={stream_sid}, call_id={call_id}")
+                try:
+                    await _hangup_if_call_still_live(call_id, call_sid)
+                except Exception as hang_err:
+                    logger.warning(f"[TwilioStream] auto-hangup after stop failed: {hang_err}")
                 break
 
     except WebSocketDisconnect:
         logger.info(f"[TwilioStream] Twilio stream disconnected: {stream_sid}")
+        try:
+            await _hangup_if_call_still_live(call_id, call_sid)
+        except Exception as hang_err:
+            logger.warning(f"[TwilioStream] auto-hangup after disconnect failed: {hang_err}")
     except Exception as exc:
         logger.warning(f"[TwilioStream] Stream error: {exc}")
+        try:
+            await _hangup_if_call_still_live(call_id, call_sid)
+        except Exception:
+            pass
     finally:
         if call_id and call_id in media_stream_hub.twilio_streams:
             del media_stream_hub.twilio_streams[call_id]
@@ -246,6 +259,54 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
             del media_stream_hub.stream_protocol[call_id]
         if stream_sid and stream_sid in media_stream_hub.stream_to_call:
             del media_stream_hub.stream_to_call[stream_sid]
+
+
+async def _hangup_if_call_still_live(call_id: Optional[str], call_sid: Optional[str] = None) -> None:
+    """If LiveCall still open when media WS dies, complete the Twilio leg so MicroSIP drops."""
+    if not call_id and not call_sid:
+        return
+    from sqlalchemy.future import select
+    from app.database import AsyncSessionLocal
+    from app.models.models import LiveCall
+    from app.services.outbound_dial import _resolve_carrier_and_creds
+    from app.services.telephony_provider import carrier_registry
+    import re
+
+    async with AsyncSessionLocal() as db:
+        call = None
+        for key in (call_id, call_sid):
+            if not key:
+                continue
+            res = await db.execute(select(LiveCall).where(LiveCall.id == key))
+            call = res.scalars().first()
+            if not call:
+                res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == key))
+                call = res.scalars().first()
+            if call:
+                break
+        if not call or call.ended:
+            return
+        sid = call.carrier_sid or call_sid
+        if not sid:
+            for line in call.transcript or []:
+                m = re.search(r"\b(CA[0-9a-fA-F]{32})\b", str(line))
+                if m:
+                    sid = m.group(1)
+                    break
+        if not sid:
+            logger.warning(f"[TwilioStream] live call {call.id} has no carrier SID — cannot auto-hangup")
+            return
+        try:
+            carrier_choice, credentials, _ = await _resolve_carrier_and_creds(db, "twilio", None, None)
+            adapter = carrier_registry.get_adapter(carrier_choice or "twilio")
+            hung = await adapter.hangup_call(sid, credentials=credentials)
+            logger.info(f"[TwilioStream] auto-hangup {sid} for {call.id} → hungUp={hung}")
+            if hung:
+                call.ended = True
+                call.state = "ended"
+                await db.commit()
+        except Exception as err:
+            logger.warning(f"[TwilioStream] auto-hangup error: {err}")
 
 
 @router.websocket("/ws/listen/{call_id}")

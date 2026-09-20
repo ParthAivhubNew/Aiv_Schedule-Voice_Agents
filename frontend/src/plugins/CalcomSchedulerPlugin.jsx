@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, meetingTimeLabel } from "../tokens";
 import { api } from "../api/apiClient";
+import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
 
 export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile, commonAi, onOpenCommonAi }) {
   const [activeTab, setActiveTab] = useState("bookings"); // "bookings" | "eventTypes" | "directBook" | "availability" | "comms"
@@ -343,8 +344,8 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
           { id: "bookings", label: `Upcoming Meetings (${bookings.filter(b => b.status === "upcoming").length})`, icon: Video },
           { id: "directBook", label: "1-Click Direct Booking & Slots", icon: CalendarCheck },
           { id: "eventTypes", label: `Event Types (${eventTypes.length})`, icon: Layers },
-          { id: "availability", label: "Availability & Working Hours", icon: Clock },
-          { id: "comms", label: "Email Notifications Log", icon: Mail },
+          { id: "availability", label: "Availability", icon: Clock },
+          { id: "comms", label: "Invite email", icon: Mail },
         ].map((t) => {
           const Icon = t.icon;
           const active = activeTab === t.id;
@@ -1094,18 +1095,23 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <div>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>
-                  Active Availability & Working Hours
+                  Availability
                 </div>
                 <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                  Calculated dynamically across all direct booking requests and Cal.com API queries.
+                  Working hours for this business. Call rules: Company → Call Script & Rules.
                 </div>
               </div>
               <button
                 onClick={onOpenCommonAi}
                 style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: "#fff", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, color: C.cobalt, cursor: "pointer" }}
               >
-                <Settings size={14} /> Edit in Universal Config
+                <Settings size={14} /> Full calendar config
               </button>
+            </div>
+
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 12 }}>Working hours (read-only here)</div>
+            <div style={{ fontSize: 12, color: C.slate, marginBottom: 16 }}>
+              Edit hours in Full calendar config or Command Center → Availability.
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 24 }}>
@@ -1171,7 +1177,9 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
 
         {/* TAB 5: COMMS */}
         {activeTab === "comms" && (
-          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "24px 28px" }}>
+          <div style={{ display: "grid", gap: 16 }}>
+            <MeetingInvitePreview />
+            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "24px 28px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
               <div>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>
@@ -1227,6 +1235,7 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
                   </div>
                 </div>
               ))}
+            </div>
             </div>
           </div>
         )}
