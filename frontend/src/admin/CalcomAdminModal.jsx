@@ -44,8 +44,8 @@ import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, meetingTimeLabel } from "../toke
 import { api } from "../api/apiClient";
 import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
 
-export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "overview" }) {
-  const [activeTab, setActiveTab] = useState(initialTab || "overview");
+export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "accounts" }) {
+  const [activeTab, setActiveTab] = useState(initialTab || "accounts");
   const [loading, setLoading] = useState(false);
   const [overview, setOverview] = useState(null);
   const [bookings, setBookings] = useState([]);
@@ -132,6 +132,9 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
   // Notifications
   const [copiedId, setCopiedId] = useState(null);
   const [saveMessage, setSaveMessage] = useState("");
+  const [calApiKey, setCalApiKey] = useState("");
+  const [calBaseUrl, setCalBaseUrl] = useState("");
+  const [showDeveloperOptions, setShowDeveloperOptions] = useState(false);
 
   // Working Hours State
   const [workingSchedule, setWorkingSchedule] = useState({
@@ -148,7 +151,9 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
   });
 
   useEffect(() => {
-    if (initialTab) setActiveTab(initialTab);
+    const allowed = new Set(["accounts", "embeds", "webConsole", "settings"]);
+    const next = allowed.has(initialTab) ? initialTab : "accounts";
+    setActiveTab(next);
   }, [initialTab, isOpen]);
 
   const loadData = async () => {
@@ -170,6 +175,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
       if (st) {
         setSettings(st);
         setHostEmail(st.host_email || operator?.email || "admin@aivhub.io");
+        setCalApiKey(st.api_key || "");
+        setCalBaseUrl(st.base_url || "");
         setWorkingSchedule({
           days: st.working_days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
           start: st.working_hours_start || "09:00",
@@ -551,7 +558,9 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
   const primaryAccount = accounts.find(a => a.config?.is_primary) || accounts[0];
 
   return (
-    <div style={{
+    <div
+      onClick={onClose}
+      style={{
       position: "fixed",
       inset: 0,
       background: "rgba(15, 23, 42, 0.68)",
@@ -560,9 +569,12 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
       alignItems: "center",
       justifyContent: "center",
       zIndex: 130,
-      padding: 16
+      padding: 16,
+      cursor: "pointer"
     }}>
-      <div style={{
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
         background: "#FFFFFF",
         borderRadius: 20,
         width: "100%",
@@ -572,7 +584,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
         flexDirection: "column",
         boxShadow: "0 28px 80px rgba(0,0,0,0.25)",
         border: "1px solid #E2E8F0",
-        overflow: "hidden"
+        overflow: "hidden",
+        cursor: "default"
       }}>
         {/* Top Header */}
         <div style={{
@@ -600,7 +613,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#0F172A" }}>
-                  Cal.com Scheduling Command Center
+                  Calendar & meetings
                 </span>
                 <span style={{
                   display: "inline-flex",
@@ -619,7 +632,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                 </span>
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: "#64748B" }}>
-                Full-stack meeting scheduler: Connected Gmail & Outlook accounts, custom event types, slot availability, and website embeds.
+                Full-stack meeting mail: communication accounts, embeds, host sync. Bookings & slots live in Calling → Schedule.
               </div>
             </div>
           </div>
@@ -689,14 +702,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           overflowX: "auto"
         }}>
           {[
-            { id: "overview", label: "Executive Overview", icon: Sparkles },
-            { id: "accounts", label: `Communication Accounts (${accounts.filter(a => a.status === "connected").length})`, icon: Mail, highlight: true },
-            { id: "bookings", label: `Bookings & Meetings (${bookings.length})`, icon: Calendar },
-            { id: "directBook", label: "Direct Scheduler & Slots", icon: Clock },
-            { id: "eventTypes", label: `Event Types (${eventTypes.length})`, icon: Layers },
-            { id: "availability", label: "Availability", icon: Sliders },
+            { id: "accounts", label: `Invite mail (${accounts.filter(a => a.status === "connected").length})`, icon: Mail, highlight: true },
             { id: "embeds", label: "Embeds & Sharing", icon: Code2 },
-            { id: "workflows", label: "Workflows & Reminders", icon: Bell },
             { id: "webConsole", label: "Live Cal.com Web App", icon: Globe },
             { id: "settings", label: "Host Sync & Engine", icon: Settings }
           ].map(tab => {
@@ -733,7 +740,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
         <div style={{ flex: 1, overflowY: "auto", padding: 24, background: "#F8FAFC" }}>
           
           {/* TAB 1: OVERVIEW */}
-          {activeTab === "overview" && (
+          {/* TAB 1: EXECUTIVE OVERVIEW — removed */}
+          {false && activeTab === "overview" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
               {/* Stat KPI Grid */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
@@ -932,10 +940,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>
-                    Communication & Calendar Accounts ({accounts.filter(a => a.status === "connected" || a.config?.email).length} Active)
+                    Invite mail accounts ({accounts.filter(a => a.status === "connected" || a.config?.email).length} active)
                   </div>
                   <div style={{ fontSize: 12, color: "#64748B" }}>
-                    Connect multiple accounts across Gmail, Google Workspace, Outlook, or custom SMTP. Each account can have its own sender email, calendar sync, and meeting links.
+                    Gmail, Outlook, or SMTP — used to send meeting invites and calendar links.
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1206,7 +1214,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                     <Plus size={22} />
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
-                    Add Another Communication Account
+                    Add another invite mail account
                   </div>
                   <div style={{ fontSize: 12, color: "#64748B", marginBottom: 14, maxWidth: 280 }}>
                     You can connect multiple Gmail, Outlook, or SMTP accounts for different team members or departments.
@@ -1237,7 +1245,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           )}
 
           {/* TAB 3: BOOKINGS & MEETINGS */}
-          {activeTab === "bookings" && (
+          {/* TAB: BOOKINGS — removed; use Calling → Schedule */}
+          {false && activeTab === "bookings" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* Search & Filter Bar */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -1468,7 +1477,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           )}
 
           {/* TAB 4: DIRECT SCHEDULER & SLOTS */}
-          {activeTab === "directBook" && (
+          {/* TAB: DIRECT BOOK — removed */}
+          {false && activeTab === "directBook" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
               {/* Left Column: Date & Slot Inspector */}
               <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 20 }}>
@@ -1725,7 +1735,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           )}
 
           {/* TAB 5: EVENT TYPES */}
-          {activeTab === "eventTypes" && (
+          {/* TAB: EVENT TYPES — removed */}
+          {false && activeTab === "eventTypes" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
@@ -1872,7 +1883,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           )}
 
           {/* TAB 6: AVAILABILITY & WORKING HOURS */}
-          {activeTab === "availability" && (
+          {/* TAB: AVAILABILITY — removed; hours in Calling Company / Schedule */}
+          {false && activeTab === "availability" && (
             <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 840 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                 Availability
@@ -2277,8 +2289,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
             </div>
           )}
 
-          {/* TAB 8: WORKFLOWS & REMINDERS */}
-          {activeTab === "workflows" && (
+          {/* TAB 8: WORKFLOWS — hidden; use Calling → Schedule for bookings */}
+          {false && activeTab === "workflows" && (
             <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 840 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                 Automated Workflows & Communication Triggers
@@ -2378,7 +2390,49 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
 
           {/* TAB 10: SETTINGS & HOST SYNC */}
           {activeTab === "settings" && (
-            <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 840 }}>
+            <div style={{ display: "grid", gap: 16, maxWidth: 840 }}>
+              <MeetingInvitePreview />
+
+              {/* Engine Status Banner */}
+              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 10, background: "#10B981", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
+                    <CalendarCheck size={20} />
+                  </div>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#0F172A" }}>
+                        AIVHub Managed Cal.com Engine
+                      </span>
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        background: "#D1FAE5",
+                        color: "#065F46",
+                        border: "1px solid #6EE7B7"
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 999, background: "#10B981" }} />
+                        Pre-Configured & Active
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+                      Built directly into your workspace. Host mail, embeds, and calendar invites — bookings live in Calling → Schedule.
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 11.5, color: "#059669", fontWeight: 700 }}>
+                    Auto-Connected
+                  </span>
+                </div>
+              </div>
+
+            <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                 Operator Host Synchronization & Engine Config
               </div>
@@ -2386,7 +2440,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                 Manage your primary host organizer credentials and optional developer connection keys.
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
                     <label style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
@@ -2404,6 +2458,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                     type="email"
                     value={hostEmail}
                     onChange={(e) => setHostEmail(e.target.value)}
+                    placeholder="e.g. sales@yourcompany.com or admin@aivhub.io"
                     style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13 }}
                   />
                 </div>
@@ -2416,27 +2471,102 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                     type="text"
                     value={settings?.host_name || operator?.name || "Admin Operator"}
                     onChange={(e) => setSettings({ ...settings, host_name: e.target.value })}
+                    placeholder="e.g. Admin Operator"
                     style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13 }}
                   />
                 </div>
               </div>
 
-              <button
-                onClick={() => handleSaveSettings({ ...settings, host_email: hostEmail })}
-                disabled={loading}
-                style={{
-                  background: "#10B981",
-                  color: "#FFF",
-                  border: "none",
-                  padding: "10px 24px",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: "pointer"
-                }}
-              >
-                Save Host Configuration
-              </button>
+              {/* Collapsible Advanced Developer Settings */}
+              <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", background: "#F8FAFC", marginBottom: 20 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowDeveloperOptions(!showDeveloperOptions)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: "#475569",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: 0,
+                    width: "100%",
+                    textAlign: "left"
+                  }}
+                >
+                  <span>{showDeveloperOptions ? "▼" : "▶"}</span>
+                  <span>Advanced Developer Options (Custom External Cal.com Instance)</span>
+                </button>
+
+                {showDeveloperOptions && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
+                    <div style={{ fontSize: 12, color: "#64748B", marginBottom: 12 }}>
+                      Only configure these if you are connecting an external cloud Cal.com enterprise account. The default AIVHub engine is already active and requires zero credentials.
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
+                      <div>
+                        <label style={{ fontSize: 11.5, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                          Custom Cal.com API Key
+                        </label>
+                        <input
+                          type="password"
+                          value={calApiKey}
+                          onChange={(e) => setCalApiKey(e.target.value)}
+                          placeholder="cal_live_xxxxxxxx (optional)"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 6, border: "1px solid #CBD5E1", fontSize: 12, fontFamily: FONT_MONO }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11.5, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                          Custom Base URL
+                        </label>
+                        <input
+                          type="text"
+                          value={calBaseUrl}
+                          onChange={(e) => setCalBaseUrl(e.target.value)}
+                          placeholder="http://calcom:3000/api/v1"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 6, border: "1px solid #CBD5E1", fontSize: 12, fontFamily: FONT_MONO }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <button
+                  onClick={() => handleSaveSettings({
+                    ...settings,
+                    host_email: hostEmail,
+                    host_name: settings?.host_name || operator?.name || "Admin Operator",
+                    api_key: calApiKey,
+                    base_url: calBaseUrl
+                  })}
+                  disabled={loading}
+                  style={{
+                    background: "#10B981",
+                    color: "#FFF",
+                    border: "none",
+                    padding: "10px 24px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer"
+                  }}
+                >
+                  {loading ? "Saving..." : "Save Host Configuration"}
+                </button>
+
+                {saveMessage && (
+                  <span style={{ fontSize: 13, fontWeight: 600, color: saveMessage.includes("Error") ? "#EF4444" : "#10B981" }}>
+                    {saveMessage}
+                  </span>
+                )}
+              </div>
+            </div>
             </div>
           )}
         </div>
@@ -2444,7 +2574,9 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
 
       {/* CONNECT COMMUNICATION ACCOUNT MODAL */}
       {showAccountModal && (
-        <div style={{
+        <div
+          onClick={() => setShowAccountModal(false)}
+          style={{
           position: "fixed",
           inset: 0,
           background: "rgba(0,0,0,0.65)",
@@ -2452,9 +2584,13 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
           alignItems: "center",
           justifyContent: "center",
           zIndex: 145,
-          padding: 16
+          padding: 16,
+          cursor: "pointer"
         }}>
-          <div style={{ background: "#FFF", borderRadius: 18, width: "100%", maxWidth: 540, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.3)" }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "#FFF", borderRadius: 18, width: "100%", maxWidth: 540, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.3)", cursor: "default" }}
+          >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 10, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563EB" }}>
@@ -2462,7 +2598,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "over
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>
-                    Connect Communication Account
+                    Connect invite mail
                   </div>
                   <div style={{ fontSize: 11, color: "#64748B" }}>
                     Sync email invitations & calendar availability

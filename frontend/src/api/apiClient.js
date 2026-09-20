@@ -150,6 +150,7 @@ export const api = {
 
   // Analytics
   getAnalytics: () => apiRequest('/analytics'),
+  getUsageQuotas: () => apiRequest('/analytics/usage'),
 
   // Post Scheduler & Visual Generator
   getPosts: () => apiRequest('/scheduler/posts'),

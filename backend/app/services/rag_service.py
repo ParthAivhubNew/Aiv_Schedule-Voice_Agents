@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.models.models import KnowledgeChunk
-from app.services.embedding_service import generate_embedding
+from app.services.embedding_service import generate_embedding, generate_embedding_async
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ async def search_knowledge(
     if not query or not query.strip():
         return []
 
-    query_embedding = generate_embedding(query.strip())
+    query_embedding = await generate_embedding_async(query.strip(), db=db)
     results: List[Dict[str, Any]] = []
 
     # 1. Try native PostgreSQL pgvector cosine distance

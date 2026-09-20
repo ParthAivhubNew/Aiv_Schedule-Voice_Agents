@@ -129,6 +129,17 @@ async def lifespan(app: FastAPI):
                     pass
 
         for col, col_type in [
+            ("spoken_name", "VARCHAR"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS {col} {col_type};"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE company_profile ADD COLUMN {col} {col_type};"))
+                except Exception:
+                    pass
+
+        for col, col_type in [
             ("prospect_timezone_override", "VARCHAR"),
             ("working_hours_by_day", "JSON"),
             ("slot_step_minutes", "INTEGER DEFAULT 15"),

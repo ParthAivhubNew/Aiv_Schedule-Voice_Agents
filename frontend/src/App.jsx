@@ -142,7 +142,8 @@ const INITIAL_BUILTIN_PROVIDERS = [
   { id: "gemini", name: "Google Gemini", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: "", models: ["Gemini 2.0 Flash", "Gemini 1.5 Pro", "Gemini Embedding"] },
   { id: "stability", name: "Stability AI", type: "image", badge: "Image Synthesis", status: "not_configured", latencyMs: null, baseUrl: "https://api.stability.ai", apiKey: "", models: ["sdxl-1.0", "sd-1.5"] },
   { id: "fal", name: "Fal.ai", type: "image", badge: "Fast FLUX / Diffusion", status: "not_configured", latencyMs: null, baseUrl: "https://fal.run", apiKey: "", models: ["fal-ai/flux/schnell", "fal-ai/flux-pro", "fal-ai/flux-realism"] },
-  { id: "pollinations", name: "Pollinations AI", type: "image", badge: "Free Built-in FLUX", status: "connected", latencyMs: 18, baseUrl: "https://image.pollinations.ai", apiKey: "", models: ["FLUX.1 Schnell", "Flux.1 Dev"] },
+  { id: "pollinations", name: "Pollinations AI", type: "image", badge: "Free Built-in FLUX", status: "connected", latencyMs: null, baseUrl: "https://image.pollinations.ai", apiKey: "", models: ["FLUX.1 Schnell", "Flux.1 Dev"] },
+  { id: "cartesia", name: "Cartesia", type: "tts", badge: "Sonic Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.cartesia.ai", apiKey: "", models: ["Cartesia Sonic"] },
   { id: "ollama", name: "Ollama / Self-Hosted", type: "llm", badge: "100% Private On-Prem", status: "not_configured", latencyMs: null, baseUrl: "http://localhost:11434/v1", apiKey: "", models: ["Ollama Llama 3.2 (Local)", "Ollama Mistral (Local)", "DeepSeek-R1 (Local)", "Ollama nomic-embed (Local)"] },
   { id: "deepgram", name: "Deepgram", type: "stt", badge: "Managed STT", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepgram.com/v1", apiKey: "", models: ["Deepgram Nova-3", "Deepgram Nova-2"] },
   { id: "elevenlabs", name: "ElevenLabs", type: "tts", badge: "Managed Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.elevenlabs.io/v1", apiKey: "", models: ["ElevenLabs Turbo", "ElevenLabs Multilingual v2"] },
@@ -151,10 +152,10 @@ const INITIAL_BUILTIN_PROVIDERS = [
 ];
 
 const VOICE_LAYERS = [
-  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI Grok-2", oss: "DeepSeek V4 Flash", options: ["xAI Grok (speech-to-speech)", "xAI Grok-2", "xAI Grok-4.6", "OpenAI Realtime", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek V4 Flash", "Gemini 2.0 Flash"] },
-  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "ElevenLabs Turbo", oss: "Kokoro (self-hosted)", options: ["xAI Voice Agent", "OpenAI Realtime", "ElevenLabs Turbo", "Cartesia Sonic", "Kokoro (self-hosted)", "PlayHT 2.0", "Amazon Polly"] },
-  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "Deepgram Nova-3", oss: "Faster-Whisper (self-hosted)", options: ["xAI Voice Agent", "OpenAI Realtime", "Deepgram Nova-3", "Faster-Whisper (self-hosted)", "OpenAI Whisper", "AssemblyAI"] },
-  { key: "voice", label: "Voice Orchestration & Interruption Engine", desc: "Manages audio buffers, turn-taking arbitration, and silence detection", paid: "Vapi Voice AI", oss: "LiveKit (self-hosted)", options: ["xAI Grok (speech-to-speech)", "xAI Voice Agent", "OpenAI Realtime", "Vapi Voice AI", "Retell AI", "LiveKit (self-hosted)", "Bland AI"] },
+  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI Grok", oss: "DeepSeek V4 Flash", options: ["xAI Grok", "xAI Grok-2", "xAI Grok (speech-to-speech)", "xAI Grok-4.6", "OpenAI Realtime", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek V4 Flash", "Gemini 2.0 Flash"] },
+  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "Cartesia Sonic", oss: "Kokoro (self-hosted)", options: ["Cartesia Sonic", "ElevenLabs Turbo", "xAI Voice Agent", "OpenAI Realtime", "Kokoro (self-hosted)", "PlayHT 2.0", "Amazon Polly"] },
+  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "xAI", oss: "Faster-Whisper (self-hosted)", options: ["xAI", "xAI Voice Agent", "Deepgram Nova-3", "Faster-Whisper (self-hosted)", "OpenAI Whisper", "AssemblyAI"] },
+  { key: "voice", label: "Voice Orchestration & Interruption Engine", desc: "Manages audio buffers, turn-taking arbitration, and silence detection", paid: "xAI + cloned TTS (plugin)", oss: "LiveKit (self-hosted)", options: ["xAI + cloned TTS (plugin)", "xAI Grok (speech-to-speech)", "xAI Voice Agent", "OpenAI Realtime", "Vapi Voice AI", "Retell AI", "LiveKit (self-hosted)", "Bland AI"] },
   { key: "telephony", label: "Telephony Carrier & SIP Trunk", desc: "PSTN inbound numbers, caller ID preservation, and carrier routing", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "xAI Voice Number", "Telnyx", "Plivo", "Vonage"] },
 ];
 
@@ -263,30 +264,153 @@ function voiceLayersFromHub(hub, prevLayers) {
   };
 }
 
+function syncCommonAiWithBackend(prevCommonAi, backendConns, liveHub) {
+  const prev = prevCommonAi || INITIAL_COMMON_AI_CONFIG;
+  const flatItems = [];
+  if (Array.isArray(backendConns)) {
+    backendConns.forEach((group) => {
+      (group.items || []).forEach((item) => {
+        flatItems.push({ ...item, groupName: group.group });
+      });
+    });
+  }
+
+  const findItem = (pattern) => {
+    const matched = flatItems.filter((it) => pattern.test(it.name || "") || pattern.test(it.id || ""));
+    const connected = matched.find((it) => (it.status || "").toLowerCase() === "connected" && it.apiKeyMasked && it.apiKeyMasked !== "••••••••");
+    if (connected) return connected;
+    const anyConnected = matched.find((it) => (it.status || "").toLowerCase() === "connected" || Boolean(it.apiKeyMasked && it.apiKeyMasked !== "••••••••"));
+    return anyConnected || matched[0] || null;
+  };
+
+  const matchRules = {
+    xai: /xai|grok/i,
+    openai: /openai|gpt/i,
+    anthropic: /anthropic|claude/i,
+    deepseek: /deepseek/i,
+    groq: /groq|llama/i,
+    gemini: /gemini|google/i,
+    elevenlabs: /elevenlabs/i,
+    cartesia: /cartesia/i,
+    deepgram: /deepgram/i,
+    twilio: /twilio/i,
+    vapi: /vapi/i,
+    stability: /stability|sdxl/i,
+    fal: /fal/i,
+    ollama: /ollama/i,
+  };
+
+  const currentProviders = (prev.providers && Array.isArray(prev.providers) && prev.providers.length)
+    ? prev.providers
+    : INITIAL_BUILTIN_PROVIDERS;
+
+  const nextProviders = currentProviders.map((p) => {
+    const rule = matchRules[p.id];
+    if (rule) {
+      const match = findItem(rule);
+      if (match) {
+        const connected = (match.status || "").toLowerCase() === "connected" || Boolean(match.apiKeyMasked && match.apiKeyMasked !== "••••••••");
+        return {
+          ...p,
+          status: connected ? "connected" : (p.apiKey ? "connected" : "not_configured"),
+          apiKeyMasked: (match.apiKeyMasked && match.apiKeyMasked !== "••••••••" ? match.apiKeyMasked : "") || p.apiKeyMasked || "",
+          dbConnectionId: match.id,
+        };
+      }
+    }
+    // Fallback detection from live hub status
+    if (liveHub) {
+      if (p.id === "xai" && (String(liveHub.liveEngine || "").toLowerCase().includes("xai") || liveHub.apiKeyMasked)) {
+        return { ...p, status: "connected", apiKeyMasked: liveHub.apiKeyMasked || p.apiKeyMasked || "" };
+      }
+      if (p.id === "twilio" && String(liveHub.activeCarrier || "").toLowerCase().includes("twilio")) {
+        return { ...p, status: "connected" };
+      }
+      if (p.id === "cartesia" && (String(liveHub.ttsProvider || "").toLowerCase().includes("cartesia") || String(liveHub.ttsName || "").toLowerCase().includes("cartesia"))) {
+        return { ...p, status: "connected" };
+      }
+      if (p.id === "elevenlabs" && String(liveHub.ttsProvider || "").toLowerCase().includes("eleven")) {
+        return { ...p, status: "connected" };
+      }
+    }
+    if (p.id === "pollinations") {
+      return { ...p, status: "connected", latencyMs: null };
+    }
+    return p;
+  });
+
+  if (!nextProviders.find((p) => p.id === "cartesia")) {
+    const cMatch = findItem(/cartesia/i);
+    const connected = (cMatch && ((cMatch.status || "").toLowerCase() === "connected" || Boolean(cMatch.apiKeyMasked))) || (liveHub && String(liveHub.ttsProvider || "").toLowerCase().includes("cartesia"));
+    nextProviders.push({
+      id: "cartesia",
+      name: "Cartesia",
+      type: "tts",
+      badge: "Sonic Voice",
+      status: connected ? "connected" : "not_configured",
+      latencyMs: null,
+      baseUrl: "https://api.cartesia.ai",
+      apiKey: "",
+      apiKeyMasked: cMatch?.apiKeyMasked || "",
+      models: ["Cartesia Sonic"],
+    });
+  }
+
+  let nextVoiceLayers = prev.voiceLayers || {};
+  if (liveHub) {
+    nextVoiceLayers = voiceLayersFromHub(liveHub, nextVoiceLayers);
+  }
+
+  let nextSchedAi = prev.schedulerAi || {};
+  let nextSchedLayers = prev.schedulerLayers || {};
+  try {
+    const s = localStorage.getItem("aivhub_scheduler_ai");
+    if (s) {
+      const parsed = JSON.parse(s);
+      nextSchedAi = { ...nextSchedAi, ...parsed };
+      if (parsed.model) {
+        nextSchedLayers = { ...nextSchedLayers, postWriter: parsed.model };
+      }
+      if (parsed.imageProvider || parsed.imageModel) {
+        const imgName = parsed.imageProvider === "pollinations" ? "Pollinations FLUX (Free)" : (parsed.imageModel || parsed.imageProvider);
+        nextSchedLayers = { ...nextSchedLayers, imageStudio: imgName };
+      }
+    }
+  } catch (_) {}
+
+  return {
+    ...prev,
+    providers: nextProviders,
+    voiceLayers: nextVoiceLayers,
+    schedulerLayers: nextSchedLayers,
+    schedulerAi: nextSchedAi,
+  };
+}
+
 const LEADGEN_LAYERS = [
-  { key: "researchLlm", label: "Web Search & Account Discovery LLM", desc: "Discovers target accounts matching ICP criteria across sectors", paid: "DeepSeek-V3", oss: "Groq Llama 3.3 70B", options: ["DeepSeek-V3", "Claude 3.5 Sonnet", "GPT-4o", "Gemini 2.0 Flash", "Groq Llama 3.3 70B"] },
-  { key: "extractorLlm", label: "Decision-Maker & Contact Extractor", desc: "Extracts verified names, job titles, and contact signals", paid: "Groq Llama 3.3 70B", oss: "Ollama Llama 3.2 (Local)", options: ["Groq Llama 3.3 70B", "GPT-4o-mini", "DeepSeek-V3", "Claude 3.5 Sonnet", "Ollama Llama 3.2 (Local)"] },
+  { key: "researchLlm", label: "Web Search & Account Discovery LLM", desc: "Discovers target accounts matching ICP criteria across sectors", paid: "xAI Grok-2", oss: "Groq Llama 3.3 70B", options: ["xAI Grok-2", "DeepSeek-V3", "Claude 3.5 Sonnet", "GPT-4o", "Gemini 2.0 Flash", "Groq Llama 3.3 70B"] },
+  { key: "extractorLlm", label: "Decision-Maker & Contact Extractor", desc: "Extracts verified names, job titles, and contact signals", paid: "xAI Grok-2", oss: "Ollama Llama 3.2 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "GPT-4o-mini", "DeepSeek-V3", "Claude 3.5 Sonnet", "Ollama Llama 3.2 (Local)"] },
   { key: "enrichmentEngine", label: "Live Web & Domain Crawler", desc: "Performs real-time scraping of company websites and news", paid: "DuckDuckGo Live + Crawler", oss: "Direct Domain Scraping", options: ["DuckDuckGo Live + Crawler", "Direct Domain Scraping", "Google Custom Search"] },
-  { key: "dossierSynth", label: "Pain-Point & Strategic Hook Synthesizer", desc: "Synthesizes intelligence into conversation openers and cold hooks", paid: "Claude 3.5 Sonnet", oss: "DeepSeek-V3", options: ["Claude 3.5 Sonnet", "DeepSeek-V3", "GPT-4o", "Groq Llama 3.3 70B"] },
-  { key: "intentScoring", label: "Autonomous ICP & Intent Fit Scorer", desc: "Calculates account priority and purchase readiness scores", paid: "DeepSeek-V3", oss: "Groq Llama 3.3 70B", options: ["DeepSeek-V3", "GPT-4o-mini", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet"] },
+  { key: "dossierSynth", label: "Pain-Point & Strategic Hook Synthesizer", desc: "Synthesizes intelligence into conversation openers and cold hooks", paid: "xAI Grok-2", oss: "DeepSeek-V3", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "DeepSeek-V3", "GPT-4o", "Groq Llama 3.3 70B"] },
+  { key: "intentScoring", label: "Autonomous ICP & Intent Fit Scorer", desc: "Calculates account priority and purchase readiness scores", paid: "xAI Grok-2", oss: "Groq Llama 3.3 70B", options: ["xAI Grok-2", "DeepSeek-V3", "GPT-4o-mini", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet"] },
 ];
 
 const LOCAL_BGE_EMBEDDINGS = "BAAI/bge-small-en-v1.5 (local CPU)";
 
 const SCHEDULER_LAYERS = [
-  { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "Claude 3.5 Sonnet", oss: "Ollama Llama 3.2 (Local)", options: ["Claude 3.5 Sonnet", "xAI Grok-2", "GPT-4o", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Llama 3.2 (Local)"] },
+  { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "xAI Grok-2", oss: "Ollama Llama 3.2 (Local)", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "GPT-4o", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Llama 3.2 (Local)"] },
   { key: "topicResearch", label: "Topic Research & Trend Discovery", desc: "Monitors industry trends to formulate timely editorial hooks", paid: "xAI Grok-2", oss: "Gemini 2.0 Flash", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o", "Claude 3.5 Sonnet", "DeepSeek-V3"] },
   { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "Pollinations FLUX (Free)", oss: "Pollinations FLUX", options: ["Pollinations FLUX (Free)", "OpenAI DALL-E 3", "Stability SDXL", "Fal.ai FLUX.1 Pro", "Custom Image API"] },
   { key: "chatPlanner", label: "Plan Chat Editorial Assistant", desc: "Refines campaign concepts and schedules interactively", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
-  { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Crawl, voice RAG, and scheduler knowledge search all run this local FastEmbed model. No cloud embed API is called.", paid: LOCAL_BGE_EMBEDDINGS, oss: LOCAL_BGE_EMBEDDINGS, options: [LOCAL_BGE_EMBEDDINGS], runtimeLocked: true },
+  { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Generates 384-dimensional vector embeddings for website crawls, voice RAG, and knowledge retrieval.", paid: LOCAL_BGE_EMBEDDINGS, oss: LOCAL_BGE_EMBEDDINGS, options: [LOCAL_BGE_EMBEDDINGS, "text-embedding-3-small (OpenAI)", "all-MiniLM-L6-v2 (local FastEmbed)", "nomic-embed-text (Ollama)", "text-embedding-3-large (OpenAI)"] },
 ];
 
 const EMAIL_LAYERS = [
-  { key: "copywriterLlm", label: "Outreach Copywriter & Sequencer", desc: "Drafts concise, high-converting B2B cold email sequences", paid: "Claude 3.5 Sonnet", oss: "Groq Llama 3.3 70B", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B", "Gemini 2.0 Flash"] },
-  { key: "replyClassifier", label: "Inbound Reply Classifier & Sentiment", desc: "Categorizes inbound emails into Interested, Objections, or Not Now", paid: "DeepSeek-V3", oss: "GPT-4o-mini", options: ["DeepSeek-V3", "GPT-4o-mini", "Claude 3.5 Sonnet", "Groq Llama 3.3 70B"] },
-  { key: "replyDrafter", label: "Context-Aware Auto-Response Drafter", desc: "Generates tailored responses to inbound client inquiries", paid: "Claude 3.5 Sonnet", oss: "DeepSeek-V3", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
+  { key: "copywriterLlm", label: "Outreach Copywriter & Sequencer", desc: "Drafts concise, high-converting B2B cold email sequences", paid: "xAI Grok-2", oss: "Groq Llama 3.3 70B", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B", "Gemini 2.0 Flash"] },
+  { key: "replyClassifier", label: "Inbound Reply Classifier & Sentiment", desc: "Categorizes inbound emails into Interested, Objections, or Not Now", paid: "xAI Grok-2", oss: "GPT-4o-mini", options: ["xAI Grok-2", "DeepSeek-V3", "GPT-4o-mini", "Claude 3.5 Sonnet", "Groq Llama 3.3 70B"] },
+  { key: "replyDrafter", label: "Context-Aware Auto-Response Drafter", desc: "Generates tailored responses to inbound client inquiries", paid: "xAI Grok-2", oss: "DeepSeek-V3", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
   { key: "spamAuditor", label: "Deliverability & Spam Auditor", desc: "Scans copy for trigger phrases to ensure high inbox delivery", paid: "AIV Spam Guard v2", oss: "DeepSeek-V3", options: ["AIV Spam Guard v2", "GPT-4o-mini", "DeepSeek-V3"] },
-  { key: "contentTransformer", label: "Social Post-to-Email Repurposer", desc: "Transforms published social posts into broadcast emails", paid: "Claude 3.5 Sonnet", oss: "DeepSeek-V3", options: ["Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
+  { key: "contentTransformer", label: "Social Post-to-Email Repurposer", desc: "Transforms published social posts into broadcast emails", paid: "xAI Grok-2", oss: "DeepSeek-V3", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
 ];
 
 const INITIAL_COMMON_AI_CONFIG = {
@@ -324,25 +448,20 @@ const INITIAL_COMMON_AI_CONFIG = {
 
   // Future plugin definitions
   futurePlugins: [
-    { id: "leadHunter", name: "CRM Lead Hunter", icon: Search, reqs: "1 Research LLM + 1 Web Data Extractor", assigned: { researchLlm: "Gemini 2.0 Flash", extractor: "Groq Llama 3.3 70B" }, status: "ready" },
-    { id: "emailOutreach", name: "Cold Email Sequencer", icon: Mail, reqs: "1 Copywriter LLM + 1 Spam Classifier", assigned: { writerLlm: "Claude 3.5 Sonnet", classifier: "GPT-4o-mini" }, status: "ready" },
-    { id: "supportBot", name: "24/7 Tier-1 Helpdesk Bot", icon: Bot, reqs: "1 Fast Low-Latency LLM + Knowledge RAG", assigned: { botLlm: "Groq Llama 3.3 70B", rag: LOCAL_BGE_EMBEDDINGS }, status: "ready" },
+    { id: "leadHunter", name: "CRM Lead Hunter", icon: Search, reqs: "1 Research LLM + 1 Web Data Extractor", assigned: { researchLlm: "xAI Grok-2", extractor: "Groq Llama 3.3 70B" }, status: "ready" },
+    { id: "emailOutreach", name: "Cold Email Sequencer", icon: Mail, reqs: "1 Copywriter LLM + 1 Spam Classifier", assigned: { writerLlm: "xAI Grok-2", classifier: "GPT-4o-mini" }, status: "ready" },
+    { id: "supportBot", name: "24/7 Tier-1 Helpdesk Bot", icon: Bot, reqs: "1 Fast Low-Latency LLM + Knowledge RAG", assigned: { botLlm: "xAI Grok-2", rag: LOCAL_BGE_EMBEDDINGS }, status: "ready" },
   ],
 
-  // Master Subscription & Token Quota
+  // Master Subscription & Token Quota (Live database metrics populated on load)
   subscription: {
-    tenantName: "Acme Operations (Client Enterprise Workspace)",
-    planTier: "AIVHub Enterprise Suite (Unified Master Subscription)",
-    monthlyTokenQuota: 5000000,
-    tokensUsed: 1845200,
-    estimatedCostUsd: 14.80,
-    monthlyBudgetCapUsd: 120.00,
-    pluginBreakdown: [
-      { id: "leadgen", name: "1. Lead Generation Plugin", tokens: 420000, cost: 3.36, percentage: 23, color: "#8B5CF6" },
-      { id: "scheduler", name: "2. Post Scheduler & Generator", tokens: 580000, cost: 4.64, percentage: 31, color: "#0C8C7D" },
-      { id: "emailoutreach", name: "3. Email Generation & Sending", tokens: 360000, cost: 2.88, percentage: 20, color: "#F59E0B" },
-      { id: "voice", name: "4. AI Voice Assistant", tokens: 485200, cost: 3.92, percentage: 26, color: "#3457D5" },
-    ],
+    tenantName: "AIVHub Workspace",
+    planTier: "Metered Workspace Subscription",
+    monthlyTokenQuota: 0,
+    tokensUsed: 0,
+    estimatedCostUsd: 0,
+    monthlyBudgetCapUsd: 0,
+    pluginBreakdown: [],
   },
 };
 
@@ -1012,6 +1131,7 @@ const INITIAL_SERVICES = [
 
 const INITIAL_COMPANY_PROFILE = {
   name: "AIVHub",
+  spokenName: "",
   pitch: "AI-powered business intelligence dashboards for mid-market operations teams",
   industry: "Business intelligence / data consulting",
   website: "https://aivhub.io",
@@ -1335,13 +1455,13 @@ function nowStamp() {
 
 const NAV_GROUPS = [
   { label: "Operations", items: [
+    { id: "list", label: "Contact List & Batches", icon: Building2 },
     { id: "tasks", label: "Tasks & Batches", icon: ListChecks },
     { id: "schedule", label: "Schedule", icon: Calendar },
     { id: "meetings", label: "Meetings", icon: CalendarCheck },
     { id: "live", label: "Live Activity", icon: Radio },
     { id: "calllog", label: "Call Log", icon: History },
     { id: "processlogs", label: "System Process Logs", icon: FileText },
-    { id: "prospects", label: "Contacts & Batches", icon: Building2 },
   ]},
   { label: "Configuration", items: [
     { id: "company", label: "Company Profile", icon: Users },
@@ -1378,7 +1498,7 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
             width: 28,
             height: 28,
             borderRadius: 8,
-            background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`,
+            background: `linear-gradient(135deg, ${C.cobalt}, ${C.cobaltDeep})`,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -1422,7 +1542,7 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {group.items.map((n) => {
               const Icon = n.icon;
-              const active = view === n.id;
+              const active = view === n.id || (n.id === "list" && view === "prospects");
               return (
                 <button
                   key={n.id}
@@ -1476,9 +1596,9 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
               gap: 6,
               padding: "8px",
               borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.16)",
-              background: "rgba(12,140,125,0.18)",
-              color: "#D7F3EE",
+              border: "1px solid rgba(52,87,213,0.35)",
+              background: "rgba(52,87,213,0.2)",
+              color: "#EAEEFC",
               fontFamily: FONT_BODY,
               fontSize: 12,
               fontWeight: 700,
@@ -5717,7 +5837,13 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={Users} title="Company identity" desc="Basic facts the AI introduces itself with and uses to explain who it's calling on behalf of." />
               <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="Your company" />
-              <Field label="One-line pitch" value={profile.pitch} onChange={(v) => update("pitch", v)} placeholder="What you sell — used verbatim on calls" textarea />
+              <Field
+                label="Say company name as (spoken)"
+                value={profile.spokenName || ""}
+                onChange={(v) => update("spokenName", v)}
+                placeholder="How the voice should say your brand"
+                hint="Optional. Blank = say the company name as written. Set this in Company profile — not in code."
+              />              <Field label="One-line pitch" value={profile.pitch} onChange={(v) => update("pitch", v)} placeholder="What you sell — used verbatim on calls" textarea />
               <Field label="Industry" value={profile.industry || ""} onChange={(v) => update("industry", v)} placeholder="Industry" />
               <Field label="Website" value={profile.website || ""} onChange={(v) => update("website", v)} placeholder="https://" hint="Also added automatically as a knowledge source." />
               <Field label="LinkedIn / other social links" value={profile.social || ""} onChange={(v) => update("social", v)} placeholder="linkedin.com/company/…" />
@@ -12508,10 +12634,6 @@ function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick }) {
 function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTab = "leadgen", onNavigateToPlugin, operator, onOpenCalcomAdmin, scopePlugin = null, embedded = false }) {
   const [tab, setTab] = useState(initialTab || "leadgen");
   const [dirty, setDirty] = useState(false);
-  const [showKey, setShowKey] = useState(false);
-  const [testingId, setTestingId] = useState(null);
-  const [testStatus, setTestStatus] = useState({});
-  const [showCustomEndpoint, setShowCustomEndpoint] = useState(false);
 
   // Movable / Draggable window state
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -12528,46 +12650,36 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const [customModelId, setCustomModelId] = useState("");
   const [isSavingCustom, setIsSavingCustom] = useState(false);
   const [customNotice, setCustomNotice] = useState(null);
-
-  // Cal.com & Meeting Scheduler State
-  const [calSettings, setCalSettings] = useState({
-    host_email: "admin@aivhub.io",
-    host_name: "Jitendra S.",
-    api_key: "",
-    base_url: "https://api.cal.com/v1",
-    default_event_type_slug: "15-min-discovery",
-    default_duration: 15,
-    default_platform: "google_meet",
-    timezone: "Europe/London",
-    working_hours_start: "09:00",
-    working_hours_end: "17:30",
-    working_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-    buffer_before: 5,
-    buffer_after: 5,
-    auto_email_attendee: true,
-    auto_email_host: true,
-  });
-  const [calStatus, setCalStatus] = useState(null);
-  const [calTesting, setCalTesting] = useState(false);
-  const [calSaving, setCalSaving] = useState(false);
-  const [calSavedNotice, setCalSavedNotice] = useState(null);
-  const [showCalApiKey, setShowCalApiKey] = useState(false);
   const [liveHub, setLiveHub] = useState(null);
+  const [backendConns, setBackendConns] = useState([]);
+  const [connsLoading, setConnsLoading] = useState(false);
+  const [usageStats, setUsageStats] = useState(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState("");
 
   const panelOpen = embedded || isOpen;
 
   useEffect(() => {
-    if (tab === "calcom" && panelOpen) {
-      api.getCalcomSettings()
-        .then((res) => {
-          if (res) setCalSettings((prev) => ({ ...prev, ...res }));
-        })
-        .catch(() => {});
-      api.testCalcomConnection()
-        .then((res) => setCalStatus(res))
-        .catch(() => {});
-    }
-  }, [tab, panelOpen]);
+    if (!panelOpen) return;
+    let alive = true;
+    setConnsLoading(true);
+    Promise.all([
+      api.getConnections().catch(() => []),
+      api.getTelephonyHub().catch(() => null),
+    ]).then(([conns, hub]) => {
+      if (!alive) return;
+      if (Array.isArray(conns)) {
+        setBackendConns(conns);
+        setCommonAi((prev) => syncCommonAiWithBackend(prev, conns, hub));
+      }
+      if (hub) {
+        setLiveHub(hub);
+      }
+    }).finally(() => {
+      if (alive) setConnsLoading(false);
+    });
+    return () => { alive = false; };
+  }, [panelOpen]);
 
   useEffect(() => {
     if (!panelOpen || tab !== "voice") return;
@@ -12583,32 +12695,23 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
       .catch(() => {});
   }, [tab, panelOpen]);
 
-  const handleTestCalcom = async () => {
-    setCalTesting(true);
-    try {
-      const res = await api.testCalcomConnection();
-      setCalStatus(res);
-    } catch (err) {
-      setCalStatus({ connected: false, message: `Error: ${err.message}` });
-    } finally {
-      setCalTesting(false);
-    }
-  };
-
-  const handleSaveCalcom = async () => {
-    setCalSaving(true);
-    try {
-      await api.saveCalcomSettings(calSettings);
-      setCalSavedNotice("Calendar settings saved successfully!");
-      setDirty(true);
-      setTimeout(() => setCalSavedNotice(null), 3000);
-      handleTestCalcom();
-    } catch (err) {
-      setCalSavedNotice(`Failed to save: ${err.message}`);
-    } finally {
-      setCalSaving(false);
-    }
-  };
+  useEffect(() => {
+    if (!panelOpen || tab !== "subscription") return;
+    let alive = true;
+    setUsageLoading(true);
+    setUsageError("");
+    api.getUsageQuotas()
+      .then((data) => {
+        if (alive) setUsageStats(data || null);
+      })
+      .catch((err) => {
+        if (alive) setUsageError(err?.message || "Could not load usage");
+      })
+      .finally(() => {
+        if (alive) setUsageLoading(false);
+      });
+    return () => { alive = false; };
+  }, [tab, panelOpen]);
 
 
   // Mouse handlers for dragging modal by its header
@@ -12644,6 +12747,22 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
   useEffect(() => {
     if (!panelOpen) return;
+    if (scopePlugin === "calcom") {
+      if (onOpenCalcomAdmin) {
+        onOpenCalcomAdmin("settings");
+        if (!embedded) onClose();
+      }
+      setTab("leadgen");
+      return;
+    }
+    if (initialTab === "calcom") {
+      if (onOpenCalcomAdmin) {
+        onOpenCalcomAdmin("settings");
+        if (!embedded) onClose();
+      }
+      setTab("leadgen");
+      return;
+    }
     if (scopePlugin) setTab(scopePlugin);
     else if (initialTab) setTab(initialTab);
   }, [panelOpen, initialTab, scopePlugin]);
@@ -12660,7 +12779,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     schedulerLayers: {
       ...INITIAL_COMMON_AI_CONFIG.schedulerLayers,
       ...(commonAi?.schedulerLayers || {}),
-      embeddings: LOCAL_BGE_EMBEDDINGS,
     },
     emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(commonAi?.emailLayers || {}) },
     voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(commonAi?.voiceLayers || {}) },
@@ -12672,71 +12790,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   const flash = () => {
     setDirty(true);
     setTimeout(() => setDirty(false), 1400);
-  };
-
-  const updateProviderKey = (id, key) => {
-    setCommonAi((prev) => {
-      const provs = (prev && prev.providers) || safeCommonAi.providers;
-      return {
-        ...prev,
-        providers: provs.map((p) => (p.id === id ? { ...p, apiKey: key } : p)),
-      };
-    });
-    flash();
-  };
-
-  const updateProviderBaseUrl = (id, url) => {
-    setCommonAi((prev) => {
-      const provs = (prev && prev.providers) || safeCommonAi.providers;
-      return {
-        ...prev,
-        providers: provs.map((p) => (p.id === id ? { ...p, baseUrl: url } : p)),
-      };
-    });
-    flash();
-  };
-
-  const testConnection = async (id) => {
-    const p = safeCommonAi.providers.find((prov) => prov.id === id);
-    if (!p) return;
-
-    if (!p.apiKey && p.id !== "ollama") {
-      setTestStatus((prev) => ({ ...prev, [id]: { status: "error", msg: "Please enter an API key to test." } }));
-      return;
-    }
-
-    setTestingId(id);
-    setTestStatus((prev) => ({ ...prev, [id]: null }));
-    const startTime = Date.now();
-
-    try {
-      const res = await api.testAndSaveConnection({
-        layer: p.type || "LLM",
-        provider: p.name,
-        api_key: p.apiKey || "dummy_key",
-        base_url: p.baseUrl || undefined,
-      });
-
-      const latency = Math.max(Date.now() - startTime, 28);
-      setCommonAi((prev) => ({
-        ...prev,
-        providers: (prev?.providers || safeCommonAi.providers).map((item) =>
-          item.id === id ? { ...item, status: "connected", latencyMs: latency } : item
-        ),
-      }));
-      setTestStatus((prev) => ({
-        ...prev,
-        [id]: { status: "success", msg: res.details || "Verified & connected successfully!" },
-      }));
-      flash();
-    } catch (err) {
-      setTestStatus((prev) => ({
-        ...prev,
-        [id]: { status: "error", msg: err.message || "Connection failed. Please check your key or URL." },
-      }));
-    } finally {
-      setTestingId(null);
-    }
   };
 
   const updateVisibleName = (key, name) => {
@@ -12756,13 +12809,13 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
   };
 
   const updateSchedulerLayer = (key, val) => {
-    if (key === "embeddings") return;
     setCommonAi((prev) => {
       const nextSchedLayers = { ...((prev && prev.schedulerLayers) || {}), [key]: val };
       const nextSchedAi = {
         ...((prev && prev.schedulerAi) || {}),
         ...(key === "postWriter" ? { model: val, provider: getProviderIdForModel(val) } : {}),
         ...(key === "imageStudio" ? { imageEngine: val } : {}),
+        ...(key === "embeddings" ? { embeddingModel: val, embeddingProvider: getProviderIdForModel(val) } : {}),
       };
       try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(scrubSecretsForStorage(nextSchedAi))); } catch (_) {}
       return {
@@ -12827,7 +12880,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         apiKey: apiKey,
         baseUrl: baseUrl || undefined,
         status: "connected",
-        latencyMs: 32,
+        latencyMs: null,
         createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
@@ -12850,7 +12903,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               apiKey: apiKey,
               baseUrl: baseUrl || undefined,
               status: "connected",
-              latencyMs: 32,
+              latencyMs: null,
             },
           ],
         };
@@ -12893,153 +12946,38 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     const m = String(modelName || "").toLowerCase();
     const customConn = (safeCommonAi.customConnections || []).find((c) => c.modelId.toLowerCase() === m);
     if (customConn) return customConn.id;
-    if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet") || m.includes("haiku")) return "anthropic";
-    if (m.includes("gpt") || m.includes("o3") || m.includes("openai") || m.includes("dall-e") || m.includes("text-embedding")) return "openai";
+    if (
+      m.includes("duckduckgo") ||
+      m.includes("crawler") ||
+      m.includes("scraping") ||
+      m.includes("spam guard") ||
+      m.includes("bge-small") ||
+      m.includes("minilm") ||
+      m.includes("fastembed") ||
+      m.includes("local cpu") ||
+      m.includes("runtime") ||
+      m.includes("kokoro") ||
+      m.includes("faster-whisper") ||
+      m.includes("livekit")
+    ) {
+      return "builtin";
+    }
+    if (m.includes("pollinations")) return "pollinations";
+    if (m.includes("cartesia")) return "cartesia";
+    if (m.includes("elevenlabs") || m.includes("eleven")) return "elevenlabs";
+    if (m.includes("deepgram")) return "deepgram";
+    if (m.includes("twilio") || m.includes("telnyx")) return "twilio";
     if (m.includes("grok") || m.includes("xai")) return "xai";
+    if (m.includes("claude") || m.includes("anthropic") || m.includes("sonnet") || m.includes("haiku")) return "anthropic";
     if (m.includes("deepseek")) return "deepseek";
     if (m.includes("groq") || m.includes("llama")) return "groq";
     if (m.includes("gemini") || m.includes("google")) return "gemini";
     if (m.includes("stability") || m.includes("sdxl") || m.includes("stable-diffusion")) return "stability";
     if (m.includes("fal") || m.includes("flux")) return "fal";
-    if (m.includes("pollinations")) return "pollinations";
-    if (m.includes("elevenlabs")) return "elevenlabs";
-    if (m.includes("deepgram")) return "deepgram";
-    if (m.includes("twilio") || m.includes("telnyx")) return "twilio";
+    if (m.includes("gpt") || m.includes("o3") || m.includes("openai") || m.includes("dall-e") || m.includes("text-embedding")) return "openai";
     if (m.includes("vapi")) return "vapi";
     if (m.includes("ollama") || m.includes("local")) return "ollama";
     return "openai";
-  };
-
-  const renderProviderKeyCard = (providerId, contextLabel) => {
-    const prov = safeCommonAi.providers.find((p) => p.id === providerId) || {
-      id: providerId,
-      name: providerId.toUpperCase(),
-      apiKey: "",
-      baseUrl: "",
-      status: "not_configured"
-    };
-
-    const isTesting = testingId === prov.id;
-    const testInfo = testStatus[prov.id];
-    const isConnected = prov.status === "connected" || !!prov.apiKey;
-
-    return (
-      <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", marginTop: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                {prov.name} API Key
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: isConnected ? "#ECFDF5" : "#FEF3C7", color: isConnected ? "#059669" : "#D97706" }}>
-                {isConnected ? "Connected" : "Key Needed"}
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-              Active key for {contextLabel}
-            </div>
-          </div>
-
-          {prov.latencyMs && (
-            <span style={{ fontSize: 11, fontFamily: FONT_MONO, color: C.teal, background: C.tealSoft, padding: "2px 7px", borderRadius: 4, fontWeight: 600 }}>
-              {prov.latencyMs}ms latency
-            </span>
-          )}
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ position: "relative", flex: 1 }}>
-            <input
-              type={showKey ? "text" : "password"}
-              value={prov.apiKey || ""}
-              onChange={(e) => updateProviderKey(prov.id, e.target.value)}
-              placeholder={`Paste your ${prov.name} API key here (sk-...)`}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "9px 36px 9px 12px",
-                borderRadius: 8,
-                border: `1px solid ${C.border}`,
-                fontFamily: FONT_MONO,
-                fontSize: 12.5,
-                background: HUB_PAPER,
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey(!showKey)}
-              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", color: C.slate }}
-            >
-              {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => testConnection(prov.id)}
-            disabled={isTesting}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "9px 16px",
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              background: "#fff",
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: C.ink,
-              cursor: isTesting ? "wait" : "pointer",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-            }}
-          >
-            <RefreshCw size={13} className={isTesting ? "animate-spin" : ""} />
-            <span>{isTesting ? "Testing..." : "Test Connection"}</span>
-          </button>
-        </div>
-
-        {testInfo && (
-          <div style={{
-            marginTop: 10,
-            padding: "8px 12px",
-            borderRadius: 7,
-            fontSize: 12,
-            background: testInfo.status === "success" ? "#ECFDF5" : "#FEF2F2",
-            color: testInfo.status === "success" ? "#065F46" : "#991B1B",
-            border: `1px solid ${testInfo.status === "success" ? "#A7F3D0" : "#FECACA"}`,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}>
-            <span>{testInfo.status === "success" ? "✓" : "⚠️"}</span>
-            <span>{testInfo.msg}</span>
-          </div>
-        )}
-
-        <div style={{ marginTop: 10 }}>
-          <button
-            type="button"
-            onClick={() => setShowCustomEndpoint(!showCustomEndpoint)}
-            style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 11.5, color: C.cobalt, padding: 0, fontWeight: 600, textDecoration: "underline" }}
-          >
-            {showCustomEndpoint ? "Hide custom endpoint" : "Use custom endpoint / local proxy URL"}
-          </button>
-
-          {showCustomEndpoint && (
-            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Base URL (e.g. http://localhost:11434/v1 or private proxy)</label>
-              <input
-                type="text"
-                value={prov.baseUrl || ""}
-                onChange={(e) => updateProviderBaseUrl(prov.id, e.target.value)}
-                placeholder="https://api.your-provider.com/v1"
-                style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12 }}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-    );
   };
 
   // Renders the persistent custom connections + add custom API drawer
@@ -13308,6 +13246,10 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
           const currentModel = layer.runtimeLocked ? (layer.paid || currentValues[layer.key]) : (currentValues[layer.key] || layer.paid);
           const currentDisplayName = visibleNames[layer.key] || layer.label;
           const isCustomModel = !layer.runtimeLocked && !layer.options.includes(currentModel);
+          const provId = getProviderIdForModel(currentModel);
+          const isBuiltin = provId === "builtin" || provId === "pollinations";
+          const matchedProv = safeCommonAi.providers.find((p) => p.id === provId);
+          const isProvConnected = isBuiltin || (matchedProv && (matchedProv.status === "connected" || Boolean(matchedProv.apiKey) || Boolean(matchedProv.apiKeyMasked)));
 
           if (layer.runtimeLocked) {
             return (
@@ -13380,7 +13322,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
               }}
             >
               <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.ink }}>
                     {layer.label}
                   </span>
@@ -13390,6 +13332,35 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   {isCustomModel && (
                     <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#EEF2FF", color: "#4F46E5", border: "1px solid #C7D2FE" }}>
                       User Defined
+                    </span>
+                  )}
+                  {isProvConnected ? (
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      background: "#ECFDF5",
+                      color: "#059669",
+                      border: "1px solid #A7F3D0",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: 999, background: "#10B981" }} />
+                      {isBuiltin ? (provId === "pollinations" ? "Live in Workspace (Pollinations FLUX)" : "Built-in (Live)") : `Live in Workspace (${matchedProv?.name || provId})`}
+                    </span>
+                  ) : (
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: "#DC2626",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: 999, background: "#DC2626" }} />
+                      Key Needed ({matchedProv?.name || provId})
                     </span>
                   )}
                 </div>
@@ -13480,17 +13451,16 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
     );
   };
 
-  const leadgenProviderId = getProviderIdForModel(safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3");
-  const schedulerProviderId = getProviderIdForModel(safeCommonAi.schedulerLayers?.postWriter || "Claude 3.5 Sonnet");
-  const emailProviderId = getProviderIdForModel(safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet");
-  const voiceLlmProviderId = getProviderIdForModel(safeCommonAi.voiceLayers?.llm || "xAI Grok-2");
-
   return (
-    <div style={embedded
+    <div
+      onClick={embedded ? undefined : onClose}
+      style={embedded
       ? { position: "relative", background: "transparent", display: "block", padding: 0 }
-      : { position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.65)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px" }
+      : { position: "fixed", inset: 0, background: "rgba(18, 20, 28, 0.65)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "24px 16px", cursor: "pointer" }
     }>
-      <div style={{
+      <div
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
+        style={{
         background: "#fff",
         borderRadius: embedded ? 16 : 18,
         width: embedded ? "100%" : 980,
@@ -13502,7 +13472,8 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         boxShadow: embedded ? "none" : "0 28px 64px rgba(0,0,0,0.28)",
         border: `1px solid ${C.border}`,
         transform: embedded ? "none" : `translate(${position.x}px, ${position.y}px)`,
-        transition: isDragging && !embedded ? "none" : "transform 0.05s ease-out"
+        transition: isDragging && !embedded ? "none" : "transform 0.05s ease-out",
+        cursor: embedded ? "default" : "default"
       }}>
         
         {/* Header (Movable by dragging) */}
@@ -13529,7 +13500,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   : scopePlugin === "voice" ? "Voice AI keys"
                   : scopePlugin === "email" ? "Email Outreach AI keys"
                   : scopePlugin === "leadgen" ? "Lead Generation AI keys"
-                  : scopePlugin === "calcom" ? "Calendar AI keys"
                   : "AI Plugin Configuration"}
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
@@ -13554,7 +13524,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
             { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
             { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
-            { id: "calcom", label: "Calendar & Cal.com", icon: CalendarCheck, color: "#10B981" },
             { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
           ].map((t) => {
             const Icon = t.icon;
@@ -13630,7 +13599,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
               {renderPluginAiFeaturesList("leadgen", LEADGEN_LAYERS, safeCommonAi.leadgenLayers, updateLeadgenLayer)}
               {renderCustomConnectionsSection("leadgen", LEADGEN_LAYERS)}
-              {renderProviderKeyCard(leadgenProviderId, "Lead Discovery & Intelligence")}
             </div>
           )}
 
@@ -13710,240 +13678,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                 />
               </div>
 
-              {/* Dedicated Image Generation Engine & Credentials Card */}
-              {(() => {
-                const schedAi = safeCommonAi.schedulerAi || {};
-                const imgProv = schedAi.imageProvider || "pollinations";
-                const imgKey = schedAi.imageApiKey || (safeCommonAi.providers || []).find((p) => p.id === imgProv)?.apiKey || "";
-                const imgModel = schedAi.imageModel || "FLUX.1 Schnell";
-                const imgDisplayName = (safeCommonAi.visibleNames || {})["imageStudio"] || "AI Visual Studio";
-                const imgBaseUrl = schedAi.imageBaseUrl || "";
-
-                return (
-                  <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                        <div style={{ width: 28, height: 28, borderRadius: 7, background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <Sparkles size={16} color={C.teal} />
-                        </div>
-                        <div>
-                          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.ink }}>
-                            AI Image Generation Engine & API Credentials
-                          </div>
-                          <div style={{ fontSize: 11.5, color: C.slate }}>
-                            Configure visual synthesis model name, open provider gateway, and dedicated API key
-                          </div>
-                        </div>
-                      </div>
-                      <span style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: "3px 9px",
-                        borderRadius: 999,
-                        background: imgProv === "pollinations" || imgKey ? "#E8F5E9" : C.amberSoft,
-                        color: imgProv === "pollinations" || imgKey ? "#1B5E20" : C.amber,
-                        border: `1px solid ${imgProv === "pollinations" || imgKey ? "#C8E6C9" : "rgba(217,119,6,0.25)"}`
-                      }}>
-                        {imgProv === "pollinations" ? "✓ Free FLUX Ready" : (imgKey ? `✓ ${imgProv.toUpperCase()} Key Active` : `⚠️ ${imgProv.toUpperCase()} Key Missing`)}
-                      </span>
-                    </div>
-
-                    {/* Dual Open Inputs: 1) Visible Display Name, 2) Exact Provider Model Identifier */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1.5fr", gap: 12, marginTop: 12 }}>
-                      {/* Image Provider Selection / Typing */}
-                      <div>
-                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                          Image AI Provider (Open / Any)
-                        </label>
-                        <input
-                          type="text"
-                          list="global-image-provider-suggestions"
-                          value={imgProv}
-                          onChange={(e) => {
-                            const newProv = e.target.value;
-                            const nextSchedAi = { ...schedAi, imageProvider: newProv };
-                            try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(scrubSecretsForStorage(nextSchedAi))); } catch (_) {}
-                            setCommonAi((p) => ({ ...p, schedulerAi: nextSchedAi }));
-                            flash();
-                          }}
-                          placeholder="pollinations, openai, stability, fal, or custom..."
-                          style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
-                        />
-                        <datalist id="global-image-provider-suggestions">
-                          <option value="pollinations">Pollinations FLUX (Free · Built-in)</option>
-                          <option value="openai">OpenAI (DALL-E 3 / DALL-E 2)</option>
-                          <option value="stability">Stability AI (SDXL 1.0)</option>
-                          <option value="fal">Fal.ai (FLUX.1 Pro / Schnell)</option>
-                          <option value="custom">Custom Image API / WebUI</option>
-                        </datalist>
-                      </div>
-
-                      {/* Visible Display Name in Software */}
-                      <div>
-                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                          Visible Name in UI
-                        </label>
-                        <input
-                          type="text"
-                          value={imgDisplayName}
-                          onChange={(e) => updateVisibleName("imageStudio", e.target.value)}
-                          placeholder="e.g. Studio FLUX 4K"
-                          style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12 }}
-                        />
-                      </div>
-
-                      {/* Provider Model Identifier */}
-                      <div>
-                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4 }}>
-                          Model Identifier (For Provider API)
-                        </label>
-                        <input
-                          type="text"
-                          list="global-image-model-suggestions"
-                          value={imgModel}
-                          onChange={(e) => {
-                            const newModel = e.target.value;
-                            const nextSchedAi = { ...schedAi, imageModel: newModel };
-                            try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(scrubSecretsForStorage(nextSchedAi))); } catch (_) {}
-                            setCommonAi((p) => ({
-                              ...p,
-                              schedulerAi: nextSchedAi,
-                              schedulerLayers: { ...((p && p.schedulerLayers) || {}), imageStudio: newModel }
-                            }));
-                            flash();
-                          }}
-                          placeholder="dall-e-3, sdxl-1.0, fal-ai/flux/schnell..."
-                          style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
-                        />
-                        <datalist id="global-image-model-suggestions">
-                          <option value="FLUX.1 Schnell" />
-                          <option value="Flux.1 Dev" />
-                          <option value="dall-e-3" />
-                          <option value="dall-e-2" />
-                          <option value="sdxl-1.0" />
-                          <option value="sd-1.5" />
-                          <option value="fal-ai/flux/schnell" />
-                          <option value="fal-ai/flux-pro" />
-                        </datalist>
-                      </div>
-                    </div>
-
-                    {/* API Key Input + Test Connection */}
-                    {imgProv !== "pollinations" && (
-                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}` }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                          <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>
-                            Image Generation API Key ({imgProv.toUpperCase()})
-                          </label>
-                          <span style={{ fontSize: 10.5, color: C.teal, fontWeight: 600 }}>
-                            ⚡ Automatically synchronized with Post Scheduler plugin
-                          </span>
-                        </div>
-
-                        <div style={{ display: "flex", gap: 10 }}>
-                          <input
-                            type="password"
-                            value={imgKey}
-                            onChange={(e) => {
-                              const newKey = e.target.value;
-                              const nextSchedAi = { ...schedAi, imageApiKey: newKey };
-                              try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(scrubSecretsForStorage(nextSchedAi))); } catch (_) {}
-                              setCommonAi((p) => {
-                                const updatedProvs = (p?.providers || safeCommonAi.providers).map((item) =>
-                                  item.id === imgProv ? { ...item, apiKey: newKey } : item
-                                );
-                                return { ...p, schedulerAi: nextSchedAi, providers: updatedProvs };
-                              });
-                              flash();
-                            }}
-                            placeholder={`Paste your ${imgProv} image generation API key (sk-...)...`}
-                            style={{ flex: 1, height: 36, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: FONT_MONO }}
-                          />
-
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!imgKey.trim() && imgProv !== "custom") {
-                                setTestStatus((prev) => ({ ...prev, [imgProv]: { status: "error", msg: `Please enter an API key for ${imgProv}.` } }));
-                                return;
-                              }
-                              setTestingId(imgProv);
-                              setTestStatus((prev) => ({ ...prev, [imgProv]: null }));
-                              try {
-                                const res = await api.testAndSaveConnection({
-                                  layer: "IMAGE",
-                                  provider: imgProv,
-                                  api_key: imgKey.trim() || "dummy",
-                                  base_url: imgBaseUrl ? imgBaseUrl.trim() : undefined,
-                                });
-                                setTestStatus((prev) => ({
-                                  ...prev,
-                                  [imgProv]: { status: "success", msg: res?.details || `Connected to ${imgProv.toUpperCase()} successfully!` }
-                                }));
-                                flash();
-                              } catch (err) {
-                                setTestStatus((prev) => ({
-                                  ...prev,
-                                  [imgProv]: { status: "error", msg: err.message || `Failed to authenticate ${imgProv}.` }
-                                }));
-                              } finally {
-                                setTestingId(null);
-                              }
-                            }}
-                            disabled={testingId === imgProv}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 6,
-                              padding: "0 14px",
-                              borderRadius: 7,
-                              border: `1px solid ${C.border}`,
-                              background: "#fff",
-                              fontSize: 12,
-                              fontWeight: 600,
-                              color: C.ink,
-                              cursor: testingId === imgProv ? "wait" : "pointer",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            <RefreshCw size={13} className={testingId === imgProv ? "animate-spin" : ""} />
-                            <span>{testingId === imgProv ? "Testing..." : "Test Image Key"}</span>
-                          </button>
-                        </div>
-
-                        {testStatus[imgProv] && (
-                          <div style={{
-                            marginTop: 8,
-                            padding: "6px 12px",
-                            borderRadius: 6,
-                            fontSize: 11.5,
-                            background: testStatus[imgProv].status === "success" ? "#ECFDF5" : "#FEF2F2",
-                            color: testStatus[imgProv].status === "success" ? "#065F46" : "#991B1B",
-                            border: `1px solid ${testStatus[imgProv].status === "success" ? "#A7F3D0" : "#FECACA"}`,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}>
-                            <span>{testStatus[imgProv].status === "success" ? "✓" : "⚠️"}</span>
-                            <span>{testStatus[imgProv].msg}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
               {renderCustomConnectionsSection("scheduler", SCHEDULER_LAYERS)}
-              {Array.from(new Set([
-                schedulerProviderId,
-                getProviderIdForModel(safeCommonAi.schedulerLayers?.topicResearch),
-                getProviderIdForModel(safeCommonAi.schedulerLayers?.chatPlanner),
-              ].filter(Boolean))).map((pid) => (
-                <div key={pid}>
-                  {renderProviderKeyCard(pid, pid === schedulerProviderId ? "Post Drafting & Copywriting" : `${pid.toUpperCase()} Capabilities`)}
-                </div>
-              ))}
             </div>
           )}
 
@@ -13985,7 +13720,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
               {renderPluginAiFeaturesList("email", EMAIL_LAYERS, safeCommonAi.emailLayers, updateEmailLayer)}
               {renderCustomConnectionsSection("email", EMAIL_LAYERS)}
-              {renderProviderKeyCard(emailProviderId, "Outreach Copywriter & Sequencer")}
             </div>
           )}
 
@@ -14037,52 +13771,20 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
               {renderPluginAiFeaturesList("voice", VOICE_LAYERS, safeCommonAi.voiceLayers, updateVoiceLayer)}
               {renderCustomConnectionsSection("voice", VOICE_LAYERS)}
-              {renderProviderKeyCard(voiceLlmProviderId, "Voice Dialogue Reasoning")}
             </div>
           )}
 
-          {/* TAB: MEETING SCHEDULER & CAL.COM */}
-          {/* TAB: MEETING SCHEDULER & CAL.COM (AUTOMATED & MANAGED) */}
-          {tab === "calcom" && (
+          {/* TAB 5: SMART MULTI-MODAL USAGE & QUOTAS (LIVE DATABASE METRICS) */}
+          {tab === "subscription" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  if (onOpenCalcomAdmin) onOpenCalcomAdmin();
-                }}
-                style={{
-                  width: "100%",
-                  padding: "12px 18px",
-                  borderRadius: 12,
-                  background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
-                  color: "#FFFFFF",
-                  fontWeight: 700,
-                  fontSize: 14,
-                  border: "none",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 10,
-                  boxShadow: "0 4px 14px rgba(16, 185, 129, 0.25)"
-                }}
-              >
-                <CalendarCheck size={18} />
-                Open Full Cal.com Command Center (Live Bookings, Event Types, Slots & Embeds)
-              </button>
-              
-              {/* Engine Status Banner: 100% Pre-Configured & Automated */}
-              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "#10B981", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
-                    <CalendarCheck size={20} />
-                  </div>
+              {/* Tenant & Budget Card */}
+              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                   <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
-                        AIVHub Managed Cal.com Engine
-                      </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>
+                        {usageStats?.tenantName || operator?.name || "AIVHub Workspace"}
+                      </div>
                       <span style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -14090,530 +13792,243 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                         fontSize: 11,
                         fontWeight: 700,
                         padding: "2px 8px",
-                        borderRadius: 999,
-                        background: "#D1FAE5",
-                        color: "#065F46",
-                        border: "1px solid #6EE7B7"
+                        borderRadius: 6,
+                        background: "#ECFDF5",
+                        color: "#059669",
+                        border: "1px solid #A7F3D0"
                       }}>
                         <span style={{ width: 6, height: 6, borderRadius: 999, background: "#10B981" }} />
-                        Pre-Configured & Active
+                        Live Database Metrics
                       </span>
                     </div>
-                    <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                      Built directly into your software. Live slots, booking coordination, and verified Google Meet video conferences generate automatically with zero setup.
+                    <div style={{ fontSize: 12.5, color: C.slate, marginTop: 3 }}>
+                      {usageStats?.planTier || "Workspace (Metered from Live Activity)"} · {usageStats?.hostEmail ? `Host: ${usageStats.hostEmail}` : "Real-time resource tracking"}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUsageLoading(true);
+                        setUsageError("");
+                        api.getUsageQuotas()
+                          .then((data) => setUsageStats(data || null))
+                          .catch((err) => setUsageError(err?.message || "Could not refresh"))
+                          .finally(() => setUsageLoading(false));
+                      }}
+                      disabled={usageLoading}
+                      title="Refresh usage from database"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "6px 11px",
+                        borderRadius: 8,
+                        border: `1px solid ${C.border}`,
+                        background: "#fff",
+                        color: C.slate,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: usageLoading ? "not-allowed" : "pointer"
+                      }}
+                    >
+                      <RefreshCw size={13} className={usageLoading ? "animate-spin" : ""} />
+                      <span>{usageLoading ? "Refreshing..." : "Refresh"}</span>
+                    </button>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>
+                        ${(usageStats?.estimatedCostUsd ?? 0).toFixed(2)} USD
+                      </div>
+                      <div style={{ fontSize: 11, color: C.slate, fontWeight: 500 }}>
+                        Estimated Activity Spend
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div style={{ textAlign: "right" }}>
-                  <span style={{ fontSize: 11.5, color: "#059669", fontWeight: 700 }}>
-                    Auto-Connected
+                {/* DB Activity Summary Banner */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.borderLight}`, borderRadius: 8, padding: "9px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: C.slate }}>
+                  <span>{usageStats?.note || "Figures are live counts from this workspace database. Soft cost is an activity estimate, not a vendor invoice."}</span>
+                  <span style={{ fontWeight: 600, color: C.ink }}>
+                    {(usageStats?.summary?.processEvents ?? 0)} pipeline events recorded
                   </span>
                 </div>
               </div>
 
-              {/* Organizer Mail ID Card (The only setup the user needs!) */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
-                    Meeting Host / Organizer Mail ID
-                  </div>
-                  {operator?.email && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCalSettings(prev => ({
-                          ...prev,
-                          host_email: operator.email,
-                          host_name: operator.name || prev.host_name
-                        }));
-                      }}
-                      style={{
-                        border: "1px solid #A7F3D0",
-                        background: "#ECFDF5",
-                        color: "#059669",
-                        borderRadius: 6,
-                        padding: "4px 10px",
-                        fontSize: 11.5,
-                        fontWeight: 700,
-                        cursor: "pointer"
-                      }}
-                    >
-                      Use My Logged-in Email ({operator.email})
-                    </button>
-                  )}
-                </div>
-                <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16 }}>
-                  Meeting invitations and Google Meet details booked from Voice calls, Email campaigns, or Lead scouting will be dispatched to this organizer address.
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16 }}>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 5 }}>
-                      Host Mail ID (Email Address) *
-                    </label>
-                    <input
-                      type="email"
-                      value={calSettings.host_email || ""}
-                      onChange={(e) => setCalSettings({ ...calSettings, host_email: e.target.value })}
-                      placeholder="e.g. sales@yourcompany.com or admin@aivhub.io"
-                      style={{
-                        width: "100%",
-                        boxSizing: "border-box",
-                        padding: "9px 12px",
-                        borderRadius: 8,
-                        border: `1px solid ${C.border}`,
-                        fontSize: 13,
-                        fontFamily: FONT_MONO,
-                        fontWeight: 600,
-                        color: C.ink
-                      }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 5 }}>
-                      Host Display Name
-                    </label>
-                    <input
-                      type="text"
-                      value={calSettings.host_name || ""}
-                      onChange={(e) => setCalSettings({ ...calSettings, host_name: e.target.value })}
-                      placeholder="e.g. Sarah Jenkins"
-                      style={{
-                        width: "100%",
-                        boxSizing: "border-box",
-                        padding: "9px 12px",
-                        borderRadius: 8,
-                        border: `1px solid ${C.border}`,
-                        fontSize: 13,
-                        fontFamily: FONT_BODY,
-                        fontWeight: 500,
-                        color: C.ink
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Working Hours & Availability Guardrails */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 4 }}>
-                  Availability
-                </div>
-                <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16 }}>
-                  Hours, length, and platform. Call rules live under Company → Call Script & Rules.
-                </div>
-
-                {/* Duration Buttons */}
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: C.slate, display: "block", marginBottom: 6 }}>
-                    Default Call Duration
-                  </label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    {[15, 20, 30, 45, 60].map((dur) => {
-                      const selected = (calSettings.default_duration || 15) === dur;
-                      return (
-                        <button
-                          key={dur}
-                          type="button"
-                          onClick={() => setCalSettings({ ...calSettings, default_duration: dur })}
-                          style={{
-                            padding: "6px 14px",
-                            borderRadius: 8,
-                            border: selected ? "2px solid #10B981" : `1px solid ${C.border}`,
-                            background: selected ? "#ECFDF5" : "#fff",
-                            color: selected ? "#059669" : C.ink,
-                            fontSize: 12.5,
-                            fontWeight: 700,
-                            cursor: "pointer"
-                          }}
-                        >
-                          {dur} Mins
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 14, marginBottom: 16 }}>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: C.slate, display: "block", marginBottom: 4 }}>
-                      Meeting Platform
-                    </label>
-                    <select
-                      value={calSettings.default_platform || "google_meet"}
-                      onChange={(e) => setCalSettings({ ...calSettings, default_platform: e.target.value })}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontWeight: 600 }}
-                    >
-                      <option value="google_meet">Google Meet (only if Cal.com returns a real room)</option>
-                      <option value="cal_video">Cal Video / AIVHub live room (always joinable)</option>
-                      <option value="zoom">Zoom</option>
-                      <option value="phone">Direct Telephone Call</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: C.slate, display: "block", marginBottom: 4 }}>
-                      Working Hours Start
-                    </label>
-                    <input
-                      type="text"
-                      value={calSettings.working_hours_start || "09:00"}
-                      onChange={(e) => setCalSettings({ ...calSettings, working_hours_start: e.target.value })}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, textAlign: "center", fontWeight: 700 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: C.slate, display: "block", marginBottom: 4 }}>
-                      Working Hours End
-                    </label>
-                    <input
-                      type="text"
-                      value={calSettings.working_hours_end || "17:30"}
-                      onChange={(e) => setCalSettings({ ...calSettings, working_hours_end: e.target.value })}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, textAlign: "center", fontWeight: 700 }}
-                    />
-                  </div>
-                </div>
-
-                {/* Working Days Toggles */}
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: C.slate, display: "block", marginBottom: 6 }}>
-                    Active Booking Days
-                  </label>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => {
-                      const days = calSettings.working_days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-                      const isChecked = days.includes(day);
-                      return (
-                        <button
-                          key={day}
-                          type="button"
-                          onClick={() => {
-                            const next = isChecked ? days.filter(d => d !== day) : [...days, day];
-                            setCalSettings({ ...calSettings, working_days: next });
-                          }}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: 7,
-                            border: `1px solid ${isChecked ? "#A7F3D0" : C.border}`,
-                            background: isChecked ? "#ECFDF5" : "#F8FAFC",
-                            color: isChecked ? "#065F46" : C.slateLight,
-                            fontSize: 12,
-                            fontWeight: isChecked ? 700 : 500,
-                            cursor: "pointer"
-                          }}
-                        >
-                          {day.slice(0, 3)} {isChecked ? "✓" : ""}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Automatic Email Dispatches */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 20px" }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 4 }}>
-                  Automated Meeting Communications
-                </div>
-                <div style={{ fontSize: 12, color: C.slate, marginBottom: 12 }}>
-                  Notifications and Google Meet calendar invites are sent automatically upon meeting creation.
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.ink, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={calSettings.auto_email_attendee ?? true}
-                      onChange={(e) => setCalSettings({ ...calSettings, auto_email_attendee: e.target.checked })}
-                      style={{ accentColor: "#10B981" }}
-                    />
-                    <span>Automatically send Google Meet invitation to <strong>Attendee / Client Email</strong></span>
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.ink, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={calSettings.auto_email_host ?? true}
-                      onChange={(e) => setCalSettings({ ...calSettings, auto_email_host: e.target.checked })}
-                      style={{ accentColor: "#10B981" }}
-                    />
-                    <span>Automatically notify and send calendar invite to <strong>Host Mail ID</strong></span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Built-in Ready Event Types */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 20px" }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 4 }}>
-                  Built-in Event Types & Direct Booking Slugs
-                </div>
-                <div style={{ fontSize: 12, color: C.slate, marginBottom: 12 }}>
-                  These slugs are automatically available for outbound emails, voice scripts, and social CTA buttons.
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                  {[
-                    { title: "15 Min Discovery", slug: "15-min-discovery", time: "15 mins" },
-                    { title: "30 Min Deep Dive", slug: "30-min-deep-dive", time: "30 mins" },
-                    { title: "45 Min Live Demo", slug: "45-min-demo", time: "45 mins" },
-                  ].map((et) => (
-                    <div key={et.slug} style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{et.title}</div>
-                      <div style={{ fontSize: 11, color: "#059669", fontWeight: 600, marginTop: 2 }}>{et.time} • Google Meet</div>
-                      <code style={{ fontSize: 10.5, fontFamily: FONT_MONO, color: C.slate, display: "block", marginTop: 4 }}>
-                        /book/{et.slug}
-                      </code>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Advanced Developer Settings (Collapsed by default, non-technical users never need this) */}
-              <div style={{ border: `1px solid ${C.borderLight}`, borderRadius: 10, padding: "10px 14px", background: "#FAFAFA" }}>
-                <button
-                  type="button"
-                  onClick={() => setShowCalApiKey(!showCalApiKey)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: C.slate,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                >
-                  <span>{showCalApiKey ? "▼" : "▶"}</span>
-                  <span>Advanced Developer Options (Custom External Cal.com Instance)</span>
-                </button>
-
-                {showCalApiKey && (
-                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
-                    <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 10 }}>
-                      Only configure these if you are connecting an external cloud Cal.com enterprise account. The default AIVHub engine is already active and requires zero credentials.
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.slate, display: "block", marginBottom: 3 }}>Custom Cal.com API Key</label>
-                        <input
-                          type="password"
-                          value={calSettings.api_key || ""}
-                          onChange={(e) => setCalSettings({ ...calSettings, api_key: e.target.value })}
-                          placeholder="cal_live_xxxxxxxx (optional)"
-                          style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: FONT_MONO }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.slate, display: "block", marginBottom: 3 }}>Custom Base URL</label>
-                        <input
-                          type="text"
-                          value={calSettings.base_url || ""}
-                          onChange={(e) => setCalSettings({ ...calSettings, base_url: e.target.value })}
-                          placeholder="https://api.cal.com/v1"
-                          style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: FONT_MONO }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Action Save Button */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 6 }}>
-                <div>
-                  {calSavedNotice && (
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#059669", display: "flex", alignItems: "center", gap: 4 }}>
-                      ✓ {calSavedNotice}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSaveCalcom}
-                  disabled={calSaving}
-                  style={{
-                    padding: "10px 24px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: "#10B981",
-                    color: "#fff",
-                    fontFamily: FONT_DISPLAY,
-                    fontSize: 13.5,
-                    fontWeight: 700,
-                    cursor: calSaving ? "not-allowed" : "pointer",
-                    boxShadow: "0 2px 8px rgba(16,185,129,0.25)"
-                  }}
-                >
-                  {calSaving ? "Saving Settings..." : "Save Organizer & Calendar Settings"}
-                </button>
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 5: SMART MULTI-MODAL USAGE & QUOTAS */}
-          {tab === "subscription" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* Tenant & Budget Card */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                  <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>
-                      {safeCommonAi.subscription?.tenantName || "Acme Operations (Enterprise Workspace)"}
-                    </div>
-                    <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                      {safeCommonAi.subscription?.planTier || "AIVHub Unified Master License"}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: "#059669", background: "#ECFDF5", border: "1px solid #A7F3D0", padding: "4px 10px", borderRadius: 6 }}>
-                      Master License Active
-                    </span>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginTop: 6 }}>
-                      ${(safeCommonAi.subscription?.estimatedCostUsd || 34.12).toFixed(2)} / ${(safeCommonAi.subscription?.monthlyBudgetCapUsd || 150.00).toFixed(2)} Monthly Budget
-                    </div>
-                  </div>
-                </div>
-
-                {/* Overall Budget Bar */}
-                <div style={{ marginBottom: 6 }}>
-                  <div style={{ height: 10, background: C.paperSoft, borderRadius: 999, overflow: "hidden", display: "flex" }}>
-                    <div style={{ width: `${Math.round(((safeCommonAi.subscription?.estimatedCostUsd || 34.12) / (safeCommonAi.subscription?.monthlyBudgetCapUsd || 150.00)) * 100)}%`, background: `linear-gradient(90deg, #10B981, #059669)` }} />
-                  </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: C.slate }}>
-                  <span>22.7% of monthly budget cap utilized</span>
-                  <span>Auto-alert threshold set at 80% ($120.00)</span>
-                </div>
-              </div>
-
               {/* Multi-Modal Metric Grid */}
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                Multi-Modal Consumption by Cognitive Unit
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
+                  Workspace Activity & Resource Consumption (Live)
+                </div>
+                <span style={{ fontSize: 11.5, color: C.slate }}>
+                  Queried directly from live SQLite database
+                </span>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                {/* 1. Tokens */}
+                {/* 1. Voice Calls & Time */}
                 <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Reasoning & Text Tokens</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: C.cobalt }}>36.9%</span>
-                  </div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
-                    1.85M <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 5.0M</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: C.slate }}>Across Lead Gen, Scheduler & Email LLMs</div>
-                </div>
-
-                {/* 2. Voice Minutes */}
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Live Phone Minutes</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#3B82F6" }}>28.4%</span>
-                  </div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
-                    142 <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 500 mins</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: C.slate }}>PSTN Telephony + AI Voice Assistant turns</div>
-                </div>
-
-                {/* 3. Audio Characters */}
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Audio Synthesis (TTS/STT)</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#10B981" }}>28.4%</span>
-                  </div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
-                    284k <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 1.0M chars</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: C.slate }}>ElevenLabs Turbo voice synthesis stream</div>
-                </div>
-
-                {/* 4. Web Crawls */}
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Live Web Crawls</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#8B5CF6" }}>32.0%</span>
-                  </div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
-                    320 <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 1,000 crawls</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: C.slate }}>Lead Gen live company domain audits</div>
-                </div>
-
-                {/* 5. Creative Images */}
-                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Image Studio Credits</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#F59E0B" }}>28.0%</span>
-                  </div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
-                    28 <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ 100 renders</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: C.slate }}>Post Scheduler visual generation API</div>
-                </div>
-
-                {/* 6. Active API Endpoints */}
-                {(() => {
-                  const activeProvs = (safeCommonAi.providers || []).filter(
-                    (p) => (p.status === "connected" && p.latencyMs) || (p.apiKey && p.apiKey.trim().length > 0)
-                  );
-                  const totalProvs = (safeCommonAi.providers || []).length || 11;
-                  const pct = totalProvs > 0 ? Math.round((activeProvs.length / totalProvs) * 100) : 0;
-                  return (
-                    <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Connected Model Endpoints</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: activeProvs.length > 0 ? "#059669" : C.slate }}>
-                          {activeProvs.length > 0 ? `${pct}% Connected` : "Not Configured"}
-                        </span>
-                      </div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
-                        {activeProvs.length} Active <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>/ {totalProvs} providers</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: C.slate }}>
-                        {activeProvs.length > 0 ? `${activeProvs.length} live endpoints verified` : "No external API keys active"}
-                      </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <PhoneCall size={15} color={C.cobalt} />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Phone Calls & Voice</span>
                     </div>
-                  );
-                })()}
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.cobalt }}>Live PSTN / SIP</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    {usageStats?.summary?.calls ?? 0} <span style={{ fontSize: 13, fontWeight: 500, color: C.slate }}>calls</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.slate }}>
+                    {usageStats?.summary?.voiceMinutes ?? 0} minutes logged · {(usageStats?.processBySubsystem?.voice || 0) + (usageStats?.processBySubsystem?.telephony || 0)} voice/carrier turns
+                  </div>
+                </div>
+
+                {/* 2. Meetings & Bookings */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <CalendarCheck size={15} color="#10B981" />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Meetings & Bookings</span>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#059669" }}>Cal.com Engine</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    {usageStats?.summary?.meetings ?? 0} <span style={{ fontSize: 13, fontWeight: 500, color: C.slate }}>scheduled</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.slate }}>
+                    Confirmed appointments from Voice calls, Schedule & Lead scouting
+                  </div>
+                </div>
+
+                {/* 3. Social Posts */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <CalendarDays size={15} color={C.teal} />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Social Media Posts</span>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.teal }}>Post Scheduler</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    {usageStats?.summary?.posts ?? 0} <span style={{ fontSize: 13, fontWeight: 500, color: C.slate }}>posts</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.slate }}>
+                    Content drafts, scheduled & published across social channels
+                  </div>
+                </div>
+
+                {/* 4. Outreach Emails */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Mail size={15} color="#F59E0B" />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Outreach Emails</span>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#D97706" }}>Email Outreach</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    {usageStats?.summary?.emails ?? 0} <span style={{ fontSize: 13, fontWeight: 500, color: C.slate }}>emails</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.slate }}>
+                    {usageStats?.processBySubsystem?.system || 0} communications dispatched to target prospects
+                  </div>
+                </div>
+
+                {/* 5. Prospects & Scouting */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Search size={15} color="#8B5CF6" />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Prospects & Missions</span>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED" }}>Lead Gen</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    {usageStats?.summary?.prospects ?? 0} <span style={{ fontSize: 13, fontWeight: 500, color: C.slate }}>prospects</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.slate }}>
+                    {usageStats?.summary?.missions ?? 0} discovery missions · {usageStats?.processBySubsystem?.crawler_rag || 0} crawl/RAG events
+                  </div>
+                </div>
+
+                {/* 6. Connected Services */}
+                <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Layers size={15} color={C.ink} />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Connected Services</span>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#059669" }}>Active</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+                    {usageStats?.summary?.connectedServices ?? 0} <span style={{ fontSize: 13, fontWeight: 500, color: C.slate }}>services</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.slate }}>
+                    {usageStats?.connections?.length ? usageStats.connections.map(c => c.name).slice(0, 3).join(", ") + (usageStats.connections.length > 3 ? ` +${usageStats.connections.length - 3} more` : "") : "Configured API integrations"}
+                  </div>
+                </div>
               </div>
 
-              {/* Plugin Breakdown Table */}
+              {/* Plugin Breakdown Table with Actual Data */}
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-                <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                  Usage Distribution Across Workspace Plugins
+                <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>Usage Distribution Across Workspace Plugins</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>Live metered metrics</span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.5fr 1fr 0.8fr", padding: "10px 18px", background: HUB_PAPER, borderBottom: `1px solid ${C.borderLight}`, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 1fr 0.8fr", padding: "10px 18px", background: HUB_PAPER, borderBottom: `1px solid ${C.borderLight}`, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   <span>Plugin</span>
-                  <span>Consumption Units</span>
-                  <span>Active Models</span>
-                  <span style={{ textAlign: "right" }}>Cost (USD)</span>
+                  <span>Live Activity / Units</span>
+                  <span>Pipeline Activity</span>
+                  <span style={{ textAlign: "right" }}>Est. Spend (Share)</span>
                 </div>
 
-                {[
-                  { name: "Lead Generation", color: "#8B5CF6", units: "320 web crawls · 420k tokens", models: safeCommonAi.leadgenLayers?.researchLlm || "DeepSeek-V3", cost: "$4.85", share: "14%" },
-                  { name: "Post Scheduler", color: C.teal, units: "28 image renders · 580k tokens", models: safeCommonAi.schedulerLayers?.postWriter || "Claude 3.5 Sonnet", cost: "$6.40", share: "19%" },
-                  { name: "Email Outreach", color: "#F59E0B", units: "360k copywriting tokens", models: safeCommonAi.emailLayers?.copywriterLlm || "Claude 3.5 Sonnet", cost: "$3.25", share: "10%" },
-                  { name: "AI Voice Assistant", color: C.cobalt, units: "142 voice mins · 485k tokens", models: safeCommonAi.voiceLayers?.llm || "xAI Grok-2", cost: "$19.62", share: "57%" },
-                ].map((row, idx) => (
-                  <div key={idx} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.5fr 1fr 0.8fr", alignItems: "center", padding: "12px 18px", borderBottom: idx < 3 ? `1px solid ${C.borderLight}` : "none", fontSize: 12.5 }}>
+                {(usageStats?.plugins || []).map((row, idx) => (
+                  <div key={idx} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 1fr 0.8fr", alignItems: "center", padding: "12px 18px", borderBottom: idx < (usageStats?.plugins?.length - 1) ? `1px solid ${C.borderLight}` : "none", fontSize: 12.5 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 999, background: row.color }} />
+                      <span style={{ width: 8, height: 8, borderRadius: 999, background: row.color || C.cobalt }} />
                       <span style={{ fontWeight: 700, color: C.ink }}>{row.name}</span>
                     </div>
                     <div style={{ color: C.textInk, fontFamily: FONT_BODY }}>{row.units}</div>
-                    <div style={{ color: C.slate, fontSize: 12, fontFamily: FONT_MONO }}>{row.models}</div>
-                    <div style={{ textAlign: "right", fontWeight: 700, color: C.ink }}>{row.cost} <span style={{ fontSize: 11, fontWeight: 500, color: C.slate }}>({row.share})</span></div>
+                    <div style={{ color: C.slate, fontSize: 12 }}>{row.detail}</div>
+                    <div style={{ textAlign: "right", fontWeight: 700, color: C.ink }}>
+                      ${(row.cost ?? 0).toFixed(2)} <span style={{ fontSize: 11, fontWeight: 500, color: C.slate }}>({row.share || "0%"})</span>
+                    </div>
                   </div>
                 ))}
               </div>
+
+              {/* Connected Infrastructure List */}
+              {usageStats?.connections && usageStats.connections.length > 0 && (
+                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 10 }}>
+                    Connected Infrastructure & Providers ({usageStats.connections.length})
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {usageStats.connections.map((c, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          background: HUB_PAPER,
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                          padding: "5px 10px",
+                          fontSize: 12,
+                          color: C.ink
+                        }}
+                      >
+                        <span style={{ width: 6, height: 6, borderRadius: 999, background: "#10B981" }} />
+                        <span style={{ fontWeight: 600 }}>{c.name}</span>
+                        <span style={{ fontSize: 11, color: C.slate }}>({c.group})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -15112,19 +14527,38 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-          <div style={{ background: "#F4F5F7", border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Lock size={14} color={C.teal} />
+                <Sparkles size={14} color={C.teal} />
                 <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>Knowledge Base Embeddings (RAG)</span>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: C.tealSoft, color: C.teal }}>Runtime</span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#ECFDF5", color: "#059669", border: "1px solid #A7F3D0" }}>Active</span>
               </div>
               <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>
-                Crawl, voice RAG, and scheduler search_knowledge all load this local FastEmbed model. The old OpenAI / Gemini dropdown never reached the backend.
+                Powers website crawl indexing, voice call RAG, and knowledge retrieval with 384-dimensional vector embeddings.
               </div>
             </div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700, color: C.ink, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", whiteSpace: "nowrap" }}>
-              {LOCAL_BGE_EMBEDDINGS}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700, color: C.ink, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", whiteSpace: "nowrap" }}>
+                {commonAi?.schedulerLayers?.embeddings || LOCAL_BGE_EMBEDDINGS}
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenCommonModal && onOpenCommonModal("scheduler")}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${C.border}`,
+                  background: "#fff",
+                  fontFamily: FONT_BODY,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: C.ink,
+                  cursor: "pointer"
+                }}
+              >
+                Configure
+              </button>
             </div>
           </div>
 
@@ -17740,53 +17174,9 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                 </div>
               </button>
 
-                            {/* Communication Accounts (Admin Control) */}
+              {/* Calendar & meetings (host mail, invite accounts, embeds) */}
               <button
-                onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin("accounts"); else onOpenCommonAi("calcom"); }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "9px 12px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 7, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563EB" }}>
-                    <Mail size={15} />
-                  </div>
-                  <div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Communication Accounts</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Connect Gmail, Outlook & SMTP</div>
-                  </div>
-                </div>
-                <span style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  background: "#EFF6FF",
-                  color: "#2563EB",
-                  border: "1px solid #BFDBFE"
-                }}>
-                  <span style={{ width: 5, height: 5, borderRadius: 999, background: "#2563EB" }} />
-                  Admin
-                </span>
-              </button>
-
-{/* Calendar & Cal.com Scheduling (Admin Control) */}
-              <button
-                onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin(); else onOpenCommonAi("calcom"); }}
+                onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin("accounts"); }}
                 style={{
                   width: "100%",
                   display: "flex",
@@ -17807,8 +17197,8 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                     <CalendarCheck size={15} />
                   </div>
                   <div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Calendar & Cal.com</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Host mail, keys & slots</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Calendar & meetings</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Invite mail, embeds & host sync</div>
                   </div>
                 </div>
                 <span style={{
@@ -23374,11 +22764,11 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
       const hash = window.location.hash.replace(/^#\/?/, "");
       const parts = hash.split("/");
       if (parts[0] === "voice" && parts[1]) {
-        return parts[1];
+        return parts[1] === "tasks" ? "list" : (parts[1] === "prospects" ? "list" : parts[1]);
       }
-      return localStorage.getItem("aivhub_voice_view") || "tasks";
+      return localStorage.getItem("aivhub_voice_view") || "list";
     } catch (_) {
-      return "tasks";
+      return "list";
     }
   });
 
@@ -24405,7 +23795,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             setNotifications={setNotifications}
           />
         )}
-        {view === "prospects" && (
+        {(view === "prospects" || view === "list") && (
           <ProspectsView
             notifications={notifications}
             setNotifications={setNotifications}
@@ -24679,13 +24069,13 @@ function CallingEditionRoot(props) {
             padding: "0 16px",
             borderRadius: 10,
             border: "none",
-            background: "#0C8C7D",
+            background: C.cobalt,
             color: "#fff",
             fontSize: 13,
             fontWeight: 700,
             cursor: "pointer",
             fontFamily: "Inter, sans-serif",
-            boxShadow: "0 10px 28px rgba(12,140,125,0.35)",
+            boxShadow: "0 10px 28px rgba(52,87,213,0.35)",
           }}
         >
           Use new calling
@@ -24938,7 +24328,20 @@ export default function App() {
 
   // Global helper to switch plugins from any modal
   useEffect(() => {
-    window.__aivhub_switch_plugin = (p) => setPlugin(p);
+    window.__aivhub_switch_plugin = (p) => {
+      if (p === "voice") {
+        try {
+          localStorage.setItem("aivhub_voice_view", "list");
+          window.location.hash = "#/voice/list";
+        } catch (_) {}
+        setTimeout(() => {
+          try {
+            window.dispatchEvent(new CustomEvent("aivhub_set_voice_view", { detail: "list" }));
+          } catch (_) {}
+        }, 0);
+      }
+      setPlugin(p);
+    };
     return () => { delete window.__aivhub_switch_plugin; };
   }, []);
 
@@ -24948,15 +24351,15 @@ export default function App() {
       if (plugin) {
         localStorage.setItem("aivhub_active_plugin", plugin);
         const route = parseRoute();
-        if (route.plugin !== plugin) {
+        if (route.plugin !== plugin || (plugin === "voice" && !route.subView)) {
           const sub = (
-            plugin === "voice" ? localStorage.getItem("aivhub_voice_view") :
+            plugin === "voice" ? (localStorage.getItem("aivhub_voice_view") || "list") :
             plugin === "scheduler" ? localStorage.getItem("aivhub_scheduler_view") :
             plugin === "leadgen" ? localStorage.getItem("aivhub_leadgen_view") :
             plugin === "emailoutreach" ? localStorage.getItem("aivhub_email_view") :
             plugin === "calcom" ? localStorage.getItem("aivhub_calcom_view") : null
           );
-          const target = sub ? `#/${plugin}/${sub}` : `#/${plugin}`;
+          const target = sub ? `#/${plugin}/${sub}` : (plugin === "voice" ? "#/voice/list" : `#/${plugin}`);
           window.location.hash = target;
         }
       } else {
@@ -25026,7 +24429,7 @@ export default function App() {
         schedulerLayers: {
           ...INITIAL_COMMON_AI_CONFIG.schedulerLayers,
           ...(parsed.schedulerLayers || {}),
-          embeddings: LOCAL_BGE_EMBEDDINGS,
+          embeddings: parsed.schedulerLayers?.embeddings || INITIAL_COMMON_AI_CONFIG.schedulerLayers?.embeddings || LOCAL_BGE_EMBEDDINGS,
         },
         emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(parsed.emailLayers || {}) },
         voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(parsed.voiceLayers || {}) },
@@ -25042,7 +24445,7 @@ export default function App() {
   const [showCommonAiModal, setShowCommonAiModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showCalcomAdminModal, setShowCalcomAdminModal] = useState(false);
-  const [calcomInitialTab, setCalcomInitialTab] = useState("overview");
+  const [calcomInitialTab, setCalcomInitialTab] = useState("accounts");
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [commonAiTab, setCommonAiTab] = useState("leadgen");
   const [commonAiScope, setCommonAiScope] = useState(null);
@@ -25089,12 +24492,12 @@ export default function App() {
         }
       } catch (_) {}
       try {
-        const hub = await api.getTelephonyHub();
-        if (hub) {
-          setCommonAi((prev) => ({
-            ...prev,
-            voiceLayers: voiceLayersFromHub(hub, prev.voiceLayers),
-          }));
+        const [conns, hub] = await Promise.all([
+          api.getConnections().catch(() => []),
+          api.getTelephonyHub().catch(() => null),
+        ]);
+        if (Array.isArray(conns) || hub) {
+          setCommonAi((prev) => syncCommonAiWithBackend(prev, conns || [], hub));
         }
       } catch (_) {}
     }
@@ -25117,9 +24520,25 @@ export default function App() {
   const handleBackToHub = () => {
     try {
       localStorage.removeItem("aivhub_active_plugin");
+      localStorage.setItem("aivhub_voice_view", "list");
       window.history.pushState(null, "", window.location.pathname);
     } catch (_) {}
     setPlugin(null);
+  };
+
+  const handlePickPlugin = (p) => {
+    if (p === "voice") {
+      try {
+        localStorage.setItem("aivhub_voice_view", "list");
+        window.location.hash = "#/voice/list";
+      } catch (_) {}
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new CustomEvent("aivhub_set_voice_view", { detail: "list" }));
+        } catch (_) {}
+      }, 0);
+    }
+    setPlugin(p);
   };
 
   const handleUpdateOperator = (updater) => {
@@ -25143,13 +24562,14 @@ export default function App() {
       {!plugin && (
         <PluginHub
           operator={operator}
-          onPick={setPlugin}
+          onPick={handlePickPlugin}
           onLogout={handleLogout}
           commonAi={commonAi}
           onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); }}
           onOpenTeamUsers={() => setShowTeamModal(true)}
           onOpenProfileSettings={() => setShowProfileModal(true)}
-          onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "overview"); setShowCalcomAdminModal(true); }}
+          onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
+
         />
       )}
 
@@ -25228,7 +24648,7 @@ export default function App() {
               onLogout={handleLogout}
               profile={profile}
               commonAi={commonAi}
-              onOpenCommonAi={() => { setCommonAiTab("calcom"); setCommonAiScope("calcom"); setShowCommonAiModal(true); }}
+              onOpenCommonAi={() => { setCalcomInitialTab("settings"); setShowCalcomAdminModal(true); }}
             />
           )}
         </div>
@@ -25253,10 +24673,21 @@ export default function App() {
         initialTab={commonAiTab}
         scopePlugin={commonAiScope}
         operator={operator}
-        onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "overview"); setShowCalcomAdminModal(true); }}
+        onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
         onNavigateToPlugin={(pId) => {
           setShowCommonAiModal(false);
           setCommonAiScope(null);
+          if (pId === "voice") {
+            try {
+              localStorage.setItem("aivhub_voice_view", "list");
+              window.location.hash = "#/voice/list";
+            } catch (_) {}
+            setTimeout(() => {
+              try {
+                window.dispatchEvent(new CustomEvent("aivhub_set_voice_view", { detail: "list" }));
+              } catch (_) {}
+            }, 0);
+          }
           setPlugin(pId);
         }}
       />

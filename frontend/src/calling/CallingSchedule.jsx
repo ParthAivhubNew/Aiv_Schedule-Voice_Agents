@@ -110,6 +110,54 @@ function kindMeta(kind, kinds) {
   return list.find((k) => k.id === kind) || list[0];
 }
 
+function formatWhenLabel(day, time) {
+  const d = String(day || "").trim();
+  const t = String(time || "").trim();
+  if (!d && !t) return "—";
+  try {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      const nice = new Date(d + "T12:00:00").toLocaleDateString("en-GB", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+      return t ? `${nice} · ${t}` : nice;
+    }
+  } catch (_) {}
+  return t ? `${d} · ${t}` : d;
+}
+
+function splitNotes(notes) {
+  const raw = String(notes || "").trim();
+  if (!raw) return { main: "", meta: "" };
+  const m = raw.match(/\[([^\]]+)\]\s*$/);
+  if (m) {
+    return { main: raw.slice(0, m.index).trim(), meta: m[1].trim() };
+  }
+  return { main: raw, meta: "" };
+}
+
+function DetailRow({ icon: Icon, label, children }) {
+  if (!children) return null;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "92px 1fr", gap: 10, alignItems: "start", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: "0.04em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 5, paddingTop: 2 }}>
+        {Icon ? <Icon size={12} /> : null} {label}
+      </div>
+      <div style={{ fontSize: 13.5, color: C.ink, fontWeight: 600, lineHeight: 1.4, wordBreak: "break-word" }}>{children}</div>
+    </div>
+  );
+}
+
+function statusChipStyle(status, cancelled) {
+  if (cancelled) return { bg: "#FEF2F2", fg: "#991B1B", border: "#FECACA" };
+  const s = String(status || "").toLowerCase();
+  if (s === "completed" || s === "done") return { bg: "#ECFDF5", fg: "#047857", border: "#A7F3D0" };
+  if (s === "upcoming" || s === "booked" || s === "confirmed") return { bg: C.cobaltSoft || "#EAEEFC", fg: C.cobalt || "#3457D5", border: "#BFD5FA" };
+  return { bg: "#F1F5F9", fg: "#475569", border: "#E2E8F0" };
+}
+
 function isCancelled(s) {
   const st = String(s?.status || "").toLowerCase();
   return st === "cancelled" || st === "canceled";
@@ -672,7 +720,7 @@ export function CallingSchedule({
               gap: 6,
             }}
           >
-            <MessageCircle size={13} /> Invite email
+            <MessageCircle size={13} /> Email preview
           </button>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ ...fieldStyle(), width: 160, height: 34, marginLeft: "auto" }} />
         </div>
@@ -703,7 +751,7 @@ export function CallingSchedule({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{m.prospect || m.attendee || "Meeting"}</div>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: C.teal, background: C.tealSoft, padding: "4px 8px", borderRadius: 999 }}>{m.status || "upcoming"}</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: C.cobalt, background: C.cobaltSoft, padding: "4px 8px", borderRadius: 999 }}>{m.status || "upcoming"}</span>
                   </div>
                   <div style={{ marginTop: 10, fontSize: 13, color: C.textInk, display: "grid", gap: 6 }}>
                     <div><Calendar size={13} style={{ verticalAlign: "middle" }} /> {when || "—"}</div>
@@ -761,15 +809,15 @@ export function CallingSchedule({
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, marginBottom: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6, marginBottom: 6 }}>
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-              <div key={d} style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, textAlign: "center", padding: "4px 0" }}>{d}</div>
+              <div key={d} style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, textAlign: "center", padding: "4px 0", minWidth: 0, overflow: "hidden" }}>{d}</div>
             ))}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
             {cells.map((day, i) => {
-              if (!day) return <div key={"e" + i} />;
+              if (!day) return <div key={"e" + i} style={{ minHeight: 92, minWidth: 0 }} />;
               const key = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
               const dayEvents = byDay[key] || [];
               const cancelledCount = dayEvents.filter(isCancelled).length;
@@ -787,9 +835,13 @@ export function CallingSchedule({
                   }}
                   style={{
                     minHeight: 92,
+                    minWidth: 0,
+                    width: "100%",
+                    boxSizing: "border-box",
+                    overflow: "hidden",
                     textAlign: "left",
-                    background: isSel ? C.tealSoft : weekend ? "#FAFAF8" : "#fff",
-                    border: `1.5px solid ${isSel ? C.teal : isTod ? C.cobalt : C.border}`,
+                    background: isSel ? C.cobaltSoft : weekend ? "#FAFAF8" : "#fff",
+                    border: `1.5px solid ${isSel ? C.cobalt : isTod ? C.cobalt : C.border}`,
                     borderRadius: 10,
                     padding: 8,
                     cursor: "pointer",
@@ -801,7 +853,7 @@ export function CallingSchedule({
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>{day.getDate()}</span>
                     {dayEvents.length ? (
-                      <span style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? "#B91C1C" : C.teal, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
+                      <span style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? "#B91C1C" : C.cobalt, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
                         {dayEvents.length} · {cancelledCount ? `${cancelledCount}×` : "booked"}
                       </span>
                     ) : (
@@ -836,7 +888,7 @@ export function CallingSchedule({
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, fontSize: 11, fontWeight: 700 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 99, background: C.teal }} /> Free</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 99, background: C.cobalt }} /> Free</span>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 99, background: C.ink }} /> Booked</span>
             </div>
           </div>
@@ -877,8 +929,8 @@ export function CallingSchedule({
                   onClick={() => pickFreeSlot(selectedDay, slot)}
                   style={{
                     textAlign: "left",
-                    border: `1.5px dashed ${C.teal}`,
-                    background: C.tealSoft,
+                    border: `1.5px dashed ${C.cobalt}`,
+                    background: C.cobaltSoft,
                     color: C.ink,
                     borderRadius: 10,
                     padding: "10px 12px",
@@ -886,7 +938,7 @@ export function CallingSchedule({
                   }}
                 >
                   <div style={{ fontSize: 12, fontWeight: 800 }}>{slot}</div>
-                  <div style={{ fontSize: 11, marginTop: 4, color: C.teal, fontWeight: 700 }}>Free · park here</div>
+                  <div style={{ fontSize: 11, marginTop: 4, color: C.cobalt, fontWeight: 700 }}>Free · park here</div>
                 </button>
               );
             })}
@@ -1043,7 +1095,7 @@ export function CallingSchedule({
                               {cancelWhoLabel(ev.cancellationReason)}
                             </span>
                           ) : (
-                            <span style={{ fontSize: 11, fontWeight: 800, color: C.teal, background: C.tealSoft, padding: "4px 8px", borderRadius: 999 }}>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: C.cobalt, background: C.cobaltSoft, padding: "4px 8px", borderRadius: 999 }}>
                               {ev.status || "booked"}
                             </span>
                           )}
@@ -1068,77 +1120,160 @@ export function CallingSchedule({
         </div>
       ) : null}
 
-      {open && (
+      {open && (() => {
+        const meta = kindMeta(open.kind, kinds);
+        const Icon = meta.Icon;
+        const cancelled = isCancelled(open);
+        const chip = statusChipStyle(open.status, cancelled);
+        const notes = splitNotes(open.notes);
+        const when = formatWhenLabel(open.day || open.date, open.time);
+        const statusLabel = cancelled
+          ? cancelWhoLabel(open.cancellationReason)
+          : (open.status || "upcoming");
+        return (
         <div
           onClick={() => setOpenId("")}
           style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.35)", zIndex: 80, display: "flex", justifyContent: "flex-end" }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ width: "min(440px, 100%)", height: "100%", background: "#fff", boxShadow: "-16px 0 40px rgba(18,20,28,0.18)", padding: 22, overflow: "auto", fontFamily: FONT_BODY }}
+            style={{
+              width: "min(420px, 100%)",
+              height: "100%",
+              background: "#fff",
+              boxShadow: "-16px 0 40px rgba(18,20,28,0.18)",
+              display: "flex",
+              flexDirection: "column",
+              fontFamily: FONT_BODY,
+            }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20 }}>{open.prospect}</div>
-              <button type="button" onClick={() => setOpenId("")} style={{ border: "none", background: C.paperSoft || C.paper, borderRadius: 8, width: 32, height: 32, cursor: "pointer" }}><X size={16} /></button>
-            </div>
-            <div style={{ fontSize: 13, color: C.slate, display: "grid", gap: 8, marginBottom: 18 }}>
-              <div><Calendar size={14} style={{ verticalAlign: "middle" }} /> {open.day || open.date} at {open.time}</div>
-              <div>{kindMeta(open.kind, kinds).label}{open.platform ? ` · ${open.platform}` : ""}</div>
-              {open.phone ? <div><Phone size={14} style={{ verticalAlign: "middle" }} /> {open.phone}</div> : null}
-              {open.email ? <div>{open.email}</div> : null}
-              {open.address ? <div><MapPin size={14} style={{ verticalAlign: "middle" }} /> {open.address}</div> : null}
-              {open.notes ? <div>{open.notes}</div> : null}
-              <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em" }}>{open.status || "queued"}</div>
-            </div>
-
-            {open.kind === "video" && (
-              <div style={{ ...card(), marginBottom: 14, padding: 14 }}>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>Video meeting link</div>
-                {open.videoLink ? (
-                  <>
-                    <a href={hrefFor(open.videoLink)} target="_blank" rel="noreferrer" style={{ color: C.cobalt, fontWeight: 700, fontSize: 13, wordBreak: "break-all" }}>{open.videoLink}</a>
-                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                      <a href={hrefFor(open.videoLink)} target="_blank" rel="noreferrer" style={{ height: 36, padding: "0 12px", borderRadius: 8, background: C.ink, color: "#fff", fontWeight: 700, fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
-                        <ExternalLink size={13} /> Join now
-                      </a>
-                      <button type="button" onClick={() => copy(open.videoLink)} style={{ height: 36, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        {copied === open.videoLink ? <Check size={13} /> : <Copy size={13} />} {copied === open.videoLink ? "Copied" : "Copy link"}
-                      </button>
-                    </div>
-                  </>
-                ) : open.source !== "meeting" ? (
-                  <VideoLinkEditor item={open} onSaved={onSaved} onToast={onToast} />
-                ) : (
-                  <div style={{ fontSize: 12, color: C.slate }}>No join URL on this meeting yet.</div>
-                )}
+            <div style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, lineHeight: 1.2 }}>
+                    {open.prospect || "Meeting"}
+                  </div>
+                  <div style={{ fontSize: 13, color: C.slate, marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                    <Icon size={14} color={meta.color || C.slate} /> {meta.label}{open.platform ? ` · ${open.platform}` : ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    padding: "5px 9px",
+                    borderRadius: 999,
+                    background: chip.bg,
+                    color: chip.fg,
+                    border: `1px solid ${chip.border}`,
+                  }}>
+                    {statusLabel}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId("")}
+                    style={{ border: "none", background: C.paperSoft || "#F1F5F9", borderRadius: 8, width: 32, height: 32, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
-            )}
+            </div>
 
-            <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ flex: 1, overflow: "auto", padding: "8px 20px 20px" }}>
+              <div style={{ marginBottom: 8 }}>
+                <DetailRow icon={Calendar} label="When">{when}</DetailRow>
+                {open.phone ? <DetailRow icon={Phone} label="Phone">{open.phone}</DetailRow> : null}
+                {open.email ? <DetailRow label="Email">{open.email}</DetailRow> : null}
+                {open.address ? <DetailRow icon={MapPin} label="Where">{open.address}</DetailRow> : null}
+              </div>
+
+              {notes.main || notes.meta || (cancelled && open.cancellationReason) ? (
+                <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: cancelled ? "#FEF2F2" : "#F8FAFC", border: `1px solid ${cancelled ? "#FECACA" : C.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: cancelled ? "#991B1B" : C.slateLight, marginBottom: 6 }}>
+                    {cancelled ? "Cancellation" : "Notes"}
+                  </div>
+                  {notes.main ? (
+                    <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.45 }}>{notes.main}</div>
+                  ) : null}
+                  {notes.meta ? (
+                    <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.4, marginTop: notes.main ? 8 : 0 }}>
+                      {notes.meta}
+                    </div>
+                  ) : null}
+                  {cancelled && open.cancellationReason && !notes.meta ? (
+                    <div style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.4 }}>{open.cancellationReason}</div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {open.kind === "video" ? (
+                <div style={{ marginTop: 16, padding: 14, borderRadius: 12, border: `1px solid ${C.border}`, background: "#fff" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: C.slateLight, marginBottom: 8 }}>
+                    Join link
+                  </div>
+                  {open.videoLink ? (
+                    <>
+                      <div style={{ fontSize: 12.5, color: C.cobalt, fontWeight: 600, wordBreak: "break-all", lineHeight: 1.4, marginBottom: 12 }}>
+                        {open.videoLink}
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <a
+                          href={hrefFor(open.videoLink)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ flex: 1, height: 38, padding: "0 12px", borderRadius: 9, background: C.ink, color: "#fff", fontWeight: 700, fontSize: 12.5, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none" }}
+                        >
+                          <ExternalLink size={13} /> Join now
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => copy(open.videoLink)}
+                          style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
+                        >
+                          {copied === open.videoLink ? <Check size={13} /> : <Copy size={13} />} {copied === open.videoLink ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                    </>
+                  ) : open.source !== "meeting" ? (
+                    <VideoLinkEditor item={open} onSaved={onSaved} onToast={onToast} />
+                  ) : (
+                    <div style={{ fontSize: 12.5, color: C.slate }}>No join URL on this meeting yet.</div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            <div style={{ padding: "14px 20px 18px", borderTop: `1px solid ${C.border}`, display: "grid", gap: 8, flexShrink: 0, background: "#fff" }}>
               {digitsInPhone(open.phone).length >= 7 ? (
-                <button type="button" onClick={() => onCall(open)} style={actionBtn(C.teal, "#fff")}>
+                <button type="button" onClick={() => onCall(open)} style={actionBtn(C.cobalt, "#fff")}>
                   <PhoneCall size={14} /> Call now
                 </button>
               ) : null}
               {open.source !== "meeting" ? (
                 <button type="button" disabled={waBusy} onClick={() => sendWa(open)} style={actionBtn("#25D366", "#fff")}>
-                  <MessageCircle size={14} /> {waBusy ? "Opening…" : "WhatsApp this booking"}
+                  <MessageCircle size={14} /> {waBusy ? "Opening…" : "WhatsApp"}
                 </button>
               ) : null}
-              {open.status !== "completed" && open.source !== "meeting" ? (
-                <button type="button" onClick={() => markDone(open)} style={actionBtn("#fff", C.ink, true)}>
-                  <Check size={14} /> Mark done
-                </button>
-              ) : null}
-              {open.source !== "meeting" ? (
-                <button type="button" onClick={() => remove(open)} style={actionBtn(C.redSoft, C.red)}>
-                  <Trash2 size={14} /> Remove
-                </button>
-              ) : null}
+              <div style={{ display: "flex", gap: 8 }}>
+                {open.status !== "completed" && open.source !== "meeting" ? (
+                  <button type="button" onClick={() => markDone(open)} style={{ ...actionBtn("#fff", C.ink, true), flex: 1 }}>
+                    <Check size={14} /> Done
+                  </button>
+                ) : null}
+                {open.source !== "meeting" ? (
+                  <button type="button" onClick={() => remove(open)} style={{ ...actionBtn(C.redSoft, C.red), flex: 1 }}>
+                    <Trash2 size={14} /> Remove
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

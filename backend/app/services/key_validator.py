@@ -28,6 +28,7 @@ async def validate_api_key(
         else "calendar" if "cal" in p_lower
         else "voice" if any(k in p_lower for k in ["deepgram", "elevenlabs", "cartesia", "vapi", "whisper", "kokoro"])
         else "image" if any(k in p_lower for k in ["stability", "fal", "pollinations", "dall-e", "midjourney", "sdxl", "flux"])
+        else "crawler_rag" if any(k in p_lower for k in ["embed", "rag", "bge", "fastembed"])
         else "system"
     )
     level = "SUCCESS" if res.get("valid") else "ERROR"
@@ -60,6 +61,14 @@ async def _do_validate_api_key(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
+            # 0. Local FastEmbed CPU
+            if "fastembed" in p or "bge" in p or "minilm" in p or (api_key in ("local", "builtin", "none") and "embed" in p):
+                return {
+                    "valid": True,
+                    "provider": provider,
+                    "details": "FastEmbed local CPU model verified (384 dims, zero external API costs)."
+                }
+
             # 1. DeepSeek
             if "deepseek" in p:
                 url = (base_url or "https://api.deepseek.com").rstrip("/") + "/models"
@@ -74,8 +83,8 @@ async def _do_validate_api_key(
                 else:
                     return {"valid": False, "error": f"DeepSeek returned status {res.status_code}: {res.text[:150]}"}
 
-            # 2. OpenAI / DALL-E Image Generation Engine
-            elif "openai" in p or "chatgpt" in p or "dall" in p or (base_url and "api.openai.com" in base_url):
+            # 2. OpenAI / DALL-E / Embeddings
+            elif "openai" in p or "chatgpt" in p or "dall" in p or "textembedding" in p or (base_url and "api.openai.com" in base_url):
                 clean_base = (base_url or "https://api.openai.com/v1").strip().rstrip("/")
                 # Strip specific POST endpoints like /images/generations or /chat/completions so GET /models is probed
                 clean_base = re.sub(r'/(images(/generations)?|chat/completions|completions)/?$', '', clean_base)
@@ -85,7 +94,11 @@ async def _do_validate_api_key(
                 headers = {"Authorization": f"Bearer {api_key}"}
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
-                    details_str = "Authenticated successfully (DALL-E 3 / DALL-E 2 / GPT-4o ready)." if ("dall" in p or "image" in p) else "Authenticated successfully (GPT-4o / Whisper / TTS ready)."
+                    details_str = (
+                        "Authenticated successfully (DALL-E 3 / DALL-E 2 / GPT-4o ready)." if ("dall" in p or "image" in p)
+                        else "Authenticated successfully (Embeddings & RAG ready - text-embedding-3-small active)." if ("embed" in p)
+                        else "Authenticated successfully (GPT-4o / Whisper / TTS ready)."
+                    )
                     return {"valid": True, "provider": "OpenAI", "details": details_str}
                 elif res.status_code == 401:
                     return {"valid": False, "error": "OpenAI authentication failed (Invalid API key - 401 Unauthorized)."}

@@ -29,6 +29,7 @@ class TokenResponse(BaseModel):
 class CompanyProfileSchema(BaseModel):
     id: Optional[str] = "default"
     name: str = "AIVHub"
+    spoken_name: Optional[str] = None
     pitch: str = "AI-powered business intelligence dashboards for mid-market operations teams"
     industry: str = "Business intelligence / data consulting"
     website: str = "https://aivhub.io"

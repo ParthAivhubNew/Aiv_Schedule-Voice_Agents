@@ -9,7 +9,7 @@ from sqlalchemy import delete
 from sqlalchemy.future import select
 
 from app.models.models import KnowledgeSource, KnowledgeChunk
-from app.services.embedding_service import generate_embeddings_batch
+from app.services.embedding_service import generate_embeddings_batch, generate_embeddings_batch_async
 from app.services.process_logger import log_process_event
 import time
 
@@ -162,7 +162,7 @@ async def crawl_and_index_source_task(source_id: str, db_session_maker):
 
             # 4. Generate batch embeddings
             emb_start = time.time()
-            embeddings = generate_embeddings_batch(chunks)
+            embeddings = await generate_embeddings_batch_async(chunks, db=session)
             emb_duration = (time.time() - emb_start) * 1000
 
             # 5. Delete old chunks for this source

@@ -25,6 +25,7 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
         
     return {
         "name": profile.name,
+        "spokenName": getattr(profile, "spoken_name", None) or "",
         "pitch": profile.pitch,
         "industry": profile.industry,
         "website": profile.website,
@@ -54,6 +55,9 @@ async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get
         db.add(profile)
         
     if "name" in payload: profile.name = payload["name"]
+    if "spokenName" in payload or "spoken_name" in payload:
+        raw = payload.get("spokenName") if "spokenName" in payload else payload.get("spoken_name")
+        profile.spoken_name = (str(raw).strip() if raw is not None else "") or None
     if "pitch" in payload: profile.pitch = payload["pitch"]
     if "industry" in payload: profile.industry = payload["industry"]
     if "website" in payload: profile.website = payload["website"]

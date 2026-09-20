@@ -26,6 +26,8 @@ class CompanyProfile(Base):
     
     id = Column(String, primary_key=True, default="default")
     name = Column(String, default="AIVHub")
+    # How TTS should say the company name (optional). Empty → auto from name.
+    spoken_name = Column(String, nullable=True)
     pitch = Column(Text, default="AI-powered business intelligence dashboards for mid-market operations teams")
     industry = Column(String, default="Business intelligence / data consulting")
     website = Column(String, default="https://aivhub.io")

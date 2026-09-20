@@ -480,23 +480,23 @@ def verify_xai_webhook_signature(
 # ----------------------------------------------------------------------
 # 2. DYNAMIC SYSTEM PROMPT & TOOL DEFINITIONS
 # ----------------------------------------------------------------------
-def _spoken_brand(name: Optional[str]) -> str:
-    """How the voice should say the saved company name. No built-in brand fallback."""
+def _spoken_brand(name: Optional[str], spoken_override: Optional[str] = None) -> str:
+    """How the voice should say the company name. Prefer Company Profile spoken_name (UI)."""
+    override = (spoken_override or "").strip()
+    if override:
+        return override
     raw = (name or "").strip()
     if not raw:
         return "the company"
-    compact = re.sub(r"[\s\-]+", "", raw)
-    if compact.lower() == "aivhub":
-        return "Aivhub"
     return raw
 
 
 def _brand_speech_hint(spoken: str, written: Optional[str] = None) -> str:
-    compact = re.sub(r"[\s\-]+", "", f"{spoken} {written or ''}").lower()
-    hint = f'Say "{spoken}" as one word.'
-    if "aivhub" in compact:
-        hint += " Never pause between AIV and Hub."
-    return hint
+    written_bit = f' (written "{written}")' if (written or "").strip() and (written or "").strip() != spoken else ""
+    return (
+        f'Say the company name exactly as: "{spoken}"{written_bit}. '
+        "If Company Profile has a spoken form, use that — do not invent a different pronunciation."
+    )
 
 
 def _spoken_pitch(raw: Optional[str], company: str) -> str:
@@ -604,7 +604,10 @@ async def build_xai_system_instructions(
     company_name = (profile.name or "").strip() if profile else ""
     if not company_name:
         company_name = "the company"
-    spoken_company = _spoken_brand(profile.name if profile else "")
+    spoken_company = _spoken_brand(
+        profile.name if profile else "",
+        getattr(profile, "spoken_name", None) if profile else None,
+    )
     caller_name = (profile.caller_name or "").strip() if profile else ""
     if not caller_name:
         caller_name = "the caller"

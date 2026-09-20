@@ -175,45 +175,11 @@ export function BookingPolicyEditor({ bookingPolicy, onChange, style, showCatalo
       </div>
 
       <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>Hang-up wording (this business)</div>
+        <div style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>Hang-up timing</div>
         <div style={{ fontSize: 11.5, color: C.slate, marginTop: -4 }}>
-          Agent uses these lines before cutting. Each business can phrase differently — no code change needed.
+          Confirm + goodbye lines live in <b>Extra call rules</b> below (one place). Here only timing.
         </div>
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.slate, display: "grid", gap: 4 }}>
-          Confirm before hang-up
-          <input
-            type="text"
-            value={bp.hangup_confirm_prompt ?? "Anything else before I hang up?"}
-            onChange={(e) => patch({ hangup_confirm_prompt: e.target.value })}
-            placeholder="Anything else before I hang up?"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              fontSize: 12.5,
-              fontFamily: "inherit",
-              background: "#fff",
-            }}
-          />
-        </label>
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.slate, display: "grid", gap: 4 }}>
-          Goodbye before cut
-          <input
-            type="text"
-            value={bp.hangup_goodbye ?? "Thanks for your time — goodbye!"}
-            onChange={(e) => patch({ hangup_goodbye: e.target.value })}
-            placeholder="Thanks for your time — goodbye!"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              fontSize: 12.5,
-              fontFamily: "inherit",
-              background: "#fff",
-            }}
-          />
-        </label>
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.slate, display: "grid", gap: 4, maxWidth: 160 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: C.slate, display: "grid", gap: 4, maxWidth: 200 }}>
           Seconds after goodbye before cut
           <input
             type="number"
@@ -238,15 +204,14 @@ export function BookingPolicyEditor({ bookingPolicy, onChange, style, showCatalo
           Extra call rules (free text)
         </label>
         <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 6 }}>
-          Your own instructions for the voice agent on booking calls. Saved and injected into the prompt.
-          Add anything the checkboxes do not cover.
+          Booking preferences, hang-up wording, anything else. Agent follows this on calls.
         </div>
         <textarea
           value={bp.extra_agent_rules || ""}
           onChange={(e) => patch({ extra_agent_rules: e.target.value })}
-          rows={6}
+          rows={7}
           placeholder={
-            "Examples:\n• Prefer mornings before 11:00 when they say “soon”\n• Never book Fridays after 15:00\n• If they mention procurement, ask for stakeholder email too"
+            "Examples:\n• Prefer mornings before 11:00 when they say “soon”\n• Never book Fridays after 15:00\n• Hang-up: ask “Anything else I can help with?” — if no, say “Thanks for your time — goodbye!” then end"
           }
           style={{
             width: "100%",

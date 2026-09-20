@@ -98,6 +98,7 @@ function callingPageId(raw) {
   if (id === "setup") return "company";
   if (id === "booked" || id === "meetings") return "schedule";
   if (id === "calllog" || id === "history") return "logs";
+  if (id === "tasks" || id === "prospects" || id === "contacts") return "list";
   return SIMPLE_PAGES.has(id) ? id : "";
 }
 const ALERT_KEY = "aivhub_meeting_alerted";
@@ -633,13 +634,13 @@ function navBtn(active) {
     padding: "10px 12px",
     borderRadius: 10,
     border: "none",
-    background: active ? "linear-gradient(135deg, #0C8C7D 0%, #0A6B60 100%)" : "transparent",
+    background: active ? "linear-gradient(135deg, #3457D5 0%, #26409E 100%)" : "transparent",
     color: "#fff",
     fontSize: 13,
     fontWeight: 700,
     cursor: "pointer",
     textAlign: "left",
-    boxShadow: active ? "0 6px 16px rgba(12,140,125,0.28)" : "none",
+    boxShadow: active ? "0 6px 16px rgba(52,87,213,0.32)" : "none",
   };
 }
 
@@ -849,6 +850,7 @@ export function CallingWorkspace({
 
   useEffect(() => {
     try {
+      localStorage.setItem("aivhub_voice_view", page);
       const target = `#/voice/${page}`;
       if (window.location.hash !== target) window.history.replaceState(null, "", target);
     } catch (_) {}
@@ -860,13 +862,24 @@ export function CallingWorkspace({
         const hash = window.location.hash.replace(/^#\/?/, "");
         const parts = hash.split("/");
         if (parts[0] === "voice") {
-          const next = callingPageId(parts[1]);
+          const next = callingPageId(parts[1]) || "list";
           if (next) goPage(next);
         }
       } catch (_) {}
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
+  }, [page, companyDirty]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onSwitchView = (e) => {
+      if (e && e.detail) {
+        const next = callingPageId(e.detail) || (e.detail === "list" ? "list" : "");
+        if (next) goPage(next);
+      }
+    };
+    window.addEventListener("aivhub_set_voice_view", onSwitchView);
+    return () => window.removeEventListener("aivhub_set_voice_view", onSwitchView);
   }, [page, companyDirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -1848,7 +1861,7 @@ export function CallingWorkspace({
       <AppChrome />
       <div style={{ width: 232, minWidth: 232, background: "linear-gradient(180deg, #12141C 0%, #1B1E29 100%)", height: "100vh", display: "flex", flexDirection: "column", padding: "18px 12px", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 8px 16px" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(135deg, #0C8C7D, #3457D5)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 18px rgba(12,140,125,0.35)" }}>
+          <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(135deg, #3457D5, #26409E)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 18px rgba(52,87,213,0.35)" }}>
             <PhoneCall size={15} color="#fff" />
           </div>
           <div>
@@ -1872,7 +1885,7 @@ export function CallingWorkspace({
               <Icon size={15} />
               <span style={{ flex: 1 }}>{p.label}</span>
               {p.id === "live" && activeLive.length ? (
-                <span style={{ minWidth: 18, height: 18, borderRadius: 99, background: "#fff", color: C.teal, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
+                <span style={{ minWidth: 18, height: 18, borderRadius: 99, background: "#fff", color: C.cobalt, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
                   {activeLive.length}
                 </span>
               ) : null}
@@ -1888,7 +1901,7 @@ export function CallingWorkspace({
               setCompanyDirty(false);
             }
             setCallingEdition("classic");
-            try { window.history.replaceState(null, "", "#/voice/tasks"); } catch (_) {}
+            try { window.history.replaceState(null, "", "#/voice/list"); } catch (_) {}
             if (onUseClassic) onUseClassic();
           }}
           style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 4px 4px", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
@@ -1955,7 +1968,7 @@ export function CallingWorkspace({
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     <input value={direct.phone} onChange={(e) => setDirect((d) => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ ...fieldStyle(), flex: 1, minWidth: 140 }} />
                     <input value={direct.name} onChange={(e) => setDirect((d) => ({ ...d, name: e.target.value }))} placeholder="Name (optional)" style={{ ...fieldStyle(), flex: 1, minWidth: 120 }} />
-                    <button type="button" disabled={busy === "direct"} onClick={directCall} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: "none", background: C.gradientTeal, color: "#fff", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <button type="button" disabled={busy === "direct"} onClick={directCall} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: "none", background: C.gradientPrimary, color: "#fff", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, boxShadow: "0 6px 16px rgba(52,87,213,0.25)" }}>
                       <Phone size={14} /> {busy === "direct" ? "Calling…" : "Call"}
                     </button>
                     <button
@@ -2053,7 +2066,7 @@ export function CallingWorkspace({
                       title={selectedDialable >= 2
                         ? `Call ${selectedDialable} selected · up to ${MAX_CONCURRENT} at once`
                         : `Call all ${dialable} phones · 1 at a time`}
-                      style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: selectedDialable >= 2 ? C.gradientTeal : C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}
+                      style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "none", background: selectedDialable >= 2 ? C.gradientPrimary : C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", boxShadow: selectedDialable >= 2 ? "0 6px 16px rgba(52,87,213,0.25)" : undefined }}
                     >
                       {busy === "dial"
                         ? "Placing…"
@@ -2128,7 +2141,7 @@ export function CallingWorkspace({
                                 if (field && editableFields.has(field)) {
                                   const v = field === "phone" ? (rowPhone(r) || r.phone || "") : (r[field] || "");
                                   return (
-                                    <td key={h} style={{ padding: "6px 8px", borderBottom: `1px solid ${C.borderLight}`, background: hi ? C.tealSoft : undefined }}>
+                                    <td key={h} style={{ padding: "6px 8px", borderBottom: `1px solid ${C.borderLight}`, background: hi ? C.cobaltSoft : undefined }}>
                                       <input
                                         value={v}
                                         onChange={(e) => patchRowField(r.id, field, e.target.value)}
@@ -2150,7 +2163,7 @@ export function CallingWorkspace({
                                   );
                                 }
                                 return (
-                                  <td key={h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: C.textInk, background: hi ? C.tealSoft : undefined, fontWeight: hi ? 700 : 400 }}>{cellValue(r, h)}</td>
+                                  <td key={h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: C.textInk, background: hi ? C.cobaltSoft : undefined, fontWeight: hi ? 700 : 400 }}>{cellValue(r, h)}</td>
                                 );
                               })}
                               {extras.map((h) => {
@@ -2159,7 +2172,7 @@ export function CallingWorkspace({
                                 if (editableFields.has(key)) {
                                   const v = key === "phone" ? (rowPhone(r) || r.phone || "") : (r[key] || "");
                                   return (
-                                    <td key={"x_" + h} style={{ padding: "6px 8px", borderBottom: `1px solid ${C.borderLight}`, background: hi ? C.tealSoft : undefined }}>
+                                    <td key={"x_" + h} style={{ padding: "6px 8px", borderBottom: `1px solid ${C.borderLight}`, background: hi ? C.cobaltSoft : undefined }}>
                                       <input
                                         value={v}
                                         onChange={(e) => patchRowField(r.id, key, e.target.value)}
@@ -2181,7 +2194,7 @@ export function CallingWorkspace({
                                   );
                                 }
                                 return (
-                                  <td key={"x_" + h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: extraValue(r, h) ? C.textInk : C.slateLight, background: hi ? C.tealSoft : undefined, fontWeight: hi ? 700 : 400 }}>
+                                  <td key={"x_" + h} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, color: extraValue(r, h) ? C.textInk : C.slateLight, background: hi ? C.cobaltSoft : undefined, fontWeight: hi ? 700 : 400 }}>
                                     {extraValue(r, h)}
                                   </td>
                                 );
@@ -2224,7 +2237,7 @@ export function CallingWorkspace({
 
               <div style={{ ...card(), display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexShrink: 0 }}>
-                  <Sparkles size={16} color={C.teal} />
+                  <Sparkles size={16} color={C.cobalt} />
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, flex: 1 }}>List AI</div>
                   <button type="button" title="Chat history" onClick={() => setHistOpen((v) => !v)} style={{ height: 30, width: 30, borderRadius: 8, border: `1px solid ${C.border}`, background: histOpen ? C.ink : "#fff", color: histOpen ? "#fff" : C.slate, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <History size={14} />
@@ -2237,7 +2250,7 @@ export function CallingWorkspace({
                   <div style={{ flexShrink: 0, marginBottom: 8, padding: "6px 8px", borderRadius: 8, background: C.paperSoft, border: `1px solid ${C.border}` }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>{findProgress.done}/{findProgress.total} · {findProgress.filled} filled</div>
                     <div style={{ height: 3, background: "#fff", borderRadius: 99, marginTop: 5, overflow: "hidden" }}>
-                      <div style={{ width: `${Math.round((findProgress.done / Math.max(findProgress.total, 1)) * 100)}%`, height: "100%", background: C.teal }} />
+                      <div style={{ width: `${Math.round((findProgress.done / Math.max(findProgress.total, 1)) * 100)}%`, height: "100%", background: C.cobalt }} />
                     </div>
                   </div>
                 ) : null}
@@ -2368,7 +2381,7 @@ export function CallingWorkspace({
                                   <button type="button" title="Delete" onClick={() => deleteMsg(m.id)} style={{ ...iconMini, color: C.slate }}>
                                     <Trash2 size={12} />
                                   </button>
-                                  <button type="button" title="Copy" onClick={() => copyMsg(m.text, m.id)} style={{ ...iconMini, color: copiedId === m.id ? C.teal : C.slate, opacity: 1, minWidth: copiedId === m.id ? 58 : 26, fontSize: 10, fontWeight: 800, gap: 3 }}>
+                                  <button type="button" title="Copy" onClick={() => copyMsg(m.text, m.id)} style={{ ...iconMini, color: copiedId === m.id ? C.cobalt : C.slate, opacity: 1, minWidth: copiedId === m.id ? 58 : 26, fontSize: 10, fontWeight: 800, gap: 3 }}>
                                     {copiedId === m.id ? <><Check size={12} /> Copied</> : <Copy size={12} />}
                                   </button>
                                   <button type="button" title="Resend" onClick={() => resendMsg(m)} style={{ ...iconMini, color: C.slate }}>
@@ -2381,13 +2394,13 @@ export function CallingWorkspace({
                         </div>
                       );
                     })}
-                    {busy === "chat" ? <div style={{ fontSize: 12, color: C.teal, fontWeight: 700 }}>Thinking…</div> : null}
+                    {busy === "chat" ? <div style={{ fontSize: 12, color: C.cobalt, fontWeight: 700 }}>Thinking…</div> : null}
                     <div ref={chatEnd} />
                   </div>
                 )}
                 <form onSubmit={(e) => { e.preventDefault(); sendChat(e); }} style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                   <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="New list… find companies… or find missing" disabled={busy === "chat" || busy === "find"} style={{ ...fieldStyle(), flex: 1 }} />
-                  <button type="submit" disabled={busy === "chat" || busy === "find" || !chatInput.trim()} style={{ height: 40, width: 44, border: "none", borderRadius: 10, background: C.teal, color: "#fff", cursor: "pointer" }}>
+                  <button type="submit" disabled={busy === "chat" || busy === "find" || !chatInput.trim()} style={{ height: 40, width: 44, border: "none", borderRadius: 10, background: C.cobalt, color: "#fff", cursor: "pointer", boxShadow: "0 4px 12px rgba(52,87,213,0.25)" }}>
                     <Send size={14} />
                   </button>
                 </form>
@@ -2408,7 +2421,7 @@ export function CallingWorkspace({
                 const st = c.state || c.status || "calling";
                 const lines = c.transcript || [];
                 return (
-                  <div key={id} style={{ ...card(), borderColor: takenId === id ? C.red : listeningId === id ? C.teal : C.border, borderWidth: 1.5 }}>
+                  <div key={id} style={{ ...card(), borderColor: takenId === id ? C.red : listeningId === id ? C.cobalt : C.border, borderWidth: 1.5 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
                       <div>
                         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>{name}</div>
@@ -2429,7 +2442,7 @@ export function CallingWorkspace({
                       </div>
                     ) : (
                       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => toggleListen(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: listeningId === id ? C.tealSoft : "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
+                        <button type="button" onClick={() => toggleListen(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${listeningId === id ? C.cobalt : C.border}`, background: listeningId === id ? C.cobaltSoft : "#fff", color: listeningId === id ? C.cobalt : C.textInk, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
                           <Headphones size={14} /> {listeningId === id ? "Stop listen" : "Listen"}
                         </button>
                         <button type="button" onClick={() => toggleTakeover(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: takenId === id ? C.redSoft : "#fff", cursor: "pointer", fontWeight: 700 }}>
@@ -2592,7 +2605,7 @@ export function CallingWorkspace({
                               fontWeight: 800,
                               letterSpacing: "0.04em",
                               textTransform: "uppercase",
-                              color: isAi ? C.teal : C.cobalt,
+                              color: isAi ? C.cobalt : C.textInk,
                               paddingTop: 2,
                             }}>
                               {isAi ? "Sam" : "Them"}

@@ -13,7 +13,7 @@ from app.models.models import Connection, Mission, CallLog, Meeting, Prospect, C
 from app.schemas.schemas import ConnectionSchema
 from app.services.key_validator import validate_api_key
 from app.services.process_logger import log_process_event
-from app.services.secret_box import seal_config, open_config, config_get_secret, public_config, mask_secret
+from app.services.secret_box import seal_config, open_config, config_get_secret, public_config, mask_secret, is_masked
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/connections", tags=["Connections & Providers"])
@@ -56,6 +56,7 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
         "Messaging": "Sends automated confirmations and follow-ups via WhatsApp and SMS.",
         "Calendar": "Checks availability and books confirmed meetings.",
         "Business Discovery": "Finds and researches prospect businesses on the web.",
+        "Embeddings": "Generates 384-dimensional vector embeddings for website crawls and knowledge base semantic retrieval.",
         "Other": "Anything else your team connects — CRM, spreadsheets, custom internal tools."
     }
     
@@ -77,11 +78,25 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
     return list(grouped.values())
 
 @router.post("/test")
-async def test_connection_only(req: TestKeyRequest):
+async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(get_db)):
     """
     Performs live test against provider API without saving.
+    Supports testing existing encrypted credentials in DB if key input is empty or masked.
     """
     key = req.resolved_api_key
+    if not key or key in ("dummy_configured", "dummy_key") or is_masked(key):
+        result = await db.execute(
+            select(Connection).where(
+                (Connection.name.ilike(f"%{req.provider}%")) |
+                (Connection.group_name == req.layer)
+            )
+        )
+        existing = result.scalars().first()
+        if existing:
+            saved_key = config_get_secret(existing.config, "api_key", "auth_token")
+            if saved_key:
+                key = saved_key
+
     if not key:
         raise HTTPException(
             status_code=400,
@@ -109,13 +124,36 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     """
     Performs a live validation test against the provider API before saving.
     Rejects the request if credentials fail authentication.
+    If no new raw key is supplied but connection exists in DB, validates the stored key without overwrite.
     """
     key = req.resolved_api_key
+    display_name = f"{req.provider}" + (f" ({req.base_url})" if req.provider.lower() == "other" and req.base_url else "")
+    
+    # Check if this connection already exists in this group or by provider name
+    result = await db.execute(
+        select(Connection).where(Connection.group_name == req.layer, Connection.name == display_name)
+    )
+    existing = result.scalars().first()
+    if not existing:
+        result = await db.execute(
+            select(Connection).where(Connection.name.ilike(f"%{req.provider}%"))
+        )
+        existing = result.scalars().first()
+
+    is_retest_existing = False
+    if not key or key in ("dummy_configured", "dummy_key") or is_masked(key):
+        if existing:
+            saved_key = config_get_secret(existing.config, "api_key", "auth_token")
+            if saved_key:
+                key = saved_key
+                is_retest_existing = True
+
     if not key:
         raise HTTPException(
             status_code=400,
             detail="API Key is required."
         )
+
     # 1. Live Validation Probe
     validation = await validate_api_key(
         provider=req.provider,
@@ -130,19 +168,25 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             detail=validation.get("error", f"Authentication failed for {req.provider}.")
         )
     
-    # 2. Mask the key for safe storage
+    # 2. If it's a retest of an existing key in DB, preserve config and just ensure status is connected
+    if is_retest_existing and existing:
+        existing.status = "connected"
+        await db.commit()
+        return {
+            "success": True,
+            "id": existing.id,
+            "provider": req.provider,
+            "layer": req.layer,
+            "status": "connected",
+            "maskedKey": existing.api_key_masked or "••••••••",
+            "details": validation.get("details", "Verified & Active")
+        }
+
+    # 3. Mask the key for safe storage
     clean_key = key
     masked = clean_key[:3] + "••••••••" + clean_key[-4:] if len(clean_key) > 8 else "••••••••"
     
-    # 3. Save or update connection in database
-    display_name = f"{req.provider}" + (f" ({req.base_url})" if req.provider.lower() == "other" and req.base_url else "")
-    
-    # Check if this connection already exists in this group
-    result = await db.execute(
-        select(Connection).where(Connection.group_name == req.layer, Connection.name == display_name)
-    )
-    existing = result.scalars().first()
-    
+    # 4. Save or update connection in database
     conn_config = seal_config({
         "api_key": clean_key,
         "auth_token": clean_key,
@@ -174,6 +218,18 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
 
     await db.commit()
     
+    if (req.layer or "").lower() == "embeddings" or "embed" in (req.provider or "").lower():
+        try:
+            from app.services.embedding_service import set_active_embedding_config
+            set_active_embedding_config(
+                model=req.model,
+                provider=req.provider,
+                api_key=clean_key,
+                base_url=req.resolved_base_url
+            )
+        except Exception:
+            pass
+
     return {
         "success": True,
         "id": conn_id,

@@ -149,7 +149,7 @@ export function MeetingInvitePreview({
         </div>
         <div style={{ flex: 1, minWidth: 140 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-            Email invitation
+            Email preview
           </div>
           <div style={{ fontSize: 11.5, color: C.slate, marginTop: 1 }}>
             {data?.hasCustom ? "Using your HTML" : "Built-in design"} · Company Profile fills tokens

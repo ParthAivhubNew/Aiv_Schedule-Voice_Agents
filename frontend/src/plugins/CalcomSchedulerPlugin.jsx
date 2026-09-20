@@ -34,7 +34,7 @@ import { api } from "../api/apiClient";
 import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
 
 export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile, commonAi, onOpenCommonAi }) {
-  const [activeTab, setActiveTab] = useState("bookings"); // "bookings" | "eventTypes" | "directBook" | "availability" | "comms"
+  const [activeTab, setActiveTab] = useState("comms"); // email preview only — schedule lives in Calling
   const [loading, setLoading] = useState(false);
   const [overview, setOverview] = useState(null);
   const [bookings, setBookings] = useState([]);
@@ -302,50 +302,10 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
         </div>
       </header>
 
-      {/* Metrics Ribbon */}
-      <div style={{ background: "#fff", borderBottom: `1px solid ${C.border}`, padding: "14px 32px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16 }}>
-          <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-            <div style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>Total Bookings</div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginTop: 2 }}>
-              {overview?.totalBookings ?? bookings.length}
-            </div>
-          </div>
-          <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-            <div style={{ fontSize: 11.5, color: "#059669", fontWeight: 600 }}>Upcoming Meetings</div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: "#059669", marginTop: 2 }}>
-              {overview?.upcomingCount ?? bookings.filter(b => b.status === "upcoming").length}
-            </div>
-          </div>
-          <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-            <div style={{ fontSize: 11.5, color: C.cobalt, fontWeight: 600 }}>Completed / Converted</div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.cobalt, marginTop: 2 }}>
-              {overview?.completedCount ?? bookings.filter(b => b.status === "completed").length}
-            </div>
-          </div>
-          <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-            <div style={{ fontSize: 11.5, color: "#6366F1", fontWeight: 600 }}>Event Types</div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: "#6366F1", marginTop: 2 }}>
-              {eventTypes.length}
-            </div>
-          </div>
-          <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-            <div style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>Working Schedule</div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 700, color: C.ink, marginTop: 4 }}>
-              {settings?.working_hours_start || "09:00"}–{settings?.working_hours_end || "17:30"} {settings?.timezone || "Europe/London"}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Navigation Tabs */}
+      {/* Navigation — email preview only; bookings/slots live in Calling → Schedule */}
       <div style={{ display: "flex", gap: 6, padding: "0 32px", borderBottom: `1px solid ${C.border}`, background: "#fff" }}>
         {[
-          { id: "bookings", label: `Upcoming Meetings (${bookings.filter(b => b.status === "upcoming").length})`, icon: Video },
-          { id: "directBook", label: "1-Click Direct Booking & Slots", icon: CalendarCheck },
-          { id: "eventTypes", label: `Event Types (${eventTypes.length})`, icon: Layers },
-          { id: "availability", label: "Availability", icon: Clock },
-          { id: "comms", label: "Invite email", icon: Mail },
+          { id: "comms", label: "Email preview", icon: Mail },
         ].map((t) => {
           const Icon = t.icon;
           const active = activeTab === t.id;
@@ -380,7 +340,8 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
       <main style={{ flex: 1, padding: "28px 32px", overflowY: "auto" }}>
         
         {/* TAB 1: BOOKINGS LIST */}
-        {activeTab === "bookings" && (
+        {/* Removed tabs: bookings / directBook / eventTypes / availability — use Calling → Schedule */}
+        {false && activeTab === "bookings" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {/* Search & Actions Bar */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -652,7 +613,7 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
         )}
 
         {/* TAB 2: DIRECT BOOK & SLOTS */}
-        {activeTab === "directBook" && (
+        {false && activeTab === "directBook" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 24 }}>
             <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "22px 24px" }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 14 }}>
@@ -949,7 +910,7 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
         )}
 
         {/* TAB 3: EVENT TYPES */}
-        {activeTab === "eventTypes" && (
+        {false && activeTab === "eventTypes" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
@@ -1090,7 +1051,7 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
         )}
 
         {/* TAB 4: AVAILABILITY */}
-        {activeTab === "availability" && (
+        {false && activeTab === "availability" && (
           <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "24px 28px", maxWidth: 800 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <div>
@@ -1178,6 +1139,9 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
         {/* TAB 5: COMMS */}
         {activeTab === "comms" && (
           <div style={{ display: "grid", gap: 16 }}>
+            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 18px", fontSize: 13, color: C.slate }}>
+              Bookings, slots, and availability live in <strong style={{ color: C.ink }}>Calling → Schedule</strong>. This view is for the meeting email template only.
+            </div>
             <MeetingInvitePreview />
             <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "24px 28px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
@@ -1290,7 +1254,7 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
             <button
               onClick={() => {
                 setBookingSuccessModal(null);
-                setActiveTab("bookings");
+                setActiveTab("comms");
               }}
               style={{
                 width: "100%",

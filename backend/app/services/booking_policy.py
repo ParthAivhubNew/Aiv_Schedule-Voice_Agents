@@ -5,6 +5,7 @@ each tenant edits via Schedule / Calendar settings.
 """
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
@@ -259,30 +260,44 @@ def voice_booking_instructions(policy: Optional[Dict[str, Any]]) -> str:
 
 
 def voice_hangup_instructions(policy: Optional[Dict[str, Any]]) -> str:
-    """WRAP-UP / hang-up lines from this business's Call Script & Rules."""
+    """WRAP-UP / hang-up lines. Wording prefers Extra call rules; defaults if none."""
     p = normalize_booking_policy(policy)
-    confirm = (p.get("hangup_confirm_prompt") or "Anything else before I hang up?").strip()
-    goodbye = (p.get("hangup_goodbye") or "Thanks for your time — goodbye!").strip()
     delay = int(p.get("hangup_delay_seconds") or 4)
     delay = max(2, min(delay, 15))
     ask = p.get("ask_before_hangup", True)
+    extra = str(p.get("extra_agent_rules") or "").strip()
+    # Legacy fields still honored if present; UI now points people to Extra call rules.
+    confirm = (p.get("hangup_confirm_prompt") or "").strip()
+    goodbye = (p.get("hangup_goodbye") or "").strip()
+    if not confirm:
+        confirm = "Anything else before I hang up?"
+    if not goodbye:
+        goodbye = "Thanks for your time — goodbye!"
 
     lines = ["WRAP-UP & HANG UP (THIS BUSINESS'S RULES):"]
     lines.append(
         "- When the conversation is naturally done (booking locked, they decline, or they say goodbye):"
     )
     if ask:
-        lines.append(f'  Ask once, using this wording (or very close): "{confirm}"')
+        lines.append(
+            f'  Ask once whether they need anything else. Default wording: "{confirm}" '
+            "(or the hang-up wording in EXTRA BOOKING RULES if they wrote one)."
+        )
         lines.append("- If they still have a question or want something else: answer it. Do NOT hang up yet.")
         lines.append(
-            f'- If they say no / nothing else / that\'s all / bye: speak this goodbye (or very close): "{goodbye}"'
+            f'- If they say no / nothing else / that\'s all / bye: speak a short goodbye. Default: "{goodbye}" '
+            "(or their EXTRA hang-up goodbye if written)."
         )
     else:
-        lines.append(f'  Speak this goodbye (or very close): "{goodbye}"')
+        lines.append(f'  Speak a short goodbye. Default: "{goodbye}" (or EXTRA hang-up goodbye if written).')
     lines.append(
         f"- Then call end_call with delay_seconds around {delay} so the goodbye can finish speaking before the line drops."
     )
     lines.append("- Never leave the line open after wrap-up. Never hang up mid-sentence without finishing the goodbye.")
+    if extra and re.search(r"hang[\s\-]?up|goodbye|before i (hang|cut)|end the call", extra, re.I):
+        lines.append(
+            "- Prefer hang-up / goodbye wording from EXTRA BOOKING RULES when it is more specific than the defaults above."
+        )
     return "\n".join(lines)
 
 

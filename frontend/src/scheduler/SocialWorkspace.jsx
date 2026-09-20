@@ -1753,9 +1753,11 @@ export function SocialWorkspace({
   const [editText, setEditText] = useState("");
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [expandedApprovalId, setExpandedApprovalId] = useState("");
+  const [approvalTargetDate, setApprovalTargetDate] = useState("");
   const [approvalPos, setApprovalPos] = useState({ x: 0, y: 0 });
   const [approvalDragging, setApprovalDragging] = useState(false);
   const approvalDragRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
+  const dayClickTimerRef = useRef({});
   const [pinnedDates, setPinnedDates] = useState(() => {
     const saved = readJson(LS_PINS, []);
     return Array.isArray(saved) ? saved.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
@@ -2239,6 +2241,39 @@ export function SocialWorkspace({
   };
 
   const unpinDay = (key, e) => unpinDate(key, e);
+
+  const handleDayOrPostClick = (key, postId, e) => {
+    if (e && e.defaultPrevented) return;
+    if (e && e.target && e.target.closest && e.target.closest("button[title='Delete post'], button[title='Click to unpin']")) {
+      return;
+    }
+    if (dayClickTimerRef.current[key]) {
+      clearTimeout(dayClickTimerRef.current[key]);
+      delete dayClickTimerRef.current[key];
+    }
+    dayClickTimerRef.current[key] = setTimeout(() => {
+      delete dayClickTimerRef.current[key];
+      if (postId) setSelectedId(postId);
+      if (pinnedDates.includes(key)) {
+        unpinDate(key);
+      } else {
+        pinDay(key);
+      }
+    }, 220);
+  };
+
+  const handleDayOrPostDoubleClick = (key, postId, e) => {
+    if (e) {
+      if (e.preventDefault) e.preventDefault();
+      if (e.stopPropagation) e.stopPropagation();
+    }
+    if (dayClickTimerRef.current[key]) {
+      clearTimeout(dayClickTimerRef.current[key]);
+      delete dayClickTimerRef.current[key];
+    }
+    const targetPostId = postId || (postsByDay[key] && postsByDay[key][0]?.id) || null;
+    openApprovals(targetPostId, key);
+  };
 
   const regenImage = async (p, note) => {
     if (!p || imageBusy) return;
@@ -2797,10 +2832,23 @@ export function SocialWorkspace({
     setThreads((ts) => ts.filter((t) => t.id !== id));
   };
 
-  const openApprovals = (id) => {
+  const openApprovals = (id, targetDate) => {
     if (id) {
       setSelectedId(id);
       setExpandedApprovalId(id);
+      const post = posts.find((p) => p.id === id);
+      if (post && post.date) {
+        setApprovalTargetDate(post.date);
+      } else if (targetDate) {
+        setApprovalTargetDate(targetDate);
+      }
+    } else if (targetDate) {
+      setApprovalTargetDate(targetDate);
+      const firstPostOnDate = posts.find((p) => p.date === targetDate);
+      if (firstPostOnDate) {
+        setSelectedId(firstPostOnDate.id);
+        setExpandedApprovalId(firstPostOnDate.id);
+      }
     }
     setApprovalPos({ x: 0, y: 0 });
     setApprovalOpen(true);
@@ -3081,8 +3129,9 @@ export function SocialWorkspace({
                     key={d}
                     type="button"
                     onClick={(e) => unpinDate(d, e)}
+                    onDoubleClick={(e) => { e.stopPropagation(); openApprovals(null, d); }}
                     style={{ ...secBtn, height: 28, fontSize: 11, background: C.tealSoft, borderColor: C.teal }}
-                    title="Click to unpin"
+                    title="Click to unpin · Double-click to open approvals"
                   >
                     {dayLabel(d)} <X size={11} />
                   </button>
@@ -3092,16 +3141,16 @@ export function SocialWorkspace({
                 </button>
               </div>
             ) : (
-              <div style={{ fontSize: 12, color: C.slate }}>Click a day to pin it. Click again to unpin. Several days can stay pinned at once.</div>
+              <div style={{ fontSize: 12, color: C.slate }}>Single-click a day to pin it. Double-click to open its approval window. Several days can stay pinned at once.</div>
             )}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
               {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-                <div key={d} style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, textAlign: "center", padding: "4px 0" }}>{d}</div>
+                <div key={d} style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, textAlign: "center", padding: "4px 0", minWidth: 0, overflow: "hidden" }}>{d}</div>
               ))}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
               {cells.map((day, i) => {
-                if (!day) return <div key={"e" + i} />;
+                if (!day) return <div key={"e" + i} style={{ minHeight: 84, minWidth: 0 }} />;
                 const key = isoDate(day.getTime());
                 const dayPosts = postsByDay[key] || [];
                 const isToday = isoDate(Date.now()) === key;
@@ -3111,61 +3160,99 @@ export function SocialWorkspace({
                     key={key}
                     role="button"
                     tabIndex={0}
-                    onClick={() => (pinned ? unpinDate(key) : pinDay(key))}
+                    onClick={(e) => handleDayOrPostClick(key, null, e)}
+                    onDoubleClick={(e) => handleDayOrPostDoubleClick(key, null, e)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pinned ? unpinDate(key) : pinDay(key); } }}
+                    title={pinned ? "Single-click to unpin · Double-click to open approvals" : "Single-click to pin · Double-click to open approvals"}
                     style={{
                       minHeight: 84,
+                      minWidth: 0,
+                      width: "100%",
+                      boxSizing: "border-box",
+                      overflow: "hidden",
                       background: pinned ? C.tealSoft : "#fff",
                       border: `1px solid ${pinned ? C.teal : isToday ? C.teal : C.border}`,
                       borderRadius: 10,
                       padding: 8,
                       cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      userSelect: "none",
                     }}
                   >
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6, display: "flex", justifyContent: "space-between", minWidth: 0 }}>
                       <span>{day.getDate()}</span>
                       {pinned ? (
-                        <button type="button" onClick={(e) => unpinDate(key, e)} style={{ fontSize: 9, fontWeight: 700, color: C.teal, border: "none", background: "transparent", cursor: "pointer" }}>
+                        <button type="button" onClick={(e) => unpinDate(key, e)} title="Click to unpin" style={{ fontSize: 9, fontWeight: 700, color: C.teal, border: "none", background: "transparent", cursor: "pointer", flexShrink: 0 }}>
                           PINNED ×
                         </button>
                       ) : null}
                     </div>
                     {dayPosts.length === 0 ? (
-                      <div style={{ fontSize: 10.5, color: C.slate, lineHeight: 1.35 }}>{pinned ? "Pinned" : "Pin this day"}</div>
+                      <div style={{ fontSize: 10.5, color: C.slate, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pinned ? "Pinned" : "Pin this day"}</div>
                     ) : dayPosts.map((p) => (
                       <div
                         key={p.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDayOrPostClick(key, p.id, e);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleDayOrPostDoubleClick(key, p.id, e);
+                        }}
                         style={{
                           display: "flex",
-                          alignItems: "stretch",
+                          alignItems: "center",
                           gap: 2,
                           marginBottom: 4,
                           background: selectedId === p.id ? C.tealSoft : C.paperSoft,
                           borderRadius: 6,
                           overflow: "hidden",
+                          width: "100%",
+                          minWidth: 0,
+                          boxSizing: "border-box",
+                          cursor: "pointer",
                         }}
                       >
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); openApprovals(p.id); }}
+                        <div
                           style={{
                             flex: 1,
                             minWidth: 0,
+                            maxWidth: "100%",
                             textAlign: "left",
-                            border: "none",
-                            background: "transparent",
                             padding: "5px 6px",
-                            cursor: "pointer",
+                            overflow: "hidden",
+                            display: "block",
+                            boxSizing: "border-box",
                           }}
+                          title={(p.headline || "Scheduled post") + " · Single-click to pin · Double-click to open approvals"}
                         >
-                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ width: 6, height: 6, borderRadius: 99, background: statusColor(p.status) }} />
-                            <span style={{ fontSize: 10, fontWeight: 700, color: C.slate }}>{p.time} · {p.channel}</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, overflow: "hidden" }}>
+                            <span style={{ width: 6, height: 6, borderRadius: 99, background: statusColor(p.status), flexShrink: 0 }} />
+                            <span style={{ fontSize: 10, fontWeight: 700, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                              {p.time} · {p.channel}
+                            </span>
                           </div>
-                          <div style={{ fontSize: 11.5, color: C.ink, fontWeight: 600, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <div
+                            style={{
+                              fontSize: 11.5,
+                              color: C.ink,
+                              fontWeight: 600,
+                              marginTop: 2,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              display: "block",
+                              width: "100%",
+                              minWidth: 0,
+                            }}
+                          >
                             {p.enriching ? "Writing…" : p.headline}
                           </div>
-                        </button>
+                        </div>
                         {p.status !== "posted" ? (
                           <button
                             type="button"
@@ -3478,7 +3565,7 @@ export function SocialWorkspace({
       </div>
 
       {approvalOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 20 }} onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 20 }} onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); setApprovalTargetDate(""); }}>
           <div
             style={{
               width: 880,
@@ -3521,7 +3608,7 @@ export function SocialWorkspace({
                   <Check size={14} /> Approve all drafts
                 </button>
               ) : null}
-              <button type="button" onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); }} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
+              <button type="button" onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); setApprovalTargetDate(""); }} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
             </div>
             <div style={{ flex: 1, minHeight: 0, padding: 14, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <ApprovalsBoard
@@ -3532,7 +3619,7 @@ export function SocialWorkspace({
                   setExpandedApprovalId(id);
                   if (id) setSelectedId(id);
                 }}
-                initialDate={(posts.find((p) => p.id === selectedId) || {}).date || ""}
+                initialDate={approvalTargetDate || (posts.find((p) => p.id === selectedId) || {}).date || ""}
                 statusColor={statusColor}
                 statusLabel={statusLabel}
                 imageBusy={imageBusy}
