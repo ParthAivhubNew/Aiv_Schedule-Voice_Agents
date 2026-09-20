@@ -840,24 +840,55 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 prev_voices = prev_c.config.get("custom_voices") or []
                 prev_label = prev_c.config.get("cloned_voice_label")
 
+            # Keep real Twilio/Telnyx secrets — never overwrite with the voice-engine (xAI) key.
+            prev_sid = None
+            prev_auth = None
+            prev_tele_masked = None
+            prev_tele_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+            prev_tele = prev_tele_res.scalars().first()
+            if prev_tele:
+                prev_tele_masked = prev_tele.api_key_masked
+                tele_cfg = open_config(prev_tele.config if isinstance(prev_tele.config, dict) else {})
+                cand_sid = (tele_cfg.get("account_sid") or "").strip()
+                if cand_sid.startswith("AC") and len(cand_sid) == 34:
+                    prev_sid = cand_sid
+                for name in ("auth_token", "api_key"):
+                    v = (tele_cfg.get(name) or "").strip()
+                    if v and not v.startswith("xai-") and len(v) >= 32:
+                        prev_auth = v
+                        break
+            req_sid = (req.account_sid or "").strip()
+            if req_sid.startswith("AC") and len(req_sid) == 34:
+                prev_sid = req_sid
+            # Only treat key_clean as carrier token when it is NOT an xAI key
+            if (
+                key_clean
+                and not key_clean.startswith("xai-")
+                and len(key_clean) >= 32
+                and ("twilio" in carrier or "telnyx" in carrier)
+            ):
+                prev_auth = key_clean
+
             voice_choice, voice_accent = _split_voice_choice(req.voice_name or "rex", None)
             from app.services.voice_plugin_plan import looks_like_external_voice_id
             voice_is_clone = looks_like_external_voice_id(voice_choice)
 
             # Clean and re-insert Telephony and Voice Orchestration connections
             await db.execute(delete(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
-            
+
+            tele_masked = mask_secret(prev_auth) if prev_auth else (prev_tele_masked or "••••••••")
             db.add(Connection(
                 id=f"conn_{uuid.uuid4().hex[:6]}",
                 group_name="Telephony",
                 name=carrier_name,
                 status="connected",
-                api_key_masked=masked_key,
+                api_key_masked=tele_masked,
                 config=seal_config({
                     "phoneNumber": phone_clean,
                     "carrier": carrier_name,
-                    "account_sid": req.account_sid,
-                    "api_key": key_clean if ("twilio" in carrier or "telnyx" in carrier) else None
+                    "account_sid": prev_sid,
+                    "api_key": prev_auth,
+                    "auth_token": prev_auth,
                 })
             ))
             db.add(Connection(
