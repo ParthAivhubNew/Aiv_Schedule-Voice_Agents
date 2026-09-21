@@ -6921,6 +6921,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
   const [toNumber, setToNumber] = useState(prefillData?.toNumber || "");
   const [prospectName, setProspectName] = useState(prefillData?.prospectName || "");
   const [fromNumber, setFromNumber] = useState(defaultFromNumber || "");
+  const [carrierChoice, setCarrierChoice] = useState("twilio");
+  const [missionTitle, setMissionTitle] = useState(prefillData?.missionTitle || "Direct Client Outreach");
 
   useEffect(() => {
     if (defaultFromNumber) {
@@ -7281,6 +7283,33 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
               />
               <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
                 AI addresses them by name
+              </div>
+            </div>
+
+            {/* Mission Title */}
+            <div>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 5 }}>
+                Mission / Campaign
+              </label>
+              <input
+                type="text"
+                value={missionTitle}
+                onChange={(e) => setMissionTitle(e.target.value)}
+                placeholder="e.g. Direct Client Outreach"
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  borderRadius: 7,
+                  border: `1px solid ${C.border}`,
+                  background: "#fff",
+                  color: C.textInk,
+                  fontFamily: FONT_BODY,
+                  fontSize: 13,
+                  boxSizing: "border-box"
+                }}
+              />
+              <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
+                Label for tracking & notes
               </div>
             </div>
 
