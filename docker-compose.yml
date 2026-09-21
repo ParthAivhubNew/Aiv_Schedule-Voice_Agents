@@ -93,8 +93,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "1m"
-        max-file: "3"
+        max-size: "500k"
+        max-file: "1"
 
   # 5. React Frontend (Served via Nginx on port 8080)
   frontend:
@@ -110,8 +110,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "1m"
-        max-file: "3"
+        max-size: "500k"
+        max-file: "1"
 
 volumes:
   postgres_data:
