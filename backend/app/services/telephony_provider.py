@@ -183,15 +183,13 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
         internal_call_id = meta.get("call_id") or "call_outbound"
         media_stream_url = (meta.get("media_stream_url") or "").strip() or f"{wss_base}/ws/media-stream"
 
-        # Bidirectional stream: xAI speaks μ-law over WS. Greeting is pre-buffered while the
-        # phone still rings so pickup has no dead air. No SIP after the human is on the line.
+        # Use SIP Dial to bridge to xAI SIP endpoint
+        # This sends a traditional SIP INVITE which your Micro SIP can receive
         twiml = (
             f"<Response>"
-            f"<Connect>"
-            f"<Stream url=\"{media_stream_url}\">"
-            f"<Parameter name=\"internalCallId\" value=\"{internal_call_id}\" />"
-            f"</Stream>"
-            f"</Connect>"
+            f"<Dial>"
+            f"<SIP>{bridge_sip_uri}</SIP>"
+            f"</Dial>"
             f"</Response>"
         )
         payload = {
