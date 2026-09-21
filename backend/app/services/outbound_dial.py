@@ -302,19 +302,18 @@ async def place_outbound_call(
         "ended": False,
     })
 
-    # Pre-warm voice bridge without blocking carrier dial / UI
-    async def _warm_bridge():
-        try:
-            await start_bridged_voice_session(
-                call_id=call_id,
-                caller_number=from_clean,
-                prospect_name=prospect_label,
-                is_inbound=False,
-            )
-        except Exception as bridge_err:
-            logger.warning(f"Could not pre-warm voice bridge: {bridge_err}")
-
-    asyncio.create_task(_warm_bridge())
+    # Pre-warm voice bridge SYNCHRONOUSLY before dialing so Media Stream can find it
+    try:
+        audio_bridge = await start_bridged_voice_session(
+            call_id=call_id,
+            caller_number=from_clean,
+            prospect_name=prospect_label,
+            is_inbound=False,
+        )
+        logger.info(f"[OutboundDial] Pre-warmed audio bridge for {call_id}")
+    except Exception as bridge_err:
+        logger.warning(f"Could not pre-warm voice bridge: {bridge_err}")
+        audio_bridge = None
 
     adapter = carrier_registry.get_adapter(carrier_choice)
     try:
