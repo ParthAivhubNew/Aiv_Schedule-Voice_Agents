@@ -5555,6 +5555,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
+  const [unsavedModalTarget, setUnsavedModalTarget] = useState(null);
 
   useEffect(() => {
     if (typeof onDirtyChange === "function") onDirtyChange(dirty);
@@ -5565,10 +5566,37 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
   const requestTab = (nextId) => {
     if (nextId === tab) return;
     if (dirty) {
-      save(false);
+      setUnsavedModalTarget(nextId);
+      return;
     }
     setTab(nextId);
   };
+
+  const handleConfirmLeave = () => {
+    const target = unsavedModalTarget;
+    setDirty(false);
+    setUnsavedModalTarget(null);
+    if (target) setTab(target);
+  };
+
+  const handleSaveAndLeave = async () => {
+    const target = unsavedModalTarget;
+    await save(true);
+    setUnsavedModalTarget(null);
+    if (target) setTab(target);
+  };
+
+  const handleCancelLeave = () => {
+    setUnsavedModalTarget(null);
+  };
+
+  useEffect(() => {
+    const onExternalSave = () => {
+      save(true);
+    };
+    window.addEventListener("aivhub_save_company", onExternalSave);
+    return () => window.removeEventListener("aivhub_save_company", onExternalSave);
+  }, [profile, sources, services, faq, bookingPolicy, voiceName]);
 
   const update = (k, v) => {
     markDirty();
@@ -6631,6 +6659,151 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
       {saved && (
         <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10 }}>
           <CheckCircle2 size={15} color={C.teal} /> Saved — used on all future calls
+        </div>
+      )}
+
+      {unsavedModalTarget && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100000,
+            background: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={handleCancelLeave}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: 16,
+              width: "100%",
+              maxWidth: 460,
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(226, 232, 240, 0.8)",
+              padding: 24,
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+              <div
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 12,
+                  background: "#FEF3C7",
+                  border: "1px solid #FDE68A",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  color: "#D97706",
+                }}
+              >
+                <AlertTriangle size={22} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: "#0F172A", lineHeight: 1.3 }}>
+                  Unsaved changes
+                </div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#475569", marginTop: 6, lineHeight: 1.5 }}>
+                  You have unsaved changes on this page. If you leave now without saving, your recent edits will be lost.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelLeave}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94A3B8",
+                  cursor: "pointer",
+                  padding: 4,
+                  borderRadius: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                alignItems: "center",
+                gap: 8,
+                marginTop: 8,
+                paddingTop: 16,
+                borderTop: "1px solid #F1F5F9",
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleCancelLeave}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: "1px solid #E2E8F0",
+                  background: "#ffffff",
+                  color: "#475569",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLeave}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: "1px solid #FCA5A5",
+                  background: "#FEF2F2",
+                  color: "#DC2626",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                Leave without saving
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAndLeave}
+                disabled={saving}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)",
+                  color: "#ffffff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: saving ? "wait" : "pointer",
+                  fontFamily: FONT_BODY,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  boxShadow: "0 4px 12px rgba(42, 71, 174, 0.25)",
+                }}
+              >
+                {saving ? "Saving..." : "Save changes"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>
