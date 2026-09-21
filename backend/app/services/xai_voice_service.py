@@ -2120,17 +2120,62 @@ async def join_xai_call_session(
                     "response.audio.delta",
                 ):
                     greeting_audio_started = True
-                    # Hybrid: prefer Cartesia/ElevenLabs; if that path dies, keep xAI audio so the line is not silent
+                    delta_audio = event.get("delta") or event.get("audio")
+                    
+                    # If external TTS is configured, skip xAI audio (expect it from external provider)
                     if use_external_tts and not ext_tts_failed:
                         continue
-                    delta_audio = event.get("delta") or event.get("audio")
-                    if audio_bridge and delta_audio:
-                        logger.info(f"[XAI-WS] Emitting xAI audio ({len(delta_audio)} chars) for {call_id}")
-                        await audio_bridge.emit_ai_audio(delta_audio)
-                    elif audio_bridge:
-                        logger.warning(f"[XAI-WS] xAI audio event but no delta_audio in event: {event_type}")
-                    else:
-                        logger.warning(f"[XAI-WS] Audio output but no audio_bridge! call_id={call_id}")
+                    
+                    # If external TTS was configured but failed, error and notify user
+                    if use_external_tts and ext_tts_failed:
+                        logger.error(f"[XAI-WS] ❌ External TTS configured but failed for {call_id}")
+                        try:
+                            async with AsyncSessionLocal() as db:
+                                notif = Notification(
+                                    id=f"n_{uuid.uuid4().hex[:6]}",
+                                    text="❌ TTS Provider Failed: External TTS (Cartesia/ElevenLabs) is configured but failed. Switch to xAI built-in voice in Voice & Telephony settings.",
+                                    type="error",
+                                )
+                                db.add(notif)
+                                await db.commit()
+                                await call_hub.broadcast("notification", {
+                                    "id": notif.id,
+                                    "text": notif.text,
+                                    "type": "error",
+                                })
+                        except Exception as notif_err:
+                            logger.warning(f"Could not create error notification: {notif_err}")
+                        continue
+                    
+                    # If no audio_bridge, error and notify user
+                    if not audio_bridge:
+                        logger.error(f"[XAI-WS] ❌ Audio output but NO audio_bridge for {call_id}")
+                        try:
+                            async with AsyncSessionLocal() as db:
+                                notif = Notification(
+                                    id=f"n_{uuid.uuid4().hex[:6]}",
+                                    text="❌ Audio Bridge Failed: Voice configuration error. Check Voice & Telephony settings and restart the call.",
+                                    type="error",
+                                )
+                                db.add(notif)
+                                await db.commit()
+                                await call_hub.broadcast("notification", {
+                                    "id": notif.id,
+                                    "text": notif.text,
+                                    "type": "error",
+                                })
+                        except Exception as notif_err:
+                            logger.warning(f"Could not create error notification: {notif_err}")
+                        continue
+                    
+                    # No audio payload to send
+                    if not delta_audio:
+                        logger.debug(f"[XAI-WS] Audio event but no delta/audio payload: {event_type}")
+                        continue
+                    
+                    # Send xAI audio to caller
+                    logger.info(f"[XAI-WS] ✓ Emitting xAI audio ({len(delta_audio)} bytes) to caller for {call_id}")
+                    await audio_bridge.emit_ai_audio(delta_audio)
 
                 if event_type == "error":
                     err_detail = event.get("error", {})
