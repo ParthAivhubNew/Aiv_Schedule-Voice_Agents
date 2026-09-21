@@ -5,6 +5,25 @@ from app.database import get_db
 from app.models.models import Meeting
 from app.schemas.schemas import MeetingSchema
 from typing import List, Dict, Any
+from datetime import datetime
+import re
+
+def _resolve_meeting_status(m: Meeting) -> str:
+    raw = (m.status or "upcoming").lower()
+    if raw in ("completed", "done", "converted", "not_fit", "cancelled", "canceled"):
+        return m.status
+    try:
+        import dateutil.parser
+        d_str = str(m.date or m.prospect_date or "").strip()
+        t_str = str(m.time or m.prospect_time or "").strip()
+        combo = f"{d_str} {t_str}".strip()
+        if combo:
+            mtg_dt = dateutil.parser.parse(combo, fuzzy=True)
+            if mtg_dt < datetime.now():
+                return "completed"
+    except Exception:
+        pass
+    return m.status or "upcoming"
 
 router = APIRouter(prefix="/meetings", tags=["Meetings"])
 
@@ -24,7 +43,7 @@ async def list_meetings(db: AsyncSession = Depends(get_db)):
         "prospectDate": m.prospect_date or m.date,
         "prospectTime": m.prospect_time or m.time,
         "duration": m.duration,
-        "status": m.status,
+        "status": _resolve_meeting_status(m),
         "fit": m.fit,
         "channel": m.channel,
         "format": m.format,

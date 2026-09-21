@@ -98,11 +98,47 @@ function inferKind(s) {
   return "phone";
 }
 
+function isPastEvent(item) {
+  if (!item) return false;
+  const iso = eventISO(item);
+  if (!iso) return false;
+  const t = eventTime(item) || "23:59";
+  const dt = new Date(`${iso}T${t}:00`);
+  return !Number.isNaN(dt.getTime()) && dt.getTime() < Date.now();
+}
+
+function resolveEffectiveStatus(item) {
+  if (!item) return "upcoming";
+  if (isCancelled(item)) return "cancelled";
+  const raw = String(item.status || "").toLowerCase();
+  if (raw === "completed" || raw === "done" || raw === "attended" || raw === "converted" || raw === "honored") {
+    return "attended";
+  }
+  if (raw === "no_show" || raw === "missed") {
+    return "no_show";
+  }
+  if (raw === "needs_outcome") {
+    return "needs_outcome";
+  }
+  const outcome = String(item.outcome || "").toLowerCase();
+  if (outcome.includes("no show") || outcome.includes("missed") || outcome.includes("no_show")) {
+    return "no_show";
+  }
+  if (outcome.includes("attended") || outcome.includes("completed") || outcome.includes("converted")) {
+    return "attended";
+  }
+  if (isPastEvent(item)) {
+    return "needs_outcome";
+  }
+  return item.status || "upcoming";
+}
+
 function enrich(s) {
   const kind = inferKind(s);
   const videoLink = s.videoLink || s.video_link || extractUrl(s.mission) || "";
   const phone = s.phone || s.honoredQuote || s.honored_quote || "";
-  return { ...s, kind, videoLink, phone, whatsappTo: s.whatsappTo || s.whatsapp_to || phone };
+  const status = resolveEffectiveStatus(s);
+  return { ...s, kind, videoLink, phone, whatsappTo: s.whatsappTo || s.whatsapp_to || phone, status };
 }
 
 function kindMeta(kind, kinds) {
@@ -153,9 +189,28 @@ function DetailRow({ icon: Icon, label, children }) {
 function statusChipStyle(status, cancelled) {
   if (cancelled) return { bg: "#FEF2F2", fg: "#991B1B", border: "#FECACA" };
   const s = String(status || "").toLowerCase();
-  if (s === "completed" || s === "done") return { bg: "#ECFDF5", fg: "#047857", border: "#A7F3D0" };
-  if (s === "upcoming" || s === "booked" || s === "confirmed") return { bg: C.cobaltSoft || "#EAEEFC", fg: C.cobalt || "#3457D5", border: "#BFD5FA" };
+  if (s === "completed" || s === "done" || s === "attended" || s === "converted" || s === "honored") {
+    return { bg: "#ECFDF5", fg: "#047857", border: "#A7F3D0" };
+  }
+  if (s === "no_show" || s === "missed") {
+    return { bg: "#FFF7ED", fg: "#C2410C", border: "#FED7AA" };
+  }
+  if (s === "needs_outcome") {
+    return { bg: "#FEF3C7", fg: "#92400E", border: "#FCD34D" };
+  }
+  if (s === "upcoming" || s === "booked" || s === "confirmed" || s === "scheduled") {
+    return { bg: C.cobaltSoft || "#EAEEFC", fg: C.cobalt || "#3457D5", border: "#BFD5FA" };
+  }
   return { bg: "#F1F5F9", fg: "#475569", border: "#E2E8F0" };
+}
+
+function formatStatusLabel(st) {
+  const s = String(st || "").toLowerCase();
+  if (s === "no_show" || s === "missed") return "No-show";
+  if (s === "needs_outcome") return "Needs outcome";
+  if (s === "attended" || s === "completed" || s === "done") return "Attended";
+  if (s === "in_person") return "In person";
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "Upcoming";
 }
 
 function isCancelled(s) {
@@ -525,19 +580,23 @@ export function CallingSchedule({
     }
   };
 
-  const markDone = async (item) => {
+  const markOutcome = async (item, status, outcome) => {
     try {
       if (item.source === "meeting") {
-        onToast("Mark outcomes from Booked for meeting records.");
+        await api.logOutcome(item.id, { status, outcome });
+        onToast(`Marked as ${status === "no_show" ? "No-show" : "Attended"}.`);
+        if (onSaved) await onSaved();
         return;
       }
-      await api.updateScheduleItem(item.id, { status: "completed", honored: true });
-      onToast("Marked done.");
+      await api.updateScheduleItem(item.id, { status, outcome, honored: status !== "no_show" });
+      onToast(`Marked as ${status === "no_show" ? "No-show" : "Attended"}.`);
       if (onSaved) await onSaved();
     } catch (e) {
       onToast(e.message || "Update failed");
     }
   };
+
+  const markDone = (item) => markOutcome(item, "completed", "Attended");
 
   const remove = async (item) => {
     try {
@@ -659,10 +718,12 @@ export function CallingSchedule({
               {notifyChannels.find((n) => n.id === "whatsapp")?.label || "Send WhatsApp confirmation"}
             </div>
             <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>
-              {notifyChannels.find((n) => n.id === "whatsapp")?.hint
+              {(notifyChannels.find((n) => n.id === "whatsapp")?.hint || "")
+                .replace(/\s*[—–-]\s*not a meeting type\b/gi, "")
+                .trim()
                 || (waStatus?.configured
-                  ? "Notify channel — not a meeting type. Message goes from the server."
-                  : "Notify channel — not a meeting type. Opens WhatsApp with time and join link ready.")}
+                  ? "Message goes from the server after booking."
+                  : "Opens WhatsApp with time and join link ready.")}
             </div>
           </span>
         </label>
@@ -751,7 +812,7 @@ export function CallingSchedule({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{m.prospect || m.attendee || "Meeting"}</div>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: C.cobalt, background: C.cobaltSoft, padding: "4px 8px", borderRadius: 999 }}>{m.status || "upcoming"}</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: statusChipStyle(m.status).fg, background: statusChipStyle(m.status).bg, border: `1px solid ${statusChipStyle(m.status).border}`, padding: "4px 8px", borderRadius: 999 }}>{formatStatusLabel(m.status)}</span>
                   </div>
                   <div style={{ marginTop: 10, fontSize: 13, color: C.textInk, display: "grid", gap: 6 }}>
                     <div><Calendar size={13} style={{ verticalAlign: "middle" }} /> {when || "—"}</div>
@@ -781,7 +842,7 @@ export function CallingSchedule({
                 {monthLabel(cal.year, cal.month)}
               </div>
               <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                Booked vs free · window {workStart}–{workEnd} · click a day for popup
+                Booked vs free · window {workStart}–{workEnd} · Click to select · Double-click to open
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -831,6 +892,10 @@ export function CallingSchedule({
                   onClick={() => {
                     setSelectedDay(key);
                     setPlan((p) => ({ ...p, day: key }));
+                  }}
+                  onDoubleClick={() => {
+                    setSelectedDay(key);
+                    setPlan((p) => ({ ...p, day: key }));
                     setDayExpanded(true);
                   }}
                   style={{
@@ -853,8 +918,8 @@ export function CallingSchedule({
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>{day.getDate()}</span>
                     {dayEvents.length ? (
-                      <span style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? "#B91C1C" : C.cobalt, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
-                        {dayEvents.length} · {cancelledCount ? `${cancelledCount}×` : "booked"}
+                      <span style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? "#B91C1C" : dayEvents.every((e) => String(e.status || "").toLowerCase() === "completed") ? "#047857" : C.cobalt, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
+                        {dayEvents.length} · {cancelledCount ? `${cancelledCount}×` : dayEvents.every((e) => String(e.status || "").toLowerCase() === "completed") ? "done" : "booked"}
                       </span>
                     ) : (
                       <span style={{ fontSize: 9, fontWeight: 700, color: C.slateLight }}>open</span>
@@ -863,15 +928,25 @@ export function CallingSchedule({
                   {dayEvents.slice(0, 3).map((ev) => (
                     <div
                       key={ev.id}
-                      onClick={(e) => { e.stopPropagation(); setOpenId(ev.id); setSelectedDay(key); setDayExpanded(true); }}
-                      style={eventChipStyle(ev, kinds)}
-                      title={isCancelled(ev) ? `${cancelWhoLabel(ev.cancellationReason)} · ${ev.prospect}` : `${eventTime(ev)} · ${ev.prospect}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDay(key);
+                        setPlan((p) => ({ ...p, day: key }));
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDay(key);
+                        setOpenId(ev.id);
+                        setDayExpanded(true);
+                      }}
+                      style={{ ...eventChipStyle(ev, kinds), cursor: "pointer" }}
+                      title={isCancelled(ev) ? `${cancelWhoLabel(ev.cancellationReason)} · ${ev.prospect}` : `${eventTime(ev)} · ${ev.prospect} · Double-click to open`}
                     >
                       {isCancelled(ev) ? "✕ " : ""}{eventTime(ev)} · {ev.prospect}
                     </div>
                   ))}
                   {dayEvents.length > 3 ? (
-                    <div style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more — open day</div>
+                    <div style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more · double-click to open</div>
                   ) : null}
                 </button>
               );
@@ -1095,8 +1170,8 @@ export function CallingSchedule({
                               {cancelWhoLabel(ev.cancellationReason)}
                             </span>
                           ) : (
-                            <span style={{ fontSize: 11, fontWeight: 800, color: C.cobalt, background: C.cobaltSoft, padding: "4px 8px", borderRadius: 999 }}>
-                              {ev.status || "booked"}
+                            <span style={{ fontSize: 11, fontWeight: 800, color: statusChipStyle(ev.status).fg, background: statusChipStyle(ev.status).bg, border: `1px solid ${statusChipStyle(ev.status).border}`, padding: "4px 8px", borderRadius: 999 }}>
+                              {formatStatusLabel(ev.status)}
                             </span>
                           )}
                         </div>
@@ -1129,7 +1204,7 @@ export function CallingSchedule({
         const when = formatWhenLabel(open.day || open.date, open.time);
         const statusLabel = cancelled
           ? cancelWhoLabel(open.cancellationReason)
-          : (open.status || "upcoming");
+          : formatStatusLabel(open.status);
         return (
         <div
           onClick={() => setOpenId("")}
@@ -1257,15 +1332,42 @@ export function CallingSchedule({
                   <MessageCircle size={14} /> {waBusy ? "Opening…" : "WhatsApp"}
                 </button>
               ) : null}
-              <div style={{ display: "flex", gap: 8 }}>
-                {open.status !== "completed" && open.source !== "meeting" ? (
-                  <button type="button" onClick={() => markDone(open)} style={{ ...actionBtn("#fff", C.ink, true), flex: 1 }}>
-                    <Check size={14} /> Done
-                  </button>
-                ) : null}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => markOutcome(open, "completed", "Attended")}
+                  style={{
+                    ...actionBtn(open.status === "attended" || open.status === "completed" ? "#047857" : "#ECFDF5", open.status === "attended" || open.status === "completed" ? "#fff" : "#047857", true),
+                    flex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    fontWeight: 700,
+                  }}
+                  title="Mark this meeting as attended"
+                >
+                  <Check size={14} /> Attended
+                </button>
+                <button
+                  type="button"
+                  onClick={() => markOutcome(open, "no_show", "Client no-show")}
+                  style={{
+                    ...actionBtn(open.status === "no_show" ? "#C2410C" : "#FFF7ED", open.status === "no_show" ? "#fff" : "#C2410C", true),
+                    flex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    fontWeight: 700,
+                  }}
+                  title="Mark client as a no-show"
+                >
+                  <X size={14} /> No-show
+                </button>
                 {open.source !== "meeting" ? (
-                  <button type="button" onClick={() => remove(open)} style={{ ...actionBtn(C.redSoft, C.red), flex: 1 }}>
-                    <Trash2 size={14} /> Remove
+                  <button type="button" onClick={() => remove(open)} style={{ ...actionBtn(C.redSoft, C.red), width: 42, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }} title="Remove">
+                    <Trash2 size={14} />
                   </button>
                 ) : null}
               </div>

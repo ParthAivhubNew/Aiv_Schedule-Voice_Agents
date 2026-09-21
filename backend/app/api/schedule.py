@@ -17,7 +17,7 @@ KIND_LABELS = {
     "phone": "Phone callback",
     "video": "Video meeting",
     "in_person": "In person",
-    # legacy — WhatsApp is notify-only, not a meeting type
+    # legacy fallback — map whatsapp notify to phone callback
     "whatsapp": "Phone callback",
 }
 

@@ -1866,7 +1866,7 @@ export function CallingWorkspace({
           </div>
           <div>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#fff" }}>Calling</div>
-            <div style={{ fontSize: 10, color: "#8B90A0", fontWeight: 600, letterSpacing: "0.06em" }}>VOICE WORKSPACE</div>
+            <div style={{ fontSize: 9.5, color: "#8B90A0", fontWeight: 700, letterSpacing: "0.07em" }}>OUTREACH BY AIVHUB</div>
           </div>
         </div>
         <button type="button" onClick={() => {

@@ -455,7 +455,7 @@ const INITIAL_COMMON_AI_CONFIG = {
 
   // Master Subscription & Token Quota (Live database metrics populated on load)
   subscription: {
-    tenantName: "AIVHub Workspace",
+    tenantName: "Outreach by Aivhub Workspace",
     planTier: "Metered Workspace Subscription",
     monthlyTokenQuota: 0,
     tokensUsed: 0,
@@ -1507,7 +1507,7 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
           <PhoneCall size={15} color="#fff" strokeWidth={2.4} />
         </div>
         <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: "#fff", letterSpacing: "-0.01em" }}>
-          AIVHub
+          Outreach by Aivhub
         </span>
       </div>
       {onBackToHub && (
@@ -12463,7 +12463,7 @@ function LoginScreen({ onLogin }) {
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
           <BrandMark size={44} />
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 28, color: C.ink, letterSpacing: "-0.03em", marginTop: 14 }}>AIVHub</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 28, color: C.ink, letterSpacing: "-0.03em", marginTop: 14 }}>Outreach by Aivhub</div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.slate, marginTop: 6, textAlign: "center" }}>
             Sign in to open your plugins
           </div>
@@ -13783,7 +13783,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>
-                        {usageStats?.tenantName || operator?.name || "AIVHub Workspace"}
+                        {usageStats?.tenantName || operator?.name || "Outreach by Aivhub Workspace"}
                       </div>
                       <span style={{
                         display: "inline-flex",
@@ -17284,7 +17284,7 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 36px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <BrandMark size={32} />
-          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink, letterSpacing: "-0.02em" }}>AIVHub</span>
+          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink, letterSpacing: "-0.02em" }}>Outreach by Aivhub</span>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

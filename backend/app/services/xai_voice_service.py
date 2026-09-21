@@ -1225,7 +1225,7 @@ async def execute_xai_tool(
                 notify_hint = (
                     " Optionally ask if they also want a confirmation via: "
                     + ", ".join(n["label"] for n in notify)
-                    + " — notify-only, not a meeting type."
+                    + " — notify-only."
                 )
             mail_ok = bool(mail.get("attendee"))
             join = booked.get("videoLink") if format_type == "video" else None

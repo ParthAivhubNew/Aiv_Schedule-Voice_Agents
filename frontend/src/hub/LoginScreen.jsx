@@ -39,7 +39,7 @@ export function LoginScreen({ onLogin }) {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
           <BrandMark size={44} />
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 28, color: C.ink, letterSpacing: "-0.03em", marginTop: 14 }}>
-            AIVHub
+            Outreach by Aivhub
           </div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.slate, marginTop: 6, textAlign: "center" }}>
             Sign in to open your workspace plugins

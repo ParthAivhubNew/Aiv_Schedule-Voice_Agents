@@ -72,7 +72,7 @@ export function Sidebar({ view, setView, companyName, callerName, timezone, oper
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16.5, color: "#fff", letterSpacing: "-0.02em" }}>
-            AIVHub
+            Outreach by Aivhub
           </div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.slateLight, textTransform: "uppercase", letterSpacing: "0.08em" }}>
             Voice AI Platform

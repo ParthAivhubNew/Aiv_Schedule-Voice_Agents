@@ -382,7 +382,7 @@ async def whatsapp_webhook_receive(request: Request, db: AsyncSession = Depends(
 @app.get("/")
 async def root():
     return {
-        "message": "Welcome to AIVHub Voice AI Agent API",
+        "message": "Welcome to Outreach by Aivhub API",
         "docs": "/docs",
         "health": "/health"
     }

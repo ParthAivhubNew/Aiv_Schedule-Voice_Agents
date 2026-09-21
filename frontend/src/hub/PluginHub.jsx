@@ -78,7 +78,7 @@ export function PluginHub({ operator = { name: "Jitendra S.", role: "Admin" }, o
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <BrandMark size={32} />
           <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink, letterSpacing: "-0.02em" }}>
-            AIVHub
+            Outreach by Aivhub
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

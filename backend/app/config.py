@@ -3,7 +3,7 @@ from typing import Optional
 import os
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "AIVHub Voice AI Agent"
+    PROJECT_NAME: str = "Outreach by Aivhub"
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
     

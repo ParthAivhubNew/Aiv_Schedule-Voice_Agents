@@ -39,7 +39,7 @@ DEFAULT_BOOKING_POLICY: Dict[str, Any] = {
         {
             "id": "whatsapp",
             "label": "WhatsApp confirmation",
-            "hint": "Message after booking — not a meeting type",
+            "hint": "Message after booking",
             "enabled": True,
             "is_meeting_type": False,
         },
@@ -246,7 +246,7 @@ def voice_booking_instructions(policy: Optional[Dict[str, Any]]) -> str:
     if p.get("offer_notify_after_book") and notify:
         steps.append(
             f"{n}. After booking is locked, optionally ask if they also want a confirmation via: {notify_names}. "
-            "That is notify-only — not a meeting type."
+            "That is notify-only."
         )
 
     body = "CRITICAL MEETING BOOKING (THIS BUSINESS'S RULES):\n" + "\n".join(steps)
