@@ -250,7 +250,7 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
     stream_sid = None
     call_id = None
     call_sid = None
-    logger.info("[TwilioStream] Twilio connected to /ws/media-stream")
+    logger.info("[TwilioStream] ✓✓✓ MEDIA STREAM CONNECTED - WebSocket accepted at /ws/media-stream")
 
     try:
         while True:
