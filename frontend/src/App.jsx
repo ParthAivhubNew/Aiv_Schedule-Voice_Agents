@@ -5557,10 +5557,27 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
     if (typeof onDirtyChange === "function") onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
 
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
   const markDirty = () => setDirty(true);
+
+  const confirmLeave = (message) => {
+    if (!dirty) return true;
+    return window.confirm(message || "You have unsaved changes. Leave without saving?");
+  };
 
   const requestTab = (nextId) => {
     if (nextId === tab) return;
+    if (!confirmLeave("You have unsaved changes on this page. Switch tabs without saving?")) return;
     setTab(nextId);
   };
 
@@ -5580,6 +5597,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 
   const save = async () => {
     setSaved(true);
+    setDirty(false);  // Clear dirty state immediately so browser dialog doesn't appear
     try {
       localStorage.setItem("aivhub_company_profile", JSON.stringify(profile));
       localStorage.setItem("aivhub_sources", JSON.stringify(sources));
@@ -5616,7 +5634,6 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           });
         } catch (_) {}
       }
-      setDirty(false);
       if (typeof setNotifications === "function") {
         setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, call rules & FAQs saved", time: "just now", unread: true, type: "success" }, ...ns]);
       }
