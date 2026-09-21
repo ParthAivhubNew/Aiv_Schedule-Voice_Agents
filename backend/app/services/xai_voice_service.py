@@ -227,13 +227,16 @@ class BridgedVoiceSession:
         try:
             from app.websockets.media_stream import media_stream_hub
             if self.call_id in media_stream_hub.active_takeovers:
+                logger.debug(f"[XAI-BRIDGE] Ignoring caller audio during supervisor takeover on {self.call_id}")
                 return
             if self.on_caller_audio:
                 await self.on_caller_audio(b64)
                 return
             if not self.ws:
+                logger.warning(f"[XAI-BRIDGE] ❌ No WebSocket on session {self.call_id} — caller audio NOT sent to xAI")
                 return
             await self.ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": b64}))
+            logger.debug(f"[XAI-BRIDGE] Appended caller audio ({len(b64)} bytes) to xAI input buffer for {self.call_id}")
         except Exception as err:
             logger.warning(f"[XAI-BRIDGE] Failed to append caller audio: {err}")
 

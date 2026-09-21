@@ -307,12 +307,14 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                     if track != "outbound":
                         try:
                             from app.services.xai_voice_service import get_bridged_session
-                            sess = get_bridged_session(chunk_call_id)
+                            # Try both the direct ID and the canonical resolved ID
+                            canonical_id = media_stream_hub.resolve_canonical(chunk_call_id)
+                            sess = get_bridged_session(chunk_call_id, canonical_id, call_sid, stream_sid)
                             if sess:
                                 await sess.push_caller_audio(payload)
-                                logger.debug(f"[MediaStream] Pushed inbound audio to xAI session for call {chunk_call_id}")
+                                logger.debug(f"[MediaStream] Pushed inbound audio ({len(payload)} bytes) to xAI session {sess.call_id}")
                             else:
-                                logger.warning(f"[MediaStream] No xAI session found for call {chunk_call_id} — audio not forwarded to xAI")
+                                logger.warning(f"[MediaStream] ❌ No xAI session found for call IDs: {chunk_call_id}, canonical: {canonical_id}, callSid: {call_sid} — inbound audio NOT forwarded to xAI")
                         except Exception as push_err:
                             logger.warning(f"[MediaStream] Failed to push caller audio: {push_err}")
                     await media_stream_hub.broadcast_to_listeners(chunk_call_id, {
