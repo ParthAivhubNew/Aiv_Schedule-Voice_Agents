@@ -289,10 +289,10 @@ async def resolve_voice_plan() -> VoicePlan:
             return VoicePlan(engine="modular", voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, note=note)
 
     if engine == "simulation" or (engine == "xai" and (not xai_key or xai_key.startswith("mock"))):
-        if engine != "modular" and engine != "openai":
-            if not xai_key or xai_key.startswith("mock"):
-                if engine != "simulation":
-                    logger.info("No live xAI key — voice engine simulation")
+        raise ValueError(
+            "Voice engine cannot operate in simulation mode. "
+            "Set VOICE_ENGINE_MODE=live in .env and configure xAI_API_KEY or other carrier credentials."
+        )
 
     # Hybrid TTS only when the ACTIVE saved voice is an external clone ID.
     # Selecting ara/rex/eve (or other builtins) turns hybrid OFF even if a Cartesia

@@ -218,8 +218,8 @@ async def upsert_call_log_from_live(
             outcome=final_outcome,
             transcript=formatted,
         )
-        db.add(entry)
-        return entry
+        merged = await db.merge(entry)
+        return merged
     except Exception as err:
         logger.warning(f"upsert_call_log_from_live failed for {getattr(call, 'id', '?')}: {err}")
         return None

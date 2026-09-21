@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import re
+import time
 from typing import Optional
 
 import httpx
@@ -102,12 +103,34 @@ async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: 
     except Exception as err:
         logger.warning(f"[MODULAR] TTS failed ({provider}): {err}")
         return
-    for b64 in _ulaw_frames(raw):
+    frames = list(_ulaw_frames(raw))
+    if not frames:
+        return
+    # Pre-fill burst buffer (initial ~160ms = 8 frames) so Twilio/carrier jitter buffer is primed
+    burst_count = min(8, len(frames))
+    for i in range(burst_count):
         if getattr(bridge, "_barge", None) and bridge._barge.is_set():
-            break
-        await bridge.emit_ai_audio(b64)
+            return
+        await bridge.emit_ai_audio(frames[i])
+    
+    if len(frames) > burst_count:
         if pace:
-            await asyncio.sleep(0.018)
+            loop_start = time.perf_counter()
+            frame_duration = 0.020  # 20ms per 160-byte frame
+            for idx, b64 in enumerate(frames[burst_count:], start=1):
+                if getattr(bridge, "_barge", None) and bridge._barge.is_set():
+                    break
+                await bridge.emit_ai_audio(b64)
+                expected_elapsed = idx * frame_duration
+                actual_elapsed = time.perf_counter() - loop_start
+                sleep_needed = expected_elapsed - actual_elapsed
+                if sleep_needed > 0.003:
+                    await asyncio.sleep(sleep_needed)
+        else:
+            for b64 in frames[burst_count:]:
+                if getattr(bridge, "_barge", None) and bridge._barge.is_set():
+                    break
+                await bridge.emit_ai_audio(b64)
 
 
 async def _eleven_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, model: str) -> bytes:
@@ -167,25 +190,31 @@ async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str
 
 
 async def _greeting_line(is_inbound: bool, prospect_name: Optional[str]) -> str:
-    company = "AIVHub"
-    rep = "Sam"
+    company = "your company"
+    rep = "our team"
+    opener_template = None
     try:
         async with AsyncSessionLocal() as db:
             prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
             if prof:
-                company = prof.name or company
+                company = getattr(prof, "spoken_name", None) or prof.name or company
                 rep = prof.caller_name or rep
+                opener_template = getattr(prof, "call_opener", None)
     except Exception:
         pass
     raw = re.sub(r"\(.*?\)", "", prospect_name or "there").strip()
     first = raw.split()[0] if raw else "there"
-    if first.lower() in ("prospect", "caller", "there"):
+    if first.lower() in ("prospect", "caller", "there", "unknown"):
         first = "there"
     if is_inbound:
         return f"Hello, thanks for calling {company}! This is {rep}. How can I help you today?"
+    if opener_template and opener_template.strip():
+        txt = opener_template.replace("{name}", first if first != "there" else "there")
+        txt = txt.replace("{caller_name}", rep).replace("{company}", company)
+        return txt
     if first != "there":
-        return f"Hi {first}, this is {rep} calling from {company}. How's your day going?"
-    return f"Hi there, this is {rep} calling from {company}. How's your day going?"
+        return f"Hi {first}, this is {rep} calling from {company} — did I catch you in the middle of something?"
+    return f"Hi there, this is {rep} calling from {company} — did I catch you in the middle of something?"
 
 
 async def run_modular_pipeline(

@@ -35,7 +35,7 @@ class CompanyProfileSchema(BaseModel):
     website: str = "https://aivhub.io"
     social: str = "linkedin.com/company/aivhub"
     caller_name: str = "Sam"
-    caller_id: str = "+44 20 7946 0912"
+    caller_id: Optional[str] = None
     tone: str = "Professional, concise, friendly"
     disclosure: str = "This call may be recorded for quality and training purposes."
     legal_name: str = "AIVHub Ltd"
@@ -48,6 +48,10 @@ class CompanyProfileSchema(BaseModel):
     call_hours_policy: str = "respectful"
     weekday_start: str = "09:00"
     weekday_end: str = "17:30"
+    call_opener: Optional[str] = None
+    call_hook: Optional[str] = None
+    closing_ask: Optional[str] = None
+    custom_rules: Optional[str] = None
 
 class KnowledgeSourceSchema(BaseModel):
     id: Optional[str] = None

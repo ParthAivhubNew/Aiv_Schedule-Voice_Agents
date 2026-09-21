@@ -62,7 +62,7 @@ async def seed_database():
             website="https://aivhub.io",
             social="linkedin.com/company/aivhub",
             caller_name="Sam",
-            caller_id="+44 20 7946 0912",
+            caller_id=None,
             tone="Professional, concise, friendly",
             disclosure="This call may be recorded for quality and compliance purposes.",
             legal_name="AIVHub Ltd",

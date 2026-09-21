@@ -17,6 +17,17 @@ _DEFAULT_PUBLIC_HOST = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litn
 def public_http_base() -> str:
     raw = (getattr(settings, "PUBLIC_BASE_URL", None) or "").strip().rstrip("/")
     if not raw or "127.0.0.1" in raw or "localhost" in raw:
+        try:
+            import json
+            import urllib.request
+            with urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=0.35) as resp:
+                tunnels = json.loads(resp.read().decode()).get("tunnels", [])
+                for t in tunnels:
+                    url = str(t.get("public_url") or "").strip().rstrip("/")
+                    if url.startswith("https://"):
+                        return url
+        except Exception:
+            pass
         return _DEFAULT_PUBLIC_HOST
     return raw
 
@@ -155,7 +166,9 @@ class TwilioCarrierAdapter(BaseCarrierAdapter):
         token = (creds.get("api_key") or creds.get("auth_token") or settings.TWILIO_AUTH_TOKEN or "").strip()
 
         to_clean = normalize_phone_number(to_number)
-        from_clean = normalize_phone_number(from_number or settings.TWILIO_PHONE_NUMBER or "+447307216767")
+        from_clean = normalize_phone_number(from_number or settings.TWILIO_PHONE_NUMBER or "")
+        if not from_clean:
+            raise ValueError("Twilio Outbound Caller ID is required. Please set your phone number in Voice & Telephony Hub.")
 
         if not sid or not token:
             raise ValueError("Twilio Account SID and Auth Token must be configured in Connections or Settings.")
@@ -322,7 +335,9 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
         connection_id = (creds.get("connection_id") or "").strip()
 
         to_clean = normalize_phone_number(to_number)
-        from_clean = normalize_phone_number(from_number or settings.TELNYX_PHONE_NUMBER or "+447307216767")
+        from_clean = normalize_phone_number(from_number or settings.TELNYX_PHONE_NUMBER or "")
+        if not from_clean:
+            raise ValueError("Telnyx Outbound Caller ID is required. Please set your phone number in Voice & Telephony Hub.")
 
         if not api_key:
             raise ValueError("Telnyx API Key must be configured in Connections or Settings.")
@@ -401,7 +416,7 @@ class GenericSipAdapter(BaseCarrierAdapter):
         credentials: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         to_clean = normalize_phone_number(to_number)
-        from_clean = normalize_phone_number(from_number or "+447307216767")
+        from_clean = normalize_phone_number(from_number or "")
         call_id = f"sip_{to_clean.replace('+', '')}"
         return {
             "success": True,
@@ -441,7 +456,7 @@ class SimulationCarrierAdapter(BaseCarrierAdapter):
         credentials: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         to_clean = normalize_phone_number(to_number)
-        from_clean = normalize_phone_number(from_number or "+447307216767")
+        from_clean = normalize_phone_number(from_number or "")
         sim_id = f"sim_out_{to_clean.replace('+', '')[-6:]}"
         return {
             "success": True,
@@ -488,7 +503,7 @@ class SipgateCarrierAdapter(BaseCarrierAdapter):
         credentials: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         to_clean = normalize_phone_number(to_number)
-        from_clean = normalize_phone_number(from_number or settings.SIPGATE_PHONE_NUMBER or "+445600022627")
+        from_clean = normalize_phone_number(from_number or getattr(settings, "SIPGATE_PHONE_NUMBER", None) or "")
         call_id = f"sipgate_{to_clean.replace('+', '')[-6:]}"
 
         await log_process_event(
@@ -507,7 +522,7 @@ class SipgateCarrierAdapter(BaseCarrierAdapter):
             "from": from_clean,
             "carrier": "Sipgate UK Trunk",
             "bridge_sip_uri": bridge_sip_uri,
-            "simulated": True if settings.VOICE_ENGINE_MODE == "simulation" else False
+            "simulated": False
         }
 
     async def hangup_call(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> bool:
@@ -538,8 +553,16 @@ class CarrierRegistry:
 
     @classmethod
     def get_adapter(cls, name: Optional[str] = None) -> BaseCarrierAdapter:
-        """Instantiates and returns the requested carrier adapter."""
+        """Instantiates and returns the requested carrier adapter. No simulation fallback."""
         key = (name or "twilio").lower().replace(" ", "_").replace("-", "_")
+        
+        # Reject simulation mode - no fallback allowed
+        if "sim" in key:
+            raise ValueError(
+                "Simulation mode is disabled. Configure a real carrier (Twilio, Telnyx, or Sipgate) "
+                "with proper credentials in the Connections panel."
+            )
+        
         if "twilio" in key:
             adapter_cls = cls._adapters.get("twilio", TwilioCarrierAdapter)
         elif "telnyx" in key:
@@ -548,8 +571,6 @@ class CarrierRegistry:
             adapter_cls = cls._adapters.get("sipgate", SipgateCarrierAdapter)
         elif "sip" in key:
             adapter_cls = cls._adapters.get("generic_sip", GenericSipAdapter)
-        elif "sim" in key:
-            adapter_cls = cls._adapters.get("simulation", SimulationCarrierAdapter)
         else:
             adapter_cls = cls._adapters.get(key, TwilioCarrierAdapter)
         return adapter_cls()

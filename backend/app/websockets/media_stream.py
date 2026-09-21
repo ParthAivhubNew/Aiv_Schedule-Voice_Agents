@@ -29,6 +29,7 @@ class MediaStreamHub:
         self.active_takeovers: Set[str] = set()
         self._injection_counter: int = 0
         self.stream_protocol: Dict[str, str] = {}
+        self._mark_events: Dict[str, asyncio.Event] = {}
 
     def register_alias(self, alias: str, canonical_id: str):
         """Links an alias ID (e.g. xAI SIP call id or Twilio SID) to the canonical call ID."""
@@ -147,6 +148,92 @@ class MediaStreamHub:
         except Exception as e:
             logger.warning(f"[AudioHub] Error injecting operator audio to Twilio: {e}")
 
+    async def clear_twilio_audio(self, call_id: str) -> bool:
+        """Sends Twilio clear event to instantly flush buffered audio on interruption/barge-in."""
+        canonical = self.resolve_canonical(call_id)
+        twilio_ws = self.twilio_streams.get(canonical) or self.twilio_streams.get(call_id)
+        if not twilio_ws and len(self.twilio_streams) == 1:
+            _, twilio_ws = next(iter(self.twilio_streams.items()))
+        if not twilio_ws:
+            return False
+        stream_sid = None
+        for s_sid, c_id in self.stream_to_call.items():
+            if c_id == canonical or c_id == call_id or self.resolve_canonical(c_id) == canonical:
+                stream_sid = s_sid
+                break
+        if not stream_sid and self.stream_to_call:
+            stream_sid = next(iter(self.stream_to_call.keys()))
+        if not stream_sid:
+            return False
+        try:
+            await twilio_ws.send_text(json.dumps({
+                "event": "clear",
+                "streamSid": stream_sid
+            }))
+            logger.info(f"[AudioHub] Sent Twilio clear event for call {call_id} (streamSid={stream_sid})")
+            return True
+        except Exception as e:
+            logger.warning(f"[AudioHub] Error sending Twilio clear event: {e}")
+            return False
+
+    async def send_mark(self, call_id: str, mark_name: str) -> bool:
+        """Sends Twilio mark event to track exactly when buffered audio finishes playing in caller's ear."""
+        canonical = self.resolve_canonical(call_id)
+        twilio_ws = self.twilio_streams.get(canonical) or self.twilio_streams.get(call_id)
+        if not twilio_ws and len(self.twilio_streams) == 1:
+            _, twilio_ws = next(iter(self.twilio_streams.items()))
+        if not twilio_ws:
+            return False
+        stream_sid = None
+        for s_sid, c_id in self.stream_to_call.items():
+            if c_id == canonical or c_id == call_id or self.resolve_canonical(c_id) == canonical:
+                stream_sid = s_sid
+                break
+        if not stream_sid and self.stream_to_call:
+            stream_sid = next(iter(self.stream_to_call.keys()))
+        if not stream_sid:
+            return False
+        event_key = f"{canonical}:{mark_name}"
+        ev = asyncio.Event()
+        self._mark_events[event_key] = ev
+        try:
+            await twilio_ws.send_text(json.dumps({
+                "event": "mark",
+                "streamSid": stream_sid,
+                "mark": {"name": mark_name}
+            }))
+            logger.info(f"[AudioHub] Sent Twilio mark '{mark_name}' for call {call_id} (streamSid={stream_sid})")
+            return True
+        except Exception as e:
+            logger.warning(f"[AudioHub] Error sending Twilio mark event: {e}")
+            return False
+
+    def notify_mark(self, stream_sid: str, mark_name: str):
+        """Called when Twilio echoes back a mark event after playing all buffered audio."""
+        call_id = self.stream_to_call.get(stream_sid, "")
+        canonical = self.resolve_canonical(call_id)
+        for key in (f"{canonical}:{mark_name}", f"{call_id}:{mark_name}"):
+            ev = self._mark_events.get(key)
+            if ev:
+                ev.set()
+                logger.info(f"[AudioHub] Received Twilio mark '{mark_name}' completion for call {canonical}!")
+
+    async def wait_for_mark(self, call_id: str, mark_name: str, timeout: float = 6.0) -> bool:
+        """Waits for Twilio to finish playing all buffered audio up to the given mark."""
+        canonical = self.resolve_canonical(call_id)
+        event_key = f"{canonical}:{mark_name}"
+        ev = self._mark_events.get(event_key)
+        if not ev:
+            return False
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.info(f"[AudioHub] Mark wait timed out ({timeout}s) for {mark_name} on {canonical}")
+            return False
+        finally:
+            self._mark_events.pop(event_key, None)
+
 media_stream_hub = MediaStreamHub()
 
 router = APIRouter(tags=["Media Streams"])
@@ -229,8 +316,14 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                         "type": "audio_chunk",
                         "callId": chunk_call_id,
                         "track": track,
-                        "payload": payload
+                        "payload": payload,
                     })
+
+            elif event_type == "mark":
+                mark_info = data.get("mark", {})
+                mark_name = mark_info.get("name") if isinstance(mark_info, dict) else str(mark_info or "")
+                if mark_name and stream_sid:
+                    media_stream_hub.notify_mark(stream_sid, mark_name)
 
             elif event_type == "stop":
                 logger.info(f"[TwilioStream] Stream stopped: streamSid={stream_sid}, call_id={call_id}")

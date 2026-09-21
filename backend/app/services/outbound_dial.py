@@ -54,16 +54,8 @@ async def count_active_voice_lines(db: AsyncSession, mission_id: Optional[str] =
 
 
 async def resolve_from_number(db: AsyncSession, from_number: Optional[str] = None) -> str:
-    if from_number and str(from_number).strip():
-        return normalize_phone_number(from_number)
-    prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
-    if prof and prof.caller_id:
-        return normalize_phone_number(prof.caller_id)
-    conn_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
-    tele_conn = conn_res.scalars().first()
-    if tele_conn and isinstance(tele_conn.config, dict) and tele_conn.config.get("phoneNumber"):
-        return normalize_phone_number(tele_conn.config.get("phoneNumber"))
-    return normalize_phone_number(settings.TWILIO_PHONE_NUMBER or "+447307216767")
+    from app.api.calls import resolve_outbound_caller_id
+    return await resolve_outbound_caller_id(db, from_number)
 
 
 async def _resolve_carrier_and_creds(
@@ -356,8 +348,10 @@ async def place_outbound_call(
                 pass
 
         if dial_res.get("simulated") or "sim" in carrier_choice:
-            from app.services.xai_voice_service import _run_simulated_xai_session
-            asyncio.create_task(_run_simulated_xai_session(call_id, to_clean))
+            raise ValueError(
+                "Simulation mode detected. Calls must use real carriers (Twilio, Sipgate, Telnyx). "
+                "Configure proper carrier credentials in Connections panel."
+            )
 
         await log_process_event(
             subsystem="telephony",
@@ -420,6 +414,27 @@ async def place_outbound_call(
                 await fail_session.commit()
         except Exception as update_err:
             logger.warning(f"Could not update failed call state in DB: {update_err}")
+        
+        # Create error notification - always shown to user
+        try:
+            async with AsyncSessionLocal() as notif_session:
+                error_notif = Notification(
+                    id=f"n_{uuid.uuid4().hex[:6]}",
+                    text=f"❌ Call failed to {prospect_label} ({to_clean}): {err_msg}",
+                    type="alert",
+                    created_at=datetime.utcnow()
+                )
+                notif_session.add(error_notif)
+                await notif_session.commit()
+                await call_hub.broadcast("notification_created", {
+                    "id": error_notif.id,
+                    "text": error_notif.text,
+                    "type": "alert",
+                    "created_at": error_notif.created_at.isoformat()
+                })
+        except Exception as notif_err:
+            logger.error(f"Could not create error notification: {notif_err}")
+        
         try:
             await call_hub.broadcast("call_ended", {"callId": call_id, "reason": err_msg})
         except Exception:

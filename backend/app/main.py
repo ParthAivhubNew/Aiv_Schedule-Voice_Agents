@@ -130,6 +130,10 @@ async def lifespan(app: FastAPI):
 
         for col, col_type in [
             ("spoken_name", "VARCHAR"),
+            ("call_opener", "TEXT"),
+            ("call_hook", "TEXT"),
+            ("closing_ask", "TEXT"),
+            ("custom_rules", "TEXT"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS {col} {col_type};"))
@@ -253,6 +257,7 @@ app.include_router(meetings_router, prefix=settings.API_PREFIX)
 app.include_router(schedule_router, prefix=settings.API_PREFIX)
 app.include_router(profile_router, prefix=settings.API_PREFIX)
 app.include_router(connections_router, prefix=settings.API_PREFIX)
+app.include_router(connections_router)  # Direct /connections compatibility
 app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(scheduler_router, prefix=settings.API_PREFIX)
 app.include_router(logs_router, prefix=settings.API_PREFIX)

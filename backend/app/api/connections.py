@@ -378,17 +378,27 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     active_secret = settings.XAI_WEBHOOK_SECRET or os.getenv("XAI_WEBHOOK_SECRET")
     engine_conn = None
     try:
-        # 1. Fetch Company Profile for caller ID
-        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
-        profile = prof_res.scalars().first()
-        active_phone = profile.caller_id if profile and profile.caller_id else settings.TELNYX_PHONE_NUMBER or "+1 (202) 555-0199"
-
-        # 2. Fetch connections for Telephony and Voice Orchestration
+        # 1. Fetch connections for Telephony and Voice Orchestration
         conns_res = await db.execute(select(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
         conns = conns_res.scalars().all()
 
         carrier_conn = next((c for c in conns if c.group_name == "Telephony"), None)
         engine_conn = next((c for c in conns if c.group_name == "Voice Orchestration"), None)
+
+        carrier_cfg = open_config(carrier_conn.config) if (carrier_conn and carrier_conn.config) else {}
+        engine_cfg = open_config(engine_conn.config) if (engine_conn and engine_conn.config) else {}
+
+        # 2. Fetch Company Profile for caller ID
+        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+        profile = prof_res.scalars().first()
+        active_phone = (
+            (profile.caller_id if profile and profile.caller_id else None)
+            or carrier_cfg.get("phoneNumber")
+            or engine_cfg.get("phoneNumber")
+            or settings.TWILIO_PHONE_NUMBER
+            or settings.TELNYX_PHONE_NUMBER
+            or None
+        )
         
         stored_key = None
         if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
@@ -401,14 +411,14 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         active_key = settings.XAI_API_KEY or stored_key
         masked_active_key = engine_conn.api_key_masked if (engine_conn and engine_conn.api_key_masked) else (mask_secret(active_key) if active_key else "")
 
-        active_carrier = carrier_conn.name if carrier_conn else ("Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Simulation")
+        active_carrier = carrier_conn.name if carrier_conn else ("Twilio" if settings.TWILIO_ACCOUNT_SID else "Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Simulation")
         active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Simulation")
         is_connected = bool((carrier_conn and carrier_conn.status == "connected") or settings.XAI_API_KEY or stored_key)
     except Exception as err:
         logger.warning(f"Error reading telephony hub status: {err}")
-        active_carrier = "Telnyx" if settings.TELNYX_PHONE_NUMBER else "Simulation"
+        active_carrier = "Twilio" if getattr(settings, "TWILIO_ACCOUNT_SID", None) else ("Telnyx" if settings.TELNYX_PHONE_NUMBER else "Simulation")
         active_engine = "xAI Realtime" if settings.XAI_API_KEY else "Simulation"
-        active_phone = settings.TELNYX_PHONE_NUMBER or "+1 (202) 555-0199"
+        active_phone = settings.TWILIO_PHONE_NUMBER or settings.TELNYX_PHONE_NUMBER or None
         is_connected = bool(settings.XAI_API_KEY)
         active_key = settings.XAI_API_KEY
         masked_active_key = mask_secret(active_key) if active_key else ""
@@ -747,7 +757,7 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
 
 
 @router.post("/telephony-hub/provision")
-async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSession = Depends(get_db)):
+async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """
     Self-serve multi-provider provisioning:
     1. Validates provider credentials in real-time.
@@ -757,21 +767,69 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
     try:
         carrier = req.carrier.lower()
         engine = req.engine.lower()
-        phone_clean = req.phone_number.strip()
+        from app.api.calls import normalize_phone_number
+        phone_clean = normalize_phone_number(req.phone_number or "")
+        if not phone_clean or len(phone_clean) < 7:
+            raise HTTPException(status_code=400, detail="Please provide a valid phone number with country code (e.g. +44... or +1...).")
         key_clean = (req.api_key or "").strip()
+
+        # Load existing stored configs to prevent credential loss or undefined variable errors
+        prev_voices = []
+        prev_label = None
+        prev_orch_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+        prev_c = prev_orch_res.scalars().first()
+        if prev_c and isinstance(prev_c.config, dict):
+            orch_cfg = open_config(prev_c.config)
+            prev_voices = orch_cfg.get("custom_voices") or []
+            prev_label = orch_cfg.get("cloned_voice_label")
+
+        prev_sid = None
+        prev_auth = None
+        prev_tele_masked = None
+        prev_tele_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+        prev_tele = prev_tele_res.scalars().first()
+        if prev_tele:
+            prev_tele_masked = prev_tele.api_key_masked
+            tele_cfg = open_config(prev_tele.config if isinstance(prev_tele.config, dict) else {})
+            cand_sid = (tele_cfg.get("account_sid") or "").strip()
+            if cand_sid.startswith("AC") and len(cand_sid) == 34:
+                prev_sid = cand_sid
+            for name in ("auth_token", "api_key"):
+                v = (tele_cfg.get(name) or "").strip()
+                if v and not v.startswith("xai-") and len(v) >= 32:
+                    prev_auth = v
+                    break
+
+        req_sid = (req.account_sid or "").strip()
+        if req_sid.startswith("AC") and len(req_sid) == 34:
+            prev_sid = req_sid
+
+        # Fallback to settings if still none
+        if not prev_sid and getattr(settings, "TWILIO_ACCOUNT_SID", None):
+            prev_sid = settings.TWILIO_ACCOUNT_SID
+        if not prev_auth and getattr(settings, "TWILIO_AUTH_TOKEN", None):
+            prev_auth = settings.TWILIO_AUTH_TOKEN
 
         # If key is left blank, reuse previously stored API key
         if not key_clean:
             if settings.XAI_API_KEY:
                 key_clean = settings.XAI_API_KEY
-            else:
-                c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
-                prev_c = c_res.scalars().first()
-                if prev_c and prev_c.config and isinstance(prev_c.config, dict):
-                    key_clean = config_get_secret(prev_c.config, "api_key", "auth_token")
+            elif prev_c and prev_c.config and isinstance(prev_c.config, dict):
+                key_clean = config_get_secret(prev_c.config, "api_key", "auth_token")
+
+        # Only treat key_clean as carrier token when it is NOT an xAI key
+        if (
+            key_clean
+            and not key_clean.startswith("xai-")
+            and len(key_clean) >= 32
+            and ("twilio" in carrier or "telnyx" in carrier)
+        ):
+            prev_auth = key_clean
         
         signing_secret = None
         auto_registered = False
+        reg_error = None
+        existing_number = None
 
         # 1. Real-time credential validation
         if key_clean and not key_clean.startswith("mock") and carrier != "simulation" and engine != "simulation":
@@ -781,9 +839,15 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 if not v_res["valid"]:
                     raise HTTPException(status_code=400, detail=v_res.get("error", "xAI authentication failed."))
 
-                # Register number with xAI BYO trunk API
-                target_webhook = req.webhook_url or "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook"
-                reg_error = None
+                # Register number with xAI BYO trunk API dynamically
+                target_webhook = (req.webhook_url or "").strip()
+                if not target_webhook:
+                    try:
+                        from app.services.telephony_provider import public_http_base
+                        base = public_http_base()
+                    except Exception:
+                        base = str(request.base_url).rstrip("/")
+                    target_webhook = f"{base}/api/sip-webhook"
 
                 def extract_xai_secret(data: dict) -> Optional[str]:
                     if not isinstance(data, dict):
@@ -803,7 +867,6 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                 try:
                     async with httpx.AsyncClient(timeout=15.0) as client:
                         # 1. Query existing registered numbers on xAI
-                        existing_number = None
                         try:
                             list_res = await client.get(
                                 "https://api.x.ai/v2/phone-numbers",
@@ -912,9 +975,38 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
                     raise HTTPException(status_code=400, detail=v_res.get("error", "OpenAI authentication failed."))
 
             elif "twilio" in carrier:
-                v_res = await validate_api_key(provider="Twilio", api_key=key_clean, account_sid=req.account_sid)
-                if not v_res["valid"]:
-                    raise HTTPException(status_code=400, detail=v_res.get("error", "Twilio authentication failed."))
+                tw_sid_to_val = (req.account_sid or "").strip() or prev_sid
+                tw_token_to_val = (key_clean if key_clean and not key_clean.startswith("xai-") else None) or prev_auth
+                if tw_sid_to_val and tw_token_to_val:
+                    v_res = await validate_api_key(provider="Twilio", api_key=tw_token_to_val, account_sid=tw_sid_to_val)
+                    if not v_res["valid"]:
+                        raise HTTPException(status_code=400, detail=v_res.get("error", "Twilio authentication failed."))
+
+        # Check Twilio account for number verification if Twilio credentials exist
+        twilio_note = ""
+        if "twilio" in carrier:
+            tw_sid = prev_sid or req.account_sid
+            tw_token = prev_auth or (key_clean if key_clean and not key_clean.startswith("xai-") else None)
+            if tw_sid and tw_token:
+                try:
+                    async with httpx.AsyncClient(timeout=8.0) as tw_client:
+                        tw_url = f"https://api.twilio.com/2010-04-01/Accounts/{tw_sid}/IncomingPhoneNumbers.json"
+                        tw_res = await tw_client.get(tw_url, auth=(tw_sid, tw_token))
+                        if tw_res.status_code == 200:
+                            tw_data = tw_res.json()
+                            tw_nums = [
+                                normalize_phone_number(n.get("phone_number", ""))
+                                for n in tw_data.get("incoming_phone_numbers", [])
+                                if n.get("phone_number")
+                            ]
+                            if tw_nums:
+                                if phone_clean in tw_nums:
+                                    auto_registered = True
+                                    twilio_note = "Verified on active Twilio account."
+                                else:
+                                    twilio_note = f"Saved. Notice: {phone_clean} was not found among purchased Twilio numbers ({', '.join(tw_nums)}). Ensure it is verified in Twilio Console before placing live calls."
+                except Exception as tw_err:
+                    logger.warning(f"Could not verify number against Twilio: {tw_err}")
 
         # 2. Update Company Profile Caller ID and Connection entries
         signing_secret = req.signing_secret.strip() if req.signing_secret else signing_secret
@@ -941,7 +1033,6 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
         engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
         masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
 
-
         try:
             # Update Company Profile Caller ID
             prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
@@ -951,43 +1042,6 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
             else:
                 db.add(CompanyProfile(id="default", caller_id=phone_clean))
             await db.flush()
-
-            prev_voices = []
-            prev_label = None
-            prev_orch = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
-            prev_c = prev_orch.scalars().first()
-            if prev_c and isinstance(prev_c.config, dict):
-                prev_voices = prev_c.config.get("custom_voices") or []
-                prev_label = prev_c.config.get("cloned_voice_label")
-
-            # Keep real Twilio/Telnyx secrets — never overwrite with the voice-engine (xAI) key.
-            prev_sid = None
-            prev_auth = None
-            prev_tele_masked = None
-            prev_tele_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
-            prev_tele = prev_tele_res.scalars().first()
-            if prev_tele:
-                prev_tele_masked = prev_tele.api_key_masked
-                tele_cfg = open_config(prev_tele.config if isinstance(prev_tele.config, dict) else {})
-                cand_sid = (tele_cfg.get("account_sid") or "").strip()
-                if cand_sid.startswith("AC") and len(cand_sid) == 34:
-                    prev_sid = cand_sid
-                for name in ("auth_token", "api_key"):
-                    v = (tele_cfg.get(name) or "").strip()
-                    if v and not v.startswith("xai-") and len(v) >= 32:
-                        prev_auth = v
-                        break
-            req_sid = (req.account_sid or "").strip()
-            if req_sid.startswith("AC") and len(req_sid) == 34:
-                prev_sid = req_sid
-            # Only treat key_clean as carrier token when it is NOT an xAI key
-            if (
-                key_clean
-                and not key_clean.startswith("xai-")
-                and len(key_clean) >= 32
-                and ("twilio" in carrier or "telnyx" in carrier)
-            ):
-                prev_auth = key_clean
 
             voice_choice, voice_accent = _split_voice_choice(req.voice_name or "rex", None)
             from app.services.voice_plugin_plan import looks_like_external_voice_id
@@ -1042,7 +1096,6 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
             except Exception:
                 pass
 
-
         try:
             await log_process_event(
                 subsystem="telephony",
@@ -1062,10 +1115,12 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, db: AsyncSe
 
         has_error = bool(reg_error)
         if auto_registered and signing_secret:
-            msg = f"Successfully registered {phone_clean} with xAI BYO Trunk."
+            msg = f"Successfully registered {phone_clean} with xAI BYO Trunk. {twilio_note}".strip()
         elif auto_registered and not signing_secret:
             num_desc = existing_number.get("phone_number_id") if existing_number else "active"
-            msg = f"Phone number {phone_clean} is confirmed connected on xAI Direct SIP (ID: {num_desc}). (xAI returns the secret only once at creation — you can paste it from console.x.ai or delete the number in console.x.ai to get a fresh one)."
+            msg = f"Phone number {phone_clean} is confirmed connected on xAI Direct SIP (ID: {num_desc}). {twilio_note}".strip()
+        elif twilio_note:
+            msg = twilio_note
         elif has_error:
             msg = f"Config saved, but xAI registration failed: {reg_error}"
         else:

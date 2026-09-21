@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     XAI_SIP_FQDN: str = os.getenv("XAI_SIP_FQDN", "sip.voice.x.ai")
     # Public SIP / carrier webhook (defaults to PUBLIC_BASE_URL + /api/sip-webhook)
     XAI_WEBHOOK_URL: Optional[str] = os.getenv("XAI_WEBHOOK_URL", None)
-    VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "simulation")
+    VOICE_ENGINE_MODE: str = os.getenv("VOICE_ENGINE_MODE", "live")
 
     
     # Telnyx Telephony Configuration
@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     SIPGATE_SIP_ID: Optional[str] = os.getenv("SIPGATE_SIP_ID", "4032431t0")
     SIPGATE_PASSWORD: Optional[str] = os.getenv("SIPGATE_PASSWORD", "qURd1qn99mBV")
     SIPGATE_SERVER: Optional[str] = os.getenv("SIPGATE_SERVER", "sipconnect.sipgate.co.uk")
-    SIPGATE_PHONE_NUMBER: Optional[str] = os.getenv("SIPGATE_PHONE_NUMBER", "+445600022627")
+    SIPGATE_PHONE_NUMBER: Optional[str] = os.getenv("SIPGATE_PHONE_NUMBER", None)
     
     # Public URLs for OAuth callbacks (must match the developer-app redirect URI)
     PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8000")

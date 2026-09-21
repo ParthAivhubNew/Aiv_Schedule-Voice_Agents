@@ -57,7 +57,7 @@ export function CompanyProfileView({
             { id: "identity", label: "Identity & Persona", icon: Users },
             { id: "knowledge", label: "Knowledge Sources", icon: FileText },
             { id: "services", label: "Services & Offerings", icon: Package },
-            { id: "faq", label: "Objection Handling & FAQ", icon: HelpCircle },
+            { id: "script", label: "Call Script & Rules", icon: HelpCircle },
             { id: "compliance", label: "UK PECR & Compliance", icon: ShieldCheck },
           ].map((t) => {
             const Icon = t.icon;
@@ -96,6 +96,11 @@ export function CompanyProfileView({
                 <input type="text" value={localProfile.name || ""} onChange={(e) => handleChange("name", e.target.value)} style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}` }} />
               </div>
               <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Say Company Name As (Phonetic / Spoken)</label>
+                <input type="text" value={localProfile.spokenName || localProfile.spoken_name || ""} onChange={(e) => handleChange("spokenName", e.target.value)} placeholder="e.g. Outreach by A I V Hub" style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}` }} />
+                <span style={{ fontSize: 11, color: C.slate, marginTop: 4, display: "block" }}>How the voice TTS engine pronounces your company name. Spaces help spell out acronyms cleanly.</span>
+              </div>
+              <div>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Core Value Proposition / Elevator Pitch</label>
                 <textarea rows={2} value={localProfile.pitch || ""} onChange={(e) => handleChange("pitch", e.target.value)} style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
               </div>
@@ -106,7 +111,7 @@ export function CompanyProfileView({
                 </div>
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Outbound Caller ID (CLI)</label>
-                  <input type="text" value={localProfile.callerId || localProfile.caller_id || "+44 20 7946 0912"} onChange={(e) => handleChange("callerId", e.target.value)} style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}` }} />
+                  <input type="text" value={localProfile.callerId || localProfile.caller_id || ""} onChange={(e) => handleChange("callerId", e.target.value)} placeholder="e.g. +44... or +1..." style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}` }} />
                 </div>
               </div>
               <div>
@@ -154,17 +159,43 @@ export function CompanyProfileView({
             </div>
           )}
 
-          {tab === "faq" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {(faq.length ? faq : [
-                { id: "f-1", q: "How much does this cost?", a: "Pricing depends on fleet size and call volume. We provide clear proposals after a brief 15-minute demo." },
-                { id: "f-2", q: "Are you real or an AI?", a: "I am an autonomous voice assistant from AIVHub calling to coordinate meeting availability." }
-              ]).map((f) => (
-                <div key={f.id} style={{ padding: 16, borderRadius: 10, border: `1px solid ${C.border}`, background: C.paperSoft }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>Q: {f.q}</div>
-                  <div style={{ fontSize: 13, color: C.textInk, marginTop: 6, lineHeight: 1.45 }}>A: {f.a}</div>
+          {tab === "script" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Outbound Conversational Script Flow */}
+              <div style={{ background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Outbound Conversational Script Flow</div>
+                <div style={{ fontSize: 12, color: C.slate }}>Configure the natural 4-step conversation flow and statutory disclosure the AI uses when placing outbound calls.</div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>1. Opening Greeting & Rapport Hook</label>
+                  <textarea rows={2} value={localProfile.callOpener || localProfile.call_opener || ""} onChange={(e) => handleChange("callOpener", e.target.value)} placeholder="Hi {name}, this is {caller_name} calling from {company} — did I catch you in the middle of something?" style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
+                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Variables: {'{name}, {caller_name}, {company}'}. Leave blank for natural default.</span>
                 </div>
-              ))}
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>2. Call Recording Statutory Disclosure</label>
+                  <textarea rows={2} value={localProfile.disclosure || ""} onChange={(e) => handleChange("disclosure", e.target.value)} placeholder="This call may be recorded for quality and training purposes." style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
+                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Required statutory line spoken during call opening or when disclosure is required.</span>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>3. Reason for Call & Value Hook</label>
+                  <textarea rows={2} value={localProfile.callHook || localProfile.call_hook || ""} onChange={(e) => handleChange("callHook", e.target.value)} placeholder="The reason I'm reaching out is we help businesses turn scattered data into real-time insights. Just curious—how are you currently tracking your business data?" style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
+                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Conversational question to start a dialogue rather than a hard sell.</span>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>4. Walkthrough / Demo Offer</label>
+                  <input type="text" value={localProfile.closingAsk || localProfile.closing_ask || ""} onChange={(e) => handleChange("closingAsk", e.target.value)} placeholder="Would you be open to a quick 15-minute walkthrough sometime this week?" style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}` }} />
+                </div>
+              </div>
+
+              {/* Custom Voice Rules & Directives */}
+              <div style={{ background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Custom Voice Rules & Objection Handling</div>
+                <div style={{ fontSize: 12, color: C.slate }}>Direct behavioral prompt instructions injected into the AI voice engine.</div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Agent Behavioral Rules & Objection Handling</label>
+                  <textarea rows={4} value={localProfile.customRules || localProfile.custom_rules || ""} onChange={(e) => handleChange("customRules", e.target.value)} placeholder={"• If interrupted with 'hello', do NOT restart the greeting.\n• Keep responses to 1–2 short sentences maximum.\n• If they are busy, politely offer to ring back later."} style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
+                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Direct behavioral prompt rules injected into every outbound call.</span>
+                </div>
+              </div>
             </div>
           )}
 

@@ -1137,7 +1137,7 @@ const INITIAL_COMPANY_PROFILE = {
   website: "https://aivhub.io",
   social: "linkedin.com/company/aivhub",
   callerName: "Sam",
-  callerId: "+44 20 7946 0912",
+  callerId: "",
   tone: "Professional, concise, friendly",
   disclosure: "This call may be recorded for quality and compliance purposes.",
   legalName: "AIVHub Ltd",
@@ -2352,12 +2352,7 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
 
   // Registered Outbound Numbers in Software
   const REGISTERED_CALLER_IDS = [
-    ...(companyCallerId ? [{ id: "cid_custom", number: companyCallerId, label: `Assigned Voice Line (${companyCallerId})`, region: "Primary Outbound", status: "Active" }] : []),
-    { id: "cid_1", number: "+44 20 7946 0912", label: "Primary London HQ (Twilio SIP Trunk)", region: "London / UK-wide", status: "Active" },
-    { id: "cid_2", number: "+44 161 883 0044", label: "Manchester Regional Direct DID", region: "North West", status: "Active" },
-    { id: "cid_3", number: "+44 121 496 0550", label: "Birmingham Local DID", region: "Midlands", status: "Active" },
-    { id: "cid_4", number: "+44 113 496 0880", label: "Leeds / Yorkshire Local DID", region: "Yorkshire", status: "Active" },
-    { id: "cid_5", number: "+1 (415) 890-2341", label: "US West Coast Gateway DID", region: "North America", status: "Active" },
+    ...(companyCallerId ? [{ id: "cid_custom", number: companyCallerId, label: `Assigned Company Line (${companyCallerId})`, region: "Active Line", status: "Active" }] : []),
   ];
 
   // Registered Operator Mobile Numbers
@@ -2404,7 +2399,12 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
   const [lunchPause, setLunchPause] = useState(true); // 12:30 - 13:30 pause
 
   // Step 4: Outbound Caller ID & Operator Test Call State
-  const [selectedCallerId, setSelectedCallerId] = useState(companyCallerId || "+44 20 7946 0912");
+  const [selectedCallerId, setSelectedCallerId] = useState(companyCallerId || "");
+  useEffect(() => {
+    if (companyCallerId && !selectedCallerId) {
+      setSelectedCallerId(companyCallerId);
+    }
+  }, [companyCallerId]);
   const [selectedOperatorPhone, setSelectedOperatorPhone] = useState("+44 7700 900123");
   const [customMobile, setCustomMobile] = useState("");
   const [testingCall, setTestingCall] = useState(false);
@@ -3655,7 +3655,7 @@ function StatRow({ label, value, accent }) {
 
 /* ---------------------------------- live calls ---------------------------------- */
 
-function LiveCallsView({ notifications, setNotifications, companyName, calls, onConfirmBooking, onTakenToggle, onListenToggle, onAskEnd, onCancelEnd, onConfirmEnd, focus, onClearFocus, onBackToTasks, onRefreshLiveCalls, directDialPrefill }) {
+function LiveCallsView({ notifications, setNotifications, companyName, callerId, calls, onConfirmBooking, onTakenToggle, onListenToggle, onAskEnd, onCancelEnd, onConfirmEnd, focus, onClearFocus, onBackToTasks, onRefreshLiveCalls, directDialPrefill }) {
   const toggleTaken = onTakenToggle;
   const toggleListen = onListenToggle;
   const askEnd = onAskEnd;
@@ -3743,7 +3743,7 @@ function LiveCallsView({ notifications, setNotifications, companyName, calls, on
         <DirectOutboundCallCard
           notifications={notifications}
           setNotifications={setNotifications}
-          defaultFromNumber="+447307216767"
+          defaultFromNumber={callerId || ""}
           prefillData={directDialPrefill}
           onCallCreated={() => {
             if (onClearFocus) onClearFocus();
@@ -6489,9 +6489,61 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 
           {tab === "script" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Outbound Conversational Script Flow */}
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-                <SectionIntro icon={HelpCircle} title="Call disclosure & script basics" desc="Required opening line, plus the general tone every call should follow." />
-                <Field label="Call recording disclosure script" value={profile.disclosure} onChange={(v) => update("disclosure", v)} placeholder="This call may be recorded for quality and training purposes." textarea />
+                <SectionIntro
+                  icon={HelpCircle}
+                  title="Outbound Conversational Script Flow"
+                  desc="Configure the natural 4-step conversation flow the AI uses when placing outbound calls to prospects. Works for any company and offering."
+                />
+                <Field
+                  label="1. Opening Greeting & Rapport Hook"
+                  value={profile.callOpener || ""}
+                  onChange={(v) => update("callOpener", v)}
+                  placeholder="Hi {name}, this is {caller_name} calling from {company} — did I catch you in the middle of something?"
+                  hint="Spoken the moment the prospect answers. Available variables: {name}, {caller_name}, {company}. Blank = polite unhurried default."
+                  textarea
+                />
+                <Field
+                  label="2. Call Recording Statutory Disclosure"
+                  value={profile.disclosure || ""}
+                  onChange={(v) => update("disclosure", v)}
+                  placeholder="This call may be recorded for quality and training purposes."
+                  hint="Required statutory line spoken during call opening or when compliance requires recording disclosure."
+                  textarea
+                />
+                <Field
+                  label="3. Reason for Call & Value Hook"
+                  value={profile.callHook || ""}
+                  onChange={(v) => update("callHook", v)}
+                  placeholder="The reason I'm reaching out is we help businesses turn scattered data and spreadsheets into real-time insights and automated workflows. Just curious—how are you currently tracking your business data?"
+                  hint="Spoken after they acknowledge the greeting. Ask a conversational qualifying question to invite dialogue, rather than reciting an aggressive pitch."
+                  textarea
+                />
+                <Field
+                  label="4. Walkthrough / Demo Booking Offer"
+                  value={profile.closingAsk || ""}
+                  onChange={(v) => update("closingAsk", v)}
+                  placeholder="Would you be open to a quick 15-minute walkthrough sometime this week?"
+                  hint="How the agent invites the prospect to book a walkthrough once they express interest."
+                />
+              </div>
+
+              {/* Custom Prompt Rules & Directives */}
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
+                <SectionIntro
+                  icon={Sliders}
+                  title="Custom Voice Rules & Objection Handling"
+                  desc="Direct prompt instructions injected straight into the AI voice engine. Guide the AI's behavior, interruptions, and objection rebuttals."
+                />
+                <Field
+                  label="Agent Behavioral Rules & Objection Handling"
+                  value={profile.customRules || ""}
+                  onChange={(v) => update("customRules", v)}
+                  placeholder={"• If interrupted with 'hello' or 'are you there', do NOT restart the greeting or re-introduce yourself; simply say 'Yes, I'm right here!' and continue naturally.\n• Keep responses to 1–2 short sentences maximum so dialogue flows like a real conversation.\n• If they say they are too busy right now, politely offer to ring back at a better time.\n• If asked if this is AI, answer honestly, warmly, and briefly."}
+                  hint="Any business-specific rules or objection scripts. The AI follows these directives strictly on every call."
+                  textarea
+                />
               </div>
 
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
@@ -6745,7 +6797,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
               <input
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+15551234567 or +442079460912"
+                placeholder="e.g. +44... or +1..."
                 style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
               />
               <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
@@ -6868,9 +6920,13 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
 function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNumber, onViewLiveCalls, onCallCreated, prefillData }) {
   const [toNumber, setToNumber] = useState(prefillData?.toNumber || "");
   const [prospectName, setProspectName] = useState(prefillData?.prospectName || "");
-  const [missionTitle, setMissionTitle] = useState(prefillData?.missionTitle || "Direct Client Outreach");
-  const [fromNumber, setFromNumber] = useState(defaultFromNumber || "+447307216767");
-  const [carrierChoice, setCarrierChoice] = useState("twilio");
+  const [fromNumber, setFromNumber] = useState(defaultFromNumber || "");
+
+  useEffect(() => {
+    if (defaultFromNumber) {
+      setFromNumber((prev) => (!prev || prev.includes("79460912") ? defaultFromNumber : prev));
+    }
+  }, [defaultFromNumber]);
   const [accountSid, setAccountSid] = useState(() => {
     try {
       const saved = (localStorage.getItem("aivhub_twilio_sid") || "").trim();
@@ -7183,7 +7239,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 type="text"
                 value={toNumber}
                 onChange={(e) => setToNumber(e.target.value)}
-                placeholder="e.g. +447307216767"
+                placeholder="e.g. +44... or +1..."
                 style={{
                   width: "100%",
                   padding: "9px 12px",
@@ -7268,7 +7324,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 type="text"
                 value={fromNumber}
                 onChange={(e) => setFromNumber(e.target.value)}
-                placeholder="+447307216767"
+                placeholder="e.g. +44... or +1..."
                 style={{
                   width: "100%",
                   padding: "9px 12px",
@@ -7357,7 +7413,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
               {!accountSid && !authToken && (
                 <div style={{ fontSize: 11, color: "#065F46", background: "#ECFDF5", padding: "6px 10px", borderRadius: 6, marginBottom: 8, display: "flex", alignItems: "center", gap: 6, border: "1px solid #A7F3D0" }}>
                   <span>🛡️</span>
-                  <span><strong>Active:</strong> Using verified Twilio credentials stored securely in the server vault (+447307216767). You do not need to enter credentials manually.</span>
+                  <span><strong>Active:</strong> Using verified carrier credentials stored securely in the server vault{fromNumber ? ` (${fromNumber})` : ""}. You do not need to enter credentials manually.</span>
                 </div>
               )}
 
@@ -7709,19 +7765,19 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
     ttsProvider: null,
     ttsName: null,
     ttsVoiceId: null,
-    phoneNumber: profile?.callerId || "+19096866918",
+    phoneNumber: profile?.callerId || "",
     voiceName: "rex",
     silenceDurationMs: 380,
     temperature: 0.80,
     status: "connected",
-    webhookUrl: "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook",
+    webhookUrl: "",
     xaiFqdn: "sip.voice.x.ai",
     codecs: ["G.711 μ-law (PCMU)", "G.711 A-law (PCMA)", "G.722"],
     isLive: true
   });
   const [carrierChoice, setCarrierChoice] = useState("telnyx");
   const [engineChoice, setEngineChoice] = useState("xai");
-  const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || "+19096866918");
+  const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || "");
 
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -7745,7 +7801,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [recBlob, setRecBlob] = useState(null);
   const [silenceDurationMs, setSilenceDurationMs] = useState(380);
   const [temperature, setTemperature] = useState(0.80);
-  const [webhookUrl, setWebhookUrl] = useState("https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook");
+  const [webhookUrl, setWebhookUrl] = useState("");
 
   const [provisioning, setProvisioning] = useState(false);
   const [provisionMsg, setProvisionMsg] = useState(null);
@@ -7768,7 +7824,12 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       const data = await api.getTelephonyHub();
       if (data) {
         setHubData(data);
-        if (data.phoneNumber) setPhoneNumber(data.phoneNumber);
+        if (data.phoneNumber) {
+          setPhoneNumber(data.phoneNumber);
+          if (setProfile) {
+            setProfile((prev) => ({ ...prev, callerId: data.phoneNumber }));
+          }
+        }
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
         if (data.voiceName) {
           setVoiceName(data.voiceName);
@@ -8020,12 +8081,20 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       if (res.signingSecret) {
         setSigningSecret(res.signingSecret);
       }
+      const activeNum = res.phoneNumber || phoneNumber;
+      if (activeNum) setPhoneNumber(activeNum);
       await fetchStatus();
       if (setProfile) {
-        setProfile((prev) => ({ ...prev, callerId: phoneNumber }));
+        setProfile((prev) => ({ ...prev, callerId: activeNum }));
       }
+      try {
+        const raw = localStorage.getItem("aivhub_company_profile");
+        const p = raw ? JSON.parse(raw) : {};
+        p.callerId = activeNum;
+        localStorage.setItem("aivhub_company_profile", JSON.stringify(p));
+      } catch (_) {}
       setNotifications((ns) => [
-        { id: "n_" + Date.now(), text: `✓ Activated ${res.carrier} + ${res.engine} on ${phoneNumber}`, time: "just now", unread: true, type: "success" },
+        { id: "n_" + Date.now(), text: res.message || `✓ Activated ${res.carrier} + ${res.engine} on ${activeNum}`, time: "just now", unread: true, type: "success" },
         ...ns
       ]);
     } catch (err) {
@@ -23764,6 +23833,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             notifications={notifications}
             setNotifications={setNotifications}
             companyName={profile.name}
+            callerId={profile.callerId || ""}
             calls={liveCalls}
             onConfirmBooking={confirmBooking}
             onTakenToggle={toggleCallTaken}
@@ -24385,7 +24455,11 @@ export default function App() {
   const [profile, setProfile] = useState(() => {
     try {
       const saved = localStorage.getItem("aivhub_company_profile");
-      return saved ? JSON.parse(saved) : INITIAL_COMPANY_PROFILE;
+      const parsed = saved ? JSON.parse(saved) : INITIAL_COMPANY_PROFILE;
+      if (parsed && (parsed.callerId === "+44 20 7946 0912" || (parsed.callerId || "").includes("79460912"))) {
+        parsed.callerId = "";
+      }
+      return parsed;
     } catch (_) {
       return INITIAL_COMPANY_PROFILE;
     }
@@ -24465,10 +24539,26 @@ export default function App() {
         if (p && p.name) {
           setProfile((prev) => {
             const merged = { ...prev, ...p };
+            if (merged.callerId === "+44 20 7946 0912" || (merged.callerId || "").includes("79460912")) {
+              merged.callerId = p.callerId || p.caller_id || "";
+            }
             try { localStorage.setItem("aivhub_company_profile", JSON.stringify(merged)); } catch (_) {}
             return merged;
           });
         }
+        try {
+          const hub = await api.getTelephonyHub();
+          if (hub && hub.phoneNumber) {
+            setProfile((prev) => {
+              if (!prev.callerId || prev.callerId.includes("79460912")) {
+                const updated = { ...prev, callerId: hub.phoneNumber };
+                try { localStorage.setItem("aivhub_company_profile", JSON.stringify(updated)); } catch (_) {}
+                return updated;
+              }
+              return prev;
+            });
+          }
+        } catch (_) {}
       } catch (_) {}
       try {
         const s = await api.getSources();

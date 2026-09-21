@@ -36,7 +36,7 @@ export function MeetingDetailModal({ meeting, onClose, onOutcome, companyName })
               {meeting.format === "phone" && <Phone size={16} color={C.cobalt} />}
               {meeting.format === "in_person" && <MapPin size={16} color={C.cobalt} />}
               <span style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>
-                {meeting.format === "video" ? `${meeting.platform || "Video Call"}: ${meeting.videoLink || "meet.google.com/aiv-demo"}` : meeting.format === "phone" ? `Dial-in: ${meeting.dialIn || "+44 20 7946 0912"}` : meeting.address || "14 Colmore Row, Birmingham"}
+                {meeting.format === "video" ? `${meeting.platform || "Video Call"}: ${meeting.videoLink || "meet.google.com/aiv-demo"}` : meeting.format === "phone" ? `Dial-in: ${meeting.dialIn || "Company Line"}` : meeting.address || "14 Colmore Row, Birmingham"}
               </span>
             </div>
             <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, background: C.tealSoft, padding: "3px 8px", borderRadius: 4 }}>

@@ -33,7 +33,7 @@ class CompanyProfile(Base):
     website = Column(String, default="https://aivhub.io")
     social = Column(String, default="linkedin.com/company/aivhub")
     caller_name = Column(String, default="Sam")
-    caller_id = Column(String, default="+44 20 7946 0912")
+    caller_id = Column(String, nullable=True, default=None)
     tone = Column(String, default="Professional, concise, friendly")
     disclosure = Column(Text, default="This call may be recorded for quality and training purposes.")
     legal_name = Column(String, default="AIVHub Ltd")
@@ -46,6 +46,11 @@ class CompanyProfile(Base):
     call_hours_policy = Column(String, default="respectful")
     weekday_start = Column(String, default="09:00")
     weekday_end = Column(String, default="17:30")
+    # Outbound conversational script & custom prompt rules (editable from UI Call Script & Rules)
+    call_opener = Column(Text, nullable=True)
+    call_hook = Column(Text, nullable=True)
+    closing_ask = Column(Text, nullable=True)
+    custom_rules = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class KnowledgeSource(Base):

@@ -600,6 +600,99 @@ async def get_outbound_carriers(db: AsyncSession = Depends(get_db)):
     }
 
 
+async def resolve_outbound_caller_id(db: AsyncSession, from_number: Optional[str] = None) -> str:
+    """
+    Dynamically resolve the outbound Caller ID without hardcoded numbers:
+    1. If from_number is explicitly provided, validate and return normalized E.164.
+    2. Check Company Profile (CompanyProfile.caller_id).
+    3. Check Connection table (Telephony or Voice Orchestration phoneNumber).
+    4. Check environment variables (TWILIO_PHONE_NUMBER or TELNYX_PHONE_NUMBER).
+    5. Dynamic Twilio API auto-discovery: query Twilio IncomingPhoneNumbers endpoint
+       using stored Twilio credentials, pick first verified number, and auto-persist.
+    6. If all sources empty, raise clean HTTP 400 instructing user to configure their line.
+    """
+    from app.services.secret_box import open_config
+    import httpx
+
+    # 1. User/Caller provided from_number
+    if from_number and str(from_number).strip():
+        cand = normalize_phone_number(str(from_number).strip())
+        if cand and len(cand) >= 7 and "79460912" not in cand:
+            return cand
+
+    # 2. CompanyProfile
+    prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
+    profile = prof_res.scalars().first()
+    if profile and profile.caller_id:
+        cand = normalize_phone_number(profile.caller_id)
+        if cand and len(cand) >= 7 and "79460912" not in cand:
+            return cand
+
+    # 3. Connection config (Telephony or Voice Orchestration)
+    conns_res = await db.execute(
+        select(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"]))
+    )
+    conns = conns_res.scalars().all()
+    carrier_conn = next((c for c in conns if c.group_name == "Telephony"), None)
+    for c in conns:
+        if c.config and isinstance(c.config, dict):
+            cfg = open_config(c.config)
+            num = cfg.get("phoneNumber") or cfg.get("phone_number")
+            if num:
+                cand = normalize_phone_number(str(num).strip())
+                if cand and len(cand) >= 7 and "79460912" not in cand:
+                    if profile and not profile.caller_id:
+                        profile.caller_id = cand
+                        await db.commit()
+                    return cand
+
+    # 4. Settings env
+    env_num = getattr(settings, "TWILIO_PHONE_NUMBER", None) or getattr(settings, "TELNYX_PHONE_NUMBER", None)
+    if env_num:
+        cand = normalize_phone_number(env_num)
+        if cand and len(cand) >= 7 and "79460912" not in cand:
+            return cand
+
+    # 5. Dynamic Twilio API auto-discovery
+    tw_sid = None
+    tw_token = None
+    if carrier_conn and carrier_conn.config and isinstance(carrier_conn.config, dict):
+        cfg = open_config(carrier_conn.config)
+        tw_sid = (cfg.get("account_sid") or "").strip()
+        tw_token = (cfg.get("auth_token") or cfg.get("api_key") or "").strip()
+    if not tw_sid:
+        tw_sid = getattr(settings, "TWILIO_ACCOUNT_SID", None)
+    if not tw_token:
+        tw_token = getattr(settings, "TWILIO_AUTH_TOKEN", None)
+
+    if tw_sid and tw_token and tw_sid.startswith("AC") and len(tw_sid) == 34:
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as tw_client:
+                tw_url = f"https://api.twilio.com/2010-04-01/Accounts/{tw_sid}/IncomingPhoneNumbers.json"
+                tw_res = await tw_client.get(tw_url, auth=(tw_sid, tw_token))
+                if tw_res.status_code == 200:
+                    tw_data = tw_res.json()
+                    nums = [
+                        normalize_phone_number(n.get("phone_number", ""))
+                        for n in tw_data.get("incoming_phone_numbers", [])
+                        if n.get("phone_number")
+                    ]
+                    if nums:
+                        discovered = nums[0]
+                        logger.info(f"Auto-discovered Twilio phone number: {discovered}")
+                        if profile:
+                            profile.caller_id = discovered
+                            await db.commit()
+                        return discovered
+        except Exception as tw_err:
+            logger.warning(f"Could not auto-discover Twilio number: {tw_err}")
+
+    raise HTTPException(
+        status_code=400,
+        detail="No outbound Caller ID configured. Please configure and auto-register your active phone line under Company Profile or Voice & Telephony Hub before placing calls."
+    )
+
+
 @router.post("/outbound/dial")
 async def dial_outbound_call(
     req: OutboundDialRequest,
@@ -627,22 +720,8 @@ async def dial_outbound_call(
 
         to_clean = normalize_phone_number(to_raw)
 
-        # 1. Determine From / Caller ID number
-        from_clean = req.from_number.strip() if req.from_number else None
-        if not from_clean:
-            prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
-            profile = prof_res.scalars().first()
-            if profile and profile.caller_id:
-                from_clean = profile.caller_id
-            else:
-                conn_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
-                tele_conn = conn_res.scalars().first()
-                if tele_conn and tele_conn.config and isinstance(tele_conn.config, dict):
-                    from_clean = tele_conn.config.get("phoneNumber")
-
-        if not from_clean:
-            from_clean = settings.TWILIO_PHONE_NUMBER or "+447307216767"
-        from_clean = normalize_phone_number(from_clean)
+        # 1. Determine From / Caller ID number dynamically
+        from_clean = await resolve_outbound_caller_id(db, req.from_number)
 
         # 2. Determine carrier plugin
         carrier_choice = (req.carrier or "").strip().lower()
@@ -1313,7 +1392,7 @@ async def twilio_dial_action(request: Request, db: AsyncSession = Depends(get_db
 async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Twilio Inbound Voice Webhook.
-    Fires when any prospect or customer dials the Twilio phone number (+447307216767).
+    Fires when any prospect or customer dials the configured Twilio phone number.
     1. Extracts caller info (From, To, CallSid).
     2. Identifies caller against Prospect / ContactRegistry.
     3. Spawns an active LiveCall card with state='pitching' on the supervisor dashboard.
@@ -1329,8 +1408,8 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
             pass
 
     call_sid = params.get("CallSid", f"CA_{uuid.uuid4().hex[:16]}")
-    from_number = params.get("From", "+440000000000")
-    to_number = params.get("To", settings.TWILIO_PHONE_NUMBER or "+447307216767")
+    from_number = params.get("From", "")
+    to_number = params.get("To", getattr(settings, "TWILIO_PHONE_NUMBER", None) or "")
 
     # Match caller against existing contacts / prospects
     caller_clean = normalize_phone_number(from_number)

@@ -495,7 +495,7 @@ def _brand_speech_hint(spoken: str, written: Optional[str] = None) -> str:
     written_bit = f' (written "{written}")' if (written or "").strip() and (written or "").strip() != spoken else ""
     return (
         f'Say the company name exactly as: "{spoken}"{written_bit}. '
-        "If Company Profile has a spoken form, use that — do not invent a different pronunciation."
+        f'CRITICAL VOICE RULE: Whenever you speak or output the company name, ALWAYS write it exactly as "{spoken}" so that the speech engine pronounces each word/letter cleanly without mumbling or slurring acronyms. Never output joined acronyms.'
     )
 
 
@@ -625,6 +625,51 @@ async def build_xai_system_instructions(
     caller_id = (profile.caller_id if profile and profile.caller_id else "").strip()
     spoken_pitch = _spoken_pitch(pitch, spoken_company)
 
+    target_name = clean_person_label(prospect_name) or "there"
+    target_first_name = greeting_first_name(target_name)
+
+    call_opener = (getattr(profile, "call_opener", None) or "").strip() if profile else ""
+    call_hook = (getattr(profile, "call_hook", None) or "").strip() if profile else ""
+    closing_ask = (getattr(profile, "closing_ask", None) or "").strip() if profile else ""
+    custom_rules = (getattr(profile, "custom_rules", None) or "").strip() if profile else ""
+
+    first_for_template = target_first_name if target_first_name != "there" else "there"
+    if call_opener:
+        effective_opener = (
+            call_opener.replace("{name}", first_for_template)
+            .replace("{caller_name}", caller_name)
+            .replace("{company}", spoken_company)
+        )
+    else:
+        effective_opener = (
+            f"Hi {target_first_name}, this is {caller_name} calling from {spoken_company} — did I catch you in the middle of something?"
+            if target_first_name != "there"
+            else f"Hi there, this is {caller_name} calling from {spoken_company} — did I catch you in the middle of something?"
+        )
+
+    if call_hook:
+        effective_hook = (
+            call_hook.replace("{name}", first_for_template)
+            .replace("{caller_name}", caller_name)
+            .replace("{company}", spoken_company)
+        )
+    else:
+        effective_hook = f"The reason for my call is {spoken_pitch}. Just curious—how are you currently tracking this in your operations?"
+
+    effective_close = (
+        closing_ask.replace("{name}", first_for_template)
+        .replace("{caller_name}", caller_name)
+        .replace("{company}", spoken_company)
+        if closing_ask
+        else "Open to a quick 15-minute walkthrough sometime this week?"
+    )
+
+    custom_rules_block = (
+        f"""USER PROMPT RULES & OBJECTION HANDLING (MANDATORY — CONFIGURED IN CALL SCRIPT & RULES):\n{custom_rules}\n"""
+        if custom_rules
+        else ""
+    )
+
     catalog_lines = []
     for s in services[:5]:
         catalog_lines.append(f"- {s.name}: {s.desc} (Ideal for: {s.ideal})")
@@ -660,9 +705,6 @@ async def build_xai_system_instructions(
         from app.services.booking_policy import voice_booking_instructions, voice_hangup_instructions
         booking_rules = voice_booking_instructions(None)
         hangup_rules = voice_hangup_instructions(None)
-
-    target_name = clean_person_label(prospect_name) or "there"
-    target_first_name = greeting_first_name(target_name)
 
     accent_block = ""
     voice_raw = ""
@@ -702,12 +744,12 @@ ACCENT & DICTION (MANDATORY — British English, clear speech):
 - Stay completely silent until a HUMAN picks up. Ringback, hold music, and IVR are not pickup.
 - Do not greet, do not fill silence, do not react to ringback or dead air.
 - When the greeting command arrives, the person has just picked up. Then speak immediately:
-  "Hi {target_first_name}, this is {caller_name} from {spoken_company}. How's your day going?"
+  "{effective_opener}"
 """ if hold_opening else f"""CRITICAL OUTBOUND CALL OPENING (SPEAK FIRST & ENGAGE):
 - You are placing an OUTBOUND CALL to {target_name}. The person has just picked up.
 - You MUST speak FIRST immediately! Do NOT wait in awkward silence.
 - Opening Greeting (Warm & Human):
-  "Hi {target_first_name}, this is {caller_name} from {spoken_company}. How's your day going?"
+  "{effective_opener}"
 """
 
     brand_hint = _brand_speech_hint(spoken_company, company_name)
@@ -727,8 +769,7 @@ AUTOMATED WAIT / IVR / VOICEMAIL (MANDATORY):
 - "Leave a message" / "after the tone" / mailbox — that is VOICEMAIL. When the beep/record cue comes, leave ONE short voicemail:
   "Hi {target_first_name}, this is {caller_name} from {spoken_company}. Calling about a quick 15-minute walkthrough of how we help. I'll try you again — or reply to this number. Thanks."
 - Do not ramble on voicemail. One take, then stop.
-- If a HUMAN picks up mid-voicemail or mid-hold: STOP the message instantly. Talk to them live:
-  "Hi {target_first_name}, this is {caller_name} from {spoken_company} — glad I caught you. How's your day going?"
+- If a HUMAN picks up mid-voicemail: STOP the voicemail message instantly and greet them live once. Once speaking to a human, NEVER restart the call or repeat the opening greeting.
 - First human utterance that is NOT a machine: introduce yourself (name + company). Never invent their name from "hi"/"hello".
 
 TIMES:
@@ -747,11 +788,32 @@ HUMAN CONVERSATIONAL FLOW & NATURAL CADENCE RULES (MANDATORY):
 5. ADAPTABLE & UNHURRIED: If interrupted, instantly pivot to what they just said. Do not repeat previous sentences or stick rigidly to a script.
 
 {opening_block}
-- The Company Profile one-line pitch is the SPINE, not the whole speech. Stay true to it. Never contradict it. Never invent a second value prop.
-- After they reply to the greeting, one short turn: hook from that pitch, then ask for a 15-minute walkthrough.
-  "The reason for my call—{spoken_pitch}. Open to a quick 15-minute walkthrough this week?"
-- If they lean in ("tell me more", "how does it work", "who is it for"): call query_knowledge_base. Enrich from crawled website, docs, FAQs, and listed services. Speak 1–2 sentences. You are expanding the same pitch, not rewriting it.
-- Do not parrot the one-liner on every turn. Do not dump URLs. Do not use generic "dashboards / scattered data" language unless those words are in the pitch or in the knowledge search.
+
+OUTBOUND CONVERSATIONAL PHASES & NATURAL CADENCE (MANDATORY):
+1. PHASE 1 — OPENING GREETING:
+   When connected, deliver your opening greeting once:
+   "{effective_opener}"
+
+2. PHASE 2 — STATUTORY CALL RECORDING DISCLOSURE:
+   Statutory disclosure:
+   "{disclosure}"
+   (Speak naturally during call opening or when compliance requires recording notification / if asked by prospect).
+
+3. PHASE 3 — REASON FOR CALL & CONVERSATIONAL VALUE HOOK:
+   After they answer your greeting (e.g. "it's going fine", "why are you calling?", "who is this?"):
+   Acknowledge their reply warmly ("Gotcha", "Glad to hear", "Makes total sense"), then introduce your reason for calling:
+   "{effective_hook}"
+
+4. PHASE 4 — ENGAGEMENT & WALKTHROUGH OFFER:
+   Listen to their response first. Do NOT pressure or recite a speech. If they show interest or answer your question, bridge to the walkthrough:
+   "{effective_close}"
+   If they decline or are not interested: be gracious ("Fair enough, I hear you!"), ask if they need anything else, and wrap up cleanly without being pushy.
+
+CONVERSATION CONTINUITY & BARGE-IN RULES (CRITICAL):
+- You have ALREADY greeted the prospect. Once the call has started, NEVER restart the conversation from the beginning, NEVER re-introduce yourself ("Hi, this is..."), and NEVER ask "How is your day going?" again.
+- If the prospect says "Hello?", "Are you there?", or interrupts, DO NOT restart the greeting or repeat previous sentences! Simply acknowledge: "Yes, I'm right here!" and continue naturally where you left off.
+- Never recite long scripted paragraphs. Speak 1 to 2 short sentences per turn (12 to 25 words maximum).
+- Spoken contractions: ALWAYS use natural contractions ("I'm", "we're", "don't", "that's").
 
 COMPANY FACTS (from Company Profile — ground truth, not optional colour):
 - Trading as: {company_name}. Legal name: {legal_name}.
@@ -770,6 +832,8 @@ How to use these:
 {booking_rules}
 
 {hangup_rules}
+
+{custom_rules_block}
 
 OBJECTION & HESITATION HANDLING (EMPATHETIC & HUMAN):
 - If they say "I'm busy" / "In a meeting":
@@ -1398,16 +1462,24 @@ async def execute_xai_tool(
 
             async def _delayed_hangup(cid: str, wait: float, why: str):
                 try:
-                    await asyncio.sleep(wait)
+                    from app.websockets.media_stream import media_stream_hub
+                    # Brief wait for goodbye audio synthesis to begin streaming
+                    await asyncio.sleep(1.0)
+                    # Send Twilio mark so we know when audio has finished playing in caller's ear
+                    await media_stream_hub.send_mark(cid, "goodbye_complete")
+                    # Wait for Twilio mark confirmation with fallback timeout
+                    mark_reached = await media_stream_hub.wait_for_mark(cid, "goodbye_complete", timeout=max(4.0, wait))
+                    # Comfortable 0.8s pause so call doesn't drop abruptly
+                    await asyncio.sleep(0.8)
                     async with AsyncSessionLocal() as db:
                         from app.api.calls import terminate_live_call
                         result = await terminate_live_call(cid, db, ended_by="agent")
                         await log_process_event(
                             subsystem="telephony",
                             process_name="agent_end_call",
-                            message=f"Agent end_call for {cid} after {wait}s ({why}) → ok={result.get('ok')}",
+                            message=f"Agent end_call for {cid} (mark_reached={mark_reached}, reason={why}) → ok={result.get('ok')}",
                             level="INFO",
-                            details={"callId": cid, "delay": wait, "reason": why, "result": result},
+                            details={"callId": cid, "markReached": mark_reached, "delay": wait, "reason": why, "result": result},
                         )
                 except Exception as hang_err:
                     logger.warning(f"[end_call] delayed hangup failed for {cid}: {hang_err}")
@@ -1415,11 +1487,7 @@ async def execute_xai_tool(
             asyncio.create_task(_delayed_hangup(call_id, delay, reason))
             return {
                 "ok": True,
-                "hangup_in_seconds": delay,
-                "message": (
-                    f"Line will disconnect in about {int(delay)} seconds. "
-                    "Speak the business goodbye now if you have not already."
-                ),
+                "status": "hangup_scheduled",
             }
 
         else:
@@ -1637,11 +1705,18 @@ async def join_xai_call_session(
         "state": "pitching"
     })
 
-    # If in mock / simulation mode without real xAI key, run simulation bridge
-    if not api_key or api_key.startswith("mock") or (settings.VOICE_ENGINE_MODE == "simulation" and not api_key.startswith("xai-")):
-        logger.info(f"Running xAI Call {call_id} in local simulation mode.")
-        await _run_simulated_xai_session(call_id, caller_number)
-        return
+    # If in mock / simulation mode without real xAI key, raise error - NO FALLBACK
+    if not api_key or api_key.startswith("mock"):
+        raise ValueError(
+            "xAI API key is required for live calls. "
+            "Configure XAI_API_KEY in environment or add xAI connection in Connections panel."
+        )
+    
+    if settings.VOICE_ENGINE_MODE == "simulation" and not api_key.startswith("xai-"):
+        raise ValueError(
+            "VOICE_ENGINE_MODE is set to 'simulation'. Change to 'live' in .env to make real calls. "
+            "Set VOICE_ENGINE_MODE=live"
+        )
 
     sip_first_rec = _sip_first_record(custom_call_id, local_call_id, call_id, carrier_sid)
     if not sip_first_rec and audio_bridge and not audio_bridge.is_inbound:
@@ -1794,6 +1869,11 @@ async def join_xai_call_session(
                         ext_tts_queue.get_nowait()
                     except Exception:
                         break
+                try:
+                    from app.websockets.media_stream import media_stream_hub
+                    await media_stream_hub.clear_twilio_audio(local_call_id)
+                except Exception:
+                    pass
 
             async def _feed_ext_tts(delta: str, force_flush: bool = False):
                 nonlocal ext_tts_buf, ext_tts_chars_fed
@@ -1847,9 +1927,20 @@ async def join_xai_call_session(
             profile_rep = _knowledge_cache.get("profile") if "_knowledge_cache" in globals() else None
             rep_name = (profile_rep.caller_name or "").strip() if profile_rep and profile_rep.caller_name else "the caller"
             comp_name = (profile_rep.name or "").strip() if profile_rep and profile_rep.name else ""
-            spoken_comp = _spoken_brand(comp_name)
+            spoken_comp = _spoken_brand(comp_name, getattr(profile_rep, "spoken_name", None))
             brand_hint = _brand_speech_hint(spoken_comp, comp_name)
             greeting_line = f"Hi {target_first_name}" if target_first_name != "there" else "Hi there"
+            custom_opener = (getattr(profile_rep, "call_opener", None) or "").strip() if profile_rep else ""
+            first_for_template = target_first_name if target_first_name != "there" else "there"
+            if custom_opener:
+                call_opener_txt = (
+                    custom_opener.replace("{name}", first_for_template)
+                    .replace("{caller_name}", rep_name)
+                    .replace("{company}", spoken_comp)
+                )
+            else:
+                call_opener_txt = f"{greeting_line}, this is {rep_name} calling from {spoken_comp} — did I catch you in the middle of something?"
+
             inbound_greeting_instruction = (
                 f"You are {rep_name} at {spoken_comp}, answering an incoming phone call. "
                 f"Speak FIRST immediately, warm and human: "
@@ -1861,11 +1952,11 @@ async def join_xai_call_session(
                 f"Their name is locked as {target_first_name if target_first_name != 'there' else 'unknown'}. "
                 f"The person just picked up. Speak FIRST immediately, like a real person already on the line. "
                 f"Say this ONCE only, natural and unhurried: "
-                f"'{greeting_line}, this is {rep_name} calling from {spoken_comp}. How's your day going?' "
+                f"'{call_opener_txt}' "
                 f"{brand_hint} "
                 f"If you hear hold/'please wait': stay silent. "
                 f"If you hear leave-a-message/voicemail beep: leave a short voicemail with who you are, company, and why you called — then stop. "
-                f"If a human barges in mid-message: cut off, greet them live with the locked name. "
+                f"If a human barges in mid-message: cut off, greet them live once. "
                 f"Never address them as Hi There. Never invent their name from 'hi'/'hello'. "
                 f"Do not wait. Do not restart or repeat this greeting. Use only the saved company name and pitch."
             )
@@ -2108,10 +2199,21 @@ async def join_xai_call_session(
                         await _ensure_ext_tts_for_turn(current_ai_text)
                     await commit_ai_turn()
 
-                # User started speaking - commit any in-flight AI speech
+                # User started speaking - commit any in-flight AI speech & cancel assistant turn
                 elif event_type == "input_audio_buffer.speech_started":
+                    human_live = True
+                    awaiting_human = False
                     if use_external_tts:
                         await _cancel_ext_tts()
+                    try:
+                        from app.websockets.media_stream import media_stream_hub
+                        await media_stream_hub.clear_twilio_audio(local_call_id)
+                    except Exception:
+                        pass
+                    try:
+                        await ws.send(json.dumps({"type": "response.cancel"}))
+                    except Exception:
+                        pass
                     await commit_ai_turn()
 
                 # Handle Caller Transcription (User speaking)

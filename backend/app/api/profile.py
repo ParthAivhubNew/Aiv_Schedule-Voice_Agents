@@ -3,8 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from app.database import get_db, AsyncSessionLocal
-from app.models.models import CompanyProfile, KnowledgeSource, KnowledgeChunk, Service, FAQ, Notification
+from app.models.models import CompanyProfile, KnowledgeSource, KnowledgeChunk, Service, FAQ, Notification, Connection
 from app.schemas.schemas import CompanyProfileSchema, KnowledgeSourceSchema, ServiceSchema, FAQSchema, NotificationSchema
+from app.services.secret_box import open_config, seal_config
 from app.services.crawler_service import crawl_and_index_source_task
 from app.services.rag_service import search_knowledge
 from typing import Dict, Any, List
@@ -44,6 +45,10 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
         "callHoursPolicy": profile.call_hours_policy,
         "weekdayStart": profile.weekday_start,
         "weekdayEnd": profile.weekday_end,
+        "callOpener": getattr(profile, "call_opener", None) or "",
+        "callHook": getattr(profile, "call_hook", None) or "",
+        "closingAsk": getattr(profile, "closing_ask", None) or "",
+        "customRules": getattr(profile, "custom_rules", None) or "",
     }
 
 @router.put("", response_model=dict)
@@ -65,7 +70,19 @@ async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get
     if "callerName" in payload or "caller_name" in payload:
         profile.caller_name = payload.get("callerName") or payload.get("caller_name", profile.caller_name)
     if "callerId" in payload or "caller_id" in payload:
-        profile.caller_id = payload.get("callerId") or payload.get("caller_id", profile.caller_id)
+        raw_cid = payload.get("callerId") if "callerId" in payload else payload.get("caller_id")
+        clean_cid = str(raw_cid).strip() if raw_cid is not None else ""
+        if clean_cid:
+            from app.api.calls import normalize_phone_number
+            clean_cid = normalize_phone_number(clean_cid)
+        profile.caller_id = clean_cid or None
+        if clean_cid:
+            tele_res = await db.execute(select(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
+            for c in tele_res.scalars().all():
+                if c.config and isinstance(c.config, dict):
+                    cfg = open_config(c.config)
+                    cfg["phoneNumber"] = clean_cid
+                    c.config = seal_config(cfg)
     if "tone" in payload: profile.tone = payload["tone"]
     if "disclosure" in payload: profile.disclosure = payload["disclosure"]
     if "legalName" in payload or "legal_name" in payload:
@@ -87,9 +104,23 @@ async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get
         profile.weekday_start = payload.get("weekdayStart") or payload.get("weekday_start", profile.weekday_start)
     if "weekdayEnd" in payload or "weekday_end" in payload:
         profile.weekday_end = payload.get("weekdayEnd") or payload.get("weekday_end", profile.weekday_end)
+    if "callOpener" in payload or "call_opener" in payload:
+        profile.call_opener = payload.get("callOpener") if "callOpener" in payload else payload.get("call_opener")
+    if "callHook" in payload or "call_hook" in payload:
+        profile.call_hook = payload.get("callHook") if "callHook" in payload else payload.get("call_hook")
+    if "closingAsk" in payload or "closing_ask" in payload:
+        profile.closing_ask = payload.get("closingAsk") if "closingAsk" in payload else payload.get("closing_ask")
+    if "customRules" in payload or "custom_rules" in payload:
+        profile.custom_rules = payload.get("customRules") if "customRules" in payload else payload.get("custom_rules")
     
     await db.commit()
-    return {"status": "ok", "message": "Company profile updated"}
+    return {
+        "status": "ok",
+        "message": "Company profile updated",
+        "callerId": profile.caller_id,
+        "caller_id": profile.caller_id,
+        "name": profile.name
+    }
 
 # Knowledge Sources & RAG
 @router.get("/sources", response_model=list[dict])
