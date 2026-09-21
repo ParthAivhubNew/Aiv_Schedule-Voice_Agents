@@ -42,6 +42,18 @@ def normalize_phone_number(number: str) -> str:
             clean = "+1" + clean
         else:
             clean = "+" + clean
+
+    # Strip invalid domestic trunk 0 following international country code
+    # e.g. +4405600022627 -> +445600022627
+    if clean.startswith("+440") and len(clean) >= 13:
+        clean = "+44" + clean[4:]
+    elif clean.startswith("+610") and len(clean) >= 12:
+        clean = "+61" + clean[4:]
+    elif clean.startswith("+330") and len(clean) >= 12:
+        clean = "+33" + clean[4:]
+    elif clean.startswith("+490") and len(clean) >= 12:
+        clean = "+49" + clean[4:]
+
     return clean
 
 
