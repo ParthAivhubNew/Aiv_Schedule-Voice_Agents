@@ -201,6 +201,7 @@ class BridgedVoiceSession:
 
     async def release_to_caller(self) -> None:
         """Prospect picked up — dump buffered greeting onto the line now."""
+        logger.info(f"[XAI-BRIDGE] Releasing buffered greeting to caller for {self.call_id}")
         self._released = True
         await self._flush_if_released()
 
@@ -215,6 +216,8 @@ class BridgedVoiceSession:
         self._buf = []
         if chunks:
             logger.info(f"[XAI-BRIDGE] Flushing {len(chunks)} greeting frames onto the live line for {self.call_id}")
+        else:
+            logger.info(f"[XAI-BRIDGE] No buffered frames to flush for {self.call_id}")
         for chunk in chunks:
             await self._send_to_twilio(chunk)
 

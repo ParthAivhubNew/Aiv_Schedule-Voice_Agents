@@ -334,11 +334,10 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                 break
 
     except WebSocketDisconnect:
-        logger.info(f"[TwilioStream] Twilio stream disconnected: {stream_sid}")
-        try:
-            await _hangup_if_call_still_live(call_id, call_sid)
-        except Exception as hang_err:
-            logger.warning(f"[TwilioStream] auto-hangup after disconnect failed: {hang_err}")
+        logger.info(f"[TwilioStream] Twilio stream disconnected: {stream_sid} — call continues (do not auto-hangup)")
+        # DO NOT auto-hangup - let the prospect stay connected
+        # The call may reconnect or continue via alternative path
+        pass
     except Exception as exc:
         logger.warning(f"[TwilioStream] Stream error: {exc}")
         try:
