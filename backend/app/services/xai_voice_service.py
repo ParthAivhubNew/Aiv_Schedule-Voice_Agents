@@ -2125,7 +2125,12 @@ async def join_xai_call_session(
                         continue
                     delta_audio = event.get("delta") or event.get("audio")
                     if audio_bridge and delta_audio:
+                        logger.info(f"[XAI-WS] Emitting xAI audio ({len(delta_audio)} chars) for {call_id}")
                         await audio_bridge.emit_ai_audio(delta_audio)
+                    elif audio_bridge:
+                        logger.warning(f"[XAI-WS] xAI audio event but no delta_audio in event: {event_type}")
+                    else:
+                        logger.warning(f"[XAI-WS] Audio output but no audio_bridge! call_id={call_id}")
 
                 if event_type == "error":
                     err_detail = event.get("error", {})

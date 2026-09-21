@@ -310,8 +310,11 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                             sess = get_bridged_session(chunk_call_id)
                             if sess:
                                 await sess.push_caller_audio(payload)
-                        except Exception:
-                            pass
+                                logger.debug(f"[MediaStream] Pushed inbound audio to xAI session for call {chunk_call_id}")
+                            else:
+                                logger.warning(f"[MediaStream] No xAI session found for call {chunk_call_id} — audio not forwarded to xAI")
+                        except Exception as push_err:
+                            logger.warning(f"[MediaStream] Failed to push caller audio: {push_err}")
                     await media_stream_hub.broadcast_to_listeners(chunk_call_id, {
                         "type": "audio_chunk",
                         "callId": chunk_call_id,
@@ -328,9 +331,11 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
             elif event_type == "stop":
                 logger.info(f"[TwilioStream] Stream stopped: streamSid={stream_sid}, call_id={call_id}")
                 try:
-                    await _hangup_if_call_still_live(call_id, call_sid)
+                    logger.info(f"[TwilioStream] Stream stopped for {call_id} — NOT auto-hanging up")
+                    # Do NOT auto-hangup - let the call continue
+                    pass
                 except Exception as hang_err:
-                    logger.warning(f"[TwilioStream] auto-hangup after stop failed: {hang_err}")
+                    logger.warning(f"[TwilioStream] stream stop handler failed: {hang_err}")
                 break
 
     except WebSocketDisconnect:
@@ -340,10 +345,8 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
         pass
     except Exception as exc:
         logger.warning(f"[TwilioStream] Stream error: {exc}")
-        try:
-            await _hangup_if_call_still_live(call_id, call_sid)
-        except Exception:
-            pass
+        # Do NOT auto-hangup on error - let the call continue
+        pass
     finally:
         if call_id and call_id in media_stream_hub.twilio_streams:
             del media_stream_hub.twilio_streams[call_id]
