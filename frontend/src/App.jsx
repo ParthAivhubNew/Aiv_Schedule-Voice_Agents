@@ -1493,19 +1493,28 @@ function Sidebar({ view, setView, companyName, callerName, timezone, operatorNam
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 12px 8px" }}>
-        <div
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 32 32"
+          width={28}
+          height={28}
           style={{
-            width: 28,
-            height: 28,
-            borderRadius: 8,
-            background: `linear-gradient(135deg, ${C.cobalt}, ${C.cobaltDeep})`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            display: "block",
+            flexShrink: 0,
           }}
         >
-          <PhoneCall size={15} color="#fff" strokeWidth={2.4} />
-        </div>
+          <defs>
+            <linearGradient id="aiv" x1="4" y1="2" x2="30" y2="32" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#3457D5"/>
+              <stop offset="1" stopColor="#0C8C7D"/>
+            </linearGradient>
+          </defs>
+          <rect width="32" height="32" rx="9" fill="url(#aiv)"/>
+          <circle cx="11" cy="16" r="2.35" fill="#fff"/>
+          <path d="M15.6 11.1c2.7 1.5 2.7 8.3 0 9.8" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
+          <path d="M19.4 8.4c4.3 2.5 4.3 12.7 0 15.2" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
+          <path d="M23.1 6.1c5.8 3.3 5.8 16.5 0 19.8" fill="none" stroke="#fff" strokeWidth="1.75" strokeLinecap="round"/>
+        </svg>
         <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: "#fff", letterSpacing: "-0.01em" }}>
           Outreach by Aivhub
         </span>
@@ -12507,20 +12516,28 @@ function patchMissionProspects(missions, missionId, updater) {
 
 function BrandMark({ size = 36 }) {
   return (
-    <div
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 32 32"
+      width={size}
+      height={size}
       style={{
-        width: size,
-        height: size,
-        borderRadius: 10,
-        background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+        display: "block",
         flexShrink: 0,
       }}
     >
-      <PhoneCall size={size * 0.46} color="#fff" strokeWidth={2.4} />
-    </div>
+      <defs>
+        <linearGradient id="aiv" x1="4" y1="2" x2="30" y2="32" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#3457D5"/>
+          <stop offset="1" stopColor="#0C8C7D"/>
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="9" fill="url(#aiv)"/>
+      <circle cx="11" cy="16" r="2.35" fill="#fff"/>
+      <path d="M15.6 11.1c2.7 1.5 2.7 8.3 0 9.8" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
+      <path d="M19.4 8.4c4.3 2.5 4.3 12.7 0 15.2" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
+      <path d="M23.1 6.1c5.8 3.3 5.8 16.5 0 19.8" fill="none" stroke="#fff" strokeWidth="1.75" strokeLinecap="round"/>
+    </svg>
   );
 }
 

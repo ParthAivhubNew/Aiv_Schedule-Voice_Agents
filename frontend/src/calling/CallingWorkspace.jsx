@@ -1862,9 +1862,28 @@ export function CallingWorkspace({
       <AppChrome />
       <div style={{ width: 232, minWidth: 232, background: "linear-gradient(180deg, #12141C 0%, #1B1E29 100%)", height: "100vh", display: "flex", flexDirection: "column", padding: "18px 12px", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 8px 16px" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(135deg, #3457D5, #26409E)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 18px rgba(52,87,213,0.35)" }}>
-            <PhoneCall size={15} color="#fff" />
-          </div>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 32 32"
+            width={32}
+            height={32}
+            style={{
+              display: "block",
+              flexShrink: 0,
+            }}
+          >
+            <defs>
+              <linearGradient id="aiv" x1="4" y1="2" x2="30" y2="32" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#3457D5"/>
+                <stop offset="1" stopColor="#0C8C7D"/>
+              </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="9" fill="url(#aiv)"/>
+            <circle cx="11" cy="16" r="2.35" fill="#fff"/>
+            <path d="M15.6 11.1c2.7 1.5 2.7 8.3 0 9.8" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
+            <path d="M19.4 8.4c4.3 2.5 4.3 12.7 0 15.2" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
+            <path d="M23.1 6.1c5.8 3.3 5.8 16.5 0 19.8" fill="none" stroke="#fff" strokeWidth="1.75" strokeLinecap="round"/>
+          </svg>
           <div>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#fff" }}>Calling</div>
             <div style={{ fontSize: 9.5, color: "#8B90A0", fontWeight: 700, letterSpacing: "0.07em" }}>OUTREACH BY AIVHUB</div>
