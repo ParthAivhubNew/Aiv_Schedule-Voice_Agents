@@ -1553,26 +1553,32 @@ async def join_xai_call_session(
 
     try:
         from app.models.models import Connection
-        from app.services.secret_box import config_get_secret
+        from app.services.secret_box import config_get_secret, open_config
         async with AsyncSessionLocal() as db:
             c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
             c = c_res.scalars().first()
             if c and c.config and isinstance(c.config, dict):
+                # Decrypt the config to access all fields
+                dec_config = open_config(c.config)
+                
                 stored_key = config_get_secret(c.config, "api_key", "auth_token")
                 if stored_key:
                     api_key = stored_key
                     settings.XAI_API_KEY = stored_key
                     settings.VOICE_ENGINE_MODE = "live"
-                if c.config.get("voice_name"):
-                    active_voice = _xai_voice_id(c.config.get("voice_name"), c.config.get("accent"))
-                elif c.config.get("voice"):
-                    active_voice = _xai_voice_id(c.config.get("voice"), c.config.get("accent"))
-                if c.config.get("silence_duration_ms"):
-                    silence_ms = int(c.config.get("silence_duration_ms"))
-                if c.config.get("prefix_padding_ms"):
-                    prefix_ms = int(c.config.get("prefix_padding_ms"))
-                if c.config.get("temperature"):
-                    temp_val = float(c.config.get("temperature"))
+                
+                # Use decrypted config to get voice settings
+                if dec_config.get("voice_name"):
+                    active_voice = _xai_voice_id(dec_config.get("voice_name"), dec_config.get("accent"))
+                elif dec_config.get("voice"):
+                    active_voice = _xai_voice_id(dec_config.get("voice"), dec_config.get("accent"))
+                
+                if dec_config.get("silence_duration_ms"):
+                    silence_ms = int(dec_config.get("silence_duration_ms"))
+                if dec_config.get("prefix_padding_ms"):
+                    prefix_ms = int(dec_config.get("prefix_padding_ms"))
+                if dec_config.get("temperature"):
+                    temp_val = float(dec_config.get("temperature"))
             # Fallback: LLM · xAI key when Voice Orchestration has none
             if not api_key or str(api_key).startswith("mock"):
                 llm_res = await db.execute(select(Connection).where(Connection.group_name == "LLM"))
