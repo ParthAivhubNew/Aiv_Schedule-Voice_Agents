@@ -5553,31 +5553,20 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
       .catch(() => {});
   }, []);
 
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null);
+
   useEffect(() => {
     if (typeof onDirtyChange === "function") onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
 
-  useEffect(() => {
-    if (!dirty) return undefined;
-    const onBeforeUnload = (e) => {
-      e.preventDefault();
-      e.returnValue = "";
-      return "";
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
-
   const markDirty = () => setDirty(true);
-
-  const confirmLeave = (message) => {
-    if (!dirty) return true;
-    return window.confirm(message || "You have unsaved changes. Leave without saving?");
-  };
 
   const requestTab = (nextId) => {
     if (nextId === tab) return;
-    if (!confirmLeave("You have unsaved changes on this page. Switch tabs without saving?")) return;
+    if (dirty) {
+      save(false);
+    }
     setTab(nextId);
   };
 
@@ -5595,9 +5584,10 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
     setBookingPolicy(next);
   };
 
-  const save = async () => {
-    setSaved(true);
-    setDirty(false);  // Clear dirty state immediately so browser dialog doesn't appear
+  const save = async (showToast = true) => {
+    setSaving(true);
+    setSaveStatus(null);
+    setDirty(false);
     try {
       localStorage.setItem("aivhub_company_profile", JSON.stringify(profile));
       localStorage.setItem("aivhub_sources", JSON.stringify(sources));
@@ -5634,17 +5624,79 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
           });
         } catch (_) {}
       }
-      if (typeof setNotifications === "function") {
-        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, call rules & FAQs saved", time: "just now", unread: true, type: "success" }, ...ns]);
+      setSaving(false);
+      setSaved(true);
+      setSaveStatus("saved");
+      if (showToast && typeof setNotifications === "function") {
+        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, call rules & compliance saved", time: "just now", unread: true, type: "success" }, ...(ns || [])]);
       }
     } catch (err) {
       console.warn("Backend updateProfile warning:", err);
-      if (typeof setNotifications === "function") {
-        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Company profile changes saved locally", time: "just now", unread: true, type: "info" }, ...ns]);
+      setSaving(false);
+      setSaved(true);
+      setSaveStatus("saved_local");
+      if (showToast && typeof setNotifications === "function") {
+        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Company profile changes saved locally", time: "just now", unread: true, type: "info" }, ...(ns || [])]);
       }
     }
-    setTimeout(() => setSaved(false), 1800);
+    setTimeout(() => {
+      setSaved(false);
+      setSaveStatus(null);
+    }, 3000);
   };
+
+  const renderSaveBtn = (label = "Save changes") => (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+      <button
+        type="button"
+        onClick={() => save(true)}
+        disabled={saving}
+        style={{
+          background: saved ? "#059669" : saving ? "#4b5563" : "linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)",
+          color: "#fff",
+          border: "none",
+          borderRadius: 8,
+          padding: "10px 20px",
+          fontFamily: FONT_BODY,
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: saving ? "wait" : "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7,
+          transition: "all 0.2s ease",
+          boxShadow: saved ? "0 4px 12px rgba(5, 150, 105, 0.3)" : "0 4px 12px rgba(42, 71, 174, 0.25)",
+        }}
+      >
+        {saving ? (
+          <>
+            <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} />
+            <span>Saving changes...</span>
+          </>
+        ) : saved ? (
+          <>
+            <Check size={14} />
+            <span>Changes Saved!</span>
+          </>
+        ) : (
+          <>
+            <span>💾</span>
+            <span>{label}</span>
+          </>
+        )}
+      </button>
+      {dirty && !saved && !saving && (
+        <span style={{ fontSize: 12, color: "#b45309", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+          ● Unsaved changes
+        </span>
+      )}
+      {saved && (
+        <span style={{ fontSize: 12, color: "#059669", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <CheckCircle2 size={14} /> Synced to database
+        </span>
+      )}
+    </div>
+  );
 
   const addSource = async () => {
     if (!newSource.name || !newSource.value) return;
@@ -5958,9 +6010,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>No voice, WhatsApp, SMS, or email is sent in this window — so nobody is disturbed at lunch.</div>
               </div>
               <Field label="Tone" value={profile.tone} onChange={(v) => update("tone", v)} placeholder="Professional, concise, friendly" />
-              <button onClick={save} style={{ marginTop: 6, background: `linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                💾 Save changes
-              </button>
+              {renderSaveBtn("Save changes")}
             </div>
           )}
 
@@ -6467,12 +6517,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 >
                   <PlusCircle size={14} /> Add another service
                 </button>
-                <button
-                  onClick={save}
-                  style={{ background: `linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)`, color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.08)", display: "inline-flex", alignItems: "center", gap: 6 }}
-                >
-                  💾 Save services
-                </button>
+                {renderSaveBtn("Save services")}
               </div>
             </div>
           )}
@@ -6566,15 +6611,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                   </button>
               </div>
 
-              {dirty ? (
-                <div style={{ padding: "10px 14px", borderRadius: 8, background: "#FFFBEB", border: "1px solid #FCD34D", color: "#92400E", fontSize: 13, fontWeight: 600 }}>
-                  Unsaved changes — click Save before leaving this page.
-                </div>
-              ) : null}
-
-              <button onClick={save} style={{ background: `linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                💾 Save
-              </button>
+              {renderSaveBtn("Save call rules")}
             </div>
           )}
 
@@ -6585,7 +6622,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
               <Field label="ICO registration reference" value={profile.icoRef || ""} onChange={(v) => update("icoRef", v)} placeholder="ICO reference" />
               <Field label="Data protection contact" value={profile.dpoContact || ""} onChange={(v) => update("dpoContact", v)} placeholder="privacy@company.com" />
               <Field label="Do-not-call list handling notes" value={profile.dncNotes || ""} onChange={(v) => update("dncNotes", v)} placeholder="Opt-outs logged immediately and excluded from all future missions." textarea />
-              <button onClick={save} style={{ background: `linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>💾 Save changes</button>
+              {renderSaveBtn("Save changes")}
             </div>
           )}
         </div>
@@ -24197,8 +24234,8 @@ function CallingEditionRoot(props) {
       aiKeysPanel={
         <ProviderConfigView
           embedded
-          notifications={[]}
-          setNotifications={() => {}}
+          notifications={props.notifications || []}
+          setNotifications={props.setNotifications || (() => {})}
           commonAi={props.commonAi}
           setCommonAi={props.setCommonAi}
           profile={props.profile}
@@ -24214,8 +24251,8 @@ function CallingEditionRoot(props) {
           embedded
           profile={props.profile}
           setProfile={props.setProfile}
-          notifications={[]}
-          setNotifications={() => {}}
+          notifications={props.notifications || []}
+          setNotifications={props.setNotifications || (() => {})}
           sources={props.knowledgeSources}
           setSources={props.setKnowledgeSources}
           services={props.services}

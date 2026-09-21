@@ -842,8 +842,6 @@ export function CallingWorkspace({
   const goPage = (next) => {
     if (!next || next === page) return;
     if (page === "company" && companyDirty && next !== "company") {
-      const ok = window.confirm("You have unsaved company changes. Leave without saving?");
-      if (!ok) return;
       setCompanyDirty(false);
     }
     setPage(next);
@@ -1891,7 +1889,6 @@ export function CallingWorkspace({
         </div>
         <button type="button" onClick={() => {
           if (page === "company" && companyDirty) {
-            if (!window.confirm("You have unsaved company changes. Leave without saving?")) return;
             setCompanyDirty(false);
           }
           onBackToHub();
@@ -1917,7 +1914,6 @@ export function CallingWorkspace({
           type="button"
           onClick={() => {
             if (page === "company" && companyDirty) {
-              if (!window.confirm("You have unsaved company changes. Leave without saving?")) return;
               setCompanyDirty(false);
             }
             setCallingEdition("classic");
