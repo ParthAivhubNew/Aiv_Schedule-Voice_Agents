@@ -9080,7 +9080,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 type="button"
                 onClick={() => handleProvision()}
                 style={{
-                  background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                  background: `linear-gradient(135deg, ${C.cobalt} 0%, ${C.cobaltDeep} 100%)`,
                   border: "none",
                   borderRadius: 10,
                   padding: "11px 22px",
@@ -9093,7 +9093,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   gap: 8,
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
-                  boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
+                  boxShadow: `0 4px 12px rgba(52, 87, 213, 0.3)`,
                   transition: "all 0.2s ease",
                 }}
               >
