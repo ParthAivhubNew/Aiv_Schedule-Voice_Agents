@@ -8933,28 +8933,35 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             onBlur={() => setShowProvisionTip(false)}
             aria-describedby="provision-stack-tip"
             style={{
-              background: C.ink,
+              background: "linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%)",
               color: "#fff",
               border: "none",
-              borderRadius: 8,
-              padding: "12px 28px",
+              borderRadius: 10,
+              padding: "14px 32px",
               fontFamily: FONT_DISPLAY,
-              fontSize: 14,
-              fontWeight: 700,
+              fontSize: 15,
+              fontWeight: 800,
               cursor: provisioning ? "wait" : "pointer",
               display: "inline-flex",
               alignItems: "center",
-              gap: 8,
-              boxShadow: "0 4px 14px rgba(0,0,0,0.12)"
+              gap: 10,
+              boxShadow: "0 6px 20px rgba(6, 182, 212, 0.35)",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              transition: "all 0.2s ease",
+              transform: provisioning ? "scale(0.98)" : "scale(1)",
+              opacity: provisioning ? 0.7 : 1,
             }}
           >
             {provisioning ? (
               <>
-                <RefreshCw size={15} className="animate-spin" /> Auto-Provisioning & Linking Line...
+                <RefreshCw size={16} className="animate-spin" style={{ animation: "spin 1s linear infinite" }} /> 
+                <span>Provisioning...</span>
               </>
             ) : (
               <>
-                <ShieldCheck size={16} /> ⚡ Auto-Register Line & Activate Stack
+                <ShieldCheck size={18} /> 
+                <span>💾 Save & Activate Stack</span>
               </>
             )}
           </button>
@@ -9044,20 +9051,24 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                 type="button"
                 onClick={() => handleProvision()}
                 style={{
-                  background: C.ink,
+                  background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
                   border: "none",
-                  borderRadius: 8,
-                  padding: "9px 16px",
-                  fontSize: 13,
-                  fontWeight: 700,
+                  borderRadius: 10,
+                  padding: "11px 22px",
+                  fontSize: 14,
+                  fontWeight: 800,
                   cursor: "pointer",
                   color: "#fff",
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 6,
+                  gap: 8,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
+                  transition: "all 0.2s ease",
                 }}
               >
-                <Check size={14} /> Save & activate
+                <Check size={16} style={{ fontWeight: "bold" }} /> 💾 Save & Activate
               </button>
             </div>
           </div>
