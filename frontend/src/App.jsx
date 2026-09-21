@@ -5851,31 +5851,12 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 value={profile.spokenName || ""}
                 onChange={(v) => update("spokenName", v)}
                 placeholder="How the voice should say your brand"
-                hint="Optional. Blank = say the company name as written. Set this in Company profile — not in code."
-              />              <Field label="One-line pitch" value={profile.pitch} onChange={(v) => update("pitch", v)} placeholder="What you sell — used verbatim on calls" textarea />
+                hint="Optional. Blank = say the company name as written."
+              />
               <Field label="Industry" value={profile.industry || ""} onChange={(v) => update("industry", v)} placeholder="Industry" />
               <Field label="Website" value={profile.website || ""} onChange={(v) => update("website", v)} placeholder="https://" hint="Also added automatically as a knowledge source." />
               <Field label="LinkedIn / other social links" value={profile.social || ""} onChange={(v) => update("social", v)} placeholder="linkedin.com/company/…" />
               <Field label="Caller persona name" value={profile.callerName} onChange={(v) => update("callerName", v)} placeholder="Name the agent uses" hint="The name the AI introduces itself as on calls." />
-              {typeof setVoiceName === "function" && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Call voice</div>
-                  <select
-                    value={voiceName || "rex"}
-                    onChange={(e) => setVoiceName(e.target.value)}
-                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
-                  >
-                    <option value="rex-uk">Rex UK — Sam (British, male)</option>
-                    <option value="rex">Rex — Sam (male)</option>
-                    <option value="leo">Leo (male)</option>
-                    <option value="ara-uk">Ara UK (British, female — clear diction)</option>
-                    <option value="ara">Ara (female)</option>
-                    <option value="eve-uk">Eve UK (British, female)</option>
-                    <option value="eve">Eve (female)</option>
-                  </select>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Spoken name and pitch come from this profile. Ara UK / Rex UK = clear British English for UK clients.</div>
-                </div>
-              )}
               <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…" />
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Working timezone</div>
@@ -5977,8 +5958,8 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>No voice, WhatsApp, SMS, or email is sent in this window — so nobody is disturbed at lunch.</div>
               </div>
               <Field label="Tone" value={profile.tone} onChange={(v) => update("tone", v)} placeholder="Professional, concise, friendly" />
-              <button onClick={save} style={{ marginTop: 6, background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                Save changes
+              <button onClick={save} style={{ marginTop: 6, background: `linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                💾 Save changes
               </button>
             </div>
           )}
@@ -6488,9 +6469,9 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 </button>
                 <button
                   onClick={save}
-                  style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}
+                  style={{ background: `linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)`, color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.08)", display: "inline-flex", alignItems: "center", gap: 6 }}
                 >
-                  Save services
+                  💾 Save services
                 </button>
               </div>
             </div>
@@ -6591,8 +6572,8 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 </div>
               ) : null}
 
-              <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}>
-                Save
+              <button onClick={save} style={{ background: `linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                💾 Save
               </button>
             </div>
           )}
@@ -6604,7 +6585,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
               <Field label="ICO registration reference" value={profile.icoRef || ""} onChange={(v) => update("icoRef", v)} placeholder="ICO reference" />
               <Field label="Data protection contact" value={profile.dpoContact || ""} onChange={(v) => update("dpoContact", v)} placeholder="privacy@company.com" />
               <Field label="Do-not-call list handling notes" value={profile.dncNotes || ""} onChange={(v) => update("dncNotes", v)} placeholder="Opt-outs logged immediately and excluded from all future missions." textarea />
-              <button onClick={save} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save changes</button>
+              <button onClick={save} style={{ background: `linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>💾 Save changes</button>
             </div>
           )}
         </div>

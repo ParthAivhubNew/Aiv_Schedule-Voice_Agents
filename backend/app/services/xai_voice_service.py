@@ -818,6 +818,11 @@ CONVERSATION CONTINUITY & BARGE-IN RULES (CRITICAL):
 - Never recite long scripted paragraphs. Speak 1 to 2 short sentences per turn (12 to 25 words maximum).
 - Spoken contractions: ALWAYS use natural contractions ("I'm", "we're", "don't", "that's").
 
+SILENCE HANDLING & CHECK-IN (CRITICAL):
+- If the prospect goes silent for 2 seconds after you finish speaking, ask a brief check-in: "You still there?" or "Everything alright?"
+- If they say "Wait", "Hold on", "One sec", "Give me a moment", or "Just a minute" — then EXTEND your silence patience to 5 seconds before asking again.
+- Never fill silence with repeated questions. Ask once, wait 2 seconds, then check in. If they say to wait, extend to 5 seconds.
+
 COMPANY FACTS (from Company Profile — ground truth, not optional colour):
 - Trading as: {company_name}. Legal name: {legal_name}.
 - Industry: {industry or "not set"}.
@@ -1530,8 +1535,8 @@ async def join_xai_call_session(
     api_key = settings.XAI_API_KEY
     active_voice = settings.XAI_VOICE_NAME
     active_voice = _xai_voice_id(active_voice)
-    silence_ms = getattr(settings, "XAI_VAD_SILENCE_MS", 380)
-    prefix_ms = getattr(settings, "XAI_VAD_PREFIX_PADDING_MS", 180)
+    silence_ms = getattr(settings, "XAI_VAD_SILENCE_MS", 2000)  # Reduced from 380ms to 2000ms (2 seconds) - interrupts after 2 sec silence
+    prefix_ms = getattr(settings, "XAI_VAD_PREFIX_PADDING_MS", 100)  # Reduced from 180ms to 100ms for faster response
     temp_val = getattr(settings, "XAI_TEMPERATURE", 0.80)
 
     if voice_plan is None and audio_bridge is not None:
