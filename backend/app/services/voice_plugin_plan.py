@@ -289,9 +289,20 @@ async def resolve_voice_plan() -> VoicePlan:
             return VoicePlan(engine="modular", voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, note=note)
 
     if engine == "simulation" or (engine == "xai" and (not xai_key or xai_key.startswith("mock"))):
+        # Log detailed diagnostic info
+        logger.error(
+            f"[VOICE-PLAN-ERROR] Cannot proceed with call:\n"
+            f"  engine={engine}\n"
+            f"  xai_key={'MISSING' if not xai_key else 'MOCK_KEY' if xai_key.startswith('mock') else 'PRESENT'}\n"
+            f"  voice_name={voice_name}\n"
+            f"  carrier={carrier}\n"
+            f"  VOICE_ENGINE_MODE={settings.VOICE_ENGINE_MODE}\n"
+            f"  XAI_API_KEY env={'MISSING' if not settings.XAI_API_KEY else 'SET'}"
+        )
         raise ValueError(
-            "Voice engine cannot operate in simulation mode. "
-            "Set VOICE_ENGINE_MODE=live in .env and configure xAI_API_KEY or other carrier credentials."
+            f"Voice engine cannot operate: engine={engine}, xai_key_present={bool(xai_key)}, "
+            f"VOICE_ENGINE_MODE={settings.VOICE_ENGINE_MODE}. "
+            f"Configure XAI_API_KEY in .env or add xAI Realtime connection in Connections panel."
         )
 
     # Hybrid TTS only when the ACTIVE saved voice is an external clone ID.
