@@ -1084,6 +1084,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
                     "cloned_voice_label": (prev_label if voice_is_clone else None) or (
                         f"{voice_choice}-uk" if voice_accent == "british" else voice_choice
                     ),
+                    "external_tts": voice_is_clone,
                     "silence_duration_ms": req.silence_duration_ms or 380,
                     "temperature": req.temperature or 0.80
                 })
