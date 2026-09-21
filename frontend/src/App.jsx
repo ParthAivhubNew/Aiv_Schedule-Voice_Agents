@@ -5557,27 +5557,10 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
     if (typeof onDirtyChange === "function") onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
 
-  useEffect(() => {
-    if (!dirty) return undefined;
-    const onBeforeUnload = (e) => {
-      e.preventDefault();
-      e.returnValue = "";
-      return "";
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
-
   const markDirty = () => setDirty(true);
-
-  const confirmLeave = (message) => {
-    if (!dirty) return true;
-    return window.confirm(message || "You have unsaved changes. Leave without saving?");
-  };
 
   const requestTab = (nextId) => {
     if (nextId === tab) return;
-    if (!confirmLeave("You have unsaved changes on this page. Switch tabs without saving?")) return;
     setTab(nextId);
   };
 
