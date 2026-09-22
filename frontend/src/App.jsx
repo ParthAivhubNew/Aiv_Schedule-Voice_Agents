@@ -9972,13 +9972,20 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       
       console.log(`[What Runs Where] Changing engine to: ${engineCode} (from label: ${engineLabel})`);
       
-      // Call provision endpoint to update the engine
-      await api.provisionTelephonyHub({
+      // Build provision payload
+      const provisionPayload = {
         carrier: currentCarrier,
         engine: engineCode,
         phone_number: currentPhone,
-        voice_name: hubData?.voiceEngineName || "rex",
-      });
+      };
+      
+      // Add voice_name if available
+      if (hubData?.voiceEngineName) {
+        provisionPayload.voice_name = hubData.voiceEngineName;
+      }
+      
+      // Call provision endpoint to update the engine
+      await api.provisionTelephonyHub(provisionPayload);
       
       // Refresh hub status to show new engine - update BOTH hubData and liveHub
       await fetchStatus();
