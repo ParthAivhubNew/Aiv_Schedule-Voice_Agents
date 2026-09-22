@@ -1085,6 +1085,7 @@ const CONNECTIONS = [
     { name: "Faster-Whisper (self-hosted)", status: "not_configured" },
   ]},
   { group: "Text-to-Speech", desc: "Generates the AI's spoken voice on calls.", items: [
+    { name: "xAI Voice Agent", status: "not_configured" },
     { name: "Deepgram Aura", status: "not_configured" },
     { name: "Cartesia", status: "not_configured" },
     { name: "ElevenLabs", status: "not_configured" },
@@ -9958,16 +9959,31 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const allLlmOptions = Array.from(new Set([
     ...llmConnections.filter(c => c.model).map(c => c.model),
     ...llmConnections.filter(c => c.status === "connected").map(c => c.name),
+    // Always include currently active LLM from live hub
+    ...(liveHub?.llmName ? [liveHub.llmName] : []),
+    ...(liveHub?.llmProvider ? [liveHub.llmProvider] : []),
   ])).filter(Boolean);
   
   const allSttOptions = Array.from(new Set([
     ...sttConnections.filter(c => c.model).map(c => c.model),
     ...sttConnections.filter(c => c.status === "connected").map(c => c.name),
+    // Always include currently active STT from live hub
+    ...(liveHub?.sttName ? [liveHub.sttName] : []),
+    ...(liveHub?.sttProvider ? [liveHub.sttProvider] : []),
+    // xAI built-in STT always available
+    "xAI",
   ])).filter(Boolean);
   
   const allTtsOptions = Array.from(new Set([
     ...ttsConnections.filter(c => c.model).map(c => c.model),
     ...ttsConnections.filter(c => c.status === "connected").map(c => c.name),
+    // Always include currently active TTS from live hub
+    ...(liveHub?.ttsName ? [liveHub.ttsName] : []),
+    ...(liveHub?.ttsProvider ? [liveHub.ttsProvider] : []),
+    // xAI built-in TTS voices always available
+    "xAI built-in (ara)",
+    "xAI built-in (rex)",
+    "xAI built-in (eve)",
   ])).filter(Boolean);
   
   console.log('[DEBUG] allLlmOptions:', allLlmOptions);
