@@ -2,6 +2,8 @@ import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import AsyncSessionLocal, engine, Base
+from app.config import settings
+from app.services.secret_box import seal_config
 from app.models.models import (
     Operator,
     CompanyProfile,
@@ -107,6 +109,18 @@ async def seed_database():
             Connection(id="c_tts2", group_name="Text-to-Speech", name="Cartesia", status="not_configured"),
             Connection(id="c_tts3", group_name="Text-to-Speech", name="ElevenLabs", status="not_configured"),
             Connection(id="c_cal1", group_name="Calendar", name="Cal.com (Self-Hosted)", status="connected"),
+            Connection(
+                id="c_vo_livekit",
+                group_name="Voice Orchestration",
+                name="LiveKit (self-hosted)",
+                status="connected",
+                config=seal_config({
+                    "api_key": settings.LIVEKIT_API_KEY or "devkey",
+                    "api_secret": settings.LIVEKIT_API_SECRET or "secret1234567890abcdef1234567890abcdef",
+                    "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
+                }),
+                api_key_masked=f"{(settings.LIVEKIT_API_KEY or 'devkey')[:4]}••••",
+            ),
         ]
         db.add_all(conns)
         

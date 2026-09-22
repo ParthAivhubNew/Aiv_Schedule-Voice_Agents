@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, ForeignKey, Float
+from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, ForeignKey, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -25,7 +25,7 @@ class Organization(Base):
 class Operator(Base):
     __tablename__ = "operators"
     
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True)
     org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     username = Column(String, index=True, nullable=False)
     name = Column(String, nullable=False)
@@ -37,9 +37,8 @@ class Operator(Base):
     organization = relationship("Organization", back_populates="operators")
     
     __table_args__ = (
-        # Ensure username is unique per organization (not globally unique)
-        # This allows different orgs to have users with the same username
-    ,)
+        UniqueConstraint("org_id", "username", name="uq_operator_org_username"),
+    )
 
 class CompanyProfile(Base):
     __tablename__ = "company_profile"

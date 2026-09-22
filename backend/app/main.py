@@ -194,6 +194,48 @@ async def lifespan(app: FastAPI):
     await seed_database()
     try:
         from app.database import AsyncSessionLocal
+        from app.models.models import Connection
+        from app.services.secret_box import seal_config
+        from sqlalchemy.future import select
+        async with AsyncSessionLocal() as init_db:
+            # Auto-configure LiveKit (self-hosted) connection if missing or not configured
+            r_lk = await init_db.execute(
+                select(Connection).where(
+                    Connection.group_name == "Voice Orchestration",
+                    Connection.name.ilike("%livekit%")
+                )
+            )
+            lk_conn = r_lk.scalars().first()
+            if not lk_conn:
+                lk_conn = Connection(
+                    id=f"c_vo_livekit_{uuid.uuid4().hex[:6]}",
+                    group_name="Voice Orchestration",
+                    name="LiveKit (self-hosted)",
+                    status="connected",
+                    config=seal_config({
+                        "api_key": settings.LIVEKIT_API_KEY or "devkey",
+                        "api_secret": settings.LIVEKIT_API_SECRET or "secret1234567890abcdef1234567890abcdef",
+                        "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
+                    }),
+                    api_key_masked=f"{(settings.LIVEKIT_API_KEY or 'devkey')[:4]}••••",
+                )
+                init_db.add(lk_conn)
+                await init_db.commit()
+                logger.info("Auto-configured LiveKit (self-hosted) connection.")
+            elif lk_conn.status != "connected":
+                lk_conn.status = "connected"
+                if not lk_conn.config or not isinstance(lk_conn.config, dict):
+                    lk_conn.config = seal_config({
+                        "api_key": settings.LIVEKIT_API_KEY or "devkey",
+                        "api_secret": settings.LIVEKIT_API_SECRET or "secret1234567890abcdef1234567890abcdef",
+                        "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
+                    })
+                lk_conn.api_key_masked = lk_conn.api_key_masked or f"{(settings.LIVEKIT_API_KEY or 'devkey')[:4]}••••"
+                await init_db.commit()
+    except Exception as auto_conn_err:
+        logger.warning("Auto-configuration of built-in connections skipped: %s", auto_conn_err)
+    try:
+        from app.database import AsyncSessionLocal
         from app.services.secret_box import migrate_seal_all_connections, migrate_seal_column_secrets
         async with AsyncSessionLocal() as seal_db:
             n1 = await migrate_seal_all_connections(seal_db)

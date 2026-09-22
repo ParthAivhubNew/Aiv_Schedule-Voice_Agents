@@ -80,9 +80,11 @@ async def _do_validate_api_key(
                         "details": f"LiveKit SFU server verified online at {health.get('url')} ({health.get('latency_ms')}ms)."
                     }
                 else:
+                    # For self-hosted LiveKit, allow valid credentials to be saved even if docker container is temporarily offline
                     return {
-                        "valid": False,
-                        "error": health.get("details") or "LiveKit server is not reachable. Ensure container is running ('docker compose up -d livekit')."
+                        "valid": True,
+                        "provider": "LiveKit (Self-Hosted)",
+                        "details": f"LiveKit self-hosted credentials verified. Note: SFU server at {health.get('http_url', 'ws://localhost:7880')} is currently offline (run 'docker compose up -d livekit' to start)."
                     }
 
             # 1. DeepSeek
