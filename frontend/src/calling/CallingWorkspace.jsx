@@ -389,7 +389,14 @@ function parseSpreadsheetFile(file, onDone, onError) {
       header: true,
       skipEmptyLines: true,
       complete: (results) => {
-        onDone({ headers: results.meta.fields || [], records: results.data || [] });
+        const headers = results.meta.fields || [];
+        const records = results.data || [];
+        onDone({
+          headers,
+          records,
+          sheetNames: ["CSV"],
+          sheets: { CSV: { headers, records } },
+        });
       },
       error: (err) => onError(err.message || "Could not read CSV file"),
     });
@@ -400,10 +407,25 @@ function parseSpreadsheetFile(file, onDone, onError) {
     reader.onload = (e) => {
       try {
         const wb = XLSX.read(e.target.result, { type: "array" });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const records = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-        const headers = records.length ? Object.keys(records[0]) : [];
-        onDone({ headers, records });
+        const sheetNames = wb.SheetNames || [];
+        if (!sheetNames.length) {
+          onError("Spreadsheet has no sheets");
+          return;
+        }
+        const sheets = {};
+        sheetNames.forEach((sName) => {
+          const sheet = wb.Sheets[sName];
+          const records = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+          const headers = records.length ? Object.keys(records[0]) : [];
+          sheets[sName] = { headers, records };
+        });
+        const firstSheet = sheetNames[0];
+        onDone({
+          headers: sheets[firstSheet].headers,
+          records: sheets[firstSheet].records,
+          sheetNames,
+          sheets,
+        });
       } catch (_) {
         onError("Could not read spreadsheet — check the file isn't corrupted");
       }
@@ -814,6 +836,9 @@ export function CallingWorkspace({
     return "list";
   });
   const [fileName, setFileName] = useState("");
+  const [workbookSheets, setWorkbookSheets] = useState(null);
+  const [availableSheets, setAvailableSheets] = useState([]);
+  const [activeSheet, setActiveSheet] = useState("");
   const [headers, setHeaders] = useState([]);
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState("");
@@ -1425,6 +1450,9 @@ export function CallingWorkspace({
     }
     const label = String(name || "").trim() || `List ${new Date().toLocaleDateString("en-GB")}`;
     setFileName(label);
+    setWorkbookSheets(null);
+    setAvailableSheets([]);
+    setActiveSheet("");
     setHeaders([...DEFAULT_LIST_HEADERS]);
     setRows([]);
     setSelectedIds(new Set());
@@ -1679,15 +1707,31 @@ export function CallingWorkspace({
     if (!file) return;
     parseSpreadsheetFile(
       file,
-      ({ headers: hs, records }) => {
+      ({ headers: hs, records, sheets, sheetNames }) => {
         setFileName(file.name);
+        setWorkbookSheets(sheets || null);
+        setAvailableSheets(sheetNames || []);
+        setActiveSheet(sheetNames && sheetNames.length ? sheetNames[0] : "");
         setHeaders(hs);
         setRows((records || []).map((rec, i) => rowFromRecord(hs, rec, i)).map(ensureRowPhone));
         setSelectedIds(new Set());
-        showToast(`${records.length} rows from file. Tick who to call, or call all with phones.`);
+        const extraNote = sheetNames && sheetNames.length > 1
+          ? ` (${sheetNames.length} sheets in workbook: ${sheetNames.join(", ")})`
+          : "";
+        showToast(`${records.length} rows loaded from ${sheetNames && sheetNames.length > 1 ? `sheet "${sheetNames[0]}"` : "file"}.${extraNote}`);
       },
       (err) => showToast(err)
     );
+  };
+
+  const switchSheet = (sheetName) => {
+    if (!workbookSheets || !workbookSheets[sheetName]) return;
+    const { headers: hs, records } = workbookSheets[sheetName];
+    setActiveSheet(sheetName);
+    setHeaders(hs);
+    setRows((records || []).map((rec, i) => rowFromRecord(hs, rec, i)).map(ensureRowPhone));
+    setSelectedIds(new Set());
+    showToast(`Switched to sheet “${sheetName}” (${records.length} rows)`);
   };
 
   const handleDragEnter = (e) => {
@@ -2664,13 +2708,55 @@ export function CallingWorkspace({
                       transition: "all 0.15s ease",
                     }}
                   >
-                    <Upload size={14} color={isDragging ? C.cobalt : C.cobaltDeep} /> {fileName || "Upload CSV / Excel"}
+                    <Upload size={14} color={isDragging ? C.cobalt : C.cobaltDeep} /> Upload CSV / Excel
                   </button>
                 </div>
-                <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 10, flexShrink: 0 }}>
-                  {rows.length
-                    ? `${fileName ? `${fileName} · ` : ""}${rows.length} contacts · ${dialable} with phone${selectedDialable ? ` · ${selectedDialable} selected` : ""}. Edit cells or tick rows to dial.`
-                    : "New list → Add row, or ask chat “new list” / find companies. Save list keeps it here."}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10, flexShrink: 0 }}>
+                  <div style={{ fontSize: 12, color: C.slateLight }}>
+                    {rows.length
+                      ? `${fileName ? `${fileName} · ` : ""}${rows.length} contacts · ${dialable} with phone${selectedDialable ? ` · ${selectedDialable} selected` : ""}. Edit cells or tick rows to dial.`
+                      : "New list → Add row, or ask chat “new list” / find companies. Save list keeps it here."}
+                  </div>
+
+                  {availableSheets.length > 1 && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fff", padding: "3px 6px", borderRadius: 8, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", padding: "0 4px" }}>
+                        Sheets:
+                      </span>
+                      {availableSheets.map((sName) => {
+                        const count = (workbookSheets && workbookSheets[sName] && workbookSheets[sName].records) ? workbookSheets[sName].records.length : 0;
+                        const isCurrent = sName === activeSheet;
+                        return (
+                          <button
+                            key={sName}
+                            type="button"
+                            onClick={() => switchSheet(sName)}
+                            style={{
+                              height: 26,
+                              padding: "0 10px",
+                              borderRadius: 6,
+                              border: isCurrent ? `1px solid ${C.cobalt}` : "1px solid transparent",
+                              background: isCurrent ? C.cobaltSoft : "transparent",
+                              color: isCurrent ? C.cobaltDeep : C.textInk,
+                              fontSize: 12,
+                              fontWeight: isCurrent ? 700 : 500,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 5,
+                              transition: "all 0.12s ease",
+                            }}
+                            title={`Switch to sheet "${sName}" (${count} rows)`}
+                          >
+                            <span>{sName}</span>
+                            <span style={{ fontSize: 10.5, color: isCurrent ? C.cobalt : C.slateLight, fontWeight: 700 }}>
+                              ({count})
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {!rows.length ? (
