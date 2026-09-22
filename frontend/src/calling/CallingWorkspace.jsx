@@ -59,23 +59,60 @@ const SIMPLE_PAGES = new Set(PAGES.map((p) => p.id));
 const MAX_CONCURRENT = 2;
 
 const COUNTRY_CODES = [
-  { code: "+44", country: "UK", flag: "🇬🇧", name: "United Kingdom" },
-  { code: "+1", country: "US/CA", flag: "🇺🇸", name: "United States / Canada" },
-  { code: "+91", country: "IN", flag: "🇮🇳", name: "India" },
-  { code: "+61", country: "AU", flag: "🇦🇺", name: "Australia" },
-  { code: "+49", country: "DE", flag: "🇩🇪", name: "Germany" },
-  { code: "+33", country: "FR", flag: "🇫🇷", name: "France" },
-  { code: "+34", country: "ES", flag: "🇪🇸", name: "Spain" },
-  { code: "+39", country: "IT", flag: "🇮🇹", name: "Italy" },
-  { code: "+31", country: "NL", flag: "🇳🇱", name: "Netherlands" },
-  { code: "+41", country: "CH", flag: "🇨🇭", name: "Switzerland" },
-  { code: "+353", country: "IE", flag: "🇮🇪", name: "Ireland" },
-  { code: "+971", country: "AE", flag: "🇦🇪", name: "UAE" },
-  { code: "+65", country: "SG", flag: "🇸🇬", name: "Singapore" },
-  { code: "+64", country: "NZ", flag: "🇳🇿", name: "New Zealand" },
-  { code: "+27", country: "ZA", flag: "🇿🇦", name: "South Africa" },
-  { code: "+55", country: "BR", flag: "🇧🇷", name: "Brazil" },
-  { code: "+81", country: "JP", flag: "🇯🇵", name: "Japan" },
+  { code: "+44", country: "UK", initials: "UK, GB, GBR", flag: "🇬🇧", name: "United Kingdom" },
+  { code: "+1", country: "US", initials: "US, USA", flag: "🇺🇸", name: "United States" },
+  { code: "+1", country: "CA", initials: "CA, CAN", flag: "🇨🇦", name: "Canada" },
+  { code: "+91", country: "IN", initials: "IN, IND", flag: "🇮🇳", name: "India" },
+  { code: "+61", country: "AU", initials: "AU, AUS", flag: "🇦🇺", name: "Australia" },
+  { code: "+49", country: "DE", initials: "DE, DEU", flag: "🇩🇪", name: "Germany" },
+  { code: "+33", country: "FR", initials: "FR, FRA", flag: "🇫🇷", name: "France" },
+  { code: "+34", country: "ES", initials: "ES, ESP", flag: "🇪🇸", name: "Spain" },
+  { code: "+39", country: "IT", initials: "IT, ITA", flag: "🇮🇹", name: "Italy" },
+  { code: "+31", country: "NL", initials: "NL, NLD", flag: "🇳🇱", name: "Netherlands" },
+  { code: "+41", country: "CH", initials: "CH, CHE", flag: "🇨🇭", name: "Switzerland" },
+  { code: "+353", country: "IE", initials: "IE, IRL", flag: "🇮🇪", name: "Ireland" },
+  { code: "+971", country: "AE", initials: "AE, UAE", flag: "🇦🇪", name: "United Arab Emirates" },
+  { code: "+65", country: "SG", initials: "SG, SGP", flag: "🇸🇬", name: "Singapore" },
+  { code: "+64", country: "NZ", initials: "NZ, NZL", flag: "🇳🇿", name: "New Zealand" },
+  { code: "+27", country: "ZA", initials: "ZA, ZAF", flag: "🇿🇦", name: "South Africa" },
+  { code: "+55", country: "BR", initials: "BR, BRA", flag: "🇧🇷", name: "Brazil" },
+  { code: "+81", country: "JP", initials: "JP, JPN", flag: "🇯🇵", name: "Japan" },
+  { code: "+86", country: "CN", initials: "CN, CHN", flag: "🇨🇳", name: "China" },
+  { code: "+852", country: "HK", initials: "HK, HKG", flag: "🇭🇰", name: "Hong Kong" },
+  { code: "+966", country: "SA", initials: "SA, SAU, KSA", flag: "🇸🇦", name: "Saudi Arabia" },
+  { code: "+974", country: "QA", initials: "QA, QAT", flag: "🇶🇦", name: "Qatar" },
+  { code: "+965", country: "KW", initials: "KW, KWT", flag: "🇰🇼", name: "Kuwait" },
+  { code: "+46", country: "SE", initials: "SE, SWE", flag: "🇸🇪", name: "Sweden" },
+  { code: "+47", country: "NO", initials: "NO, NOR", flag: "🇳🇴", name: "Norway" },
+  { code: "+45", country: "DK", initials: "DK, DNK", flag: "🇩🇰", name: "Denmark" },
+  { code: "+358", country: "FI", initials: "FI, FIN", flag: "🇫🇮", name: "Finland" },
+  { code: "+48", country: "PL", initials: "PL, POL", flag: "🇵🇱", name: "Poland" },
+  { code: "+351", country: "PT", initials: "PT, PRT", flag: "🇵🇹", name: "Portugal" },
+  { code: "+32", country: "BE", initials: "BE, BEL", flag: "🇧🇪", name: "Belgium" },
+  { code: "+43", country: "AT", initials: "AT, AUT", flag: "🇦🇹", name: "Austria" },
+  { code: "+30", country: "GR", initials: "GR, GRC", flag: "🇬🇷", name: "Greece" },
+  { code: "+90", country: "TR", initials: "TR, TUR", flag: "🇹🇷", name: "Turkey" },
+  { code: "+52", country: "MX", initials: "MX, MEX", flag: "🇲🇽", name: "Mexico" },
+  { code: "+54", country: "AR", initials: "AR, ARG", flag: "🇦🇷", name: "Argentina" },
+  { code: "+56", country: "CL", initials: "CL, CHL", flag: "🇨🇱", name: "Chile" },
+  { code: "+57", country: "CO", initials: "CO, COL", flag: "🇨🇴", name: "Colombia" },
+  { code: "+60", country: "MY", initials: "MY, MYS", flag: "🇲🇾", name: "Malaysia" },
+  { code: "+62", country: "ID", initials: "ID, IDN", flag: "🇮🇩", name: "Indonesia" },
+  { code: "+63", country: "PH", initials: "PH, PHL", flag: "🇵🇭", name: "Philippines" },
+  { code: "+66", country: "TH", initials: "TH, THA", flag: "🇹🇭", name: "Thailand" },
+  { code: "+84", country: "VN", initials: "VN, VNM", flag: "🇻🇳", name: "Vietnam" },
+  { code: "+82", country: "KR", initials: "KR, KOR", flag: "🇰🇷", name: "South Korea" },
+  { code: "+972", country: "IL", initials: "IL, ISR", flag: "🇮🇱", name: "Israel" },
+  { code: "+20", country: "EG", initials: "EG, EGY", flag: "🇪🇬", name: "Egypt" },
+  { code: "+234", country: "NG", initials: "NG, NGA", flag: "🇳🇬", name: "Nigeria" },
+  { code: "+254", country: "KE", initials: "KE, KEN", flag: "🇰🇪", name: "Kenya" },
+  { code: "+92", country: "PK", initials: "PK, PAK", flag: "🇵🇰", name: "Pakistan" },
+  { code: "+880", country: "BD", initials: "BD, BGD", flag: "🇧🇩", name: "Bangladesh" },
+  { code: "+94", country: "LK", initials: "LK, LKA", flag: "🇱🇰", name: "Sri Lanka" },
+  { code: "+380", country: "UA", initials: "UA, UKR", flag: "🇺🇦", name: "Ukraine" },
+  { code: "+420", country: "CZ", initials: "CZ, CZE", flag: "🇨🇿", name: "Czechia" },
+  { code: "+40", country: "RO", initials: "RO, ROU", flag: "🇷🇴", name: "Romania" },
+  { code: "+36", country: "HU", initials: "HU, HUN", flag: "🇭🇺", name: "Hungary" },
 ];
 
 function blankListRow(index = 0) {
@@ -830,6 +867,10 @@ export function CallingWorkspace({
       return "+44";
     }
   });
+  const [countryMenuOpen, setCountryMenuOpen] = useState(false);
+  const [countrySearch, setCountrySearch] = useState("");
+  const countryDropdownRef = useRef(null);
+  const countrySearchInputRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
   const playerRef = useRef(null);
@@ -841,6 +882,97 @@ export function CallingWorkspace({
   const chatHintTimer = useRef(null);
   const copiedTimer = useRef(null);
   const extras = useMemo(() => extraHeaders(headers), [headers]);
+
+  const activeCountryObj = useMemo(() => {
+    return COUNTRY_CODES.find((c) => c.code === countryCode) || {
+      code: countryCode,
+      flag: "🌐",
+      country: "",
+      name: "",
+    };
+  }, [countryCode]);
+
+  const filteredCountries = useMemo(() => {
+    const q = countrySearch.trim().toLowerCase();
+    if (!q) return COUNTRY_CODES;
+    const cleanNum = q.replace(/^\+/, "").trim();
+
+    return COUNTRY_CODES.map((c) => {
+      let score = 0;
+      const codeDigits = c.code.replace("+", "");
+      const lowerCountry = c.country.toLowerCase();
+      const lowerName = c.name.toLowerCase();
+      const lowerInitials = (c.initials || "").toLowerCase();
+
+      // 1. Exact initial match e.g. "uk" == "uk" or token in initials
+      if (lowerCountry === q) {
+        score += 1200;
+      } else if (lowerInitials.split(/[,\s]+/).includes(q)) {
+        score += 1000;
+      }
+      // 2. Exact phone prefix match e.g. "44" or "+44"
+      if (cleanNum && codeDigits === cleanNum) {
+        score += 900;
+      }
+      // 3. Country code starts with number
+      if (cleanNum && codeDigits.startsWith(cleanNum)) {
+        score += 800;
+      }
+      // 4. Initial starts with query
+      if (lowerCountry.startsWith(q)) {
+        score += 700;
+      } else if (lowerInitials.split(/[,\s]+/).some((t) => t.startsWith(q))) {
+        score += 650;
+      }
+      // 5. Name starts with query
+      if (lowerName.startsWith(q)) {
+        score += 600;
+      }
+      // 6. Name includes query
+      else if (lowerName.includes(q)) {
+        score += 400;
+      }
+      // 7. Initials includes query
+      else if (lowerInitials.includes(q)) {
+        score += 300;
+      }
+
+      return { ...c, _score: score };
+    })
+      .filter((c) => c._score > 0)
+      .sort((a, b) => b._score - a._score);
+  }, [countrySearch]);
+
+  const selectCountry = (c) => {
+    setCountryCode(c.code);
+    try { localStorage.setItem("aivhub_dial_country_code", c.code); } catch (_) {}
+    if (direct.phone && !direct.phone.startsWith("+")) {
+      const clean = direct.phone.replace(/^0+/, "").trim();
+      setDirect((d) => ({ ...d, phone: clean ? `${c.code} ${clean}` : "" }));
+    }
+    setCountryMenuOpen(false);
+    setCountrySearch("");
+  };
+
+  useEffect(() => {
+    if (countryMenuOpen && countrySearchInputRef.current) {
+      const timer = window.setTimeout(() => {
+        if (countrySearchInputRef.current) countrySearchInputRef.current.focus();
+      }, 50);
+      return () => window.clearTimeout(timer);
+    }
+  }, [countryMenuOpen]);
+
+  useEffect(() => {
+    if (!countryMenuOpen) return;
+    const handleOutsideClick = (e) => {
+      if (countryDropdownRef.current && !countryDropdownRef.current.contains(e.target)) {
+        setCountryMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleOutsideClick);
+    return () => window.removeEventListener("mousedown", handleOutsideClick);
+  }, [countryMenuOpen]);
 
   const pushNote = (text, type, extra = {}) => {
     const base = { ...(extra || {}) };
@@ -1406,7 +1538,7 @@ export function CallingWorkspace({
     const raw = c.phone || "";
     setDirect({ phone: raw, name: c.name || c.company || "" });
     if (raw.startsWith("+")) {
-      const match = COUNTRY_CODES.find((item) => raw.startsWith(item.code));
+      const match = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length).find((item) => raw.startsWith(item.code));
       if (match) {
         setCountryCode(match.code);
         try { localStorage.setItem("aivhub_dial_country_code", match.code); } catch (_) {}
@@ -2173,47 +2305,216 @@ export function CallingWorkspace({
                       height: 40,
                       flex: 1,
                       minWidth: 200,
-                      overflow: "hidden",
+                      position: "relative",
                     }}>
-                      <select
-                        value={countryCode}
-                        onChange={(e) => {
-                          const code = e.target.value;
-                          setCountryCode(code);
-                          try { localStorage.setItem("aivhub_dial_country_code", code); } catch (_) {}
-                          if (direct.phone && !direct.phone.startsWith("+")) {
-                            const clean = direct.phone.replace(/^0+/, "").trim();
-                            setDirect((d) => ({ ...d, phone: clean ? `${code} ${clean}` : "" }));
-                          }
-                        }}
-                        title="Select Country Code"
-                        style={{
-                          height: "100%",
-                          border: "none",
-                          borderRight: `1px solid ${C.borderLight}`,
-                          background: "#F8FAFC",
-                          padding: "0 8px",
-                          fontFamily: FONT_BODY,
-                          fontSize: 12.5,
-                          fontWeight: 700,
-                          color: C.textInk,
-                          cursor: "pointer",
-                          outline: "none",
-                        }}
-                      >
-                        {COUNTRY_CODES.map((c) => (
-                          <option key={c.code} value={c.code}>
-                            {c.flag} {c.code} ({c.country})
-                          </option>
-                        ))}
-                      </select>
+                      <div ref={countryDropdownRef} style={{ height: "100%", position: "relative" }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCountryMenuOpen((prev) => !prev);
+                            setCountrySearch("");
+                          }}
+                          title={`Country code: ${activeCountryObj?.name || countryCode} (${activeCountryObj?.country || ""}). Click to search or change.`}
+                          style={{
+                            height: "100%",
+                            border: "none",
+                            borderRight: `1px solid ${C.borderLight}`,
+                            borderTopLeftRadius: 9,
+                            borderBottomLeftRadius: 9,
+                            background: countryMenuOpen ? "#EEF2FF" : "#F8FAFC",
+                            padding: "0 8px 0 10px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                            fontFamily: FONT_BODY,
+                            cursor: "pointer",
+                            outline: "none",
+                            userSelect: "none",
+                            transition: "background 0.15s ease",
+                          }}
+                        >
+                          <span style={{ fontSize: 14, lineHeight: 1 }}>{activeCountryObj?.flag || "🌐"}</span>
+                          <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700, color: C.cobaltDeep }}>
+                            {countryCode}
+                          </span>
+                          <ChevronDown
+                            size={11}
+                            color={C.slate}
+                            style={{
+                              transform: countryMenuOpen ? "rotate(180deg)" : "none",
+                              transition: "transform 0.15s ease",
+                            }}
+                          />
+                        </button>
+
+                        {countryMenuOpen && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "calc(100% + 6px)",
+                              left: 0,
+                              zIndex: 1000,
+                              width: 310,
+                              background: "#fff",
+                              borderRadius: 12,
+                              border: `1px solid ${C.border}`,
+                              boxShadow: "0 14px 36px rgba(15,23,42,0.2)",
+                              padding: "8px",
+                              display: "flex",
+                              flexDirection: "column",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                background: "#F8FAFC",
+                                border: `1px solid ${C.borderLight}`,
+                                borderRadius: 8,
+                                padding: "6px 8px",
+                                marginBottom: 6,
+                              }}
+                            >
+                              <Search size={13} color={C.slate} style={{ flexShrink: 0 }} />
+                              <input
+                                ref={countrySearchInputRef}
+                                value={countrySearch}
+                                onChange={(e) => setCountrySearch(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    if (filteredCountries.length > 0) {
+                                      selectCountry(filteredCountries[0]);
+                                    }
+                                  } else if (e.key === "Escape") {
+                                    setCountryMenuOpen(false);
+                                  }
+                                }}
+                                placeholder="Search initial (UK, US, IN) or number (44)..."
+                                style={{
+                                  border: "none",
+                                  outline: "none",
+                                  background: "transparent",
+                                  fontSize: 12,
+                                  fontFamily: FONT_BODY,
+                                  width: "100%",
+                                  color: C.textInk,
+                                }}
+                              />
+                              {countrySearch ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setCountrySearch("")}
+                                  style={{
+                                    border: "none",
+                                    background: "transparent",
+                                    padding: 2,
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <X size={12} color={C.slate} />
+                                </button>
+                              ) : null}
+                            </div>
+
+                            <div
+                              style={{
+                                maxHeight: 220,
+                                overflowY: "auto",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 2,
+                                scrollbarWidth: "thin",
+                              }}
+                            >
+                              {filteredCountries.length === 0 ? (
+                                <div style={{ padding: "12px 8px", textAlign: "center", fontSize: 12, color: C.slate }}>
+                                  No countries matching "{countrySearch}"
+                                </div>
+                              ) : (
+                                filteredCountries.map((c) => {
+                                  const isSelected = c.code === countryCode && (c.country === activeCountryObj?.country || c.code !== "+1");
+                                  return (
+                                    <div
+                                      key={`${c.country}_${c.code}`}
+                                      onClick={() => selectCountry(c)}
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        padding: "6px 8px",
+                                        borderRadius: 6,
+                                        cursor: "pointer",
+                                        background: isSelected ? C.cobaltSoft : "transparent",
+                                        transition: "background 0.1s ease",
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        if (!isSelected) e.currentTarget.style.background = "#F1F5F9";
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        if (!isSelected) e.currentTarget.style.background = "transparent";
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                                        <span style={{ fontSize: 14 }}>{c.flag}</span>
+                                        <span
+                                          style={{
+                                            fontSize: 12.5,
+                                            fontWeight: isSelected ? 700 : 500,
+                                            color: isSelected ? C.cobaltDeep : C.textInk,
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                            maxWidth: 165,
+                                          }}
+                                        >
+                                          {c.name}
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: 10,
+                                            fontWeight: 800,
+                                            padding: "1px 4px",
+                                            borderRadius: 4,
+                                            background: isSelected ? "#C7D7FA" : "#E2E8F0",
+                                            color: isSelected ? C.cobaltDeep : "#475569",
+                                            fontFamily: FONT_MONO,
+                                          }}
+                                        >
+                                          {c.country}
+                                        </span>
+                                      </div>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <span
+                                          style={{
+                                            fontFamily: FONT_MONO,
+                                            fontSize: 12,
+                                            fontWeight: 700,
+                                            color: isSelected ? C.cobaltDeep : C.slate,
+                                          }}
+                                        >
+                                          {c.code}
+                                        </span>
+                                        {isSelected ? <Check size={13} color={C.cobalt} /> : null}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       <input
                         value={direct.phone}
                         onChange={(e) => {
                           const val = e.target.value;
                           setDirect((d) => ({ ...d, phone: val }));
                           if (val.startsWith("+")) {
-                            const match = COUNTRY_CODES.find((c) => val.startsWith(c.code));
+                            const match = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length).find((c) => val.startsWith(c.code));
                             if (match && match.code !== countryCode) {
                               setCountryCode(match.code);
                               try { localStorage.setItem("aivhub_dial_country_code", match.code); } catch (_) {}
