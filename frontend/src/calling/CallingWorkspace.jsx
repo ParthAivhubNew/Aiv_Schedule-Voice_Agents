@@ -377,7 +377,9 @@ function headerToField(h) {
 }
 
 function pickHeader(headers, re) {
-  return (headers || []).find((h) => re.test(String(h || ""))) || "";
+  const flags = re.flags && re.flags.includes("i") ? re.flags : ((re.flags || "") + "i");
+  const regex = new RegExp(re.source, flags);
+  return (headers || []).find((h) => regex.test(String(h || "").trim())) || "";
 }
 
 function parseSpreadsheetFile(file, onDone, onError) {
@@ -422,27 +424,28 @@ function extraHeaders(fileHeaders) {
 }
 
 function rowFromRecord(headers, rec, i) {
-  const nameH = pickHeader(headers, /business\s*name|company\s*name|trading name|organisation|organization/)
+  const nameH = pickHeader(headers, /business\s*name|company\s*name|trading name|organisation|organization/i)
     || (headers || []).find((h) => /^(company|business)$/i.test(String(h || "").trim()))
     || (headers || []).find((h) => !junkCompanyHeader(h) && headerToField(h) === "company")
     || "";
-  const phoneH = pickBestPhoneHeader(headers, [rec]) || pickHeader(headers, /telephone|phone|mobile|\btel\b|cell\b/) || "";
-  const emailH = pickHeader(headers, /e-?mail/) || "";
-  const webH = pickHeader(headers, /web\s*address|website|web\s*site|homepage|\burl\b/) || "";
-  const liH = pickHeader(headers, /linkedin/) || "";
-  const firstH = pickHeader(headers, /forename|first.?name|given.?name/) || "";
-  const lastH = pickHeader(headers, /surname|last.?name|family.?name/) || "";
+  const phoneH = pickBestPhoneHeader(headers, [rec]) || pickHeader(headers, /telephone|phone|mobile|\btel\b|cell\b/i) || "";
+  const emailH = pickHeader(headers, /e-?mail/i) || "";
+  const webH = pickHeader(headers, /web\s*address|website|web\s*site|homepage|\burl\b/i) || "";
+  const liH = pickHeader(headers, /linkedin/i) || "";
+  const firstH = pickHeader(headers, /forename|first.?name|given.?name/i) || "";
+  const lastH = pickHeader(headers, /surname|last.?name|family.?name/i) || "";
   const personH = pickHeader(headers, /contact\s*name|prospect\s*name|full.?name|^contact$|contact person|^name$/i) || "";
-  const townH = pickHeader(headers, /^town$|^city$|locality/) || "";
-  const postH = pickHeader(headers, /postcode|zip/) || "";
-  const addrH = pickHeader(headers, /address line 1|^address$/) || "";
-  const sectorH = pickHeader(headers, /sic desc|sector desc|industry/) || "";
+  const townH = pickHeader(headers, /^town$|^city$|locality/i) || "";
+  const postH = pickHeader(headers, /postcode|zip/i) || "";
+  const addrH = pickHeader(headers, /address line 1|^address$/i) || "";
+  const sectorH = pickHeader(headers, /sic desc|sector desc|industry/i) || "";
   let company = String((nameH && rec[nameH]) || "").trim();
   const first = String((firstH && rec[firstH]) || "").trim();
   const last = String((lastH && rec[lastH]) || "").trim();
   let contact = [first, last].filter(Boolean).join(" ") || String((personH && rec[personH]) || "").trim();
-  // If spreadsheet only has a person column labeled oddly, keep it as contact — never as company.
-  if (!contact && company && /^[A-Z][a-z]+(?:\s+[A-Z][a-z'’-]+){1,3}$/.test(company) && !/\b(ltd|limited|llc|inc|plc|gmbh|corp|company|group)\b/i.test(company)) {
+  // If spreadsheet only has an ambiguous column labeled oddly without an explicit company or contact header, keep it as contact.
+  const isExplicitCompanyHeader = nameH && /^(company|business|business\s*name|company\s*name|organisation|organization|firm)$/i.test(String(nameH).trim());
+  if (!isExplicitCompanyHeader && !personH && !contact && company && /^[A-Z][a-z]+(?:\s+[A-Z][a-z'’-]+){1,3}$/.test(company) && !/\b(ltd|limited|llc|inc|plc|gmbh|corp|company|group|bank|energy|tech|technologies|solutions|services|capital|partners|ventures|labs|studios|holdings|agency|consulting|media|logistics)\b/i.test(company)) {
     contact = company;
     company = "";
   }
