@@ -10449,83 +10449,10 @@ function LeadRadarView({ notifications, setNotifications, onLaunchMission }) {
 
 const LAYERS = VOICE_LAYERS;
 
-const getModelPresets = (groupName, itemName) => {
-  const g = String(groupName || "").toLowerCase();
-  const n = String(itemName || "").toLowerCase();
-
-  // LLM Layer Presets
-  if (g.includes("llm") || n.includes("llm")) {
-    if (n.includes("xai") || n.includes("grok")) {
-      return [
-        "grok-4.20-0309-non-reasoning",
-        "grok-4.3",
-        "grok-4.5",
-        "grok-4.6",
-        "grok-4.7"
-      ];
-    }
-    if (n.includes("deepseek")) {
-      return ["deepseek-chat", "deepseek-reasoner"];
-    }
-    if (n.includes("groq")) {
-      return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"];
-    }
-    if (n.includes("openai")) {
-      return ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini", "gpt-4.5-preview"];
-    }
-    if (n.includes("anthropic") || n.includes("claude")) {
-      return ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-7-sonnet-20250219"];
-    }
-    return [];
-  }
-
-  // Speech-to-Text Layer Presets
-  if (g.includes("speech-to-text") || g.includes("stt")) {
-    if (n.includes("deepgram")) {
-      return ["nova-2", "nova-3", "nova-2-phonecall", "nova-2-general", "nova-2-meeting"];
-    }
-    if (n.includes("whisper")) {
-      return ["large-v3", "medium.en", "small.en", "base.en"];
-    }
-    return [];
-  }
-
-  // Text-to-Speech Layer Presets
-  if (g.includes("text-to-speech") || g.includes("tts")) {
-    if (n.includes("xai")) {
-      return ["xAI built-in (rex)", "xAI built-in (ara)", "xAI built-in (eve)", "xAI built-in (leo)", "xAI built-in (sal)"];
-    }
-    if (n.includes("deepgram") || n.includes("aura")) {
-      return ["aura-orion-en", "aura-asteria-en", "aura-angus-en", "aura-arcas-en", "aura-luna-en", "aura-zeus-en"];
-    }
-    if (n.includes("cartesia")) {
-      return ["sonic-2", "sonic-turbo", "sonic-english"];
-    }
-    if (n.includes("eleven")) {
-      return ["eleven_turbo_v2_5", "eleven_multilingual_v2", "eleven_flash_v2_5"];
-    }
-    return [];
-  }
-
-  // Voice Orchestration Layer Presets
-  if (g.includes("voice orchestration") || n.includes("orchestrat")) {
-    if (n.includes("xai")) {
-      return ["grok-voice-latest", "xAI built-in (rex)", "xAI built-in (ara)"];
-    }
-    return [];
-  }
-
-  return [];
-};
-
 function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile, onNavigateView, embedded = false }) {
   const [activeTab, setActiveTab] = useState("telephony-hub");
   const [showAdd, setShowAdd] = useState(false);
-
-  // ── Layer Routing state ──
   const [dirty, setDirty] = useState(false);
-  const mode = commonAi?.mode || "paid";
-  const custom = commonAi?.voiceLayers || Object.fromEntries(LAYERS.map((l) => [l.key, l.paid]));
 
   // ── Credentials: loaded live from backend with template fallback ──
   const [credsState, setCredsState] = useState(CONNECTIONS);
@@ -10629,168 +10556,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     loadConns();
   }, []);
 
-  // ── Layer Routing helpers ──
-  const applyMode = (m) => {
-    if (setCommonAi) {
-      setCommonAi((prev) => {
-        const nextLayers = { ...prev.voiceLayers };
-        LAYERS.forEach((l) => {
-          if (m === "paid") nextLayers[l.key] = l.paid;
-          if (m === "opensource") nextLayers[l.key] = l.oss;
-        });
-        return { ...prev, mode: m, voiceLayers: nextLayers };
-      });
-    }
-    flash();
-  };
-
-  const updateLayer = async (key, val) => {
-    // Optimistic UI update — show the user's pick immediately in the dropdown
-    if (setCommonAi) {
-      setCommonAi((prev) => ({
-        ...prev,
-        mode: "custom",
-        voiceLayers: { ...prev.voiceLayers, [key]: val },
-      }));
-    }
-    flash();
-
-    try {
-      // Build the correct select-stack payload for each layer type
-      const payload = {};
-      if (key === "voice") {
-        // Pass both `voice` (for name-based parsing) and explicit engine mapping
-        payload.voice = val;
-        // Also derive engine code directly so backend doesn't have to guess
-        const engineMap = {
-          "xAI + cloned TTS (plugin)": "xai",
-          "xAI Grok (speech-to-speech)": "xai",
-          "xAI Voice Agent": "xai",
-          "OpenAI Realtime": "openai",
-          "LiveKit (self-hosted)": "livekit",
-          "LiveKit Agents": "livekit",
-          "Modular pipeline": "modular",
-          "Modular Voice Pipeline": "modular",
-          "Vapi Voice AI": "vapi",
-          "Retell AI": "retell",
-          "Simulation": "simulation",
-        };
-        const engineCode = engineMap[val] || val.toLowerCase().split("(")[0].trim();
-        payload.engine = engineCode;
-      } else if (key === "tts") {
-        payload.tts = val;
-      } else if (key === "llm") {
-        payload.llm = val;
-      } else if (key === "stt") {
-        payload.stt = val;
-      } else if (key === "telephony") {
-        payload.carrier = val;
-      }
-
-      await api.selectActiveStack(payload);
-
-      // Re-fetch hub to confirm backend persisted the change, then sync UI
-      const freshHub = await api.getTelephonyHub();
-      if (freshHub) {
-        setLiveHub(freshHub);
-        // Update commonAi.voiceLayers from the confirmed hub, keeping the
-        // user's just-selected value authoritative so the dropdown stays correct.
-        if (setCommonAi) {
-          setCommonAi((prev) => ({
-            ...prev,
-            voiceLayers: voiceLayersFromHub(freshHub, { ...prev.voiceLayers, [key]: val }),
-          }));
-        }
-      }
-
-      if (setNotifications) {
-        setNotifications((ns) => [
-          {
-            id: "n_" + Date.now(),
-            text: `✓ Live stack updated: ${val}`,
-            time: "just now",
-            unread: true,
-            type: "success",
-          },
-          ...ns,
-        ]);
-      }
-    } catch (err) {
-      console.warn("[What Runs Where] Failed to save active stack selection:", err);
-      if (setNotifications) {
-        setNotifications((ns) => [
-          {
-            id: "n_" + Date.now(),
-            text: `Could not save selection: ${err.message}`,
-            time: "just now",
-            unread: true,
-            type: "error",
-          },
-          ...ns,
-        ]);
-      }
-    }
-  };
-
   const flash = () => {
     setDirty(true);
     setTimeout(() => setDirty(false), 1400);
   };
-
-  const isOss = (val) => {
-    const lower = String(val).toLowerCase();
-    // Only mark as self-hosted if explicitly labeled as such by user
-    return lower.includes("self-hosted") || 
-           lower.includes("local") || 
-           lower.includes("localhost") ||
-           lower.includes("ollama") ||
-           (lower.includes("livekit") && lower.includes("self"));
-  };
-
-  // Generate model options dynamically from Connections instead of hardcoded lists
-  const llmConnections = credsState.find((g) => g.group === "LLM")?.items || [];
-  const sttConnections = credsState.find((g) => g.group === "Speech-to-Text")?.items || [];
-  const ttsConnections = credsState.find((g) => g.group === "Text-to-Speech")?.items || [];
-
-  // Build options for each layer from live Connections + always-available defaults
-  const allLlmOptions = Array.from(new Set([
-    ...llmConnections.filter(c => c.model).map(c => c.model),
-    ...llmConnections.filter(c => c.status === "connected").map(c => c.name),
-    ...(liveHub?.llmName ? [liveHub.llmName] : []),
-    ...(liveHub?.llmProvider ? [liveHub.llmProvider] : []),
-  ])).filter(Boolean);
-
-  const allSttOptions = Array.from(new Set([
-    ...sttConnections.filter(c => c.model).map(c => c.model),
-    ...sttConnections.filter(c => c.status === "connected").map(c => c.name),
-    ...(liveHub?.sttName ? [liveHub.sttName] : []),
-    ...(liveHub?.sttProvider ? [liveHub.sttProvider] : []),
-    "xAI",
-  ])).filter(Boolean);
-
-  const allTtsOptions = Array.from(new Set([
-    // xAI built-in voices always appear first so they are always visible
-    "xAI built-in (rex)",
-    "xAI built-in (ara)",
-    "xAI built-in (eve)",
-    "xAI built-in (leo)",
-    "xAI Voice Agent",
-    // Currently active TTS from live hub
-    ...(liveHub?.ttsName ? [liveHub.ttsName] : []),
-    ...(liveHub?.ttsProvider ? [liveHub.ttsProvider] : []),
-    // Connected TTS providers
-    ...ttsConnections.filter(c => c.model).map(c => c.model),
-    ...ttsConnections.filter(c => c.status === "connected").map(c => c.name),
-    // Common paid options always visible
-    "Cartesia Sonic",
-    "ElevenLabs Turbo",
-    "Deepgram Aura",
-  ])).filter(Boolean);
-  
-  // If no connections yet, show a helpful message instead of empty dropdown
-  if (allLlmOptions.length === 0) allLlmOptions.push("No LLM connected - add in Connections tab");
-  if (allSttOptions.length === 0) allSttOptions.push("No STT connected - add in Connections tab");
-  if (allTtsOptions.length === 0) allTtsOptions.push("No TTS connected - add in Connections tab");
 
   // ── Credentials inline test→save helpers ──
   const setRow = (rowKey, patch) =>
@@ -10985,7 +10754,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 
   return (
     <>
-      {!embedded && <TopBar title="AI config" subtitle="Line setup · Connections · what each feature uses" notifications={notifications} setNotifications={setNotifications} />}
+      {!embedded && <TopBar title="AI config" subtitle="Line setup · Connections · Setup guide" notifications={notifications} setNotifications={setNotifications} />}
       <div style={{ padding: embedded ? 0 : "20px 32px" }}>
 
         <div style={{
@@ -11003,13 +10772,11 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             ? [
                 { id: "telephony-hub", label: "Line setup" },
                 { id: "credentials", label: "Connections" },
-                { id: "routing", label: "What runs where" },
                 { id: "docs", label: "Setup guide" },
               ]
             : [
                 { id: "telephony-hub", label: "Line setup" },
                 { id: "credentials", label: "Connections" },
-                { id: "routing", label: "What runs where" },
                 { id: "docs", label: "Setup guide" },
               ]
           ).map((t) => (
@@ -11056,225 +10823,6 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             setProfile={setProfile}
             onOpenCredentials={() => setActiveTab("credentials")}
           />
-        )}
-
-        {/* TAB: What runs where — feature → provider map (not a second key vault) */}
-        {activeTab === "routing" && (
-          <>
-            <div style={{ marginBottom: 16, padding: "14px 16px", borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#1E40AF", marginBottom: 4 }}>What runs where</div>
-              <div style={{ fontSize: 12.5, color: "#1D4ED8", lineHeight: 1.45 }}>
-                Live stack control — changing <b>Voice Orchestration</b> here actually switches the engine. Other layers show current config. Add keys under <b>Connections</b>. Pick speak voice under <b>Line setup</b>.
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("credentials")}
-                  style={{ background: "#1E40AF", color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-                >
-                  Open Connections
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("telephony-hub")}
-                  style={{ background: "#fff", color: "#1E40AF", border: "1px solid #93C5FD", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-                >
-                  Open Line setup
-                </button>
-              </div>
-            </div>
-
-            {looksLikeApiKeyNotVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId) && (
-              <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", fontSize: 13, color: "#991B1B", lineHeight: 1.45 }}>
-                <b>Speak voice mis-set:</b> you linked a Cartesia <b>API key</b> as the Voice ID. Go Line setup → <b>My Cartesia clone</b> → paste the Voice <b>UUID</b> from Cartesia Voices (with dashes). Keep the API key only in Connections.
-              </div>
-            )}
-
-            {liveLabels && (
-              <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#065F46", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Live on this server</div>
-                <div style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>
-                  {liveLabels.engine} · LLM {liveLabels.llm} · STT {liveLabels.stt} · TTS {liveLabels.tts} · {liveLabels.carrier}
-                </div>
-                {liveHub?.liveNote ? <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{liveHub.liveNote}</div> : null}
-                {isValidCloneVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId) && liveHub?.externalTts ? (
-                  <div style={{ fontSize: 12, color: "#047857", marginTop: 4, fontWeight: 600 }}>Hybrid ON — Cartesia clone speaks; xAI listens & thinks.</div>
-                ) : looksLikeApiKeyNotVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId) ? (
-                  <div style={{ fontSize: 12, color: "#B91C1C", marginTop: 4, fontWeight: 600 }}>Not ready — Voice ID is an API key. Paste UUID instead.</div>
-                ) : (
-                  <div style={{ fontSize: 12, color: "#B45309", marginTop: 4 }}>Hybrid OFF — built-in xAI voice. For Cartesia: Connections key + Line setup UUID.</div>
-                )}
-              </div>
-            )}
-
-            <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 20 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.2fr 1.4fr 0.7fr", padding: "11px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em", gap: 8 }}>
-                <div>Feature</div><div>Uses</div><div>Does</div><div>Status</div>
-              </div>
-              {[
-                {
-                  feature: "Calling · ring & media",
-                  uses: liveLabels?.carrier || liveHub?.activeCarrier || "Telephony plugin",
-                  does: "Places/receives PSTN calls (Twilio / Telnyx / SIP).",
-                  ok: !!(liveHub?.activeCarrier || liveHub?.phoneNumber || profile?.callerId),
-                },
-                {
-                  feature: "Calling · listen",
-                  uses: liveLabels?.stt || "Inside call engine",
-                  does: "Turns caller audio into text for the AI.",
-                  ok: !!(liveHub?.liveEngine && liveHub.liveEngine !== "simulation"),
-                },
-                {
-                  feature: "Calling · think",
-                  uses: liveLabels?.llm || liveLabels?.engine || "Call engine",
-                  does: "Replies, objections, booking logic.",
-                  ok: !!(liveHub?.liveEngine && liveHub.liveEngine !== "simulation")
-                    && (!!liveHub?.hasApiKey
-                      || (credsState.find((g) => g.group === "LLM")?.items || []).some((i) => i.status === "connected" && /xai|grok/i.test(i.name || ""))),
-                },
-                (() => {
-                  const badKey = looksLikeApiKeyNotVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId);
-                  const goodClone = isValidCloneVoiceId(liveHub?.voiceName || liveHub?.ttsVoiceId);
-                  const cartesiaKey = (credsState.find((g) => g.group === "Text-to-Speech")?.items || []).some((i) => /cartesia/i.test(i.name || "") && i.status === "connected");
-                  if (badKey) {
-                    return {
-                      feature: "Calling · speak",
-                      uses: "Broken — API key used as Voice ID",
-                      does: "Paste Cartesia Voice UUID on Line setup (not the sk_car_ key).",
-                      ok: false,
-                    };
-                  }
-                  if (liveHub?.externalTts || goodClone) {
-                    return {
-                      feature: "Calling · speak",
-                      uses: liveLabels?.tts || liveHub?.ttsName || "Cartesia clone",
-                      does: cartesiaKey && goodClone
-                        ? "Cartesia clone speaks on the line."
-                        : "Clone selected — also need Cartesia key in Connections.",
-                      ok: !!(cartesiaKey && goodClone),
-                    };
-                  }
-                  return {
-                    feature: "Calling · speak",
-                    uses: liveHub?.voiceName ? `Built-in (${liveHub.voiceName})` : "Engine voice",
-                    does: "xAI built-in voice. For your clone: Cartesia key + UUID on Line setup.",
-                    ok: !!(liveHub?.voiceName),
-                  };
-                })(),
-                {
-                  feature: "Schedule · book",
-                  uses: "Cal.com / calendar connection",
-                  does: "Availability + confirmed meetings from live calls.",
-                  ok: (credsState.find((g) => g.group === "Calendar")?.items || []).some((i) => i.status === "connected" && i.apiKeyMasked && !String(i.apiKeyMasked).includes("Not")),
-                },
-                {
-                  feature: "List AI · enrich",
-                  uses: "LLM + discovery keys",
-                  does: "Find phones/emails for rows before dial.",
-                  ok: (credsState.find((g) => g.group === "LLM")?.items || []).some((i) => i.status === "connected")
-                    || !!(liveHub?.liveEngine && liveHub.liveEngine !== "simulation"),
-                },
-              ].map((row, idx) => (
-                <div
-                  key={row.feature}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1.1fr 1.2fr 1.4fr 0.7fr",
-                    padding: "13px 18px",
-                    borderTop: `1px solid ${C.border}`,
-                    alignItems: "start",
-                    gap: 8,
-                    background: row.ok ? "#fff" : "#FFFBEB",
-                  }}
-                >
-                  <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.textInk }}>{row.feature}</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, wordBreak: "break-word" }}>{row.uses}</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.4 }}>{row.does}</div>
-                  <div>
-                    <span style={{
-                      fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
-                      background: row.ok ? "#D1FAE5" : "#FEF3C7", color: row.ok ? "#065F46" : "#92400E",
-                    }}>
-                      {row.ok ? "In use" : "Needed"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ fontSize: 12, color: C.slate, marginBottom: 10, lineHeight: 1.45 }}>
-              <b>Preference picks below do not connect keys.</b> Example: choosing “Cartesia Sonic” here only sets a preference label — live Cartesia needs Connections key + Line setup Voice UUID.
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
-              {[
-                { id: "paid", title: "Paid / Managed", desc: "Best-in-class APIs. Fastest to run, no infra." },
-                { id: "opensource", title: "Open Source", desc: "Self-hosted models. Lower cost, full control." },
-                { id: "custom", title: "Custom", desc: "Mix providers per layer." },
-              ].map((m) => (
-                <div key={m.id} className="hover-float" onClick={() => applyMode(m.id)}
-                  style={{ border: `2px solid ${mode === m.id ? C.ink : C.border}`, borderRadius: 12, padding: 16, cursor: "pointer", background: mode === m.id ? C.ink : "#fff" }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: mode === m.id ? "#fff" : C.textInk }}>{m.title}</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: mode === m.id ? "#B8BCC8" : C.slate, marginTop: 4 }}>{m.desc}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "11px 18px", background: C.paper, fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                <div>Layer</div><div>Preferred model</div><div>Note</div>
-              </div>
-              {LAYERS.map((l) => {
-                const val = custom[l.key] || l.paid;
-                const oss = isOss(val);
-                // Use dynamic options from user's actual Connections instead of hardcoded lists
-                const baseOpts = 
-                  l.key === "llm" ? allLlmOptions :
-                  l.key === "stt" ? allSttOptions :
-                  l.key === "tts" ? allTtsOptions :
-                  l.options;
-                const options = (baseOpts && baseOpts.length > 0 && baseOpts.includes(val)) ? baseOpts : [val, ...(baseOpts || [])];
-                return (
-                  <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>{l.label}</div>
-                      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>{l.desc}</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <select value={val} onChange={(e) => updateLayer(l.key, e.target.value)}
-                        style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, cursor: "pointer" }}>
-                        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: oss ? C.tealSoft : C.cobaltSoft, color: oss ? C.teal : C.cobaltDeep }}>
-                        {oss ? "SELF-HOSTED" : "PAID API"}
-                      </span>
-                    </div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>
-                      {l.key === "voice" ? (
-                        <span style={{ color: "#047857", fontWeight: 700 }}>Live — applied ✓</span>
-                      ) : l.key === "tts" && liveHub?.ttsName ? (
-                        <>
-                          <span style={{ color: C.slate }}>Preference only</span>
-                          <div style={{ fontSize: 11, color: "#047857", marginTop: 2, fontWeight: 600 }}>Live: {liveHub.ttsName}</div>
-                        </>
-                      ) : l.key === "llm" && liveHub?.llmName ? (
-                        <>
-                          <span style={{ color: C.slate }}>Preference only</span>
-                          <div style={{ fontSize: 11, color: "#047857", marginTop: 2, fontWeight: 600 }}>Live: {liveHub.llmName}</div>
-                        </>
-                      ) : l.key === "stt" && liveHub?.sttName ? (
-                        <>
-                          <span style={{ color: C.slate }}>Preference only</span>
-                          <div style={{ fontSize: 11, color: "#047857", marginTop: 2, fontWeight: 600 }}>Live: {liveHub.sttName}</div>
-                        </>
-                      ) : (
-                        "Preference only"
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
         )}
 
         {/* TAB: Connections — single place to paste keys + see what's in use */}
@@ -11504,49 +11052,34 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                             )}
 
                             {/* Model Selection & Custom Base URL */}
-                            {(["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration"].includes(group.group) || String(it.name || "").toLowerCase().includes("other")) && (() => {
-                              const presets = getModelPresets(group.group, it.name);
-                              return (
-                                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 10, marginTop: 4 }}>
-                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                    <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                      Model (Select or Type Any)
-                                    </label>
-                                    <div style={{ display: "flex", gap: 6 }}>
-                                      <input
-                                        type="text"
-                                        value={rs.modelValue || ""}
-                                        onChange={(e) => setRow(rowKey, { modelValue: e.target.value })}
-                                        placeholder={group.group === "Speech-to-Text" ? "e.g. nova-2, nova-3, nova-2-phonecall" : group.group === "Text-to-Speech" ? "e.g. aura-orion-en, sonic-2" : "e.g. deepseek-chat, llama-3.3-70b-versatile"}
-                                        style={{ flex: 1, boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
-                                      />
-                                      {presets.length > 0 && (
-                                        <select
-                                          onChange={(e) => { if (e.target.value) setRow(rowKey, { modelValue: e.target.value }); }}
-                                          value={presets.includes(rs.modelValue) ? rs.modelValue : ""}
-                                          style={{ width: 130, padding: "0 6px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11.5, background: "#fff", cursor: "pointer", color: C.textInk }}
-                                        >
-                                          <option value="">Presets...</option>
-                                          {presets.map((p) => <option key={p} value={p}>{p}</option>)}
-                                        </select>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                    <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                      Custom Base URL (Optional)
-                                    </label>
-                                    <input
-                                      type="text"
-                                      value={rs.baseUrlValue || ""}
-                                      onChange={(e) => setRow(rowKey, { baseUrlValue: e.target.value })}
-                                      placeholder="https://... or http://localhost:11434/v1"
-                                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
-                                    />
-                                  </div>
+                            {(["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration"].includes(group.group) || String(it.name || "").toLowerCase().includes("other")) && (
+                              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 10, marginTop: 4 }}>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                    Model
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={rs.modelValue || ""}
+                                    onChange={(e) => setRow(rowKey, { modelValue: e.target.value })}
+                                    placeholder={group.group === "Speech-to-Text" ? "e.g. nova-2, nova-3, nova-2-phonecall" : group.group === "Text-to-Speech" ? "e.g. aura-orion-en, sonic-2" : "e.g. deepseek-chat, llama-3.3-70b-versatile"}
+                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                  />
                                 </div>
-                              );
-                            })()}
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                    Custom Base URL (Optional)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={rs.baseUrlValue || ""}
+                                    onChange={(e) => setRow(rowKey, { baseUrlValue: e.target.value })}
+                                    placeholder="https://... or http://localhost:11434/v1"
+                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                  />
+                                </div>
+                              </div>
+                            )}
 
                             {rs.errorMsg && (
                               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.red }}>
