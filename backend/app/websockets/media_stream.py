@@ -305,34 +305,24 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
 
                 if chunk_call_id and payload:
                     if track != "outbound":
-                        logger.info(f"[MediaStream] ✓ Received inbound audio ({len(payload)} bytes) for call {chunk_call_id}")
                         try:
-                            from app.services.xai_voice_service import get_bridged_session, bridged_sessions
-                            # Log all available sessions
-                            available_sessions = list(bridged_sessions.keys())
-                            logger.info(f"[MediaStream] Available bridged sessions: {available_sessions}")
-                            logger.info(f"[MediaStream] Trying to find session with IDs: chunk_call_id={chunk_call_id}, canonical={media_stream_hub.resolve_canonical(chunk_call_id)}, call_sid={call_sid}, stream_sid={stream_sid}")
-                            
-                            sess = get_bridged_session(chunk_call_id, media_stream_hub.resolve_canonical(chunk_call_id), call_sid, stream_sid)
+                            from app.services.xai_voice_service import get_bridged_session
+                            # Try both the direct ID and the canonical resolved ID
+                            canonical_id = media_stream_hub.resolve_canonical(chunk_call_id)
+                            sess = get_bridged_session(chunk_call_id, canonical_id, call_sid, stream_sid)
                             if sess:
-                                logger.info(f"[MediaStream] ✓ Found xAI session {sess.call_id}, pushing audio...")
                                 await sess.push_caller_audio(payload)
-                                logger.info(f"[MediaStream] ✓ Audio pushed successfully ({len(payload)} bytes)")
+                                logger.debug(f"[MediaStream] Pushed inbound audio ({len(payload)} bytes) to xAI session {sess.call_id}")
                             else:
-                                logger.error(f"[MediaStream] ❌ NO xAI session found! Tried IDs: {chunk_call_id}, {media_stream_hub.resolve_canonical(chunk_call_id)}, {call_sid}")
-                                logger.error(f"[MediaStream] ❌ Available sessions in registry: {available_sessions}")
+                                logger.warning(f"[MediaStream] ❌ No xAI session found for call IDs: {chunk_call_id}, canonical: {canonical_id}, callSid: {call_sid} — inbound audio NOT forwarded to xAI")
                         except Exception as push_err:
-                            logger.error(f"[MediaStream] Exception while pushing caller audio: {push_err}", exc_info=True)
+                            logger.warning(f"[MediaStream] Failed to push caller audio: {push_err}")
                     await media_stream_hub.broadcast_to_listeners(chunk_call_id, {
                         "type": "audio_chunk",
                         "callId": chunk_call_id,
                         "track": track,
                         "payload": payload,
                     })
-                elif chunk_call_id and not payload:
-                    logger.warning(f"[MediaStream] Media event has no payload for call {chunk_call_id}")
-                elif not chunk_call_id:
-                    logger.warning(f"[MediaStream] Could not determine call_id from media event (call_id={call_id}, stream_sid={stream_sid})")
 
             elif event_type == "mark":
                 mark_info = data.get("mark", {})

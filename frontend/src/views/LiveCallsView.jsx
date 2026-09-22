@@ -3,8 +3,10 @@ import { Mic, PhoneOff, Headphones, UserCheck, ShieldCheck, Sparkles, MessageCir
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { TopBar } from "../components/TopBar";
 import { Badge, LivePulse } from "../components/Badges";
+import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
 
 export function LiveCallsView({ notifications, setNotifications, calls = [], onTakeOver, onEndCall }) {
+  const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
   return (
     <div style={{ flex: 1, overflowY: "auto", background: C.paper }}>
       <TopBar
@@ -126,10 +128,77 @@ export function LiveCallsView({ notifications, setNotifications, calls = [], onT
                   </span>
                 </div>
               </div>
-            );
           })}
         </div>
+
+        {calls.length === 0 && (
+          <div
+            style={{
+              background: "#FFFFFF",
+              borderRadius: 20,
+              border: `1px solid ${C.border}`,
+              padding: "48px 24px",
+              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 16,
+              boxShadow: C.shadowCard,
+            }}
+          >
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 18,
+                background: C.cobaltSoft,
+                color: C.cobalt,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Headphones size={28} />
+            </div>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>
+                No Live Calls in Progress
+              </div>
+              <div style={{ fontSize: 13, color: C.slate, marginTop: 4, maxWidth: 440 }}>
+                Test the autonomous AI voice agent in real-time right from your browser using self-hosted LiveKit WebRTC, or place PSTN outbound calls.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLiveKitModalOpen(true)}
+              style={{
+                height: 42,
+                padding: "0 22px",
+                borderRadius: 12,
+                border: "none",
+                background: C.gradientPrimary,
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                boxShadow: "0 6px 18px rgba(52,87,213,0.3)",
+              }}
+            >
+              <Headphones size={16} /> Talk in Browser (LiveKit WebRTC)
+            </button>
+          </div>
+        )}
       </div>
+
+      <LiveKitBrowserCallModal
+        isOpen={liveKitModalOpen}
+        onClose={() => setLiveKitModalOpen(false)}
+        prospectName="Browser Test User"
+        prospectPhone="Browser WebRTC"
+      />
     </div>
   );
 }

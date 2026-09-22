@@ -43,6 +43,23 @@ CARTESIA_VOICES = {
     "adam": "a0e99841-438c-4a64-b679-ae501e7d6091",
     "rex": "a0e99841-438c-4a64-b679-ae501e7d6091",
 }
+DEEPGRAM_AURA_VOICES = {
+    "asteria": "aura-asteria-en",
+    "luna": "aura-luna-en",
+    "stella": "aura-stella-en",
+    "athena": "aura-athena-en",
+    "hera": "aura-hera-en",
+    "orion": "aura-orion-en",
+    "arcas": "aura-arcas-en",
+    "perseus": "aura-perseus-en",
+    "angus": "aura-angus-en",
+    "helios": "aura-helios-en",
+    "zeus": "aura-zeus-en",
+    "rex": "aura-orion-en",
+    "sam": "aura-orion-en",
+    "ara": "aura-asteria-en",
+    "eve": "aura-luna-en",
+}
 
 
 def _ulaw_frames(raw: bytes):
@@ -95,8 +112,11 @@ async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: 
     voice_hint = (tts.voice_id or plan.voice_name or "rachel").strip()
     raw = b""
     try:
-        use_cartesia = "cartesia" in provider or voice_hint.lower() == "sonic"
-        if use_cartesia and "eleven" not in provider:
+        use_deepgram = "deepgram" in provider or "aura" in provider
+        use_cartesia = "cartesia" in provider or voice_hint.lower() == "sonic" or looks_like_external_voice_id(tts.voice_id) or looks_like_external_voice_id(voice_hint)
+        if use_deepgram and "cartesia" not in provider and "eleven" not in provider:
+            raw = await _deepgram_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
+        elif use_cartesia and "eleven" not in provider:
             raw = await _cartesia_ulaw(tts.api_key, voice_hint, clean, tts.voice_id)
         else:
             raw = await _eleven_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
@@ -187,6 +207,23 @@ async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str
                 last_err = err
                 continue
     raise RuntimeError(f"Cartesia TTS failed for voice {vid[:12]}…: {last_err}")
+
+
+async def _deepgram_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, model: str) -> bytes:
+    raw_v = (voice_id or voice_hint or model or "aura-asteria-en").strip().lower()
+    if raw_v.startswith("aura-"):
+        model_name = raw_v
+    else:
+        model_name = DEEPGRAM_AURA_VOICES.get(raw_v, "aura-asteria-en")
+    url = f"https://api.deepgram.com/v1/speak?model={model_name}&encoding=mulaw&sample_rate=8000"
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        res = await client.post(
+            url,
+            headers={"Authorization": f"Token {api_key}", "Content-Type": "application/json"},
+            json={"text": text},
+        )
+        res.raise_for_status()
+        return res.content
 
 
 async def _greeting_line(is_inbound: bool, prospect_name: Optional[str]) -> str:

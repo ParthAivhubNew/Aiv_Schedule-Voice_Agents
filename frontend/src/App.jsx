@@ -1083,8 +1083,9 @@ const CONNECTIONS = [
     { name: "Faster-Whisper (self-hosted)", status: "not_configured" },
   ]},
   { group: "Text-to-Speech", desc: "Generates the AI's spoken voice on calls.", items: [
-    { name: "ElevenLabs", status: "not_configured" },
+    { name: "Deepgram Aura", status: "not_configured" },
     { name: "Cartesia", status: "not_configured" },
+    { name: "ElevenLabs", status: "not_configured" },
     { name: "Kokoro (self-hosted)", status: "not_configured" },
   ]},
   { group: "Voice Orchestration", desc: "Manages the live call itself — audio streaming, interruptions, turn-taking.", items: [

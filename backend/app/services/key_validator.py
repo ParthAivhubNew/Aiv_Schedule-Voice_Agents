@@ -69,6 +69,22 @@ async def _do_validate_api_key(
                     "details": "FastEmbed local CPU model verified (384 dims, zero external API costs)."
                 }
 
+            # 0b. LiveKit (Self-Hosted SFU WebRTC)
+            if "livekit" in p:
+                from app.services.livekit_service import check_livekit_health
+                health = await check_livekit_health()
+                if health.get("online"):
+                    return {
+                        "valid": True,
+                        "provider": "LiveKit (Self-Hosted)",
+                        "details": f"LiveKit SFU server verified online at {health.get('url')} ({health.get('latency_ms')}ms)."
+                    }
+                else:
+                    return {
+                        "valid": False,
+                        "error": health.get("details") or "LiveKit server is not reachable. Ensure container is running ('docker compose up -d livekit')."
+                    }
+
             # 1. DeepSeek
             if "deepseek" in p:
                 url = (base_url or "https://api.deepseek.com").rstrip("/") + "/models"
@@ -140,7 +156,7 @@ async def _do_validate_api_key(
                 headers = {"Authorization": f"Token {api_key}"}
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
-                    return {"valid": True, "provider": "Deepgram", "details": "Authenticated successfully (Nova-2 STT stream ready)."}
+                    return {"valid": True, "provider": "Deepgram", "details": "Authenticated successfully (Nova-2 STT & Aura TTS stream ready)."}
                 elif res.status_code in [401, 403]:
                     return {"valid": False, "error": "Deepgram authentication failed (Invalid Token - 401/403)."}
                 else:

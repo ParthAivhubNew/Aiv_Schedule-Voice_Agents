@@ -44,9 +44,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     DEEPSEEK_API_KEY: Optional[str] = None
-    LIVEKIT_URL: Optional[str] = None
-    LIVEKIT_API_KEY: Optional[str] = None
-    LIVEKIT_API_SECRET: Optional[str] = None
+    LIVEKIT_URL: str = os.getenv("LIVEKIT_URL", "ws://localhost:7880")
+    LIVEKIT_API_KEY: str = os.getenv("LIVEKIT_API_KEY", "devkey")
+    LIVEKIT_API_SECRET: str = os.getenv("LIVEKIT_API_SECRET", "secret1234567890abcdef1234567890abcdef")
+    LIVEKIT_PUBLIC_URL: Optional[str] = os.getenv("LIVEKIT_PUBLIC_URL", None)
     
     # Calendar & Cal.com (Self-Hosted or Cloud)
     CALCOM_BASE_URL: str = os.getenv("CALCOM_BASE_URL", "http://calcom:3000/api/v1")

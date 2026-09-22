@@ -99,6 +99,11 @@ export const api = {
   dialOutboundBatch: (payload) => apiRequest('/calls/outbound/batch', { method: 'POST', body: payload }),
   getCarrierPlugins: () => apiRequest('/calls/outbound/carriers'),
 
+  // LiveKit WebRTC Voice Engine
+  getLiveKitStatus: () => apiRequest('/livekit/status'),
+  getLiveKitConfig: () => apiRequest('/livekit/config'),
+  createLiveKitToken: (payload) => apiRequest('/livekit/token', { method: 'POST', body: payload }),
+
   // Meetings
   getMeetings: () => apiRequest('/meetings'),
   logOutcome: (meetingId, payload) => apiRequest(`/meetings/${meetingId}/outcome`, { method: 'POST', body: payload }),

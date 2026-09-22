@@ -99,10 +99,13 @@ async def seed_database():
         # 6. Connections template
         conns = [
             Connection(id="c_llm1", group_name="LLM", name="DeepSeek", status="not_configured"),
-            Connection(id="c_llm2", group_name="LLM", name="OpenAI (GPT-4o)", status="not_configured"),
-            Connection(id="c_llm3", group_name="LLM", name="Anthropic (Claude)", status="not_configured"),
+            Connection(id="c_llm2", group_name="LLM", name="Groq", status="not_configured"),
+            Connection(id="c_llm3", group_name="LLM", name="OpenAI (GPT-4o)", status="not_configured"),
+            Connection(id="c_llm4", group_name="LLM", name="Anthropic (Claude)", status="not_configured"),
             Connection(id="c_stt1", group_name="Speech-to-Text", name="Deepgram", status="not_configured"),
-            Connection(id="c_tts1", group_name="Text-to-Speech", name="ElevenLabs", status="not_configured"),
+            Connection(id="c_tts1", group_name="Text-to-Speech", name="Deepgram Aura", status="not_configured"),
+            Connection(id="c_tts2", group_name="Text-to-Speech", name="Cartesia", status="not_configured"),
+            Connection(id="c_tts3", group_name="Text-to-Speech", name="ElevenLabs", status="not_configured"),
             Connection(id="c_cal1", group_name="Calendar", name="Cal.com (Self-Hosted)", status="connected"),
         ]
         db.add_all(conns)

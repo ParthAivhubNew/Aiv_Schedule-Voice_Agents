@@ -219,6 +219,8 @@ async def resolve_voice_plan() -> VoicePlan:
                 vid = cartesia_vid
             elif "eleven" in provider and eleven_vid:
                 vid = eleven_vid
+            elif "deepgram" in provider:
+                vid = "aura-orion-en"
             elif orch_clone and looks_like_external_voice_id(orch_clone):
                 vid = orch_clone
             elif looks_like_external_voice_id(voice_name):
@@ -249,6 +251,14 @@ async def resolve_voice_plan() -> VoicePlan:
             api_key=settings.ELEVENLABS_API_KEY.strip(),
             voice_id=vid,
             extra={"display_name": "ElevenLabs"},
+        )
+    elif stt and stt.provider == "deepgram" and stt.api_key:
+        tts = PluginCreds(
+            provider="deepgram",
+            api_key=stt.api_key,
+            voice_id="aura-orion-en",
+            model="aura-orion-en",
+            extra={"display_name": "Deepgram Aura (Auto)"},
         )
 
     llm = None

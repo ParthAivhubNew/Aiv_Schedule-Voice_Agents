@@ -42,6 +42,7 @@ import { AudioStreamPlayer } from "../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../tokens";
 import { setCallingEdition } from "./callingEdition";
 import { CallingSchedule } from "./CallingSchedule";
+import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
 
 const PAGES = [
   { id: "list", label: "List", icon: List },
@@ -769,6 +770,8 @@ export function CallingWorkspace({
   const [endingId, setEndingId] = useState(null);
   const [voiceName, setVoiceName] = useState("ara-uk");
   const [direct, setDirect] = useState({ phone: "", name: "" });
+  const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
+  const [liveKitTarget, setLiveKitTarget] = useState({ name: "Browser Caller", phone: "Browser WebRTC", company: "" });
   const [logQuery, setLogQuery] = useState("");
   const [logOutcome, setLogOutcome] = useState("all");
   const [openLogId, setOpenLogId] = useState("");
@@ -2027,6 +2030,34 @@ export function CallingWorkspace({
                     </button>
                     <button
                       type="button"
+                      onClick={() => {
+                        setLiveKitTarget({
+                          name: direct.name.trim() || "Test Prospect",
+                          phone: direct.phone.trim() || "Browser WebRTC",
+                          company: (profile && profile.name) || "AIVHub",
+                        });
+                        setLiveKitModalOpen(true);
+                      }}
+                      style={{
+                        height: 40,
+                        padding: "0 14px",
+                        borderRadius: 10,
+                        border: `1px solid ${C.cobalt}`,
+                        background: C.cobaltSoft,
+                        color: C.cobalt,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        transition: "all 0.15s ease",
+                      }}
+                      title="Test AI voice agent directly in your browser with LiveKit WebRTC (no phone or carrier charges needed)"
+                    >
+                      <Headphones size={14} /> Talk in Browser (WebRTC)
+                    </button>
+                    <button
+                      type="button"
                       disabled={digitsInPhone(direct.phone).length < 7}
                       onClick={() => openChannel("sms", direct.phone, direct.name, brandForMsg())}
                       style={{ height: 40, padding: "0 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: digitsInPhone(direct.phone).length >= 7 ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, opacity: digitsInPhone(direct.phone).length >= 7 ? 1 : 0.45 }}
@@ -2905,6 +2936,18 @@ export function CallingWorkspace({
           </div>
         </div>
       )}
+
+      {/* In-Browser LiveKit WebRTC Voice Call Modal */}
+      <LiveKitBrowserCallModal
+        isOpen={liveKitModalOpen}
+        onClose={() => setLiveKitModalOpen(false)}
+        prospectName={liveKitTarget.name}
+        prospectPhone={liveKitTarget.phone}
+        companyName={liveKitTarget.company}
+        onCallEnded={() => {
+          if (refreshLive) refreshLive();
+        }}
+      />
     </div>
   );
 }
