@@ -461,9 +461,9 @@ def verify_xai_webhook_signature(
     """
     signing_secret = secret or settings.XAI_WEBHOOK_SECRET
     
-    # If no secret configured in dev/testing, allow mock verification with warning
+    # If no secret configured in dev/testing, allow verification with warning
     if not signing_secret:
-        logger.warning("No XAI_WEBHOOK_SECRET configured. Skipping signature verification in simulation mode.")
+        logger.warning("No XAI_WEBHOOK_SECRET configured. Skipping signature verification in dev/local mode.")
         return True
 
     # Normalize header keys to lowercase
@@ -1646,17 +1646,11 @@ async def join_xai_call_session(
         "state": "pitching"
     })
 
-    # If in mock / simulation mode without real xAI key, raise error - NO FALLBACK
+    # Require valid xAI API key for live calls
     if not api_key or api_key.startswith("mock"):
         raise ValueError(
             "xAI API key is required for live calls. "
             "Configure XAI_API_KEY in environment or add xAI connection in Connections panel."
-        )
-    
-    if settings.VOICE_ENGINE_MODE == "simulation" and not api_key.startswith("xai-"):
-        raise ValueError(
-            "VOICE_ENGINE_MODE is set to 'simulation'. Change to 'live' in .env to make real calls. "
-            "Set VOICE_ENGINE_MODE=live"
         )
 
     sip_first_rec = _sip_first_record(custom_call_id, local_call_id, call_id, carrier_sid)

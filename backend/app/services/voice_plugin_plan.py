@@ -79,7 +79,7 @@ class PluginCreds:
 
 @dataclass
 class VoicePlan:
-    engine: str  # xai | openai | modular | livekit | simulation
+    engine: str  # xai | openai | modular | livekit
     voice_name: str
     carrier: str
     stt: Optional[PluginCreds] = None
@@ -303,7 +303,7 @@ async def resolve_voice_plan() -> VoicePlan:
         tts_conn = _pick(("text-to-speech", "tts"), tts_conn)
 
     engine_cfg = _cfg(engine_conn)
-    engine = target_engine if target_engine in ("livekit", "xai", "vapi", "retell", "openai", "modular", "simulation") else _norm_engine(engine_conn.name if engine_conn else "", engine_cfg)
+    engine = target_engine if target_engine in ("livekit", "xai", "vapi", "retell", "openai", "modular") else _norm_engine(engine_conn.name if engine_conn else "", engine_cfg)
     
     # Determine voice name
     voice_name = "rex"
@@ -424,7 +424,7 @@ async def resolve_voice_plan() -> VoicePlan:
             logger.warning(note)
             return VoicePlan(engine=engine, voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, note=note)
 
-    if engine == "simulation" or (engine == "xai" and (not xai_key or xai_key.startswith("mock"))):
+    if engine == "xai" and (not xai_key or xai_key.startswith("mock")):
         # Log detailed diagnostic info
         logger.error(
             f"[VOICE-PLAN-ERROR] Cannot proceed with call:\n"

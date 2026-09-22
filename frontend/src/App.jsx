@@ -210,7 +210,6 @@ function liveStackLabels(hub) {
     : engine === "vapi" ? "Vapi Voice AI"
     : engine === "retell" ? "Retell AI"
     : engine === "modular" ? "Modular pipeline"
-    : engine === "simulation" ? "Simulation"
     : hub?.activeEngine || "—";
   // Plugin hybrid: xAI brain/STT + external TTS clone from Connections
   if (engine === "xai" && hub?.externalTts) {
@@ -8476,7 +8475,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       title: "Call engine",
       layer: "Voice Orchestration",
       value: labels.engine,
-      ok: !!engine && engine !== "simulation",
+      ok: !!engine,
       hint: "xAI · Modular · OpenAI",
       needPlugin: true,
     },
@@ -8740,13 +8739,13 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         if (data.signingSecret) setSigningSecret(data.signingSecret);
         if (data.activeCarrier) {
           const cLower = data.activeCarrier.toLowerCase();
-          setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : cLower.includes("sim") ? "simulation" : "telnyx");
+          setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : "telnyx");
         }
         if (data.liveEngine) {
-          setEngineChoice(["xai", "openai", "livekit", "modular", "simulation"].includes(data.liveEngine) ? data.liveEngine : "xai");
+          setEngineChoice(["xai", "openai", "livekit", "modular"].includes(data.liveEngine) ? data.liveEngine : "xai");
         } else if (data.activeEngine) {
           const eLower = data.activeEngine.toLowerCase();
-          setEngineChoice(eLower.includes("livekit") ? "livekit" : eLower.includes("openai") ? "openai" : eLower.includes("modular") ? "modular" : eLower.includes("sim") ? "simulation" : "xai");
+          setEngineChoice(eLower.includes("livekit") ? "livekit" : eLower.includes("openai") ? "openai" : eLower.includes("modular") ? "modular" : "xai");
         }
       }
     } catch (err) {
@@ -9018,68 +9017,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   };
 
 
-  const carriers = [
-    {
-      id: "telnyx",
-      name: "Telnyx (BYO SIP Trunk)",
-      badge: "Direct SIP FQDN • Recommended",
-      desc: "Direct SIP audio handoff into xAI speech engine with E.164 routing and ultra-low latency.",
-      icon: Radio
-    },
-    {
-      id: "twilio",
-      name: "Twilio Programmable Voice",
-      badge: "Global PSTN • Media Streams",
-      desc: "Carrier coverage across 180+ countries with bi-directional WebSocket media streaming.",
-      icon: PhoneCall
-    },
-    {
-      id: "generic_sip",
-      name: "Generic SIP Trunk / PBX",
-      badge: "FreePBX / Asterisk / Plivo",
-      desc: "Connect any corporate on-premise PBX or custom SIP proxy using standard SIP URIs.",
-      icon: Globe
-    },
-    {
-      id: "livekit",
-      name: "LiveKit WebRTC (Self-Hosted)",
-      badge: "In-Browser Web Test • Zero Cost",
-      desc: "Bidirectional high-fidelity 48kHz WebRTC audio testing directly in your browser without PSTN carrier costs.",
-      icon: Headphones
-    }
-  ];
-
-  const engines = [
-    {
-      id: "xai",
-      name: "xAI Realtime Voice (Grok)",
-      badge: "Brain + STT · plug any TTS",
-      desc: "Grok listens and thinks. Add any Text-to-Speech plugin (Cartesia, ElevenLabs, …) + Voice ID to speak in your clone.",
-      icon: Sparkles
-    },
-    {
-      id: "openai",
-      name: "OpenAI Realtime API",
-      badge: "GPT-4o Multimodal Audio",
-      desc: "Built-in voices only (Alloy, Echo, …). No custom clone — use xAI or Modular for your own voice.",
-      icon: Headphones
-    },
-    {
-      id: "livekit",
-      name: "LiveKit (Self-Hosted)",
-      badge: "WebRTC · STT + LLM + TTS plugins",
-      desc: "Self-hosted LiveKit Agents pipeline: bring your own Speech-to-Text, LLM, and Text-to-Speech from Connections.",
-      icon: Radio
-    },
-    {
-      id: "modular",
-      name: "Modular Voice Pipeline",
-      badge: "Pick STT + LLM + TTS plugins",
-      desc: "Full plugin stack from Connections: any Speech-to-Text, LLM, and Text-to-Speech (Cartesia, ElevenLabs, …).",
-      icon: Layers
-    }
-  ];
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* 1. HERO ACTIVE STACK CARD */}
@@ -9300,116 +9237,10 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         style={{ display: "flex", flexDirection: "column", gap: 24 }}
       >
         
-        {/* Step 1: Telephony Carrier Selection */}
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 22, height: 22, borderRadius: "50%", background: C.ink, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>1</span>
-            <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Select Telephony / Number Provider</h3>
-          </div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginBottom: 12 }}>Choose the carrier that owns your phone numbers and carries the call audio.</div>
-          
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-            {carriers.map((c) => {
-              const Icon = c.icon;
-              const isSelected = carrierChoice === c.id;
-              return (
-                <div
-                  key={c.id}
-                  onClick={() => setCarrierChoice(c.id)}
-                  style={{
-                    border: `2px solid ${isSelected ? C.cobalt : C.border}`,
-                    background: isSelected ? "#F8FAFC" : "#fff",
-                    borderRadius: 12,
-                    padding: 16,
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Icon size={18} color={isSelected ? C.cobalt : C.slate} />
-                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: isSelected ? C.cobalt : C.textInk }}>{c.name}</span>
-                    </div>
-                    <span style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${isSelected ? C.cobalt : C.slateLight}`, background: isSelected ? C.cobalt : "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {isSelected && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? C.cobalt : C.slate, background: isSelected ? "#EFF6FF" : "#F1F5F9", padding: "2px 6px", borderRadius: 4, alignSelf: "flex-start" }}>
-                    {c.badge}
-                  </span>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.4 }}>{c.desc}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Step 2: Voice AI Engine Selection */}
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 22, height: 22, borderRadius: "50%", background: C.ink, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>2</span>
-            <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Select AI Voice Intelligence Engine</h3>
-          </div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginBottom: 12 }}>Choose the brain powering speech synthesis, speech recognition, and tool execution.</div>
-          
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-            {engines.map((e) => {
-              const Icon = e.icon;
-              const isSelected = engineChoice === e.id;
-              return (
-                <div
-                  key={e.id}
-                  onClick={() => setEngineChoice(e.id)}
-                  style={{
-                    border: `2px solid ${isSelected ? "#7C3AED" : C.border}`,
-                    background: isSelected ? "#FAF5FF" : "#fff",
-                    borderRadius: 12,
-                    padding: 16,
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Icon size={18} color={isSelected ? "#7C3AED" : C.slate} />
-                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: isSelected ? "#7C3AED" : C.textInk }}>{e.name}</span>
-                    </div>
-                    <span style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${isSelected ? "#7C3AED" : C.slateLight}`, background: isSelected ? "#7C3AED" : "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {isSelected && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? "#7C3AED" : C.slate, background: isSelected ? "#F3E8FF" : "#F1F5F9", padding: "2px 6px", borderRadius: 4, alignSelf: "flex-start" }}>
-                    {e.badge}
-                  </span>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.4 }}>{e.desc}</div>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ marginTop: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
-            {engineChoice === "modular"
-              ? "Uses Connections STT → LLM → TTS."
-              : engineChoice === "livekit"
-              ? "Uses self-hosted LiveKit Agents with your Connections STT → LLM → TTS plugins."
-              : engineChoice === "openai"
-                ? "OpenAI built-in voices only."
-                : hubData.externalTts
-                  ? `Hybrid: xAI + ${hubData.ttsName || hubData.ttsProvider || "TTS"}.`
-                  : "xAI built-in voice. Link a TTS Voice ID below for your clone."}
-          </div>
-        </div>
-
-        {/* Step 3: Credentials & Dynamic Form */}
+        {/* Line Credentials & Activation Form */}
         <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-            <span style={{ width: 22, height: 22, borderRadius: "50%", background: C.ink, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>3</span>
-            <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Configure Line Credentials</h3>
+            <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Configure Line Credentials & Activation</h3>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>

@@ -713,7 +713,7 @@ async def dial_outbound_call(
     """
     Modular outbound dialing engine:
     1. Normalizes destination and caller numbers.
-    2. Resolves selected or active carrier adapter (Twilio, Telnyx, Generic SIP, Simulation).
+    2. Resolves selected or active carrier adapter (Twilio, Telnyx, Generic SIP).
     3. Retrieves carrier credentials from DB Connection or payload or settings.
     4. Creates a LiveCall record immediately in SQLite so the frontend tracks it.
     5. Dispatches outbound call via carrier plugin with TwiML SIP bridge to xAI.

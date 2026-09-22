@@ -372,8 +372,8 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 class TelephonyHubProvisionRequest(BaseModel):
-    carrier: str = "telnyx"        # telnyx, twilio, generic_sip, simulation
-    engine: str = "xai"            # xai, openai, livekit, modular, simulation
+    carrier: str = "telnyx"        # telnyx, twilio, generic_sip
+    engine: str = "xai"            # xai, openai, livekit, modular
     phone_number: str
     api_key: Optional[str] = None
     account_sid: Optional[str] = None
@@ -455,13 +455,13 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         active_key = settings.XAI_API_KEY or stored_key
         masked_active_key = engine_conn.api_key_masked if (engine_conn and engine_conn.api_key_masked) else (mask_secret(active_key) if active_key else "")
 
-        active_carrier = carrier_conn.name if carrier_conn else ("Twilio" if settings.TWILIO_ACCOUNT_SID else "Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Simulation")
-        active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Simulation")
+        active_carrier = carrier_conn.name if carrier_conn else ("Twilio" if settings.TWILIO_ACCOUNT_SID else "Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Not configured")
+        active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Not configured")
         is_connected = bool((carrier_conn and carrier_conn.status == "connected") or settings.XAI_API_KEY or stored_key)
     except Exception as err:
         logger.warning(f"Error reading telephony hub status: {err}")
-        active_carrier = "Twilio" if getattr(settings, "TWILIO_ACCOUNT_SID", None) else ("Telnyx" if settings.TELNYX_PHONE_NUMBER else "Simulation")
-        active_engine = "xAI Realtime" if settings.XAI_API_KEY else "Simulation"
+        active_carrier = "Twilio" if getattr(settings, "TWILIO_ACCOUNT_SID", None) else ("Telnyx" if settings.TELNYX_PHONE_NUMBER else "Not configured")
+        active_engine = "xAI Realtime" if settings.XAI_API_KEY else "Not configured"
         active_phone = settings.TWILIO_PHONE_NUMBER or settings.TELNYX_PHONE_NUMBER or None
         is_connected = bool(settings.XAI_API_KEY)
         active_key = settings.XAI_API_KEY
@@ -697,9 +697,6 @@ async def select_active_stack_endpoint(req: SelectActiveStackRequest, db: AsyncS
         elif "modular" in v_low:
             patch["engine"] = "modular"
             patch["engine_label"] = "Modular pipeline"
-        elif "simulation" in v_low:
-            patch["engine"] = "simulation"
-            patch["engine_label"] = "Simulation"
         elif "xai" in v_low:
             patch["engine"] = "xai"
             patch["engine_label"] = "xAI Grok (speech-to-speech)"
@@ -795,7 +792,7 @@ async def clone_recorded_voice(
     xai_key = xai_api_key(conn)
     el_key = await elevenlabs_api_key(db)
 
-    if "openai" in engine or engine == "simulation":
+    if "openai" in engine:
         raise HTTPException(
             status_code=400,
             detail="This voice engine cannot clone a recording. Switch to xAI (paste Voice ID from console.x.ai) or Modular (ElevenLabs) to use your own voice.",
@@ -1021,7 +1018,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
         existing_number = None
 
         # 1. Real-time credential validation
-        if key_clean and not key_clean.startswith("mock") and carrier != "simulation" and engine != "simulation":
+        if key_clean and not key_clean.startswith("mock"):
             # Validate engine key if provided
             if "xai" in engine:
                 v_res = await validate_api_key(provider="xAI (Grok)", api_key=key_clean)
@@ -1218,8 +1215,8 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
                 settings.OPENAI_API_KEY = key_clean
                 os.environ["OPENAI_API_KEY"] = key_clean
 
-        carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
-        engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "LiveKit (self-hosted)" if "livekit" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
+        carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Custom"
+        engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "LiveKit (self-hosted)" if "livekit" in engine else "Modular Pipeline" if "modular" in engine else "Custom"
         masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
 
         try:
