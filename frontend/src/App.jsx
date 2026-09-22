@@ -153,9 +153,9 @@ const INITIAL_BUILTIN_PROVIDERS = [
 ];
 
 const VOICE_LAYERS = [
-  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI Grok", oss: "DeepSeek V4 Flash", options: ["xAI Grok", "xAI Grok-2", "xAI Grok (speech-to-speech)", "xAI Grok-4.6", "OpenAI Realtime", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek V4 Flash", "Gemini 2.0 Flash"] },
-  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "Cartesia Sonic", oss: "Kokoro (self-hosted)", options: ["Cartesia Sonic", "ElevenLabs Turbo", "xAI Voice Agent", "OpenAI Realtime", "Kokoro (self-hosted)", "PlayHT 2.0", "Amazon Polly"] },
-  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "xAI", oss: "Faster-Whisper (self-hosted)", options: ["xAI", "xAI Voice Agent", "Deepgram Nova-3", "Faster-Whisper (self-hosted)", "OpenAI Whisper", "AssemblyAI"] },
+  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI Grok", oss: "DeepSeek V4 Flash", options: [] },
+  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "Cartesia Sonic", oss: "Kokoro (self-hosted)", options: [] },
+  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "xAI", oss: "Faster-Whisper (self-hosted)", options: [] },
   { key: "voice", label: "Voice Orchestration & Interruption Engine", desc: "Manages audio buffers, turn-taking arbitration, and silence detection", paid: "xAI + cloned TTS (plugin)", oss: "LiveKit (self-hosted)", options: ["xAI + cloned TTS (plugin)", "xAI Grok (speech-to-speech)", "xAI Voice Agent", "OpenAI Realtime", "Vapi Voice AI", "Retell AI", "LiveKit (self-hosted)", "Bland AI"] },
   { key: "telephony", label: "Telephony Carrier & SIP Trunk", desc: "PSTN inbound numbers, caller ID preservation, and carrier routing", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "xAI Voice Number", "Telnyx", "Plivo", "Vonage"] },
 ];
@@ -9962,6 +9962,11 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     ...ttsConnections.filter(c => c.model).map(c => c.model),
     ...ttsConnections.map(c => c.name),
   ])).filter(Boolean);
+  
+  // If no connections yet, show a helpful message instead of empty dropdown
+  if (allLlmOptions.length === 0) allLlmOptions.push("Add LLM in Connections tab");
+  if (allSttOptions.length === 0) allSttOptions.push("Add STT in Connections tab");
+  if (allTtsOptions.length === 0) allTtsOptions.push("Add TTS in Connections tab");
 
   // ── Credentials inline test→save helpers ──
   const setRow = (rowKey, patch) =>
