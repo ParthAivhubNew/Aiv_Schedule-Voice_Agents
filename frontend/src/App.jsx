@@ -8572,10 +8572,18 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Voice AI Engine</div>
             <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{hubData.activeEngine} ({hubData.voiceName})</div>
           </div>
-          <div>
-            <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>SIP Inbound FQDN</div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: C.slate, marginTop: 4 }}>{hubData.xaiFqdn}:5060</div>
-          </div>
+          {engineChoice !== "livekit" && (
+            <div>
+              <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>SIP Inbound FQDN</div>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: C.slate, marginTop: 4 }}>{hubData.xaiFqdn}:5060</div>
+            </div>
+          )}
+          {engineChoice === "livekit" && (
+            <div>
+              <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>WebRTC Connection</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.teal, marginTop: 4, fontWeight: 600 }}>Browser-based (no SIP)</div>
+            </div>
+          )}
         </div>
 
         {(() => {
