@@ -67,10 +67,12 @@ async def _resolve_carrier_and_creds(
     carrier_choice = (carrier_choice or "").strip().lower()
     conn_res = await db.execute(
         select(Connection).where(
-            (Connection.group_name == "Telephony")
+            (Connection.group_name.in_(["Telephony", "Voice Orchestration"]))
             | (Connection.name.ilike("%twilio%"))
             | (Connection.name.ilike("%sipgate%"))
             | (Connection.name.ilike("%telnyx%"))
+            | (Connection.name.ilike("%vapi%"))
+            | (Connection.name.ilike("%retell%"))
         )
     )
     tele_conns = conn_res.scalars().all()
@@ -96,6 +98,12 @@ async def _resolve_carrier_and_creds(
                 carrier_choice = "telnyx"
             elif "twilio" in name:
                 carrier_choice = "twilio"
+            elif "vapi" in name:
+                carrier_choice = "vapi"
+            elif "retell" in name:
+                carrier_choice = "retell"
+            elif "custom" in name or "other" in name:
+                carrier_choice = "custom"
             else:
                 carrier_choice = name
         else:
@@ -161,6 +169,10 @@ async def _resolve_carrier_and_creds(
         "auth_token": token,
         "carrier": carrier_choice,
         "connection_id": stored_cfg.get("connection_id") or stored_cfg.get("telnyx_connection_id"),
+        "assistant_id": stored_cfg.get("assistant_id") or stored_cfg.get("model"),
+        "agent_id": stored_cfg.get("agent_id") or stored_cfg.get("model"),
+        "phone_number_id": stored_cfg.get("phone_number_id") or stored_cfg.get("phoneNumberId"),
+        "base_url": stored_cfg.get("base_url") or stored_cfg.get("baseUrl"),
     }
     return carrier_choice, credentials, tele_conn
 

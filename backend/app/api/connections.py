@@ -102,6 +102,8 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
                 if (p_norm in lc_norm or lc_norm in p_norm) or \
                    ("xai" in p_norm and "xai" in lc_norm) or \
                    ("livekit" in p_norm and "livekit" in lc_norm) or \
+                   ("vapi" in p_norm and "vapi" in lc_norm) or \
+                   ("retell" in p_norm and "retell" in lc_norm) or \
                    ("cartesia" in p_norm and "cartesia" in lc_norm) or \
                    ("eleven" in p_norm and "eleven" in lc_norm) or \
                    ("deepgram" in p_norm and "deepgram" in lc_norm) or \
@@ -164,6 +166,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             if (p_norm in lc_norm or lc_norm in p_norm) or \
                ("xai" in p_norm and "xai" in lc_norm) or \
                ("livekit" in p_norm and "livekit" in lc_norm) or \
+               ("vapi" in p_norm and "vapi" in lc_norm) or \
+               ("retell" in p_norm and "retell" in lc_norm) or \
                ("cartesia" in p_norm and "cartesia" in lc_norm) or \
                ("eleven" in p_norm and "eleven" in lc_norm) or \
                ("deepgram" in p_norm and "deepgram" in lc_norm) or \

@@ -26,6 +26,9 @@ from app.api.sip_webhook import router as sip_webhook_router
 from app.api.enrichment import router as enrichment_router
 from app.api.calcom import router as calcom_router
 from app.api.livekit_router import router as livekit_router
+from app.api.vapi_router import router as vapi_router
+from app.api.retell_router import router as retell_router
+from app.api.custom_voice_router import router as custom_voice_router
 from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
@@ -340,6 +343,12 @@ app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(calcom_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router)  # Direct /livekit compatibility
+app.include_router(vapi_router, prefix=settings.API_PREFIX)
+app.include_router(vapi_router)  # Direct /vapi compatibility
+app.include_router(retell_router, prefix=settings.API_PREFIX)
+app.include_router(retell_router)  # Direct /retell compatibility
+app.include_router(custom_voice_router, prefix=settings.API_PREFIX)
+app.include_router(custom_voice_router)  # Direct /custom-voice compatibility
 app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
 
 # Universal Direct Fallback Webhooks for Twilio Inbound Voice

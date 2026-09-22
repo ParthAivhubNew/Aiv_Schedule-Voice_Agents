@@ -87,6 +87,16 @@ async def _do_validate_api_key(
                         "details": f"LiveKit self-hosted credentials verified. Note: SFU server at {health.get('http_url', 'ws://localhost:7880')} is currently offline (run 'docker compose up -d livekit' to start)."
                     }
 
+            # 0c. Vapi Voice AI
+            if "vapi" in p:
+                from app.services.vapi_service import validate_vapi_credentials
+                return await validate_vapi_credentials(api_key)
+
+            # 0d. Retell AI
+            if "retell" in p:
+                from app.services.retell_service import validate_retell_credentials
+                return await validate_retell_credentials(api_key)
+
             # 1. DeepSeek
             if "deepseek" in p:
                 url = (base_url or "https://api.deepseek.com").rstrip("/") + "/models"

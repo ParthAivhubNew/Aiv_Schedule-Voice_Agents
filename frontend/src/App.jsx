@@ -9942,10 +9942,26 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       String(val).toLowerCase().includes(kw)
     );
 
+  // Generate model options dynamically from Connections instead of hardcoded lists
+  const llmConnections = credsState.find((g) => g.group === "LLM")?.items || [];
+  const sttConnections = credsState.find((g) => g.group === "Speech-to-Text")?.items || [];
+  const ttsConnections = credsState.find((g) => g.group === "Text-to-Speech")?.items || [];
+  
   const allLlmOptions = Array.from(new Set([
-    ...LAYERS.find((l) => l.key === "llm").options,
+    ...llmConnections.filter(c => c.model).map(c => c.model),
+    ...llmConnections.map(c => c.name),
     ...(commonAi?.providers?.filter((p) => p.type === "llm").flatMap((p) => p.models) || []),
-  ]));
+  ])).filter(Boolean);
+  
+  const allSttOptions = Array.from(new Set([
+    ...sttConnections.filter(c => c.model).map(c => c.model),
+    ...sttConnections.map(c => c.name),
+  ])).filter(Boolean);
+  
+  const allTtsOptions = Array.from(new Set([
+    ...ttsConnections.filter(c => c.model).map(c => c.model),
+    ...ttsConnections.map(c => c.name),
+  ])).filter(Boolean);
 
   // ── Credentials inline test→save helpers ──
   const setRow = (rowKey, patch) =>
@@ -10375,8 +10391,13 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               {LAYERS.map((l) => {
                 const val = custom[l.key] || l.paid;
                 const oss = isOss(val);
-                const baseOpts = l.key === "llm" ? allLlmOptions : l.options;
-                const options = baseOpts.includes(val) ? baseOpts : [val, ...baseOpts];
+                // Use dynamic options from user's actual Connections instead of hardcoded lists
+                const baseOpts = 
+                  l.key === "llm" ? allLlmOptions :
+                  l.key === "stt" ? allSttOptions :
+                  l.key === "tts" ? allTtsOptions :
+                  l.options;
+                const options = (baseOpts && baseOpts.length > 0 && baseOpts.includes(val)) ? baseOpts : [val, ...(baseOpts || [])];
                 return (
                   <div key={l.key} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.6fr 1fr", padding: "13px 18px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
                     <div>

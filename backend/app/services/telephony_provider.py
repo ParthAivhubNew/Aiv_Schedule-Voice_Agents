@@ -532,6 +532,129 @@ class SipgateCarrierAdapter(BaseCarrierAdapter):
         return {"call_id": call_id, "status": "active"}
 
 
+class VapiCarrierAdapter(BaseCarrierAdapter):
+    """
+    Vapi Voice AI Carrier & Orchestration Plugin.
+    Dispatches calls directly through Vapi's telephony and speech infrastructure.
+    """
+    name = "vapi"
+    display_name = "Vapi Voice AI"
+    description = "Turnkey voice agent orchestration and telephony via Vapi API."
+
+    async def validate_credentials(self, credentials: Dict[str, Any]) -> Dict[str, Any]:
+        from app.services.vapi_service import validate_vapi_credentials
+        api_key = (credentials.get("api_key") or credentials.get("auth_token") or getattr(settings, "VAPI_API_KEY", "") or "").strip()
+        return await validate_vapi_credentials(api_key)
+
+    async def dial_outbound(
+        self,
+        to_number: str,
+        from_number: str,
+        bridge_sip_uri: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        credentials: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        from app.services.vapi_service import dispatch_vapi_phone_call
+        return await dispatch_vapi_phone_call(
+            to_number=to_number,
+            from_number=from_number,
+            metadata=metadata,
+            credentials=credentials,
+        )
+
+    async def hangup_call(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> bool:
+        creds = credentials or {}
+        api_key = (creds.get("api_key") or getattr(settings, "VAPI_API_KEY", "") or "").strip()
+        if not api_key:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                res = await client.delete(f"https://api.vapi.ai/call/{call_id}", headers={"Authorization": f"Bearer {api_key}"})
+                return res.status_code in (200, 204)
+        except Exception:
+            return False
+
+    async def get_call_status(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return {"call_id": call_id, "status": "active"}
+
+
+class RetellCarrierAdapter(BaseCarrierAdapter):
+    """
+    Retell AI Voice Orchestration & Telephony Plugin.
+    Dispatches outbound calls using Retell AI's low-latency agent API.
+    """
+    name = "retell"
+    display_name = "Retell AI"
+    description = "Ultra low-latency conversational voice agent and telephony via Retell AI."
+
+    async def validate_credentials(self, credentials: Dict[str, Any]) -> Dict[str, Any]:
+        from app.services.retell_service import validate_retell_credentials
+        api_key = (credentials.get("api_key") or credentials.get("auth_token") or getattr(settings, "RETELL_API_KEY", "") or "").strip()
+        return await validate_retell_credentials(api_key)
+
+    async def dial_outbound(
+        self,
+        to_number: str,
+        from_number: str,
+        bridge_sip_uri: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        credentials: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        from app.services.retell_service import dispatch_retell_phone_call
+        return await dispatch_retell_phone_call(
+            to_number=to_number,
+            from_number=from_number,
+            metadata=metadata,
+            credentials=credentials,
+        )
+
+    async def hangup_call(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> bool:
+        return True
+
+    async def get_call_status(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return {"call_id": call_id, "status": "active"}
+
+
+class CustomVoiceCarrierAdapter(BaseCarrierAdapter):
+    """
+    Custom Base URL Voice Engine Adapter.
+    Dispatches call requests to any HTTP webhook or custom voice server.
+    """
+    name = "custom"
+    display_name = "Custom Voice Engine"
+    description = "Custom voice AI server or proprietary orchestration endpoint."
+
+    async def validate_credentials(self, credentials: Dict[str, Any]) -> Dict[str, Any]:
+        base_url = (credentials.get("base_url") or "").strip()
+        if not base_url:
+            return {"valid": False, "error": "Base URL required for Custom Voice Engine."}
+        return {"valid": True, "details": f"Custom voice endpoint configured at {base_url}"}
+
+    async def dial_outbound(
+        self,
+        to_number: str,
+        from_number: str,
+        bridge_sip_uri: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        credentials: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        from app.api.custom_voice_router import dispatch_custom_voice_call
+        creds = credentials or {}
+        return await dispatch_custom_voice_call(
+            to_number=to_number,
+            from_number=from_number,
+            base_url=creds.get("base_url"),
+            api_key=creds.get("api_key"),
+            metadata=metadata,
+        )
+
+    async def hangup_call(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> bool:
+        return True
+
+    async def get_call_status(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return {"call_id": call_id, "status": "active"}
+
+
 class CarrierRegistry:
     """
     Pluggable Factory and Registry for Telephony Carrier Adapters.
@@ -543,6 +666,10 @@ class CarrierRegistry:
         "sipgate": SipgateCarrierAdapter,
         "generic_sip": GenericSipAdapter,
         "simulation": SimulationCarrierAdapter,
+        "vapi": VapiCarrierAdapter,
+        "retell": RetellCarrierAdapter,
+        "custom": CustomVoiceCarrierAdapter,
+        "other": CustomVoiceCarrierAdapter,
     }
 
     @classmethod
@@ -569,6 +696,12 @@ class CarrierRegistry:
             adapter_cls = cls._adapters.get("telnyx", TelnyxCarrierAdapter)
         elif "sipgate" in key:
             adapter_cls = cls._adapters.get("sipgate", SipgateCarrierAdapter)
+        elif "vapi" in key:
+            adapter_cls = cls._adapters.get("vapi", VapiCarrierAdapter)
+        elif "retell" in key:
+            adapter_cls = cls._adapters.get("retell", RetellCarrierAdapter)
+        elif "custom" in key or "other" in key:
+            adapter_cls = cls._adapters.get("custom", CustomVoiceCarrierAdapter)
         elif "sip" in key:
             adapter_cls = cls._adapters.get("generic_sip", GenericSipAdapter)
         else:

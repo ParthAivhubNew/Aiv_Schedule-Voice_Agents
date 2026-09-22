@@ -727,7 +727,12 @@ async def dial_outbound_call(
         carrier_choice = (req.carrier or "").strip().lower()
         conn_res = await db.execute(
             select(Connection).where(
-                (Connection.group_name == "Telephony") | (Connection.name.ilike("%twilio%")) | (Connection.name.ilike("%sipgate%"))
+                (Connection.group_name.in_(["Telephony", "Voice Orchestration"]))
+                | (Connection.name.ilike("%twilio%"))
+                | (Connection.name.ilike("%sipgate%"))
+                | (Connection.name.ilike("%telnyx%"))
+                | (Connection.name.ilike("%vapi%"))
+                | (Connection.name.ilike("%retell%"))
             )
         )
         tele_conns = conn_res.scalars().all()
@@ -746,12 +751,19 @@ async def dial_outbound_call(
 
         if not carrier_choice:
             if tele_conn:
-                if "sipgate" in (tele_conn.name or "").lower():
+                n = (tele_conn.name or "").lower()
+                if "sipgate" in n:
                     carrier_choice = "sipgate"
-                elif "twilio" in (tele_conn.name or "").lower():
+                elif "telnyx" in n:
+                    carrier_choice = "telnyx"
+                elif "vapi" in n:
+                    carrier_choice = "vapi"
+                elif "retell" in n:
+                    carrier_choice = "retell"
+                elif "twilio" in n:
                     carrier_choice = "twilio"
                 else:
-                    carrier_choice = tele_conn.name.lower()
+                    carrier_choice = n
             else:
                 carrier_choice = "sipgate" if settings.SIPGATE_SIP_ID else "twilio"
 
@@ -846,6 +858,10 @@ async def dial_outbound_call(
             "auth_token": token,
             "carrier": carrier_choice,
             "connection_id": stored_cfg.get("connection_id") or stored_cfg.get("telnyx_connection_id"),
+            "assistant_id": stored_cfg.get("assistant_id") or stored_cfg.get("model"),
+            "agent_id": stored_cfg.get("agent_id") or stored_cfg.get("model"),
+            "phone_number_id": stored_cfg.get("phone_number_id") or stored_cfg.get("phoneNumberId"),
+            "base_url": stored_cfg.get("base_url") or stored_cfg.get("baseUrl"),
         }
 
         # 4. Resolve bridge SIP URI

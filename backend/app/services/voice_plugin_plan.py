@@ -66,12 +66,17 @@ def _key_from(conn: Optional[Connection]) -> str:
 
 def _norm_engine(name: str, cfg: Dict[str, Any]) -> str:
     eid = str(cfg.get("engine") or "").lower().strip()
-    if eid in ("xai", "openai", "modular", "livekit", "simulation"):
-        # livekit uses the modular STT→LLM→TTS pipeline under the hood
-        return "livekit" if eid == "livekit" else eid
+    if eid in ("xai", "openai", "modular", "livekit", "vapi", "retell", "custom", "simulation"):
+        return eid
     raw = f"{eid} {name or ''}".lower()
     if "livekit" in raw:
         return "livekit"
+    if "vapi" in raw:
+        return "vapi"
+    if "retell" in raw:
+        return "retell"
+    if "custom" in raw or "other" in raw:
+        return "custom"
     if "openai" in raw:
         return "openai"
     if "modular" in raw:
@@ -347,6 +352,12 @@ async def resolve_voice_plan() -> VoicePlan:
         note = f"Speech-to-speech via OpenAI Realtime ({active_voice or 'alloy'})."
     elif engine == "livekit":
         note = f"LiveKit Agents pipeline: {stt.provider if stt else '?'} STT → {llm.provider if llm else '?'} LLM → {tts.provider if tts else '?'} TTS."
+    elif engine == "vapi":
+        note = "Turnkey voice agent orchestration via Vapi AI."
+    elif engine == "retell":
+        note = "Conversational voice agent orchestration via Retell AI."
+    elif engine == "custom":
+        note = "Custom Base URL voice orchestration."
     elif engine == "modular":
         note = f"Modular pipeline: {stt.provider if stt else '?'} STT → LLM → {tts.provider if tts else '?'} TTS."
 
