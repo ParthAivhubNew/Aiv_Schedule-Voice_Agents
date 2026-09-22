@@ -1102,6 +1102,10 @@ const CONNECTIONS = [
     { name: "Twilio", status: "not_configured" },
     { name: "Telnyx", status: "not_configured" },
   ]},
+  { group: "Messaging", desc: "Sends automated confirmations and follow-ups via WhatsApp and SMS.", items: [
+    { name: "WhatsApp Cloud API (Meta)", status: "not_configured" },
+    { name: "Twilio WhatsApp", status: "not_configured" },
+  ]},
   { group: "Calendar", desc: "Checks availability and books confirmed meetings.", items: [
     { name: "Cal.com (Self-Hosted)", status: "not_configured" },
     { name: "Google Calendar", status: "not_configured" },
@@ -1113,7 +1117,7 @@ const CONNECTIONS = [
   { group: "Other", desc: "Anything else your team connects — CRM, spreadsheets, custom internal tools.", items: [] },
 ];
 
-const CATEGORY_OPTIONS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Calendar", "Business Discovery", "Other"];
+const CATEGORY_OPTIONS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Messaging", "Calendar", "Business Discovery", "Other"];
 
 const INITIAL_KNOWLEDGE_SOURCES = [
   { id: "k1", name: "Company website", type: "Website URL", value: "aivhub.io", status: "indexed", synced: "2 hours ago" },
@@ -9976,8 +9980,12 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         voice_name: hubData?.voiceEngineName || "rex",
       });
       
-      // Refresh hub status to show new engine
+      // Refresh hub status to show new engine - update BOTH hubData and liveHub
       await fetchStatus();
+      const freshHub = await api.getTelephonyHub();
+      if (freshHub) {
+        setLiveHub(freshHub);
+      }
       
       if (setNotifications) {
         setNotifications((ns) => [
@@ -10095,9 +10103,12 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     const key = (row.keyValue || "").trim();
     if (!key) { setRow(rowKey, { errorMsg: "API key cannot be empty." }); return; }
     const isTwilio = String(itemName || "").toLowerCase().includes("twilio");
+    const isWhatsApp = String(itemName || "").toLowerCase().includes("whatsapp");
     const sidCandidate = (row.accountSidValue || row.agentIdValue || "").trim();
     const accountSid = isTwilio
       ? (sidCandidate.startsWith("AC") ? sidCandidate : (row.accountSidValue || "").trim())
+      : isWhatsApp
+      ? (row.accountSidValue || "").trim()
       : undefined;
     if (isTwilio && (!accountSid || !accountSid.startsWith("AC") || accountSid.length !== 34)) {
       setRow(rowKey, { errorMsg: "Twilio needs Account SID (AC…, 34 chars) in the Account SID field — not Voice Agent ID." });
@@ -10130,9 +10141,12 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     const row = rowState[rowKey] || {};
     const key = (row.keyValue || "").trim();
     const isTwilio = String(itemName || "").toLowerCase().includes("twilio");
+    const isWhatsApp = String(itemName || "").toLowerCase().includes("whatsapp");
     const sidCandidate = (row.accountSidValue || row.agentIdValue || "").trim();
     const accountSid = isTwilio
       ? (sidCandidate.startsWith("AC") ? sidCandidate : (row.accountSidValue || "").trim())
+      : isWhatsApp
+      ? (row.accountSidValue || "").trim()
       : undefined;
     setRow(rowKey, { phase: "saving" });
     try {
