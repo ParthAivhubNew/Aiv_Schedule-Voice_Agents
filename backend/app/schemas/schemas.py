@@ -19,6 +19,7 @@ class OperatorResponse(BaseModel):
     name: str
     role: str
     email: Optional[str] = None
+    org_id: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: str

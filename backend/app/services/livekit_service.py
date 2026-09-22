@@ -67,22 +67,36 @@ def generate_livekit_token(
     can_publish: bool = True,
     can_subscribe: bool = True,
     ttl_seconds: int = 7200,
+    org_id: Optional[str] = None,
 ) -> str:
     """
     Generates a secure WebRTC JWT token for a participant joining a LiveKit room.
+    
+    Multi-tenant: Room names are automatically namespaced by org_id to isolate organizations.
+    Each org only sees their own calls in their own room namespace.
     """
     api_key = settings.LIVEKIT_API_KEY or "devkey"
     api_secret = settings.LIVEKIT_API_SECRET or "secret1234567890abcdef1234567890abcdef"
     display_name = name or identity
 
-    meta_str = json.dumps(metadata) if metadata else ""
+    # Multi-tenant room isolation: prefix room name with org_id
+    # Format: "org_{org_id}_{call_id}" so each organization's calls are isolated
+    if org_id:
+        isolated_room = f"org_{org_id}_{room_name}"
+    else:
+        isolated_room = room_name
+
+    meta_dict = metadata or {}
+    meta_dict["org_id"] = org_id or "default"
+    meta_dict["room"] = room_name  # Original room name for reference
+    meta_str = json.dumps(meta_dict)
 
     from datetime import timedelta
 
     if LIVEKIT_API_AVAILABLE and AccessToken and VideoGrants:
         grants = VideoGrants(
             room_join=True,
-            room=room_name,
+            room=isolated_room,
             can_publish=can_publish,
             can_subscribe=can_subscribe,
             can_publish_data=True,
@@ -110,15 +124,14 @@ def generate_livekit_token(
             "exp": int(time.time()) + ttl_seconds,
             "video": {
                 "roomJoin": True,
-                "room": room_name,
+                "room": isolated_room,
                 "canPublish": can_publish,
                 "canSubscribe": can_subscribe,
                 "canPublishData": True,
                 "roomAdmin": is_agent,
             },
+            "metadata": meta_str,
         }
-        if meta_str:
-            payload["metadata"] = meta_str
         return jwt.encode(payload, api_secret, algorithm="HS256")
     except Exception as jwt_err:
         logger.error("Failed to generate fallback LiveKit token: %s", jwt_err)

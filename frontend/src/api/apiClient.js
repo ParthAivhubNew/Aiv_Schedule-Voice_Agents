@@ -8,6 +8,19 @@ export async function apiRequest(endpoint, options = {}) {
     ...(fetchOptions.headers || {}),
   };
 
+  // Add org_id header if available from operator context
+  try {
+    const operatorStr = sessionStorage.getItem("aivhub_operator");
+    if (operatorStr) {
+      const operator = JSON.parse(operatorStr);
+      if (operator.org_id) {
+        headers['X-Org-ID'] = operator.org_id;
+      }
+    }
+  } catch (_) {
+    // Silently fail if sessionStorage not available or parse error
+  }
+
   if (fetchOptions.body && typeof fetchOptions.body === 'object' && !(fetchOptions.body instanceof FormData)) {
     fetchOptions.body = JSON.stringify(fetchOptions.body);
   }

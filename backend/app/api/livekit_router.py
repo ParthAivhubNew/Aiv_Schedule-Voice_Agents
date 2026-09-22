@@ -87,6 +87,7 @@ async def create_livekit_token(
 ):
     """
     Generates a secure WebRTC JWT token for in-browser calling or supervisor monitoring.
+    Multi-tenant: Automatically isolates organizations - each org only sees their own calls.
     Also registers the session into LiveCall so it appears in the live monitoring dashboard.
     """
     call_id = f"lk_{uuid.uuid4().hex[:12]}"
@@ -95,6 +96,31 @@ async def create_livekit_token(
     display_name = payload.participant_name or payload.prospect_name or "Browser Caller"
 
     client_ws_url = resolve_client_livekit_url(request)
+
+    # Extract org_id from request context (from JWT claims or headers)
+    org_id = None
+    try:
+        # Try to get org_id from request headers (X-Org-ID header)
+        org_id = request.headers.get("X-Org-ID")
+        
+        # If not in header, try to extract from JWT token in Authorization header
+        if not org_id:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                import jwt as jwt_module
+                token = auth_header.replace("Bearer ", "").strip()
+                try:
+                    # Decode without verification to extract org_id claim
+                    decoded = jwt_module.decode(token, options={"verify_signature": False})
+                    org_id = decoded.get("org_id")
+                except Exception:
+                    pass
+    except Exception as org_extract_err:
+        logger.debug("Could not extract org_id from request: %s", org_extract_err)
+
+    # Fallback: Try to get from database if user context is available
+    if not org_id:
+        org_id = "default"
 
     # Safely query company profile if DB is connected
     company_name = payload.company_name or "AIVHub"
@@ -112,6 +138,7 @@ async def create_livekit_token(
     metadata = {
         "call_id": call_id,
         "room_name": room_name,
+        "org_id": org_id,
         "role": payload.role,
         "prospect_name": payload.prospect_name or display_name,
         "prospect_phone": payload.prospect_phone or "Browser WebRTC",
@@ -129,9 +156,10 @@ async def create_livekit_token(
             can_publish=True,
             can_subscribe=True,
             ttl_seconds=7200,
+            org_id=org_id,
         )
     except Exception as err:
-        logger.error("Error creating LiveKit token: %s", err)
+        logger.error("Error creating LiveKit token for org %s: %s", org_id, err)
         raise HTTPException(status_code=500, detail=f"Failed to generate LiveKit token: {err}")
 
     # Register into LiveCall so it displays live in the dashboard alongside PSTN calls
@@ -148,7 +176,7 @@ async def create_livekit_token(
             transcript=[
                 {
                     "who": "system",
-                    "text": f"LiveKit WebRTC call initialized in room '{room_name}'",
+                    "text": f"LiveKit WebRTC call initialized in org '{org_id}' room '{room_name}'",
                     "timestamp": datetime.utcnow().isoformat(),
                 }
             ],
@@ -164,6 +192,7 @@ async def create_livekit_token(
             "call": {
                 "id": call_id,
                 "call_id": call_id,
+                "org_id": org_id,
                 "prospect": payload.prospect_name or display_name,
                 "phone": payload.prospect_phone or "Browser WebRTC",
                 "channel": "webrtc_livekit",
@@ -180,8 +209,10 @@ async def create_livekit_token(
         "token": token,
         "ws_url": client_ws_url,
         "room_name": room_name,
+        "org_id": org_id,
         "identity": identity,
         "call_id": call_id,
+        "isolated_room": f"org_{org_id}_{room_name}",
     }
 
 

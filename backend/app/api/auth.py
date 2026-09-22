@@ -62,7 +62,8 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
             username=operator.username,
             name=operator.name,
             role=operator.role,
-            email=operator.email
+            email=operator.email,
+            org_id=operator.org_id or "default"
         )
         
         return TokenResponse(
@@ -81,7 +82,8 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
                     username=u.lower(),
                     name="Admin" if u.lower() == "admin" else "Jitendra S.",
                     role="Admin",
-                    email=f"{u.lower()}@aivhub.io"
+                    email=f"{u.lower()}@aivhub.io",
+                    org_id="default"
                 )
             )
         raise HTTPException(
@@ -100,13 +102,25 @@ async def get_current_operator(username: str = "jitendra", db: AsyncSession = De
         username=operator.username,
         name=operator.name,
         role=operator.role,
-        email=operator.email
+        email=operator.email,
+        org_id=operator.org_id or "default"
     )
 
 @router.get("/users", response_model=List[OperatorResponse])
 async def list_users(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Operator).order_by(Operator.created_at.asc()))
-    return result.scalars().all()
+    operators = result.scalars().all()
+    return [
+        OperatorResponse(
+            id=op.id,
+            username=op.username,
+            name=op.name,
+            role=op.role,
+            email=op.email,
+            org_id=op.org_id or "default"
+        )
+        for op in operators
+    ]
 
 @router.post("/users", response_model=OperatorResponse)
 async def create_or_update_user(req: CreateUserRequest, db: AsyncSession = Depends(get_db)):
@@ -121,7 +135,14 @@ async def create_or_update_user(req: CreateUserRequest, db: AsyncSession = Depen
             existing.email = req.email
         await db.commit()
         await db.refresh(existing)
-        return existing
+        return OperatorResponse(
+            id=existing.id,
+            username=existing.username,
+            name=existing.name,
+            role=existing.role,
+            email=existing.email,
+            org_id=existing.org_id or "default"
+        )
         
     operator = Operator(
         id=f"op_{uuid.uuid4().hex[:8]}",
@@ -129,9 +150,17 @@ async def create_or_update_user(req: CreateUserRequest, db: AsyncSession = Depen
         name=req.name.strip(),
         role=req.role or "Operator",
         email=req.email or f"{u}@aivhub.io",
-        hashed_password="mock_hashed_password"
+        hashed_password="mock_hashed_password",
+        org_id="default"
     )
     db.add(operator)
     await db.commit()
     await db.refresh(operator)
-    return operator
+    return OperatorResponse(
+        id=operator.id,
+        username=operator.username,
+        name=operator.name,
+        role=operator.role,
+        email=operator.email,
+        org_id=operator.org_id or "default"
+    )

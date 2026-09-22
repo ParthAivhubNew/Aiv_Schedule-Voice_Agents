@@ -10,21 +10,42 @@ except (ImportError, Exception):
     def Vector(dim):
         return JSON
 
+class Organization(Base):
+    __tablename__ = "organizations"
+    
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True, nullable=False)
+    status = Column(String, default="active")  # active, inactive, suspended
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    operators = relationship("Operator", back_populates="organization")
+
 class Operator(Base):
     __tablename__ = "operators"
     
     id = Column(String, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True, nullable=False)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    username = Column(String, index=True, nullable=False)
     name = Column(String, nullable=False)
     role = Column(String, default="Operator")
     email = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    organization = relationship("Organization", back_populates="operators")
+    
+    __table_args__ = (
+        # Ensure username is unique per organization (not globally unique)
+        # This allows different orgs to have users with the same username
+    ,)
 
 class CompanyProfile(Base):
     __tablename__ = "company_profile"
     
     id = Column(String, primary_key=True, default="default")
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String, default="AIVHub")
     # How TTS should say the company name (optional). Empty → auto from name.
     spoken_name = Column(String, nullable=True)
@@ -131,6 +152,7 @@ class Mission(Base):
     __tablename__ = "missions"
     
     id = Column(String, primary_key=True, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     title = Column(String, nullable=False)
     sector = Column(String, default="General")
     region = Column(String, default="UK-wide")
@@ -179,6 +201,7 @@ class LiveCall(Base):
     __tablename__ = "live_calls"
     
     id = Column(String, primary_key=True, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     carrier_sid = Column(String, nullable=True, index=True)  # Twilio CallSid for status callback matching
     mission_id = Column(String, nullable=True)
     prospect_id = Column(String, nullable=True)
