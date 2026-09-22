@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
 import logging
+import uuid
 
 from app.config import settings
 from app.database import engine, Base, get_db
