@@ -526,18 +526,71 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         tts_model = plan.tts.model if plan.tts else None
         llm_model = plan.llm.model if plan.llm else None
         external_tts = bool(getattr(plan, "external_tts", False))
-        # Only surface TTS plugin ids when hybrid is actually ON (active voice = clone).
-        # Builtin ara/rex must not keep showing a leftover Cartesia UUID on the main screen.
+
         if external_tts and plan.tts:
             tts_voice_id = plan.tts.voice_id or None
         else:
-            tts_provider = None if not (plan.engine == "modular" or plan.engine == "livekit") else tts_provider
-            tts_name = None if not (plan.engine == "modular" or plan.engine == "livekit") else tts_name
+            if not tts_provider or is_xai_builtin_tts if 'is_xai_builtin_tts' in locals() else (not external_tts and live_engine == "xai"):
+                tts_provider = "xai"
+                tts_name = f"xAI built-in ({plan.voice_name or ui_voice or 'rex'})"
+                tts_model = f"xai-{plan.voice_name or ui_voice or 'rex'}"
             tts_voice_id = None
-            if plan.engine != "modular" and plan.engine != "livekit":
-                tts_model = None
     except Exception as plan_err:
         logger.warning(f"Could not resolve live voice plan: {plan_err}")
+
+    # Align with active stack preferences
+    from app.services.voice_plugin_plan import get_active_stack, set_active_stack
+    active_stack = get_active_stack()
+    target_engine = active_stack.get("engine") or live_engine
+    if target_engine == "livekit":
+        active_engine = "LiveKit (self-hosted)"
+        live_engine = "livekit"
+    elif target_engine == "xai":
+        active_engine = "xAI Grok (speech-to-speech)"
+        live_engine = "xai"
+    elif target_engine == "vapi":
+        active_engine = "Vapi Voice AI"
+        live_engine = "vapi"
+    elif target_engine == "retell":
+        active_engine = "Retell AI"
+        live_engine = "retell"
+    elif target_engine == "openai":
+        active_engine = "OpenAI Realtime"
+        live_engine = "openai"
+    elif target_engine == "modular":
+        active_engine = "Modular pipeline"
+        live_engine = "modular"
+
+    if active_stack.get("tts"):
+        sel_tts = active_stack["tts"]
+        if "xai built-in" in sel_tts.lower() or sel_tts.lower() in ("rex", "ara", "eve"):
+            tts_provider = "xai"
+            tts_name = sel_tts
+            tts_model = sel_tts
+            external_tts = False
+        else:
+            tts_name = sel_tts
+            tts_provider = sel_tts.split()[0].lower()
+            external_tts = True
+
+    if active_stack.get("llm"):
+        llm_name = active_stack["llm"]
+        llm_provider = active_stack["llm"].split()[0].lower()
+    if active_stack.get("stt"):
+        stt_name = active_stack["stt"]
+        stt_provider = active_stack["stt"].split()[0].lower()
+    if active_stack.get("carrier"):
+        active_carrier = active_stack["carrier"]
+
+    live_labels = {
+        "engine": active_engine,
+        "llm": llm_name or "DeepSeek",
+        "stt": stt_name or "Deepgram",
+        "tts": tts_name or f"xAI built-in ({ui_voice})",
+        "carrier": active_carrier,
+        "voice": ui_voice,
+        "note": live_note,
+    }
 
     custom_voices = list(stored_custom) if isinstance(stored_custom, list) else []
     try:
@@ -581,11 +634,75 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "hasApiKey": bool(active_key),
         "apiKeyMasked": masked_active_key,
         "hasSigningSecret": bool(clean_secret),
-        # Never return plaintext signing secret on GET — eye/copy only see the mask.
         "signingSecret": None,
         "signingSecretMasked": mask_secret(clean_secret) if clean_secret else "Not configured",
-        "isLive": is_connected or os.getenv("VOICE_ENGINE_MODE") == "live"
+        "isLive": is_connected or os.getenv("VOICE_ENGINE_MODE") == "live",
+        "liveLabels": live_labels,
     }
+
+
+class SelectActiveStackRequest(BaseModel):
+    engine: Optional[str] = None
+    engine_label: Optional[str] = None
+    voice: Optional[str] = None
+    tts: Optional[str] = None
+    llm: Optional[str] = None
+    stt: Optional[str] = None
+    carrier: Optional[str] = None
+    telephony: Optional[str] = None
+
+
+@router.get("/telephony-hub/select-stack")
+async def get_selected_stack():
+    from app.services.voice_plugin_plan import get_active_stack
+    return get_active_stack()
+
+
+@router.post("/telephony-hub/select-stack")
+async def select_active_stack_endpoint(req: SelectActiveStackRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Persistently sets the active engine, LLM, STT, and TTS choices made in 'What runs where'
+    so the live call stack, live banners, and Connections 'In use' badges update instantly.
+    """
+    from app.services.voice_plugin_plan import set_active_stack, get_active_stack
+    patch = {}
+    if req.engine:
+        patch["engine"] = req.engine
+    elif req.voice:
+        v_low = req.voice.lower()
+        if "livekit" in v_low:
+            patch["engine"] = "livekit"
+            patch["engine_label"] = "LiveKit (self-hosted)"
+        elif "vapi" in v_low:
+            patch["engine"] = "vapi"
+            patch["engine_label"] = "Vapi Voice AI"
+        elif "retell" in v_low:
+            patch["engine"] = "retell"
+            patch["engine_label"] = "Retell AI"
+        elif "openai" in v_low:
+            patch["engine"] = "openai"
+            patch["engine_label"] = "OpenAI Realtime"
+        elif "modular" in v_low:
+            patch["engine"] = "modular"
+            patch["engine_label"] = "Modular pipeline"
+        elif "simulation" in v_low:
+            patch["engine"] = "simulation"
+            patch["engine_label"] = "Simulation"
+        elif "xai" in v_low:
+            patch["engine"] = "xai"
+            patch["engine_label"] = "xAI Grok (speech-to-speech)"
+
+    if req.tts:
+        patch["tts"] = req.tts
+    if req.llm:
+        patch["llm"] = req.llm
+    if req.stt:
+        patch["stt"] = req.stt
+    if req.carrier or req.telephony:
+        patch["carrier"] = req.carrier or req.telephony
+
+    updated = set_active_stack(patch)
+    return {"status": "ok", "active_stack": updated}
 
 
 @router.get("/telephony-hub/voices")

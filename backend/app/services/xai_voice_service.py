@@ -188,12 +188,37 @@ class BridgedVoiceSession:
         self.call_id = str(call_id)
         self.is_inbound = is_inbound
         self.ready = asyncio.Event()
+        self.closed = asyncio.Event()
         self._buf: List[str] = []
         self._live = False
         self._released = bool(is_inbound)
         self.ws = None
         self.on_caller_audio = None
         self.engine = "xai"
+        self._dg_ws = None
+        self._speaking_task = None
+
+    async def close(self) -> None:
+        """Stops the voice session and cancels any background speech or STT connections."""
+        self.closed.set()
+        self._live = False
+        if self._speaking_task and not self._speaking_task.done():
+            try:
+                self._speaking_task.cancel()
+            except Exception:
+                pass
+        if self._dg_ws:
+            try:
+                await self._dg_ws.close()
+            except Exception:
+                pass
+            self._dg_ws = None
+        if self.ws:
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
+            self.ws = None
 
     async def attach_stream(self, stream_sid: Optional[str] = None) -> None:
         self._live = True

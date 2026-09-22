@@ -23,6 +23,43 @@ _UUID_RE = re.compile(
     re.I,
 )
 
+import os
+import json
+
+ACTIVE_STACK_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "active_voice_stack.json")
+
+DEFAULT_ACTIVE_STACK = {
+    "engine": "livekit",
+    "engine_label": "LiveKit (self-hosted)",
+    "tts": "xAI built-in (rex)",
+    "llm": "DeepSeek",
+    "stt": "Deepgram",
+    "carrier": "Twilio",
+}
+
+def get_active_stack() -> Dict[str, str]:
+    if os.path.exists(ACTIVE_STACK_FILE):
+        try:
+            with open(ACTIVE_STACK_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return {**DEFAULT_ACTIVE_STACK, **data}
+        except Exception:
+            pass
+    return dict(DEFAULT_ACTIVE_STACK)
+
+def set_active_stack(patch: Dict[str, Any]) -> Dict[str, str]:
+    current = get_active_stack()
+    for k, v in patch.items():
+        if v is not None:
+            current[k] = str(v).strip()
+    os.makedirs(os.path.dirname(ACTIVE_STACK_FILE), exist_ok=True)
+    try:
+        with open(ACTIVE_STACK_FILE, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Could not persist active voice stack to {ACTIVE_STACK_FILE}: {e}")
+    return current
+
 
 @dataclass
 class PluginCreds:
@@ -154,52 +191,98 @@ async def resolve_voice_plan() -> VoicePlan:
         res = await db.execute(select(Connection))
         conns = res.scalars().all()
 
+    active_stack = get_active_stack()
+    target_engine = (active_stack.get("engine") or "livekit").lower()
+    target_tts = (active_stack.get("tts") or "").lower()
+    target_llm = (active_stack.get("llm") or "").lower()
+    target_stt = (active_stack.get("stt") or "").lower()
+    target_carrier = (active_stack.get("carrier") or "").lower()
+
     def _pick(group_needles: tuple, current):
         matches = [c for c in conns if any(n in (c.group_name or "").lower() for n in group_needles) and _key_from(c)]
         if not matches:
             return current
         return next((c for c in matches if c.status == "connected"), matches[0])
 
+    # 1. Resolve Engine connection matching active stack
     for c in conns:
         group = (c.group_name or "").lower()
         if "voice orchestration" in group:
-            engine_conn = c
-        elif group == "telephony" or group.startswith("telephony"):
-            carrier_conn = c
-    stt_conn = _pick(("speech-to-text", "stt"), stt_conn)
-    tts_conn = _pick(("text-to-speech", "tts"), tts_conn)
-    llm_conn = _pick(("llm",), llm_conn)
+            c_name = (c.name or "").lower()
+            if target_engine in c_name or (target_engine == "livekit" and "livekit" in c_name) or (target_engine == "xai" and "xai" in c_name):
+                engine_conn = c
+                break
+    if not engine_conn:
+        for c in conns:
+            if "voice orchestration" in (c.group_name or "").lower():
+                engine_conn = c
+                break
+
+    # 2. Resolve Carrier connection matching active stack
+    for c in conns:
+        group = (c.group_name or "").lower()
+        if "telephony" in group:
+            c_name = (c.name or "").lower()
+            if target_carrier and target_carrier.split()[0] in c_name:
+                carrier_conn = c
+                break
+    if not carrier_conn:
+        for c in conns:
+            if "telephony" in (c.group_name or "").lower():
+                carrier_conn = c
+                break
+
+    # 3. Resolve LLM connection matching active stack
+    for c in conns:
+        group = (c.group_name or "").lower()
+        if "llm" in group:
+            c_name = (c.name or "").lower()
+            if target_llm and target_llm.split()[0] in c_name and c.status == "connected":
+                llm_conn = c
+                break
+    if not llm_conn:
+        llm_conn = _pick(("llm",), llm_conn)
+
+    # 4. Resolve STT connection matching active stack
+    for c in conns:
+        group = (c.group_name or "").lower()
+        if any(n in group for n in ("speech-to-text", "stt")):
+            c_name = (c.name or "").lower()
+            if target_stt and target_stt.split()[0] in c_name and c.status == "connected":
+                stt_conn = c
+                break
+    if not stt_conn:
+        stt_conn = _pick(("speech-to-text", "stt"), stt_conn)
+
+    # 5. Resolve TTS connection matching active stack
+    is_xai_builtin_tts = "xai built-in" in target_tts or target_tts in ("rex", "ara", "eve", "leo")
+    if is_xai_builtin_tts:
+        tts_conn = None
+    elif target_tts:
+        for c in conns:
+            group = (c.group_name or "").lower()
+            if any(n in group for n in ("text-to-speech", "tts")):
+                c_name = (c.name or "").lower()
+                if any(k in c_name for k in target_tts.split()):
+                    tts_conn = c
+                    break
+    if not tts_conn and not is_xai_builtin_tts:
+        tts_conn = _pick(("text-to-speech", "tts"), tts_conn)
 
     engine_cfg = _cfg(engine_conn)
-    engine = _norm_engine(engine_conn.name if engine_conn else "", engine_cfg)
-    voice_name = engine_cfg.get("voice_name") or engine_cfg.get("voice") or settings.XAI_VOICE_NAME or "rex"
+    engine = target_engine if target_engine in ("livekit", "xai", "vapi", "retell", "openai", "modular", "simulation") else _norm_engine(engine_conn.name if engine_conn else "", engine_cfg)
+    
+    # Determine voice name
+    voice_name = "rex"
+    if is_xai_builtin_tts:
+        match_v = re.search(r"\(([^)]+)\)", target_tts)
+        if match_v:
+            voice_name = match_v.group(1).strip()
+    else:
+        voice_name = engine_cfg.get("voice_name") or engine_cfg.get("voice") or settings.XAI_VOICE_NAME or "rex"
     voice_name = _strip_voice(voice_name) or "rex"
     carrier = (carrier_conn.name if carrier_conn else "twilio") or "twilio"
     orch_clone = _strip_voice(engine_cfg.get("cloned_voice_id") or "")
-    # Prefer TTS plugin that matches the active clone provider (plugin mix & match)
-    tts_matches = [
-        c for c in conns
-        if any(n in (c.group_name or "").lower() for n in ("text-to-speech", "tts")) and _key_from(c)
-    ]
-    if tts_matches:
-        preferred = None
-        clone_hint = orch_clone or (voice_name if looks_like_external_voice_id(voice_name) else "")
-        custom = engine_cfg.get("custom_voices") or []
-        clone_provider = ""
-        for v in custom:
-            if isinstance(v, dict) and str(v.get("voice_id") or "") == clone_hint:
-                clone_provider = str(v.get("provider") or "").lower()
-                break
-        if not clone_provider and clone_hint:
-            clone_provider = "cartesia" if _UUID_RE.match(clone_hint) else "elevenlabs"
-        for c in tts_matches:
-            name = (c.name or "").lower()
-            if clone_provider and clone_provider in name:
-                preferred = c
-                break
-        if preferred is None:
-            preferred = next((c for c in tts_matches if c.status == "connected"), tts_matches[0])
-        tts_conn = preferred
 
     stt = None
     if stt_conn and _key_from(stt_conn):
@@ -296,13 +379,13 @@ async def resolve_voice_plan() -> VoicePlan:
             logger.warning(note)
             return VoicePlan(engine=engine, voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, s2s_key=xai_key, note=note)
 
-    if engine == "modular" or engine == "livekit":
+    if engine == "modular":
         if not (stt and stt.api_key and tts and tts.api_key):
             if xai_key and xai_key.startswith("xai-"):
-                note = f"{'LiveKit' if engine == 'livekit' else 'Modular'} selected but STT/TTS keys missing — falling back to xAI S2S."
+                note = "Modular selected but STT/TTS keys missing — falling back to xAI S2S."
                 logger.warning(note)
                 return VoicePlan(engine="xai", voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, s2s_key=xai_key, note=note)
-            note = f"{'LiveKit' if engine == 'livekit' else 'Modular'} selected but STT or TTS plugin has no key."
+            note = "Modular selected but STT or TTS plugin has no key."
             logger.warning(note)
             return VoicePlan(engine=engine, voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, note=note)
 
@@ -340,7 +423,7 @@ async def resolve_voice_plan() -> VoicePlan:
         and active_is_clone
         and tts
         and tts.api_key
-    )
+    ) or bool(engine == "livekit" and tts and tts.api_key)
 
     note = ""
     if engine == "xai":
@@ -351,7 +434,7 @@ async def resolve_voice_plan() -> VoicePlan:
     elif engine == "openai":
         note = f"Speech-to-speech via OpenAI Realtime ({active_voice or 'alloy'})."
     elif engine == "livekit":
-        note = f"LiveKit Agents pipeline: {stt.provider if stt else '?'} STT → {llm.provider if llm else '?'} LLM → {tts.provider if tts else '?'} TTS."
+        note = f"LiveKit Agents pipeline: {stt.provider if stt else 'deepgram'} STT -> {llm.provider if llm else 'deepseek'} LLM -> {tts.provider if tts else 'cartesia'} TTS."
     elif engine == "vapi":
         note = "Turnkey voice agent orchestration via Vapi AI."
     elif engine == "retell":
@@ -359,7 +442,7 @@ async def resolve_voice_plan() -> VoicePlan:
     elif engine == "custom":
         note = "Custom Base URL voice orchestration."
     elif engine == "modular":
-        note = f"Modular pipeline: {stt.provider if stt else '?'} STT → LLM → {tts.provider if tts else '?'} TTS."
+        note = f"Modular pipeline: {stt.provider if stt else '?'} STT -> LLM -> {tts.provider if tts else '?'} TTS."
 
     return VoicePlan(
         engine=engine,

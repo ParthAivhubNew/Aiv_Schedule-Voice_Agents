@@ -175,6 +175,18 @@ async def terminate_live_call(
     except Exception:
         pass
 
+    # Terminate bridged voice session (modular/LiveKit and xAI pipelines)
+    try:
+        from app.services.xai_voice_service import get_bridged_session, bridged_sessions
+        for lookup_id in (call_id, call.id, carrier_sid):
+            if lookup_id:
+                b_sess = get_bridged_session(lookup_id)
+                if b_sess:
+                    await b_sess.close()
+                bridged_sessions.pop(str(lookup_id), None)
+    except Exception as b_err:
+        logger.debug(f"[EndCall] Error closing bridged session: {b_err}")
+
     if call.created_at:
         secs = max(1, int((datetime.utcnow() - call.created_at).total_seconds()))
         call.duration = f"{secs // 60:02d}:{secs % 60:02d}"
@@ -1146,6 +1158,19 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
             )
             matched.state = map_carrier_status_to_state(call_status)
             matched.ended = True
+
+            # Terminate active background AI pipeline and bridge session
+            try:
+                from app.services.xai_voice_service import get_bridged_session, bridged_sessions
+                for lookup_id in (matched.id, call_sid, matched.carrier_sid):
+                    if lookup_id:
+                        b_sess = get_bridged_session(lookup_id)
+                        if b_sess:
+                            await b_sess.close()
+                        bridged_sessions.pop(str(lookup_id), None)
+            except Exception as b_err:
+                logger.debug(f"[TwilioStatus] Error closing bridged session: {b_err}")
+
             dur_int = int(duration) if str(duration).isdigit() else 0
             if dur_int <= 0 and matched.created_at:
                 dur_int = max(0, int((datetime.utcnow() - matched.created_at).total_seconds()))

@@ -5,6 +5,7 @@ browser WebRTC session orchestration, and server webhook callbacks.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -165,14 +166,13 @@ async def create_livekit_token(
     # Register into LiveCall so it displays live in the dashboard alongside PSTN calls
     try:
         new_call = LiveCall(
-            call_id=call_id,
+            id=call_id,
+            org_id=org_id,
             prospect=payload.prospect_name or display_name,
-            phone=payload.prospect_phone or "Browser WebRTC",
+            mission="LiveKit WebRTC Test",
             channel="webrtc_livekit",
-            status="engaged",
-            state="engaged",
+            state="pitching",
             duration="00:00",
-            stage="connected",
             transcript=[
                 {
                     "who": "system",
@@ -180,15 +180,13 @@ async def create_livekit_token(
                     "timestamp": datetime.utcnow().isoformat(),
                 }
             ],
-            sentiment="neutral",
             prospect_timezone=prospect_tz,
         )
         db.add(new_call)
         await db.commit()
 
         # Broadcast event to frontend WebSocket
-        await call_hub.broadcast({
-            "type": "call_created",
+        await call_hub.broadcast("call_created", {
             "call": {
                 "id": call_id,
                 "call_id": call_id,
@@ -197,13 +195,30 @@ async def create_livekit_token(
                 "phone": payload.prospect_phone or "Browser WebRTC",
                 "channel": "webrtc_livekit",
                 "status": "engaged",
-                "state": "engaged",
+                "state": "pitching",
                 "duration": "00:00",
                 "transcript": new_call.transcript,
             }
         })
-    except Exception as db_err:
-        logger.warning("Could not persist LiveKit call record to database: %s", db_err)
+    except Exception as e:
+        logger.warning("Could not register LiveCall record for LiveKit: %s", e)
+
+    # Auto-launch AI room agent for interactive conversation if a human user is joining
+    if payload.role != "agent":
+        try:
+            from app.services.livekit_service import start_livekit_room_agent
+            asyncio.create_task(
+                start_livekit_room_agent(
+                    room_name=room_name,
+                    call_id=call_id,
+                    prospect_name=payload.prospect_name or display_name,
+                    company_name=company_name,
+                    org_id=org_id,
+                )
+            )
+            logger.info("Launched start_livekit_room_agent for room %s (call_id: %s)", room_name, call_id)
+        except Exception as agent_err:
+            logger.error("Failed to launch LiveKit room agent: %s", agent_err)
 
     return {
         "token": token,

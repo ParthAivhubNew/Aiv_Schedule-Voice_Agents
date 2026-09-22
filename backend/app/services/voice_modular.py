@@ -315,8 +315,30 @@ async def run_modular_pipeline(
     bridge.on_caller_audio = on_caller
     speaking_task: Optional[asyncio.Task] = None
 
+    # Watchdog: if no carrier media stream connects within 12s, stop phantom session
+    async def stream_watchdog():
+        await asyncio.sleep(12)
+        if not bridge._live and not bridge.closed.is_set():
+            logger.warning(f"[MODULAR] No carrier audio stream connected for {local_id} within 12s. Auto-terminating session.")
+            await _update_call_transcript(local_id, "System: Carrier audio stream did not connect (call was disconnected or carrier unreachable). AI session ended.")
+            try:
+                async with AsyncSessionLocal() as wd_db:
+                    c_rec = (await wd_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
+                    if c_rec and not c_rec.ended:
+                        c_rec.ended = True
+                        c_rec.state = "ended"
+                        await wd_db.commit()
+                        await call_hub.broadcast("call_ended", {"callId": local_id, "id": local_id, "state": "ended"})
+            except Exception:
+                pass
+            await bridge.close()
+
+    watchdog_task = asyncio.create_task(stream_watchdog())
+
     async def handle_final(text: str):
         nonlocal speaking_task
+        if bridge.closed.is_set():
+            return
         text = (text or "").strip()
         if not text:
             return
@@ -352,9 +374,11 @@ async def run_modular_pipeline(
         bridge._barge = asyncio.Event()
 
         async def speak_reply():
-            await _speak(bridge, plan, reply, pace=True)
+            if not bridge.closed.is_set():
+                await _speak(bridge, plan, reply, pace=True)
 
         speaking_task = asyncio.create_task(speak_reply())
+        bridge._speaking_task = speaking_task
 
     try:
         async with websockets.connect(
@@ -367,8 +391,20 @@ async def run_modular_pipeline(
             logger.info(f"[MODULAR] Deepgram connected for {call_id}")
 
             async def keepalive():
-                while True:
-                    await asyncio.sleep(8)
+                while not bridge.closed.is_set():
+                    await asyncio.sleep(4)
+                    if bridge.closed.is_set():
+                        break
+                    # Periodic DB check to ensure call has not been marked ended
+                    try:
+                        async with AsyncSessionLocal() as chk_db:
+                            c_row = (await chk_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
+                            if c_row and c_row.ended:
+                                logger.info(f"[MODULAR] Call {local_id} marked ended in DB. Halting pipeline.")
+                                await bridge.close()
+                                break
+                    except Exception:
+                        pass
                     try:
                         await dg.send(json.dumps({"type": "KeepAlive"}))
                     except Exception:
@@ -377,6 +413,8 @@ async def run_modular_pipeline(
             ka = asyncio.create_task(keepalive())
             try:
                 async for raw_msg in dg:
+                    if bridge.closed.is_set():
+                        break
                     if isinstance(raw_msg, bytes):
                         continue
                     try:
@@ -397,6 +435,8 @@ async def run_modular_pipeline(
     except Exception as err:
         logger.warning(f"[MODULAR] Deepgram session ended for {call_id}: {err}")
     finally:
+        watchdog_task.cancel()
+        await bridge.close()
         bridge._dg_ws = None
         bridge.on_caller_audio = None
         logger.info(f"[MODULAR] Pipeline finished for {call_id}")

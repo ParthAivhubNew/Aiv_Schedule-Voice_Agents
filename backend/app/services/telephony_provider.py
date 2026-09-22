@@ -16,20 +16,27 @@ _DEFAULT_PUBLIC_HOST = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litn
 
 def public_http_base() -> str:
     raw = (getattr(settings, "PUBLIC_BASE_URL", None) or "").strip().rstrip("/")
-    if not raw or "127.0.0.1" in raw or "localhost" in raw:
-        try:
-            import json
-            import urllib.request
-            with urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=0.35) as resp:
-                tunnels = json.loads(resp.read().decode()).get("tunnels", [])
-                for t in tunnels:
-                    url = str(t.get("public_url") or "").strip().rstrip("/")
-                    if url.startswith("https://"):
-                        return url
-        except Exception:
-            pass
-        return _DEFAULT_PUBLIC_HOST
-    return raw
+    # If a custom production domain is explicitly set in server environment, honor it immediately
+    if raw and not any(x in raw for x in ("127.0.0.1", "localhost", "ngrok")):
+        return raw
+
+    # In local development or when using ngrok, check if an active local ngrok tunnel is available on port 4040
+    try:
+        import json
+        import urllib.request
+        with urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=0.35) as resp:
+            tunnels = json.loads(resp.read().decode()).get("tunnels", [])
+            for t in tunnels:
+                url = str(t.get("public_url") or "").strip().rstrip("/")
+                if url.startswith("https://"):
+                    return url
+    except Exception:
+        pass
+
+    if raw and "127.0.0.1" not in raw and "localhost" not in raw:
+        return raw
+
+    return _DEFAULT_PUBLIC_HOST
 
 
 def public_wss_base() -> str:

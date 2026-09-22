@@ -266,6 +266,48 @@ async def lifespan(app: FastAPI):
                     })
                 lk_conn.api_key_masked = lk_conn.api_key_masked or f"{(settings.LIVEKIT_API_KEY or 'devkey')[:4]}••••"
                 await init_db.commit()
+
+            # Ensure xAI Voice Agent is in Text-to-Speech
+            r_xai_tts = await init_db.execute(
+                select(Connection).where(
+                    Connection.group_name == "Text-to-Speech",
+                    Connection.name.ilike("%xai%")
+                )
+            )
+            if not r_xai_tts.scalars().first():
+                xai_tts_conn = Connection(
+                    id=f"c_tts_xai_{uuid.uuid4().hex[:6]}",
+                    group_name="Text-to-Speech",
+                    name="xAI Voice Agent",
+                    status="connected" if settings.XAI_API_KEY else "not_configured",
+                    model="xai built-in (rex)",
+                    config=seal_config({
+                        "api_key": settings.XAI_API_KEY or "",
+                        "model": "xai built-in (rex)",
+                    }),
+                    api_key_masked=f"{(settings.XAI_API_KEY or '')[:6]}••••" if settings.XAI_API_KEY else None,
+                )
+                init_db.add(xai_tts_conn)
+                await init_db.commit()
+
+            # Ensure xAI Voice Agent is in Voice Orchestration
+            r_xai_vo = await init_db.execute(
+                select(Connection).where(
+                    Connection.group_name == "Voice Orchestration",
+                    Connection.name.ilike("%xai%")
+                )
+            )
+            if not r_xai_vo.scalars().first():
+                xai_vo_conn = Connection(
+                    id=f"c_vo_xai_{uuid.uuid4().hex[:6]}",
+                    group_name="Voice Orchestration",
+                    name="xAI Voice Agent",
+                    status="connected" if settings.XAI_API_KEY else "not_configured",
+                    config=seal_config({"api_key": settings.XAI_API_KEY or ""}),
+                    api_key_masked=f"{(settings.XAI_API_KEY or '')[:6]}••••" if settings.XAI_API_KEY else None,
+                )
+                init_db.add(xai_vo_conn)
+                await init_db.commit()
     except Exception as auto_conn_err:
         logger.warning("Auto-configuration of built-in connections skipped: %s", auto_conn_err)
     try:

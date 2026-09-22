@@ -333,23 +333,36 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
             elif event_type == "stop":
                 logger.info(f"[TwilioStream] Stream stopped: streamSid={stream_sid}, call_id={call_id}")
                 try:
-                    logger.info(f"[TwilioStream] Stream stopped for {call_id} — NOT auto-hanging up")
-                    # Do NOT auto-hangup - let the call continue
-                    pass
+                    from app.services.xai_voice_service import get_bridged_session
+                    sess = get_bridged_session(call_id, call_sid)
+                    if sess:
+                        await sess.close()
+                    await _hangup_if_call_still_live(call_id, call_sid)
                 except Exception as hang_err:
-                    logger.warning(f"[TwilioStream] stream stop handler failed: {hang_err}")
+                    logger.warning(f"[TwilioStream] stream stop handler error: {hang_err}")
                 break
 
     except WebSocketDisconnect:
-        logger.info(f"[TwilioStream] Twilio stream disconnected: {stream_sid} — call continues (do not auto-hangup)")
-        # DO NOT auto-hangup - let the prospect stay connected
-        # The call may reconnect or continue via alternative path
-        pass
+        logger.info(f"[TwilioStream] Twilio stream disconnected: {stream_sid}")
+        try:
+            from app.services.xai_voice_service import get_bridged_session
+            sess = get_bridged_session(call_id, call_sid)
+            if sess:
+                await sess.close()
+            await _hangup_if_call_still_live(call_id, call_sid)
+        except Exception as disc_err:
+            logger.warning(f"[TwilioStream] disconnect cleanup error: {disc_err}")
     except Exception as exc:
         logger.warning(f"[TwilioStream] Stream error: {exc}")
-        # Do NOT auto-hangup on error - let the call continue
-        pass
     finally:
+        if call_id:
+            try:
+                from app.services.xai_voice_service import get_bridged_session
+                sess = get_bridged_session(call_id, call_sid)
+                if sess:
+                    await sess.close()
+            except Exception:
+                pass
         if call_id and call_id in media_stream_hub.twilio_streams:
             del media_stream_hub.twilio_streams[call_id]
         if call_id and call_id in media_stream_hub.stream_protocol:

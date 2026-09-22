@@ -198,12 +198,17 @@ function isValidCloneVoiceId(v) {
 }
 
 function liveStackLabels(hub) {
+  if (hub?.liveLabels && typeof hub.liveLabels === "object") {
+    return hub.liveLabels;
+  }
   const engine = String(hub?.liveEngine || "").toLowerCase();
   const voice = hub?.voiceName || hub?.voiceEngineName || "—";
   const engineLabel =
     engine === "xai" ? "xAI Grok (speech-to-speech)"
     : engine === "openai" ? "OpenAI Realtime"
-    : engine === "livekit" ? "LiveKit Agents"
+    : engine === "livekit" ? (hub?.activeEngine || "LiveKit (self-hosted)")
+    : engine === "vapi" ? "Vapi Voice AI"
+    : engine === "retell" ? "Retell AI"
     : engine === "modular" ? "Modular pipeline"
     : engine === "simulation" ? "Simulation"
     : hub?.activeEngine || "—";
@@ -9803,7 +9808,7 @@ const MODEL_PRESETS_BY_PROVIDER = {
   "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"],
   "openai (gpt-4o)": ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"],
   "anthropic (claude)": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-7-sonnet-20250219"],
-  "xai (grok)": ["grok-2-latest", "grok-2", "grok-beta"],
+  "xai": ["xAI built-in (rex)", "xAI built-in (ara)", "xAI built-in (eve)", "xAI built-in (leo)", "grok-voice-latest", "grok-2-latest"],
   "cartesia": ["sonic-2", "sonic-turbo"],
   "elevenlabs": ["eleven_turbo_v2_5", "eleven_multilingual_v2"],
 };
@@ -9943,101 +9948,51 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       }));
     }
     flash();
-    
-    // If user changes Voice Orchestration engine, actually apply it to the live stack
-    if (key === "voice") {
-      await applyVoiceEngineChange(val);
-    }
-  };
-  
-  const applyVoiceEngineChange = async (engineLabel) => {
+
     try {
-      // Map friendly labels to engine codes
-      const engineMap = {
-        "xAI + cloned TTS (plugin)": "xai",
-        "xAI Grok (speech-to-speech)": "xai",
-        "xAI Voice Agent": "xai",
-        "OpenAI Realtime": "openai",
-        "LiveKit (self-hosted)": "livekit",
-        "LiveKit Agents": "livekit",
-        "Modular pipeline": "modular",
-        "Modular Voice Pipeline": "modular",
-        "Vapi Voice AI": "xai", // Fallback to xai if not implemented
-        "Retell AI": "xai", // Fallback to xai if not implemented
-        "Simulation": "simulation",
-      };
-      
-      const engineCode = engineMap[engineLabel] || engineLabel.toLowerCase();
-      
-      // Get current phone number and other settings
-      const currentPhone = liveHub?.phoneNumber;
-      const currentCarrier = liveHub?.activeCarrier?.toLowerCase() || "twilio";
-      
-      if (!currentPhone) {
-        console.warn("[What Runs Where] No phone number configured - cannot update engine");
-        return;
+      const payload = {};
+      if (key === "voice") {
+        payload.voice = val;
+      } else if (key === "tts") {
+        payload.tts = val;
+      } else if (key === "llm") {
+        payload.llm = val;
+      } else if (key === "stt") {
+        payload.stt = val;
+      } else if (key === "telephony") {
+        payload.carrier = val;
       }
-      
-      console.log(`[What Runs Where] Changing engine to: ${engineCode} (from label: ${engineLabel})`);
-      
-      // Build provision payload
-      const provisionPayload = {
-        carrier: currentCarrier,
-        engine: engineCode,
-        phone_number: currentPhone,
-      };
-      
-      // Add voice_name if available
-      if (liveHub?.voiceEngineName) {
-        provisionPayload.voice_name = liveHub.voiceEngineName;
-      }
-      
-      // Call provision endpoint to update the engine
-      await api.provisionTelephonyHub(provisionPayload);
-      
-      // Refresh hub status - give backend a moment to persist
-      await new Promise(resolve => setTimeout(resolve, 300));
+
+      await api.selectActiveStack(payload);
       const freshHub = await api.getTelephonyHub();
       if (freshHub) {
         setLiveHub(freshHub);
-        console.log("[What Runs Where] Hub refreshed:", {
-          liveEngine: freshHub.liveEngine,
-          activeEngine: freshHub.activeEngine,
-          llm: freshHub.llmName,
-          stt: freshHub.sttName,
-          tts: freshHub.ttsName
-        });
       }
-      
-      // Also refresh the telephony hub display in Voice Trunking Tab
-      if (typeof fetchStatus === "function") {
-        fetchStatus();
-      }
-      
+
       if (setNotifications) {
         setNotifications((ns) => [
-          { 
-            id: "n_" + Date.now(), 
-            text: `✓ Voice engine switched to ${engineLabel}`, 
-            time: "just now", 
-            unread: true, 
-            type: "success" 
+          {
+            id: "n_" + Date.now(),
+            text: `✓ Live stack updated: ${val}`,
+            time: "just now",
+            unread: true,
+            type: "success",
           },
-          ...ns
+          ...ns,
         ]);
       }
     } catch (err) {
-      console.error("[What Runs Where] Failed to update engine:", err);
+      console.warn("[What Runs Where] Failed to save active stack selection:", err);
       if (setNotifications) {
         setNotifications((ns) => [
-          { 
-            id: "n_" + Date.now(), 
-            text: `Failed to switch engine: ${err.message}`, 
-            time: "just now", 
-            unread: true, 
-            type: "error" 
+          {
+            id: "n_" + Date.now(),
+            text: `Could not save selection: ${err.message}`,
+            time: "just now",
+            unread: true,
+            type: "error",
           },
-          ...ns
+          ...ns,
         ]);
       }
     }
@@ -10090,12 +10045,15 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     // Always include currently active TTS from live hub
     ...(liveHub?.ttsName ? [liveHub.ttsName] : []),
     ...(liveHub?.ttsProvider ? [liveHub.ttsProvider] : []),
-    // xAI Voice Agent always available
+    // xAI Voice Agent & built-in TTS voices
     "xAI Voice Agent",
-    // xAI built-in TTS voices always available
-    "xAI built-in (ara)",
     "xAI built-in (rex)",
+    "xAI built-in (ara)",
     "xAI built-in (eve)",
+    "xAI built-in (leo)",
+    "Cartesia Sonic",
+    "ElevenLabs Turbo",
+    "Deepgram Aura",
   ])).filter(Boolean);
   
   console.log('[DEBUG] allLlmOptions:', allLlmOptions);
@@ -10608,24 +10566,31 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                       if (group.group === "Telephony" && carrierL && nameL.includes(carrierL.split(/\s+/)[0])) {
                         usedBy = "In use · Calling";
                       } else if (group.group === "Text-to-Speech" && (
-                        (liveHub?.externalTts && (nameL.includes("cartesia") && ttsL.includes("cartesia") || nameL.includes("eleven") && ttsL.includes("eleven") || (ttsL && nameL.includes(ttsL.split(/\s+/)[0])))) ||
+                        (nameL.includes("xai") && (ttsL.includes("xai") || !liveHub?.externalTts && engL.includes("xai"))) ||
+                        (nameL.includes("cartesia") && ttsL.includes("cartesia")) ||
+                        (nameL.includes("eleven") && ttsL.includes("eleven")) ||
+                        (nameL.includes("deepgram") && (ttsL.includes("deepgram") || ttsL.includes("aura"))) ||
                         (ttsL && nameL.includes(ttsL.split(/\s+/)[0]))
                       )) {
                         usedBy = "In use · Calling speak";
                       } else if (group.group === "Voice Orchestration" && (
+                        (nameL.includes("livekit") && engL.includes("livekit")) ||
                         (nameL.includes("xai") && engL.includes("xai")) ||
-                        (nameL.includes("livekit") && (engL.includes("livekit") || engL.includes("modular"))) ||
-                        (nameL.includes("openai") && engL.includes("openai"))
+                        (nameL.includes("vapi") && engL.includes("vapi")) ||
+                        (nameL.includes("retell") && engL.includes("retell")) ||
+                        (nameL.includes("openai") && engL.includes("openai")) ||
+                        (nameL.includes("modular") && engL.includes("modular"))
                       )) {
                         usedBy = "In use · Calling engine";
                       } else if (group.group === "Speech-to-Text" && (
-                        ((String(liveHub?.liveEngine || "").toLowerCase() === "modular" || String(liveHub?.liveEngine || "").toLowerCase() === "livekit") && liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase())) ||
-                        (liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase()))
+                        (liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase())) ||
+                        (nameL.includes("deepgram") && String(liveLabels?.stt || "").toLowerCase().includes("deepgram"))
                       )) {
                         usedBy = "In use · Calling listen";
                       } else if (group.group === "LLM" && (
-                        ((String(liveHub?.liveEngine || "").toLowerCase() === "modular" || String(liveHub?.liveEngine || "").toLowerCase() === "livekit") && liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase())) ||
-                        (liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase()))
+                        (liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase())) ||
+                        (nameL.includes("deepseek") && String(liveLabels?.llm || "").toLowerCase().includes("deepseek")) ||
+                        (nameL.includes("openai") && String(liveLabels?.llm || "").toLowerCase().includes("openai"))
                       )) {
                         usedBy = "In use · Calling think";
                       } else if (group.group === "Calendar") {
@@ -10647,7 +10612,14 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               </div>
                             )}
                             {highlighted && (
-                              <div style={{ fontSize: 10.5, fontWeight: 700, color: "#065F46", marginTop: 3, letterSpacing: "0.02em" }}>{usedBy}</div>
+                              <div style={{ fontSize: 10.5, fontWeight: 700, color: "#065F46", marginTop: 3, letterSpacing: "0.02em" }}>
+                                {usedBy}
+                                {group.group === "Text-to-Speech" && (liveHub?.ttsName || liveLabels?.tts) && (
+                                  <span style={{ display: "block", color: "#047857", fontWeight: 600, fontSize: 10, marginTop: 1 }}>
+                                    Active: {liveHub.ttsName || liveLabels.tts}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                           <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12, color: isConnected ? C.textInk : C.slateLight }}>

@@ -38,16 +38,36 @@ export function LiveKitBrowserCallModal({
   ]);
   const [waveformLevels, setWaveformLevels] = useState([15, 20, 15, 25, 20, 15, 20, 15, 25, 20, 15, 20]);
 
+  const [chatInput, setChatInput] = useState("");
   const roomRef = useRef(null);
   const timerRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const animFrameRef = useRef(null);
   const localTrackRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const hasRemoteAudioRef = useRef(false);
+  const audioElementRef = useRef(null);
 
-  // Check LiveKit server status on open
+  // Check LiveKit server status & reset state on modal open
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setCallDuration(0);
+      setCallState("idle");
+      stopVisualizer();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (_) {}
+      }
+      return;
+    }
+
+    setCallDuration(0);
+    setCallState("idle");
+    setErrorMessage("");
+    setTranscripts([
+      { who: "system", text: "Ready to test in-browser voice with LiveKit WebRTC." },
+    ]);
+    hasRemoteAudioRef.current = false;
 
     let mounted = true;
     api.getLiveKitStatus()
@@ -68,7 +88,7 @@ export function LiveKitBrowserCallModal({
     };
   }, [isOpen]);
 
-  // Duration timer
+  // Duration timer - strictly tied to connected state
   useEffect(() => {
     if (callState === "connected") {
       timerRef.current = setInterval(() => {
@@ -133,10 +153,67 @@ export function LiveKitBrowserCallModal({
     setWaveformLevels([15, 20, 15, 25, 20, 15, 20, 15, 25, 20, 15, 20]);
   };
 
+  // Browser Speech Synthesis fallback (ensures AI speaks even if browser policy buffers audio)
+  const speakFallback = (text) => {
+    if (!window.speechSynthesis) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch (_) {}
+  };
+
+  // Browser Web Speech Recognition (listens to mic and transmits recognized words to agent)
+  const startSpeechRecognition = (room) => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            const spokenText = event.results[i][0].transcript.trim();
+            if (spokenText) {
+              setTranscripts((prev) => [
+                ...prev,
+                { who: "user", text: spokenText },
+              ]);
+              if (room && room.localParticipant) {
+                try {
+                  const data = JSON.stringify({ type: "user_speech", text: spokenText });
+                  room.localParticipant.publishData(new TextEncoder().encode(data), { reliable: true });
+                } catch (err) {
+                  console.debug("Data send error:", err);
+                }
+              }
+            }
+          }
+        }
+      };
+
+      recognition.onerror = (e) => {
+        console.debug("Speech recognition event:", e.error);
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
+      console.warn("Speech recognition init warning:", err);
+    }
+  };
+
   const startBrowserCall = async () => {
     try {
+      setCallDuration(0);
       setErrorMessage("");
       setCallState("requesting_token");
+      hasRemoteAudioRef.current = false;
       setTranscripts([
         { who: "system", text: "Requesting WebRTC authorization token from backend..." },
       ]);
@@ -174,11 +251,23 @@ export function LiveKitBrowserCallModal({
       // Event: Remote track subscribed (incoming audio from agent or other participant)
       room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         if (track.kind === Track.Kind.Audio) {
-          const audioElement = track.attach();
-          audioElement.play().catch((e) => console.warn("Audio play warning:", e));
+          hasRemoteAudioRef.current = true;
+          try {
+            const audioElement = track.attach();
+            audioElement.autoplay = true;
+            audioElement.volume = 1.0;
+            audioElement.style.display = "none";
+            document.body.appendChild(audioElement);
+            audioElementRef.current = audioElement;
+            audioElement.play().catch((e) => {
+              console.warn("Audio play warning:", e);
+            });
+          } catch (attErr) {
+            console.warn("Track attach error:", attErr);
+          }
           setTranscripts((prev) => [
             ...prev,
-            { who: "system", text: `Subscribed to audio track from ${participant.identity}` },
+            { who: "system", text: `✓ Audio stream connected from ${participant.name || participant.identity}` },
           ]);
         }
       });
@@ -201,6 +290,14 @@ export function LiveKitBrowserCallModal({
               ...prev,
               { who: data.who || (participant ? participant.identity : "ai"), text: data.text },
             ]);
+            // If remote audio is paused or not delivering sound, speak aloud via browser speech
+            if (data.who === "ai" || !data.who) {
+              const el = audioElementRef.current;
+              const isPlaying = el && !el.paused && el.currentTime > 0;
+              if (!isPlaying) {
+                speakFallback(data.text);
+              }
+            }
           }
         } catch (_) {}
       });
@@ -208,7 +305,11 @@ export function LiveKitBrowserCallModal({
       // Event: Disconnected
       room.on(RoomEvent.Disconnected, () => {
         setCallState("ended");
+        setCallDuration(0);
         stopVisualizer();
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch (_) {}
+        }
         if (onCallEnded) onCallEnded();
       });
 
@@ -217,6 +318,9 @@ export function LiveKitBrowserCallModal({
 
       // 4. Enable microphone
       await room.localParticipant.enableCameraAndMicrophone(false, true);
+
+      // 5. Start browser speech recognition to transcribe user words in real time
+      startSpeechRecognition(room);
 
       // Capture local track for visualizer
       const audioTracks = room.localParticipant.audioTrackPublications;
@@ -228,14 +332,16 @@ export function LiveKitBrowserCallModal({
         }
       }
 
+      setCallDuration(0);
       setCallState("connected");
       setTranscripts((prev) => [
         ...prev,
-        { who: "system", text: "Connected via WebRTC. Speak into your microphone now." },
+        { who: "system", text: "Connected via WebRTC. AI Assistant is joining. Speak into your microphone now." },
       ]);
     } catch (err) {
       console.error("LiveKit Call Error:", err);
       setCallState("error");
+      setCallDuration(0);
       stopVisualizer();
 
       let friendly = err.message || "Failed to establish WebRTC connection";
@@ -251,7 +357,11 @@ export function LiveKitBrowserCallModal({
   };
 
   const endBrowserCall = async () => {
+    setCallDuration(0);
     stopVisualizer();
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (_) {}
+    }
     if (roomRef.current) {
       try {
         await roomRef.current.disconnect();
@@ -260,6 +370,19 @@ export function LiveKitBrowserCallModal({
     }
     setCallState("ended");
     if (onCallEnded) onCallEnded();
+  };
+
+  const sendTextMessage = () => {
+    const text = chatInput.trim();
+    if (!text || !roomRef.current) return;
+    setTranscripts((prev) => [...prev, { who: "user", text }]);
+    try {
+      const data = JSON.stringify({ type: "user_speech", text });
+      roomRef.current.localParticipant.publishData(new TextEncoder().encode(data), { reliable: true });
+    } catch (err) {
+      console.warn("Failed to send message:", err);
+    }
+    setChatInput("");
   };
 
   const toggleMute = async () => {
@@ -492,6 +615,44 @@ export function LiveKitBrowserCallModal({
               </div>
             ))}
           </div>
+
+          {/* Interactive voice & text input when connected */}
+          {callState === "connected" && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") sendTextMessage(); }}
+                placeholder="Speak into mic, or type message to AI..."
+                style={{
+                  flex: 1,
+                  padding: "9px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${C.border}`,
+                  fontSize: 13,
+                  fontFamily: FONT_BODY,
+                  outline: "none",
+                }}
+              />
+              <button
+                type="button"
+                onClick={sendTextMessage}
+                style={{
+                  padding: "9px 16px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: C.cobalt,
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Send
+              </button>
+            </div>
+          )}
 
           {/* If server offline notification / instructions */}
           {serverStatus && !serverStatus.online && callState !== "connected" && (
