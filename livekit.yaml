@@ -2,14 +2,14 @@ port: 7880
 rtc:
   port_range_start: 50000
   port_range_end: 60000
-  use_external_ip: false
+  use_external_ip: true
   tcp_port: 7881
   udp_port: 7882
 
-# Redis optional - commented out for local development
-# Uncomment when deploying with redis container
-# redis:
-#   address: redis:6379
+# Redis for multi-node clustering (optional for single-node local development)
+# LiveKit will automatically fall back to single-node mode if Redis is unavailable
+redis:
+  address: redis:6379
 
 keys:
   devkey: secret1234567890abcdef1234567890abcdef
