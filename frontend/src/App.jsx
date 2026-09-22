@@ -1091,7 +1091,7 @@ const CONNECTIONS = [
   ]},
   { group: "Voice Orchestration", desc: "Manages the live call itself — audio streaming, interruptions, turn-taking.", items: [
     { name: "xAI Voice Agent", status: "not_configured" },
-    { name: "LiveKit (self-hosted)", status: "not_configured" },
+    { name: "LiveKit (self-hosted)", status: "connected" },
     { name: "Vapi", status: "not_configured" },
     { name: "Retell AI", status: "not_configured" },
   ]},
@@ -8119,10 +8119,10 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : cLower.includes("sim") ? "simulation" : "telnyx");
         }
         if (data.liveEngine) {
-          setEngineChoice(["xai", "openai", "modular", "simulation"].includes(data.liveEngine) ? data.liveEngine : "xai");
+          setEngineChoice(["xai", "openai", "livekit", "modular", "simulation"].includes(data.liveEngine) ? data.liveEngine : "xai");
         } else if (data.activeEngine) {
           const eLower = data.activeEngine.toLowerCase();
-          setEngineChoice(eLower.includes("openai") ? "openai" : eLower.includes("modular") ? "modular" : eLower.includes("sim") ? "simulation" : "xai");
+          setEngineChoice(eLower.includes("livekit") ? "livekit" : eLower.includes("openai") ? "openai" : eLower.includes("modular") ? "modular" : eLower.includes("sim") ? "simulation" : "xai");
         }
       }
     } catch (err) {
@@ -8448,6 +8448,13 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       icon: Headphones
     },
     {
+      id: "livekit",
+      name: "LiveKit (Self-Hosted)",
+      badge: "WebRTC · STT + LLM + TTS plugins",
+      desc: "Self-hosted LiveKit Agents pipeline: bring your own Speech-to-Text, LLM, and Text-to-Speech from Connections.",
+      icon: Radio
+    },
+    {
       id: "modular",
       name: "Modular Voice Pipeline",
       badge: "Pick STT + LLM + TTS plugins",
@@ -8736,6 +8743,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           <div style={{ marginTop: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
             {engineChoice === "modular"
               ? "Uses Connections STT → LLM → TTS."
+              : engineChoice === "livekit"
+              ? "Uses self-hosted LiveKit Agents with your Connections STT → LLM → TTS plugins."
               : engineChoice === "openai"
                 ? "OpenAI built-in voices only."
                 : engineChoice === "simulation"
@@ -8771,14 +8780,14 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             {engineChoice !== "simulation" && (
               <div>
                 <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                  {engineChoice === "xai" ? "xAI API Key" : engineChoice === "openai" ? "OpenAI API Key" : engineChoice === "modular" ? "Optional engine key (modular uses Connections STT/TTS/LLM)" : "Engine Primary API Key"}
+                  {engineChoice === "xai" ? "xAI API Key" : engineChoice === "openai" ? "OpenAI API Key" : engineChoice === "livekit" ? "LiveKit API Key (optional — uses Connections plugins)" : engineChoice === "modular" ? "Optional engine key (modular uses Connections STT/TTS/LLM)" : "Engine Primary API Key"}
                 </label>
                 <div style={{ position: "relative" }}>
                   <input
                     type={showKey ? "text" : "password"}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={engineChoice === "xai" ? "xai-••••••••••••••••" : "sk-••••••••••••••••"}
+                    placeholder={engineChoice === "xai" ? "xai-••••••••••••••••" : engineChoice === "livekit" ? "devkey (or leave blank if using .env LIVEKIT_API_KEY)" : "sk-••••••••••••••••"}
                     style={{ width: "100%", boxSizing: "border-box", padding: "10px 38px 10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13, outline: "none" }}
                   />
                   <button

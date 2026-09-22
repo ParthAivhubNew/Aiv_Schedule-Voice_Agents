@@ -367,7 +367,7 @@ logger = logging.getLogger(__name__)
 
 class TelephonyHubProvisionRequest(BaseModel):
     carrier: str = "telnyx"        # telnyx, twilio, generic_sip, simulation
-    engine: str = "xai"            # xai, openai, modular, simulation
+    engine: str = "xai"            # xai, openai, livekit, modular, simulation
     phone_number: str
     api_key: Optional[str] = None
     account_sid: Optional[str] = None
@@ -1059,7 +1059,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
             import os
             os.environ["XAI_API_KEY"] = key_clean
             os.environ["VOICE_ENGINE_MODE"] = "live"
-        elif "openai" in engine or "modular" in engine:
+        elif "openai" in engine or "modular" in engine or "livekit" in engine:
             settings.VOICE_ENGINE_MODE = "live"
             import os
             os.environ["VOICE_ENGINE_MODE"] = "live"
@@ -1068,7 +1068,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
                 os.environ["OPENAI_API_KEY"] = key_clean
 
         carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Simulation"
-        engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
+        engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "LiveKit (self-hosted)" if "livekit" in engine else "Modular Pipeline" if "modular" in engine else "Simulation"
         masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
 
         try:
