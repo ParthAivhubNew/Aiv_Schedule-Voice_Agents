@@ -1014,6 +1014,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
         
         signing_secret = None
         auto_registered = False
+        twilio_verified = False
         reg_error = None
         existing_number = None
 
@@ -1187,7 +1188,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
                             ]
                             if tw_nums:
                                 if phone_clean in tw_nums:
-                                    auto_registered = True
+                                    twilio_verified = True
                                     twilio_note = "Verified on active Twilio account."
                                 else:
                                     twilio_note = f"Saved. Notice: {phone_clean} was not found among purchased Twilio numbers ({', '.join(tw_nums)}). Ensure it is verified in Twilio Console before placing live calls."
@@ -1301,15 +1302,17 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
             pass
 
         has_error = bool(reg_error)
-        if auto_registered and signing_secret:
+        if "xai" in engine and auto_registered and signing_secret:
             msg = f"Successfully registered {phone_clean} with xAI BYO Trunk. {twilio_note}".strip()
-        elif auto_registered and not signing_secret:
+        elif "xai" in engine and auto_registered and not signing_secret:
             num_desc = existing_number.get("phone_number_id") if existing_number else "active"
             msg = f"Phone number {phone_clean} is confirmed connected on xAI Direct SIP (ID: {num_desc}). {twilio_note}".strip()
+        elif twilio_verified:
+            msg = f"Phone number {phone_clean} verified on Twilio. Active engine: {engine_name}."
         elif twilio_note:
-            msg = twilio_note
+            msg = f"{carrier_name} & {engine_name} linked to {phone_clean}. {twilio_note}"
         elif has_error:
-            msg = f"Config saved, but xAI registration failed: {reg_error}"
+            msg = f"Config saved, but registration warning: {reg_error}"
         else:
             msg = f"{carrier_name} & {engine_name} linked to {phone_clean}."
 

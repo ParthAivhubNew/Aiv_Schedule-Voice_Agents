@@ -58,6 +58,26 @@ const DEFAULT_LIST_HEADERS = ["Company", "Contact", "Phone", "Email", "Website",
 const SIMPLE_PAGES = new Set(PAGES.map((p) => p.id));
 const MAX_CONCURRENT = 2;
 
+const COUNTRY_CODES = [
+  { code: "+44", country: "UK", flag: "🇬🇧", name: "United Kingdom" },
+  { code: "+1", country: "US/CA", flag: "🇺🇸", name: "United States / Canada" },
+  { code: "+91", country: "IN", flag: "🇮🇳", name: "India" },
+  { code: "+61", country: "AU", flag: "🇦🇺", name: "Australia" },
+  { code: "+49", country: "DE", flag: "🇩🇪", name: "Germany" },
+  { code: "+33", country: "FR", flag: "🇫🇷", name: "France" },
+  { code: "+34", country: "ES", flag: "🇪🇸", name: "Spain" },
+  { code: "+39", country: "IT", flag: "🇮🇹", name: "Italy" },
+  { code: "+31", country: "NL", flag: "🇳🇱", name: "Netherlands" },
+  { code: "+41", country: "CH", flag: "🇨🇭", name: "Switzerland" },
+  { code: "+353", country: "IE", flag: "🇮🇪", name: "Ireland" },
+  { code: "+971", country: "AE", flag: "🇦🇪", name: "UAE" },
+  { code: "+65", country: "SG", flag: "🇸🇬", name: "Singapore" },
+  { code: "+64", country: "NZ", flag: "🇳🇿", name: "New Zealand" },
+  { code: "+27", country: "ZA", flag: "🇿🇦", name: "South Africa" },
+  { code: "+55", country: "BR", flag: "🇧🇷", name: "Brazil" },
+  { code: "+81", country: "JP", flag: "🇯🇵", name: "Japan" },
+];
+
 function blankListRow(index = 0) {
   const cells = {};
   DEFAULT_LIST_HEADERS.forEach((h) => { cells[h] = ""; });
@@ -803,6 +823,15 @@ export function CallingWorkspace({
     timezone: (profile && profile.timezone) || "Europe/London",
   });
   const fileRef = useRef(null);
+  const [countryCode, setCountryCode] = useState(() => {
+    try {
+      return localStorage.getItem("aivhub_dial_country_code") || "+44";
+    } catch (_) {
+      return "+44";
+    }
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
   const playerRef = useRef(null);
   const lookupStop = useRef(false);
   const lookupAbortRef = useRef(null);
@@ -1335,13 +1364,22 @@ export function CallingWorkspace({
     return true;
   };
 
+  const resolveDirectPhone = () => {
+    let phone = (direct.phone || "").trim();
+    if (!phone) return "";
+    if (phone.startsWith("+")) return phone;
+    const cleanDigits = phone.replace(/^0+/, "").replace(/\D/g, "");
+    return cleanDigits ? `${countryCode}${cleanDigits}` : phone;
+  };
+
   const saveDirectContact = () => {
+    const fullPhone = resolveDirectPhone();
     if (!upsertSavedContact({
-      phone: direct.phone,
+      phone: fullPhone || direct.phone,
       name: direct.name,
       source: "direct",
     })) return;
-    showToast(`Saved ${direct.name.trim() || direct.phone.trim()}`);
+    showToast(`Saved ${direct.name.trim() || fullPhone || direct.phone.trim()}`);
   };
 
   const saveSelectedContacts = () => {
@@ -1365,7 +1403,15 @@ export function CallingWorkspace({
   };
 
   const loadSavedContact = (c) => {
-    setDirect({ phone: c.phone || "", name: c.name || c.company || "" });
+    const raw = c.phone || "";
+    setDirect({ phone: raw, name: c.name || c.company || "" });
+    if (raw.startsWith("+")) {
+      const match = COUNTRY_CODES.find((item) => raw.startsWith(item.code));
+      if (match) {
+        setCountryCode(match.code);
+        try { localStorage.setItem("aivhub_dial_country_code", match.code); } catch (_) {}
+      }
+    }
     showToast("Loaded into Call anyone.");
   };
 
@@ -1507,6 +1553,48 @@ export function CallingWorkspace({
       },
       (err) => showToast(err)
     );
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { e.dataTransfer.dropEffect = "copy"; } catch (_) {}
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsDragging(false);
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+      const file = e.dataTransfer.files[0];
+      const name = (file.name || "").toLowerCase();
+      if (name.endsWith(".csv") || name.endsWith(".xlsx") || name.endsWith(".xls")) {
+        onFile(file);
+      } else {
+        showToast("Please drop an Excel (.xlsx, .xls) or CSV file.");
+      }
+    }
   };
 
   const findMissing = async () => {
@@ -1748,7 +1836,7 @@ export function CallingWorkspace({
   };
 
   const directCall = async () => {
-    const phone = direct.phone.trim();
+    let phone = resolveDirectPhone();
     if (digitsInPhone(phone).length < 7) {
       showToast("Enter a real phone number.");
       return;
@@ -2039,11 +2127,113 @@ export function CallingWorkspace({
         <div style={{ flex: 1, minHeight: 0, overflow: page === "list" ? "hidden" : "auto", padding: "18px 28px 28px", display: page === "list" ? "flex" : undefined, flexDirection: page === "list" ? "column" : undefined }}>
           {page === "list" && (
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 380px", gap: 16, flex: 1, minHeight: 0 }}>
-              <div style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
+              <div
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, position: "relative" }}
+              >
+                {isDragging && (
+                  <div style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(240, 246, 255, 0.95)",
+                    border: `2px dashed ${C.cobalt}`,
+                    borderRadius: 16,
+                    zIndex: 150,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 12,
+                    backdropFilter: "blur(2px)",
+                    pointerEvents: "none",
+                  }}>
+                    <div style={{ width: 64, height: 64, borderRadius: 20, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #C7D7FA" }}>
+                      <Upload size={32} color={C.cobalt} />
+                    </div>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.textInk }}>
+                      Drop CSV or Excel file to upload
+                    </div>
+                    <div style={{ fontSize: 13, color: C.slate, maxWidth: 380, textAlign: "center", lineHeight: 1.45 }}>
+                      Supports .xlsx, .xls, and .csv files. Contacts, phone numbers, and companies will be parsed automatically.
+                    </div>
+                  </div>
+                )}
                 <div style={{ ...card(), marginBottom: 12, flexShrink: 0 }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>Call anyone</div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    <input value={direct.phone} onChange={(e) => setDirect((d) => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ ...fieldStyle(), flex: 1, minWidth: 140 }} />
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 10,
+                      background: "#fff",
+                      height: 40,
+                      flex: 1,
+                      minWidth: 200,
+                      overflow: "hidden",
+                    }}>
+                      <select
+                        value={countryCode}
+                        onChange={(e) => {
+                          const code = e.target.value;
+                          setCountryCode(code);
+                          try { localStorage.setItem("aivhub_dial_country_code", code); } catch (_) {}
+                          if (direct.phone && !direct.phone.startsWith("+")) {
+                            const clean = direct.phone.replace(/^0+/, "").trim();
+                            setDirect((d) => ({ ...d, phone: clean ? `${code} ${clean}` : "" }));
+                          }
+                        }}
+                        title="Select Country Code"
+                        style={{
+                          height: "100%",
+                          border: "none",
+                          borderRight: `1px solid ${C.borderLight}`,
+                          background: "#F8FAFC",
+                          padding: "0 8px",
+                          fontFamily: FONT_BODY,
+                          fontSize: 12.5,
+                          fontWeight: 700,
+                          color: C.textInk,
+                          cursor: "pointer",
+                          outline: "none",
+                        }}
+                      >
+                        {COUNTRY_CODES.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.flag} {c.code} ({c.country})
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={direct.phone}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setDirect((d) => ({ ...d, phone: val }));
+                          if (val.startsWith("+")) {
+                            const match = COUNTRY_CODES.find((c) => val.startsWith(c.code));
+                            if (match && match.code !== countryCode) {
+                              setCountryCode(match.code);
+                              try { localStorage.setItem("aivhub_dial_country_code", match.code); } catch (_) {}
+                            }
+                          }
+                        }}
+                        placeholder="Phone"
+                        style={{
+                          border: "none",
+                          padding: "0 10px",
+                          height: "100%",
+                          outline: "none",
+                          fontFamily: FONT_BODY,
+                          fontSize: 13,
+                          flex: 1,
+                          minWidth: 90,
+                          background: "transparent",
+                        }}
+                      />
+                    </div>
                     <input value={direct.name} onChange={(e) => setDirect((d) => ({ ...d, name: e.target.value }))} placeholder="Name (optional)" style={{ ...fieldStyle(), flex: 1, minWidth: 120 }} />
                     <button type="button" disabled={busy === "direct"} onClick={directCall} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: "none", background: C.gradientPrimary, color: "#fff", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, boxShadow: "0 6px 16px rgba(52,87,213,0.25)" }}>
                       <Phone size={14} /> {busy === "direct" ? "Calling…" : "Call"}
@@ -2051,9 +2241,10 @@ export function CallingWorkspace({
                     <button
                       type="button"
                       onClick={() => {
+                        const targetPhone = resolveDirectPhone() || direct.phone.trim() || "Browser WebRTC";
                         setLiveKitTarget({
                           name: direct.name.trim() || "Test Prospect",
-                          phone: direct.phone.trim() || "Browser WebRTC",
+                          phone: targetPhone,
                           company: (profile && profile.name) || "AIVHub",
                         });
                         setLiveKitModalOpen(true);
@@ -2079,7 +2270,7 @@ export function CallingWorkspace({
                     <button
                       type="button"
                       disabled={digitsInPhone(direct.phone).length < 7}
-                      onClick={() => openChannel("sms", direct.phone, direct.name, brandForMsg())}
+                      onClick={() => openChannel("sms", resolveDirectPhone() || direct.phone, direct.name, brandForMsg())}
                       style={{ height: 40, padding: "0 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: digitsInPhone(direct.phone).length >= 7 ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, opacity: digitsInPhone(direct.phone).length >= 7 ? 1 : 0.45 }}
                     >
                       <MessageSquare size={14} /> Text
@@ -2087,7 +2278,7 @@ export function CallingWorkspace({
                     <button
                       type="button"
                       disabled={digitsInPhone(direct.phone).length < 7}
-                      onClick={() => openChannel("whatsapp", direct.phone, direct.name, brandForMsg())}
+                      onClick={() => openChannel("whatsapp", resolveDirectPhone() || direct.phone, direct.name, brandForMsg())}
                       style={{ height: 40, padding: "0 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: digitsInPhone(direct.phone).length >= 7 ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, opacity: digitsInPhone(direct.phone).length >= 7 ? 1 : 0.45 }}
                     >
                       WhatsApp
@@ -2131,9 +2322,6 @@ export function CallingWorkspace({
                   </button>
                   <button type="button" onClick={addRow} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                     <Pencil size={14} /> Add row
-                  </button>
-                  <button type="button" onClick={() => fileRef.current && fileRef.current.click()} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                    <Upload size={14} /> {fileName || "Upload CSV / Excel"}
                   </button>
                   <button type="button" disabled={!rows.length} onClick={saveList} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: rows.length ? "pointer" : "default" }}>
                     Save list
@@ -2180,6 +2368,29 @@ export function CallingWorkspace({
                           : `Call all phones (${dialable}) · 1 at a time`}
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current && fileRef.current.click()}
+                    title="Upload CSV or Excel file (.csv, .xlsx, .xls) — or drag and drop anywhere onto this page"
+                    style={{
+                      marginLeft: "auto",
+                      height: 40,
+                      padding: "0 16px",
+                      borderRadius: 10,
+                      border: `1.5px solid ${isDragging ? C.cobalt : C.border}`,
+                      background: isDragging ? C.cobaltSoft : "#fff",
+                      color: isDragging ? C.cobaltDeep : C.textInk,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <Upload size={14} color={isDragging ? C.cobalt : C.cobaltDeep} /> {fileName || "Upload CSV / Excel"}
+                  </button>
                 </div>
                 <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 10, flexShrink: 0 }}>
                   {rows.length
