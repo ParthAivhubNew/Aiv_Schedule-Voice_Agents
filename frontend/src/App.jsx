@@ -9961,9 +9961,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       
       const engineCode = engineMap[engineLabel] || engineLabel.toLowerCase();
       
-      // Get current phone number and other settings from hubData
-      const currentPhone = hubData?.phoneNumber || phoneNumber;
-      const currentCarrier = hubData?.activeCarrier?.toLowerCase() || "twilio";
+      // Get current phone number and other settings
+      const currentPhone = liveHub?.phoneNumber;
+      const currentCarrier = liveHub?.activeCarrier?.toLowerCase() || "twilio";
       
       if (!currentPhone) {
         console.warn("[What Runs Where] No phone number configured - cannot update engine");
@@ -9980,15 +9980,14 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       };
       
       // Add voice_name if available
-      if (hubData?.voiceEngineName) {
-        provisionPayload.voice_name = hubData.voiceEngineName;
+      if (liveHub?.voiceEngineName) {
+        provisionPayload.voice_name = liveHub.voiceEngineName;
       }
       
       // Call provision endpoint to update the engine
       await api.provisionTelephonyHub(provisionPayload);
       
-      // Refresh hub status to show new engine - update BOTH hubData and liveHub
-      await fetchStatus();
+      // Refresh hub status
       const freshHub = await api.getTelephonyHub();
       if (freshHub) {
         setLiveHub(freshHub);
