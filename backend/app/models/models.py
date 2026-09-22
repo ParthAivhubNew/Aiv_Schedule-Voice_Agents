@@ -71,6 +71,7 @@ class CompanyProfile(Base):
     call_hook = Column(Text, nullable=True)
     closing_ask = Column(Text, nullable=True)
     custom_rules = Column(Text, nullable=True)
+    demo_script = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class KnowledgeSource(Base):

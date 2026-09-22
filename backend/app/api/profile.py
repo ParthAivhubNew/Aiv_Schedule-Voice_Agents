@@ -49,6 +49,7 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
         "callHook": getattr(profile, "call_hook", None) or "",
         "closingAsk": getattr(profile, "closing_ask", None) or "",
         "customRules": getattr(profile, "custom_rules", None) or "",
+        "demoScript": getattr(profile, "demo_script", None) or "",
     }
 
 @router.put("", response_model=dict)
@@ -112,6 +113,8 @@ async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get
         profile.closing_ask = payload.get("closingAsk") if "closingAsk" in payload else payload.get("closing_ask")
     if "customRules" in payload or "custom_rules" in payload:
         profile.custom_rules = payload.get("customRules") if "customRules" in payload else payload.get("custom_rules")
+    if "demoScript" in payload or "demo_script" in payload:
+        profile.demo_script = payload.get("demoScript") if "demoScript" in payload else payload.get("demo_script")
     
     await db.commit()
     return {

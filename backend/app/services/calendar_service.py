@@ -1,5 +1,6 @@
 import html as html_lib
 import httpx
+import json
 import logging
 import uuid
 import asyncio
@@ -960,6 +961,44 @@ class CalendarService:
                 })
             day = day + timedelta(days=1)
         return out
+
+    async def get_availability_json(
+        self,
+        db: AsyncSession,
+        days: int = 3,
+        prospect_tz: Optional[str] = None,
+    ) -> str:
+        """Compact, spoken-ready JSON calendar availability for token-efficient LLM prompts."""
+        try:
+            setting = await self.get_or_create_settings(db)
+            host_tz = setting.timezone or "Europe/London"
+            p_tz = prospect_tz or host_tz
+            p_now = now_in(p_tz)
+            today_iso = p_now.strftime("%Y-%m-%d")
+            tomorrow_iso = (p_now + timedelta(days=1)).strftime("%Y-%m-%d")
+            week = await self.get_week_availability(db, p_now, days=days, prospect_tz=p_tz)
+            
+            slots_dict: dict[str, list[str]] = {}
+            for d in week:
+                d_iso = d.get("date")
+                weekday = d.get("weekday") or ""
+                if d_iso == today_iso:
+                    key = f"Today ({weekday})"
+                elif d_iso == tomorrow_iso:
+                    key = f"Tomorrow ({weekday})"
+                else:
+                    key = f"{weekday} ({d_iso})"
+                
+                open_slots = [s["display"] for s in (d.get("open") or [])[:5] if s.get("display")]
+                if open_slots:
+                    slots_dict[key] = open_slots
+
+            if not slots_dict:
+                return json.dumps({"note": "No open slots remaining on calendar for immediate days. Propose next weekday morning or afternoon."})
+            return json.dumps(slots_dict, indent=2)
+        except Exception as err:
+            logger.warning(f"Error building availability JSON: {err}")
+            return json.dumps({"note": "Calendar live lookup active; propose preferred time to verify."})
 
     async def get_availability_brief(
         self,

@@ -161,39 +161,64 @@ export function CompanyProfileView({
 
           {tab === "script" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* Outbound Conversational Script Flow */}
+              {/* Single Place: Demo Conversation Blueprint (Few-Shot Pattern) */}
               <div style={{ background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Outbound Conversational Script Flow</div>
-                <div style={{ fontSize: 12, color: C.slate }}>Configure the natural 4-step conversation flow and statutory disclosure the AI uses when placing outbound calls.</div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Demo Conversation Blueprint (Ideal Flow & Feelings)</div>
+                <div style={{ fontSize: 12, color: C.slate }}>
+                  The AI mimics this exact sample dialogue for conversational rhythm, natural contractions, brevity, warmth, and emotion.
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Ideal Sample Conversation Script</label>
+                  <textarea
+                    rows={6}
+                    value={localProfile.demoScript || localProfile.demo_script || ""}
+                    onChange={(e) => handleChange("demoScript", e.target.value)}
+                    placeholder={'Prospect: "Hello?"\nAI: "Hi John, Parth here from A.I.V. Hub! Did I catch you in the middle of something?"\nProspect: "A little bit, what is this regarding?"\nAI: "Totally get it, won\'t keep you! We help businesses automate their Power BI reports. Just curious, how are you currently tracking your KPIs?"\nProspect: "We use Excel sheets mostly."\nAI: "Makes total sense! Would you be open to a quick 15-minute walkthrough sometime this week to see how we automate that?"'}
+                    style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "monospace", fontSize: 12.5 }}
+                  />
+                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>
+                    Leave blank to automatically use your configured Opener, Hook, and Walkthrough offer below.
+                  </span>
+                </div>
+              </div>
+
+              {/* Master Voice Rules & Objections */}
+              <div style={{ background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Master Business Rules & Objection Handling</div>
+                <div style={{ fontSize: 12, color: C.slate }}>Direct operational rules, deal-breakers, and objection rebuttals followed strictly on every call.</div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Master Rules & Objections</label>
+                  <textarea
+                    rows={5}
+                    value={localProfile.customRules || localProfile.custom_rules || ""}
+                    onChange={(e) => handleChange("customRules", e.target.value)}
+                    placeholder={"• If interrupted with 'hello', do NOT restart the greeting; say 'Yes, I\\'m right here!'\n• If they are busy or in a meeting, politely ask for their email address to send a 1-page overview.\n• If asked about pricing, state that pricing depends on data volume and offer the walkthrough for exact figures.\n• If they ask if you are an AI, confirm warmly that you are an AI assistant."}
+                    style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }}
+                  />
+                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Direct behavioral prompt rules injected into every outbound call.</span>
+                </div>
+              </div>
+
+              {/* Individual Step Details */}
+              <div style={{ background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Individual Step Details (Fallback / Variables)</div>
+                <div style={{ fontSize: 12, color: C.slate }}>Configure specific variables and statutory disclosures.</div>
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>1. Opening Greeting & Rapport Hook</label>
                   <textarea rows={2} value={localProfile.callOpener || localProfile.call_opener || ""} onChange={(e) => handleChange("callOpener", e.target.value)} placeholder="Hi {name}, this is {caller_name} calling from {company} — did I catch you in the middle of something?" style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Variables: {'{name}, {caller_name}, {company}'}. Leave blank for natural default.</span>
+                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Variables: {'{name}, {caller_name}, {company}'}.</span>
                 </div>
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>2. Call Recording Statutory Disclosure</label>
                   <textarea rows={2} value={localProfile.disclosure || ""} onChange={(e) => handleChange("disclosure", e.target.value)} placeholder="This call may be recorded for quality and training purposes." style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Required statutory line spoken during call opening or when disclosure is required.</span>
                 </div>
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>3. Reason for Call & Value Hook</label>
-                  <textarea rows={2} value={localProfile.callHook || localProfile.call_hook || ""} onChange={(e) => handleChange("callHook", e.target.value)} placeholder="The reason I'm reaching out is we help businesses turn scattered data into real-time insights. Just curious—how are you currently tracking your business data?" style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Conversational question to start a dialogue rather than a hard sell.</span>
+                  <textarea rows={2} value={localProfile.callHook || localProfile.call_hook || ""} onChange={(e) => handleChange("callHook", e.target.value)} placeholder="The reason I'm reaching out is we help businesses turn scattered data into real-time insights." style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
                 </div>
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>4. Walkthrough / Demo Offer</label>
                   <input type="text" value={localProfile.closingAsk || localProfile.closing_ask || ""} onChange={(e) => handleChange("closingAsk", e.target.value)} placeholder="Would you be open to a quick 15-minute walkthrough sometime this week?" style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}` }} />
-                </div>
-              </div>
-
-              {/* Custom Voice Rules & Directives */}
-              <div style={{ background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Custom Voice Rules & Objection Handling</div>
-                <div style={{ fontSize: 12, color: C.slate }}>Direct behavioral prompt instructions injected into the AI voice engine.</div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Agent Behavioral Rules & Objection Handling</label>
-                  <textarea rows={4} value={localProfile.customRules || localProfile.custom_rules || ""} onChange={(e) => handleChange("customRules", e.target.value)} placeholder={"• If interrupted with 'hello', do NOT restart the greeting.\n• Keep responses to 1–2 short sentences maximum.\n• If they are busy, politely offer to ring back later."} style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Direct behavioral prompt rules injected into every outbound call.</span>
                 </div>
               </div>
             </div>

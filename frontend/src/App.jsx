@@ -6565,6 +6565,23 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 
           {tab === "script" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Single Place: Demo Conversation Blueprint (Few-Shot Pattern) */}
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
+                <SectionIntro
+                  icon={HelpCircle}
+                  title="Demo Conversation Blueprint (Ideal Flow & Feelings)"
+                  desc="The AI mimics this exact sample dialogue for conversational rhythm, natural contractions, brevity, warmth, and emotion."
+                />
+                <Field
+                  label="Ideal Sample Conversation Script"
+                  value={profile.demoScript || ""}
+                  onChange={(v) => update("demoScript", v)}
+                  placeholder={'Prospect: "Hello?"\nAI: "Hi John, Parth here from A.I.V. Hub! Did I catch you in the middle of something?"\nProspect: "A little bit, what is this regarding?"\nAI: "Totally get it, won\'t keep you! We help businesses automate their Power BI reports. Just curious, how are you currently tracking your KPIs?"\nProspect: "We use Excel sheets mostly."\nAI: "Makes total sense! Would you be open to a quick 15-minute walkthrough sometime this week to see how we automate that?"'}
+                  hint="Provide a 3 to 4-turn sample conversation showing how the prospect speaks and how the AI rep responds with warmth, brevity, natural feelings, and contractions. Leave blank to use configured steps below."
+                  textarea
+                />
+              </div>
+
               {/* Outbound Conversational Script Flow */}
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
                 <SectionIntro
