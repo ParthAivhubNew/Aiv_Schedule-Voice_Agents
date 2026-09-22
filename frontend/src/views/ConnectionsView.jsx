@@ -68,7 +68,7 @@ export function ConnectionsView({ notifications, setNotifications, connections =
 
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {grp.items.map((it) => (
-                  <div key={it.id || it.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 10, background: C.paperSoft }}>
+                  <div key={it.id || it.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 10, background: it.status === "connected" ? "#F0FDF4" : C.paperSoft, border: `1px solid ${it.status === "connected" ? "#BBF7D0" : "transparent"}` }}>
                     <div>
                       <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>{it.name}</div>
                       {it.model && (

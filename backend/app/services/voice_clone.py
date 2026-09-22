@@ -68,7 +68,7 @@ async def save_orchestration_config(db: AsyncSession, updates: Dict[str, Any]) -
         conn = Connection(
             id=f"conn_{uuid.uuid4().hex[:6]}",
             group_name="Voice Orchestration",
-            name="xAI Realtime",
+            name="xAI Voice Agent",
             status="connected",
             config=cfg,
         )

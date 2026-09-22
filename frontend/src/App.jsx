@@ -9806,29 +9806,77 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       try {
         const conns = await api.getConnections();
         if (conns && Array.isArray(conns) && conns.length) {
-          // Merge live backend connections onto CONNECTIONS template
           setCredsState((prev) => {
-            const backendMap = {};
+            const groupBackendItems = {};
             conns.forEach((g) => {
-              (g.items || []).forEach((it) => {
-                backendMap[`${g.group}|${it.name}`] = it;
-              });
+              groupBackendItems[g.group] = g.items || [];
             });
-            return prev.map((group) => ({
-              ...group,
-              items: (group.items || []).map((it) => {
-                const live = backendMap[`${group.group}|${it.name}`];
-                return live ? {
-                  ...it,
-                  id: live.id,
-                  status: live.status,
-                  apiKeyMasked: live.apiKeyMasked,
-                  model: live.model,
-                  baseUrl: live.baseUrl,
-                  voiceId: live.voiceId
-                } : it;
-              }),
-            }));
+
+            return prev.map((group) => {
+              const bItems = groupBackendItems[group.group] || [];
+              const matchedIds = new Set();
+
+              const updatedItems = (group.items || []).map((it) => {
+                // 1. Exact name match
+                let live = bItems.find((b) => b.name === it.name);
+
+                // 2. Normalized alias match if not exact
+                if (!live) {
+                  const itNorm = it.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+                  live = bItems.find((b) => {
+                    const bNorm = b.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+                    if (itNorm === bNorm) return true;
+                    // xAI voice orchestrator aliases
+                    if (group.group === "Voice Orchestration" && itNorm.includes("xai") && bNorm.includes("xai")) return true;
+                    // xAI LLM aliases
+                    if (group.group === "LLM" && (itNorm.includes("xai") || itNorm.includes("grok")) && (bNorm.includes("xai") || bNorm.includes("grok"))) return true;
+                    // LiveKit aliases
+                    if (itNorm.includes("livekit") && bNorm.includes("livekit")) return true;
+                    // Cartesia aliases
+                    if (itNorm.includes("cartesia") && bNorm.includes("cartesia")) return true;
+                    // ElevenLabs aliases
+                    if (itNorm.includes("eleven") && bNorm.includes("eleven")) return true;
+                    // Deepgram aliases
+                    if (itNorm.includes("deepgram") && bNorm.includes("deepgram")) return true;
+                    // Twilio aliases
+                    if (itNorm.includes("twilio") && bNorm.includes("twilio")) return true;
+                    // Cal.com aliases
+                    if (itNorm.includes("cal") && bNorm.includes("cal")) return true;
+                    return false;
+                  });
+                }
+
+                if (live) {
+                  if (live.id) matchedIds.add(live.id);
+                  return {
+                    ...it,
+                    id: live.id,
+                    status: live.status,
+                    apiKeyMasked: live.apiKeyMasked,
+                    model: live.model || it.model,
+                    baseUrl: live.baseUrl || it.baseUrl,
+                    voiceId: live.voiceId || it.voiceId,
+                  };
+                }
+                return it;
+              });
+
+              // Also preserve any custom or additional providers from backend that weren't in default template
+              const extraItems = bItems.filter((b) => b.id && !matchedIds.has(b.id)).map((b) => ({
+                name: b.name,
+                id: b.id,
+                status: b.status,
+                apiKeyMasked: b.apiKeyMasked,
+                model: b.model,
+                baseUrl: b.baseUrl,
+                voiceId: b.voiceId,
+              }));
+
+              return {
+                ...group,
+                items: [...updatedItems, ...extraItems],
+              };
+            });
           });
         }
       } catch (_) {}
@@ -10373,23 +10421,41 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                     const carrierL = String(liveHub?.activeCarrier || liveLabels?.carrier || "").toLowerCase();
                     const ttsL = String(liveHub?.ttsProvider || liveHub?.ttsName || liveLabels?.tts || "").toLowerCase();
                     const engL = String(liveHub?.liveEngine || liveHub?.activeEngine || "").toLowerCase();
+                    const isConnected = it.status === "connected";
                     let usedBy = "";
-                    if (group.group === "Telephony" && carrierL && nameL.includes(carrierL.split(/\s+/)[0])) {
-                      usedBy = "In use · Calling";
-                    } else if (group.group === "Text-to-Speech" && liveHub?.externalTts && (nameL.includes("cartesia") && ttsL.includes("cartesia") || nameL.includes("eleven") && ttsL.includes("eleven") || (ttsL && nameL.includes(ttsL.split(/\s+/)[0])))) {
-                      usedBy = "In use · Calling speak";
-                    } else if (group.group === "Voice Orchestration" && (nameL.includes("xai") && engL.includes("xai") || nameL.includes("openai") && engL.includes("openai"))) {
-                      usedBy = "In use · Calling engine";
-                    } else if (group.group === "Speech-to-Text" && String(liveHub?.liveEngine || "").toLowerCase() === "modular" && liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase())) {
-                      usedBy = "In use · Calling listen";
-                    } else if (group.group === "LLM" && String(liveHub?.liveEngine || "").toLowerCase() === "modular" && liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase())) {
-                      usedBy = "In use · Calling think";
-                    } else if (group.group === "Calendar" && it.status === "connected") {
-                      usedBy = "In use · Schedule";
+                    if (isConnected) {
+                      if (group.group === "Telephony" && carrierL && nameL.includes(carrierL.split(/\s+/)[0])) {
+                        usedBy = "In use · Calling";
+                      } else if (group.group === "Text-to-Speech" && (
+                        (liveHub?.externalTts && (nameL.includes("cartesia") && ttsL.includes("cartesia") || nameL.includes("eleven") && ttsL.includes("eleven") || (ttsL && nameL.includes(ttsL.split(/\s+/)[0])))) ||
+                        (ttsL && nameL.includes(ttsL.split(/\s+/)[0]))
+                      )) {
+                        usedBy = "In use · Calling speak";
+                      } else if (group.group === "Voice Orchestration" && (
+                        (nameL.includes("xai") && engL.includes("xai")) ||
+                        (nameL.includes("livekit") && (engL.includes("livekit") || engL.includes("modular"))) ||
+                        (nameL.includes("openai") && engL.includes("openai"))
+                      )) {
+                        usedBy = "In use · Calling engine";
+                      } else if (group.group === "Speech-to-Text" && (
+                        (String(liveHub?.liveEngine || "").toLowerCase() === "modular" && liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase())) ||
+                        (liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase()))
+                      )) {
+                        usedBy = "In use · Calling listen";
+                      } else if (group.group === "LLM" && (
+                        (String(liveHub?.liveEngine || "").toLowerCase() === "modular" && liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase())) ||
+                        (liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase()))
+                      )) {
+                        usedBy = "In use · Calling think";
+                      } else if (group.group === "Calendar") {
+                        usedBy = "In use · Schedule";
+                      }
                     }
-                    const highlighted = !!usedBy;
+                    const highlighted = isConnected && !!usedBy;
+                    const rowBg = isConnected ? "#F0FDF4" : undefined;
+                    const rowBorderTop = idx === 0 ? "none" : (isConnected ? "1px solid #BBF7D0" : `1px solid ${C.border}`);
                     return (
-                      <div key={it.name} style={{ borderTop: idx === 0 ? "none" : `1px solid ${C.border}`, background: highlighted ? "#F0FDF4" : undefined }}>
+                      <div key={it.name} style={{ borderTop: rowBorderTop, background: rowBg, transition: "background 0.2s ease, border-color 0.2s ease" }}>
                         {/* Main row */}
                         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px" }}>
                           <div style={{ width: 210, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>
@@ -10403,18 +10469,29 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               <div style={{ fontSize: 10.5, fontWeight: 700, color: "#065F46", marginTop: 3, letterSpacing: "0.02em" }}>{usedBy}</div>
                             )}
                           </div>
-                          <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12, color: C.slateLight }}>
-                            {it.apiKeyMasked || (it.status === "connected" ? "••••••••••••" : "Not configured")}
+                          <div style={{ flex: 1, fontFamily: FONT_MONO, fontSize: 12, color: isConnected ? C.textInk : C.slateLight }}>
+                            {it.apiKeyMasked || (isConnected ? "••••••••••••" : "Not configured")}
                           </div>
                           <Badge status={it.status} small />
 
                           {phase === "idle" && (
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                               <button onClick={() => handleConnect(rowKey, it)}
-                                style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer", whiteSpace: "nowrap" }}>
-                                {it.status === "connected" ? "Configure / Update" : "Connect"}
+                                style={{
+                                  background: "#fff",
+                                  border: `1px solid ${isConnected ? "#86EFAC" : C.border}`,
+                                  borderRadius: 7,
+                                  padding: "6px 14px",
+                                  fontFamily: FONT_BODY,
+                                  fontSize: 12,
+                                  color: isConnected ? "#15803D" : C.slate,
+                                  fontWeight: isConnected ? 600 : 500,
+                                  cursor: "pointer",
+                                  whiteSpace: "nowrap"
+                                }}>
+                                {isConnected ? "Configure / Update" : "Connect"}
                               </button>
-                              {it.status === "connected" && (
+                              {isConnected && (
                                 <button
                                   type="button"
                                   onClick={() => requestDeleteKey(group.group, it, rowKey)}

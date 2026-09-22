@@ -48,7 +48,7 @@ def is_masked(value: Any) -> bool:
     t = value.strip()
     if not t:
         return False
-    return "•" in t or "…" in t or t.lower() in ("redacted", "masked")
+    return "•" in t or "…" in t or "*" in t or "?" in t or "..." in t or t.lower() in ("redacted", "masked")
 
 
 def mask_secret(plain: Optional[str]) -> str:

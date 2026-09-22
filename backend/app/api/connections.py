@@ -69,11 +69,12 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
                 "items": []
             }
         cfg = open_config(c.config if isinstance(c.config, dict) else {})
+        masked = c.api_key_masked if c.api_key_masked else ("••••••••" if c.status == "connected" else "")
         grouped[c.group_name]["items"].append({
             "id": c.id,
             "name": c.name,
             "status": c.status,
-            "apiKeyMasked": c.api_key_masked or "••••••••",
+            "apiKeyMasked": masked,
             "model": cfg.get("model") or "",
             "baseUrl": cfg.get("base_url") or "",
             "voiceId": cfg.get("voice_id") or "",
@@ -90,12 +91,29 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
     key = req.resolved_api_key
     if not key or key in ("dummy_configured", "dummy_key") or is_masked(key):
         result = await db.execute(
-            select(Connection).where(
-                (Connection.name.ilike(f"%{req.provider}%")) |
-                (Connection.group_name == req.layer)
-            )
+            select(Connection).where(Connection.group_name == req.layer, Connection.name == req.provider)
         )
         existing = result.scalars().first()
+        if not existing:
+            p_norm = req.provider.lower().replace(" ", "").replace("-", "")
+            layer_conns = await db.execute(select(Connection).where(Connection.group_name == req.layer))
+            for lc in layer_conns.scalars().all():
+                lc_norm = lc.name.lower().replace(" ", "").replace("-", "")
+                if (p_norm in lc_norm or lc_norm in p_norm) or \
+                   ("xai" in p_norm and "xai" in lc_norm) or \
+                   ("livekit" in p_norm and "livekit" in lc_norm) or \
+                   ("cartesia" in p_norm and "cartesia" in lc_norm) or \
+                   ("eleven" in p_norm and "eleven" in lc_norm) or \
+                   ("deepgram" in p_norm and "deepgram" in lc_norm) or \
+                   ("twilio" in p_norm and "twilio" in lc_norm) or \
+                   ("cal" in p_norm and "cal" in lc_norm):
+                    existing = lc
+                    break
+        if not existing:
+            result = await db.execute(
+                select(Connection).where(Connection.name.ilike(f"%{req.provider}%"))
+            )
+            existing = result.scalars().first()
         if existing:
             saved_key = config_get_secret(existing.config, "api_key", "auth_token")
             if saved_key:
@@ -133,11 +151,26 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     key = req.resolved_api_key
     display_name = f"{req.provider}" + (f" ({req.base_url})" if req.provider.lower() == "other" and req.base_url else "")
     
-    # Check if this connection already exists in this group or by provider name
+    # Check if this connection already exists in this group or by provider name/alias
     result = await db.execute(
         select(Connection).where(Connection.group_name == req.layer, Connection.name == display_name)
     )
     existing = result.scalars().first()
+    if not existing:
+        p_norm = req.provider.lower().replace(" ", "").replace("-", "")
+        layer_conns = await db.execute(select(Connection).where(Connection.group_name == req.layer))
+        for lc in layer_conns.scalars().all():
+            lc_norm = lc.name.lower().replace(" ", "").replace("-", "")
+            if (p_norm in lc_norm or lc_norm in p_norm) or \
+               ("xai" in p_norm and "xai" in lc_norm) or \
+               ("livekit" in p_norm and "livekit" in lc_norm) or \
+               ("cartesia" in p_norm and "cartesia" in lc_norm) or \
+               ("eleven" in p_norm and "eleven" in lc_norm) or \
+               ("deepgram" in p_norm and "deepgram" in lc_norm) or \
+               ("twilio" in p_norm and "twilio" in lc_norm) or \
+               ("cal" in p_norm and "cal" in lc_norm):
+                existing = lc
+                break
     if not existing:
         result = await db.execute(
             select(Connection).where(Connection.name.ilike(f"%{req.provider}%"))
@@ -205,6 +238,7 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
 
     if existing:
         existing.status = "connected"
+        existing.name = display_name
         existing.api_key_masked = masked
         existing.config = conn_config
         conn_id = existing.id
