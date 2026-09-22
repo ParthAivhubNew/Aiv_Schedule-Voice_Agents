@@ -10604,6 +10604,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                   <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                                     {String(it.name || "").toLowerCase().includes("twilio")
                                       ? "Account SID (required)"
+                                      : String(it.name || "").toLowerCase().includes("vapi")
+                                      ? "Vapi Assistant ID (Optional)"
+                                      : String(it.name || "").toLowerCase().includes("retell")
+                                      ? "Retell Agent ID (Required for Outbound)"
                                       : "Voice Agent ID (Optional)"}
                                   </label>
                                   <input
@@ -10623,6 +10627,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                     }}
                                     placeholder={String(it.name || "").toLowerCase().includes("twilio")
                                       ? "ACxxxxxxxx… (34 characters)"
+                                      : String(it.name || "").toLowerCase().includes("vapi")
+                                      ? "asst_... or UUID (optional)"
+                                      : String(it.name || "").toLowerCase().includes("retell")
+                                      ? "agent_xxxxxxxxxxxxxxxx"
                                       : "agent_... or sid_..."}
                                     style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
                                   />
@@ -10631,7 +10639,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                             )}
 
                             {/* Model Selection & Custom Base URL */}
-                            {(["LLM", "Speech-to-Text", "Text-to-Speech"].includes(group.group) || String(it.name || "").toLowerCase().includes("other")) && (() => {
+                            {(["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration"].includes(group.group) || String(it.name || "").toLowerCase().includes("other")) && (() => {
                               const pName = String(it.name || "").toLowerCase();
                               const presetsKey = Object.keys(MODEL_PRESETS_BY_PROVIDER).find(k => pName.includes(k));
                               const presets = presetsKey ? MODEL_PRESETS_BY_PROVIDER[presetsKey] : [];
