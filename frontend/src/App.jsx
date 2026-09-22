@@ -9922,7 +9922,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     flash();
   };
 
-  const updateLayer = (key, val) => {
+  const updateLayer = async (key, val) => {
     if (setCommonAi) {
       setCommonAi((prev) => ({
         ...prev,
@@ -9931,6 +9931,81 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       }));
     }
     flash();
+    
+    // If user changes Voice Orchestration engine, actually apply it to the live stack
+    if (key === "voice") {
+      await applyVoiceEngineChange(val);
+    }
+  };
+  
+  const applyVoiceEngineChange = async (engineLabel) => {
+    try {
+      // Map friendly labels to engine codes
+      const engineMap = {
+        "xAI + cloned TTS (plugin)": "xai",
+        "xAI Grok (speech-to-speech)": "xai",
+        "xAI Voice Agent": "xai",
+        "OpenAI Realtime": "openai",
+        "LiveKit (self-hosted)": "livekit",
+        "LiveKit Agents": "livekit",
+        "Modular pipeline": "modular",
+        "Modular Voice Pipeline": "modular",
+        "Vapi Voice AI": "xai", // Fallback to xai if not implemented
+        "Retell AI": "xai", // Fallback to xai if not implemented
+        "Simulation": "simulation",
+      };
+      
+      const engineCode = engineMap[engineLabel] || engineLabel.toLowerCase();
+      
+      // Get current phone number and other settings from hubData
+      const currentPhone = hubData?.phoneNumber || phoneNumber;
+      const currentCarrier = hubData?.activeCarrier?.toLowerCase() || "twilio";
+      
+      if (!currentPhone) {
+        console.warn("[What Runs Where] No phone number configured - cannot update engine");
+        return;
+      }
+      
+      console.log(`[What Runs Where] Changing engine to: ${engineCode} (from label: ${engineLabel})`);
+      
+      // Call provision endpoint to update the engine
+      await api.provisionTelephonyHub({
+        carrier: currentCarrier,
+        engine: engineCode,
+        phone_number: currentPhone,
+        voice_name: hubData?.voiceEngineName || "rex",
+      });
+      
+      // Refresh hub status to show new engine
+      await fetchStatus();
+      
+      if (setNotifications) {
+        setNotifications((ns) => [
+          { 
+            id: "n_" + Date.now(), 
+            text: `✓ Voice engine switched to ${engineLabel}`, 
+            time: "just now", 
+            unread: true, 
+            type: "success" 
+          },
+          ...ns
+        ]);
+      }
+    } catch (err) {
+      console.error("[What Runs Where] Failed to update engine:", err);
+      if (setNotifications) {
+        setNotifications((ns) => [
+          { 
+            id: "n_" + Date.now(), 
+            text: `Failed to switch engine: ${err.message}`, 
+            time: "just now", 
+            unread: true, 
+            type: "error" 
+          },
+          ...ns
+        ]);
+      }
+    }
   };
 
   const flash = () => {
@@ -10261,7 +10336,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             <div style={{ marginBottom: 16, padding: "14px 16px", borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#1E40AF", marginBottom: 4 }}>What runs where</div>
               <div style={{ fontSize: 12.5, color: "#1D4ED8", lineHeight: 1.45 }}>
-                Live stack only — what the next call will actually use. Bottom dropdowns are <b>preferences only</b> (not keys). Paste keys under <b>Connections</b>. Pick speak voice under <b>Line setup</b>.
+                Live stack control — changing <b>Voice Orchestration</b> here actually switches the engine. Other layers show current config. Add keys under <b>Connections</b>. Pick speak voice under <b>Line setup</b>.
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                 <button
