@@ -9,6 +9,18 @@ from app.models.models import Connection, CompanyProfile
 
 logger = logging.getLogger("llm_gateway")
 
+_llm_http_client: Optional[httpx.AsyncClient] = None
+
+def _get_llm_client() -> httpx.AsyncClient:
+    """Returns a module-level persistent HTTP client with connection pooling to eliminate TLS handshake latency."""
+    global _llm_http_client
+    if _llm_http_client is None or _llm_http_client.is_closed:
+        _llm_http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(45.0, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0),
+        )
+    return _llm_http_client
+
 async def resolve_llm_credentials(
     db: Optional[AsyncSession] = None,
     api_key: Optional[str] = None,
@@ -542,31 +554,37 @@ async def _stream_anthropic(
         "stream": True
     }
     if system_text.strip():
-        payload["system"] = system_text.strip()
+        payload["system"] = [
+            {
+                "type": "text",
+                "text": system_text.strip(),
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
-            async with client.stream("POST", "https://api.anthropic.com/v1/messages", headers=headers, json=payload) as response:
-                if response.status_code != 200:
-                    err_body = await response.aread()
-                    logger.error(f"[STREAM] Anthropic error {response.status_code}: {err_body.decode(errors='ignore')[:200]}")
-                    return
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line or not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if not data_str:
-                        continue
-                    try:
-                        ev = json.loads(data_str)
-                        ev_type = ev.get("type")
-                        if ev_type == "content_block_delta":
-                            text_delta = ev.get("delta", {}).get("text", "")
-                            if text_delta:
-                                yield text_delta
-                    except Exception:
-                        continue
+        client = _get_llm_client()
+        async with client.stream("POST", "https://api.anthropic.com/v1/messages", headers=headers, json=payload) as response:
+            if response.status_code != 200:
+                err_body = await response.aread()
+                logger.error(f"[STREAM] Anthropic error {response.status_code}: {err_body.decode(errors='ignore')[:200]}")
+                return
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if not data_str:
+                    continue
+                try:
+                    ev = json.loads(data_str)
+                    ev_type = ev.get("type")
+                    if ev_type == "content_block_delta":
+                        text_delta = ev.get("delta", {}).get("text", "")
+                        if text_delta:
+                            yield text_delta
+                except Exception:
+                    continue
     except Exception as e:
         logger.error(f"[STREAM] Anthropic stream error: {e}")
 
@@ -623,28 +641,28 @@ async def _stream_openai_compatible(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
-            async with client.stream("POST", endpoint, headers=headers, json=payload) as response:
-                if response.status_code != 200:
-                    err_body = await response.aread()
-                    logger.error(f"[STREAM] {prov} error {response.status_code}: {err_body.decode(errors='ignore')[:200]}")
-                    return
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line or not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                        choices = chunk.get("choices") or []
-                        if choices:
-                            delta = choices[0].get("delta", {}).get("content", "")
-                            if delta:
-                                yield delta
-                    except Exception:
-                        continue
+        client = _get_llm_client()
+        async with client.stream("POST", endpoint, headers=headers, json=payload) as response:
+            if response.status_code != 200:
+                err_body = await response.aread()
+                logger.error(f"[STREAM] {prov} error {response.status_code}: {err_body.decode(errors='ignore')[:200]}")
+                return
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    choices = chunk.get("choices") or []
+                    if choices:
+                        delta = choices[0].get("delta", {}).get("content", "")
+                        if delta:
+                            yield delta
+                except Exception:
+                    continue
     except Exception as e:
         logger.error(f"[STREAM] OpenAI compatible stream ({endpoint}) failed: {e}")
 

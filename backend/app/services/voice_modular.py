@@ -148,9 +148,11 @@ def _is_hangup_intent(user_text: str, ai_reply: str) -> bool:
     return False
 
 
-def _split_into_chunks(text_buffer: str) -> tuple[list[str], str]:
+def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[str], str]:
     """
     Extracts complete sentences or natural pause clauses from text_buffer.
+    When is_first=True, splits earlier (after 2-3 words on a comma or natural pause)
+    so the first audio frame can begin playing immediately.
     Returns (list_of_complete_chunks, remaining_unsplit_buffer).
     """
     chunks = []
@@ -167,8 +169,19 @@ def _split_into_chunks(text_buffer: str) -> tuple[list[str], str]:
             current = current[end_pos:]
             continue
         
-        # Match clause pause if >= 6 words
+        # Match early first-chunk clause pause (2-3 words with comma/pause)
         words = current.split()
+        if is_first and len(words) >= 2:
+            early_match = re.search(r'([,;:]| — )(\s+)', current)
+            if early_match and early_match.start() >= 4:
+                end_pos = early_match.end()
+                chunk = current[:end_pos].strip()
+                if chunk:
+                    chunks.append(chunk)
+                current = current[end_pos:]
+                continue
+
+        # Match clause pause if >= 6 words
         if len(words) >= 6:
             clause_match = re.search(r'([,;:]| — )(\s+)', current)
             if clause_match and clause_match.start() > 8:
@@ -179,8 +192,9 @@ def _split_into_chunks(text_buffer: str) -> tuple[list[str], str]:
                 current = current[end_pos:]
                 continue
         
-        # If buffer is getting very long (>= 12 words), split at last space
-        if len(words) >= 12:
+        # If buffer is getting long (>= 8 words if is_first, >= 12 words otherwise), split at last space
+        threshold = 8 if is_first else 12
+        if len(words) >= threshold:
             last_space = current.rfind(' ')
             if last_space > 0:
                 chunk = current[:last_space].strip()
@@ -379,14 +393,14 @@ async def _deepgram_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str
     else:
         model_name = DEEPGRAM_AURA_VOICES.get(raw_v, "aura-asteria-en")
     url = f"https://api.deepgram.com/v1/speak?model={model_name}&encoding=mulaw&sample_rate=8000"
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        res = await client.post(
-            url,
-            headers={"Authorization": f"Token {api_key}", "Content-Type": "application/json"},
-            json={"text": text},
-        )
-        res.raise_for_status()
-        return res.content
+    client = _get_tts_client()
+    res = await client.post(
+        url,
+        headers={"Authorization": f"Token {api_key}", "Content-Type": "application/json"},
+        json={"text": text},
+    )
+    res.raise_for_status()
+    return res.content
 
 
 async def _greeting_line(is_inbound: bool, prospect_name: Optional[str]) -> str:
@@ -615,6 +629,7 @@ async def run_modular_pipeline(
                 nonlocal t_first_token, t_llm_done
                 text_buffer = ""
                 token_count = 0
+                chunks_dispatched = 0
                 try:
                     async for token in stream_open_chat_llm(
                         messages=history[-12:],
@@ -640,11 +655,12 @@ async def run_modular_pipeline(
                         except Exception:
                             pass
 
-                        # Split complete sentences / clauses to queue for TTS
-                        ready_chunks, text_buffer = _split_into_chunks(text_buffer)
+                        # Split complete sentences / early clauses to queue for TTS (2-3 words on first clause)
+                        ready_chunks, text_buffer = _split_into_chunks(text_buffer, is_first=(chunks_dispatched == 0))
                         for chunk in ready_chunks:
                             if bridge._barge.is_set():
                                 break
+                            chunks_dispatched += 1
                             await sentence_queue.put(chunk)
 
                 except Exception as stream_err:
