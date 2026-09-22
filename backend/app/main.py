@@ -191,6 +191,36 @@ async def lifespan(app: FastAPI):
                     await conn.execute(text(f"ALTER TABLE schedule_items ADD COLUMN {col} {col_type};"))
                 except Exception:
                     pass
+
+        # Safe migration for multi-tenant org_id
+        for tbl in ["operators", "company_profile", "missions", "live_calls"]:
+            try:
+                await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS org_id VARCHAR;"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN org_id VARCHAR;"))
+                except Exception:
+                    pass
+        try:
+            await conn.execute(text("""
+                INSERT INTO organizations (id, name, slug, status)
+                VALUES ('org_default', 'Default Organization', 'default', 'active')
+                ON CONFLICT (id) DO NOTHING;
+            """))
+        except Exception:
+            try:
+                await conn.execute(text("""
+                    INSERT OR IGNORE INTO organizations (id, name, slug, status)
+                    VALUES ('org_default', 'Default Organization', 'default', 'active');
+                """))
+            except Exception:
+                pass
+        for tbl in ["operators", "company_profile", "missions", "live_calls"]:
+            try:
+                await conn.execute(text(f"UPDATE {tbl} SET org_id = 'org_default' WHERE org_id IS NULL;"))
+            except Exception:
+                pass
+
     await seed_database()
     try:
         from app.database import AsyncSessionLocal
