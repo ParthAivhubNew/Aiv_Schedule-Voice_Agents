@@ -13,13 +13,25 @@ export function ConnectionsView({ notifications, setNotifications, connections =
   const [showAdd, setShowAdd] = useState(false);
   const [group, setGroup] = useState("LLM");
   const [name, setName] = useState("");
+  const [model, setModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
 
   const handleAdd = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
-    if (onAddConnection) onAddConnection({ group_name: group, name: name.trim() });
+    if (onAddConnection) onAddConnection({
+      group_name: group,
+      name: name.trim(),
+      api_key: apiKey.trim(),
+      model: model.trim(),
+      base_url: baseUrl.trim(),
+    });
     setShowAdd(false);
     setName("");
+    setModel("");
+    setBaseUrl("");
+    setApiKey("");
   };
 
   return (
@@ -57,7 +69,12 @@ export function ConnectionsView({ notifications, setNotifications, connections =
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {grp.items.map((it) => (
                   <div key={it.id || it.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 10, background: C.paperSoft }}>
-                    <span style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>{it.name}</span>
+                    <div>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>{it.name}</div>
+                      {it.model && (
+                        <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.cobalt, marginTop: 2 }}>Model: {it.model}</div>
+                      )}
+                    </div>
                     <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: it.status === "connected" ? C.tealSoft : C.paper, color: it.status === "connected" ? C.teal : C.slate }}>
                       {it.status === "connected" ? "CONNECTED" : "NOT CONFIGURED"}
                     </span>
@@ -71,32 +88,44 @@ export function ConnectionsView({ notifications, setNotifications, connections =
 
       {showAdd && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.45)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-          <div style={{ width: "100%", maxWidth: 420, background: "#FFFFFF", borderRadius: 20, border: `1px solid ${C.border}`, padding: 28, boxShadow: "0 24px 60px rgba(0,0,0,0.15)" }}>
+          <div style={{ width: "100%", maxWidth: 440, background: "#FFFFFF", borderRadius: 20, border: `1px solid ${C.border}`, padding: 28, boxShadow: "0 24px 60px rgba(0,0,0,0.15)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>Add Provider Key</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>Add Provider Key & Model</div>
               <button onClick={() => setShowAdd(false)} style={{ border: "none", background: "none", cursor: "pointer", color: C.slate }}><X size={18} /></button>
             </div>
-            <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Layer</label>
-                <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 5 }}>Layer</label>
+                <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff" }}>
                   <option value="LLM">LLM (Reasoning & Conversation)</option>
                   <option value="Speech-to-Text">Speech-to-Text (STT)</option>
                   <option value="Text-to-Speech">Text-to-Speech (TTS)</option>
                   <option value="Voice Orchestration">Voice Orchestration</option>
                   <option value="Telephony">Telephony Carrier</option>
                   <option value="Calendar">Calendar API</option>
+                  <option value="Other">Other / Custom</option>
                 </select>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Provider Name</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. OpenAI / ElevenLabs / Twilio" style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}` }} />
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 5 }}>Provider Name</label>
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Deepgram, DeepSeek, Groq, Custom" style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}` }} />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>API Key</label>
-                <input type="password" required placeholder="sk-••••••••••••••••" style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}` }} />
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 5 }}>API Key</label>
+                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required placeholder="sk-••••••••••••••••" style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}` }} />
               </div>
-              <button type="submit" style={{ height: 44, borderRadius: 10, border: "none", background: C.cobalt, color: "#fff", fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 5 }}>
+                  Model Name / Slug (Type any model)
+                </label>
+                <input type="text" value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. nova-3, deepseek-chat, gpt-4o, llama-3.3-70b-versatile" style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12 }} />
+                <div style={{ fontSize: 11, color: C.slateLight, marginTop: 3 }}>Future-proof: You can type any model released in the future.</div>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 5 }}>Custom Base URL (Optional)</label>
+                <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://... or http://localhost:11434/v1" style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12 }} />
+              </div>
+              <button type="submit" style={{ height: 44, borderRadius: 10, border: "none", background: C.cobalt, color: "#fff", fontWeight: 600, cursor: "pointer", marginTop: 4 }}>
                 Connect Provider
               </button>
             </form>
