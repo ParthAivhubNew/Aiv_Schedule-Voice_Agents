@@ -7,7 +7,7 @@ import json
 import logging
 import re
 import time
-from typing import Optional
+from typing import Any, AsyncGenerator, Optional
 
 import httpx
 import websockets
@@ -151,8 +151,13 @@ def _is_hangup_intent(user_text: str, ai_reply: str) -> bool:
 def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[str], str]:
     """
     Extracts complete sentences or natural pause clauses from text_buffer.
-    When is_first=True, splits earlier (after 2-3 words on a comma or natural pause)
-    so the first audio frame can begin playing immediately.
+    - When is_first=True:
+        Splits after 2-4 words if there is a natural punctuation pause (comma, dash, colon)
+        so the first audio frame begins playing in <100ms.
+        If no punctuation, waits for >= 6 words so Cartesia has enough context for natural prosody.
+    - When is_first=False:
+        Prefers full sentences (.!?\n). Does not split mid-sentence on clauses unless >= 14 words,
+        or on a space unless >= 16 words, giving 3-4s of playback runway to eliminate gaps between sentences.
     Returns (list_of_complete_chunks, remaining_unsplit_buffer).
     """
     chunks = []
@@ -169,8 +174,9 @@ def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[s
             current = current[end_pos:]
             continue
         
-        # Match early first-chunk clause pause (2-3 words with comma/pause)
         words = current.split()
+
+        # Match early first-chunk clause pause (2-4 words with comma/pause)
         if is_first and len(words) >= 2:
             early_match = re.search(r'([,;:]| — )(\s+)', current)
             if early_match and early_match.start() >= 4:
@@ -181,8 +187,9 @@ def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[s
                 current = current[end_pos:]
                 continue
 
-        # Match clause pause if >= 6 words
-        if len(words) >= 6:
+        # For subsequent chunks, only split on a mid-sentence clause if >= 14 words
+        clause_threshold = 6 if is_first else 14
+        if len(words) >= clause_threshold:
             clause_match = re.search(r'([,;:]| — )(\s+)', current)
             if clause_match and clause_match.start() > 8:
                 end_pos = clause_match.end()
@@ -192,9 +199,10 @@ def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[s
                 current = current[end_pos:]
                 continue
         
-        # If buffer is getting long (>= 8 words if is_first, >= 12 words otherwise), split at last space
-        threshold = 8 if is_first else 12
-        if len(words) >= threshold:
+        # Space split fallback if buffer is getting long without punctuation:
+        # 6 words for first chunk (if no comma arrived), 16 words for subsequent chunks
+        space_threshold = 6 if is_first else 16
+        if len(words) >= space_threshold:
             last_space = current.rfind(' ')
             if last_space > 0:
                 chunk = current[:last_space].strip()
@@ -384,6 +392,138 @@ async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str
             last_err = err
             continue
     raise RuntimeError(f"Cartesia TTS failed for voice {vid[:12]}…: {last_err}")
+
+
+async def _get_or_create_cartesia_ws(bridge: BridgedVoiceSession, api_key: str) -> Optional[Any]:
+    ws = getattr(bridge, "_cartesia_ws", None)
+    if ws is not None and not ws.closed:
+        return ws
+    try:
+        url = f"wss://api.cartesia.ai/tts/websocket?api_key={api_key}&cartesia_version=2024-06-10"
+        ws = await websockets.connect(
+            url,
+            ping_interval=20,
+            ping_timeout=15,
+        )
+        bridge._cartesia_ws = ws
+        logger.info(f"[CARTESIA-WS] Persistent WebSocket connected for {getattr(bridge, 'call_id', 'unknown')}")
+        return ws
+    except Exception as e:
+        logger.warning(f"[CARTESIA-WS] Connection failed ({e}); using REST fallback.")
+        return None
+
+
+async def _stream_cartesia_frames(
+    bridge: BridgedVoiceSession,
+    api_key: str,
+    voice_hint: str,
+    text: str,
+    voice_id: Optional[str]
+) -> AsyncGenerator[list[str], None]:
+    """
+    Streams μ-law audio frames from Cartesia WebSocket as they are generated.
+    Yields batches of 20ms μ-law base64 frames.
+    Falls back to REST _cartesia_ulaw if WebSocket is unavailable or fails.
+    """
+    vid = _resolve_cartesia_vid(voice_hint, voice_id)
+    ws = await _get_or_create_cartesia_ws(bridge, api_key)
+    
+    if ws is not None:
+        context_id = f"ctx_{int(time.perf_counter()*1000)}"
+        req = {
+            "context_id": context_id,
+            "model_id": "sonic-2",
+            "transcript": text,
+            "voice": {
+                "mode": "id",
+                "id": vid,
+            },
+            "output_format": {
+                "container": "raw",
+                "encoding": "pcm_mulaw",
+                "sample_rate": 8000,
+            },
+            "language": "en",
+            "continue": False,
+        }
+        got_any_chunk = False
+        try:
+            await ws.send(json.dumps(req))
+            while not (getattr(bridge, "_barge", None) and bridge._barge.is_set()):
+                msg_str = await asyncio.wait_for(ws.recv(), timeout=6.0)
+                msg = json.loads(msg_str)
+                if msg.get("context_id") != context_id:
+                    continue
+                m_type = msg.get("type")
+                if m_type == "chunk":
+                    raw_b64 = msg.get("data")
+                    if raw_b64:
+                        raw_bytes = base64.b64decode(raw_b64)
+                        frames = list(_ulaw_frames(raw_bytes))
+                        if frames:
+                            got_any_chunk = True
+                            yield frames
+                elif m_type == "done":
+                    break
+                elif m_type == "error":
+                    logger.warning(f"[CARTESIA-WS] Error event: {msg.get('error')}")
+                    break
+            if got_any_chunk:
+                return
+        except Exception as ws_err:
+            logger.warning(f"[CARTESIA-WS] Streaming error ({ws_err}); closing socket.")
+            try:
+                await ws.close()
+            except Exception:
+                pass
+            bridge._cartesia_ws = None
+            if got_any_chunk:
+                # Mid-stream failure: do not restart from REST (avoid repeating speech)
+                return
+
+    # Fallback to REST _cartesia_ulaw
+    try:
+        raw = await _cartesia_ulaw(api_key, voice_hint, text, voice_id)
+        if raw:
+            yield list(_ulaw_frames(raw))
+    except Exception as rest_err:
+        logger.warning(f"[CARTESIA] REST fallback failed: {rest_err}")
+
+
+async def _stream_tts_frames(
+    bridge: BridgedVoiceSession,
+    plan: VoicePlan,
+    text: str
+) -> AsyncGenerator[list[str], None]:
+    """
+    Dispatches sentence text to streaming TTS provider, yielding batches of 20ms frames in real-time.
+    """
+    tts = plan.tts
+    if not tts or not text.strip():
+        return
+    clean = _clean_for_speech(text)
+    if not clean:
+        return
+    if len(clean) > 600:
+        clean = clean[:600]
+    provider = (tts.provider or "elevenlabs").lower()
+    voice_hint = (tts.voice_id or plan.voice_name or "rachel").strip()
+
+    use_deepgram = "deepgram" in provider or "aura" in provider
+    use_cartesia = "cartesia" in provider or voice_hint.lower() == "sonic" or looks_like_external_voice_id(tts.voice_id) or looks_like_external_voice_id(voice_hint)
+
+    if use_cartesia and "eleven" not in provider:
+        async for frames_batch in _stream_cartesia_frames(bridge, tts.api_key, voice_hint, clean, tts.voice_id):
+            if frames_batch:
+                yield frames_batch
+    elif use_deepgram and "cartesia" not in provider and "eleven" not in provider:
+        raw = await _deepgram_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
+        if raw:
+            yield list(_ulaw_frames(raw))
+    else:
+        raw = await _eleven_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
+        if raw:
+            yield list(_ulaw_frames(raw))
 
 
 async def _deepgram_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, model: str) -> bytes:
@@ -590,11 +730,9 @@ async def run_modular_pipeline(
                 bridge._barge.set()
                 speaking_task.cancel()
 
-            await _update_call_transcript(local_id, f"Prospect: {text}")
-            try:
-                await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "them", "delta": text})
-            except Exception:
-                pass
+            # Fire-and-forget transcript & UI update so LLM turn starts with zero delay
+            asyncio.create_task(_update_call_transcript(local_id, f"Prospect: {text}"))
+            asyncio.create_task(call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "them", "delta": text}))
             history.append({"role": "user", "content": text})
         else:
             # System-injected silence re-prompt
@@ -649,13 +787,10 @@ async def run_modular_pipeline(
                         accumulated_reply.append(token)
                         text_buffer += token
 
-                        # Broadcast live token delta to UI
-                        try:
-                            await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "ai", "delta": token})
-                        except Exception:
-                            pass
+                        # Non-blocking broadcast live token delta to UI
+                        asyncio.create_task(call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "ai", "delta": token}))
 
-                        # Split complete sentences / early clauses to queue for TTS (2-3 words on first clause)
+                        # Split complete sentences / early clauses to queue for TTS (2-4 words on first clause)
                         ready_chunks, text_buffer = _split_into_chunks(text_buffer, is_first=(chunks_dispatched == 0))
                         for chunk in ready_chunks:
                             if bridge._barge.is_set():
@@ -677,14 +812,11 @@ async def run_modular_pipeline(
                     fallback = "Sorry, I missed that — could you say that again?"
                     accumulated_reply.append(fallback)
                     await sentence_queue.put(fallback)
-                    try:
-                        await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "ai", "delta": fallback})
-                    except Exception:
-                        pass
+                    asyncio.create_task(call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "ai", "delta": fallback}))
 
                 await sentence_queue.put(None)
 
-            # Task 2: Sentence-Level TTS Synthesizer
+            # Task 2: Streaming TTS Synthesizer (Cartesia WebSocket streaming with REST fallback)
             async def tts_worker():
                 nonlocal t_first_audio, first_chunk_tts_ms, first_chunk_text
                 while not bridge._barge.is_set() and not bridge.closed.is_set():
@@ -696,19 +828,31 @@ async def run_modular_pipeline(
                         break
 
                     t_chunk_tts_start = time.perf_counter()
-                    frames = await _synthesize_tts_frames(plan, sentence_text)
-                    t_chunk_tts_end = time.perf_counter()
+                    total_sent_frames = 0
+                    try:
+                        async for frame_batch in _stream_tts_frames(bridge, plan, sentence_text):
+                            if bridge._barge.is_set():
+                                break
+                            if not frame_batch:
+                                continue
+                            t_now = time.perf_counter()
+                            if t_first_audio is None:
+                                t_first_audio = t_now
+                                first_chunk_tts_ms = round((t_now - t_chunk_tts_start) * 1000, 1)
+                                first_chunk_text = sentence_text
+                            total_sent_frames += len(frame_batch)
+                            await audio_queue.put((sentence_text, frame_batch))
+                    except Exception as tts_err:
+                        logger.warning(f"[MODULAR] TTS stream error: {tts_err}")
 
-                    if frames and not bridge._barge.is_set():
-                        if t_first_audio is None:
-                            t_first_audio = t_chunk_tts_end
-                            first_chunk_tts_ms = round((t_chunk_tts_end - t_chunk_tts_start) * 1000, 1)
-                            first_chunk_text = sentence_text
-                        chunks_synthesized.append((sentence_text, len(frames)))
-                        await audio_queue.put((sentence_text, frames))
+                    if total_sent_frames > 0:
+                        chunks_synthesized.append((sentence_text, total_sent_frames))
 
-            # Task 3: Continuous Audio Player with Speech Meter tracking
+            # Task 3: Continuous Audio Player with monotonic, drift-free pacing
             async def audio_player():
+                loop_start = None
+                total_played = 0
+                frame_duration = 0.020  # 20ms per μ-law frame
                 while not bridge._barge.is_set() and not bridge.closed.is_set():
                     item = await audio_queue.get()
                     if item is None:
@@ -716,7 +860,22 @@ async def run_modular_pipeline(
                     if bridge._barge.is_set():
                         break
                     chunk_str, frames = item
-                    await _play_frames(bridge, frames, on_frame_played=on_frame_dispatched)
+                    if loop_start is None:
+                        loop_start = time.perf_counter()
+                        total_played = 0
+                    for b64 in frames:
+                        if bridge._barge.is_set():
+                            break
+                        await bridge.emit_ai_audio(b64)
+                        total_played += 1
+                        on_frame_dispatched(1)
+                        expected_elapsed = total_played * frame_duration
+                        actual_elapsed = time.perf_counter() - loop_start
+                        sleep_needed = expected_elapsed - actual_elapsed
+                        if sleep_needed > 0.001:
+                            await asyncio.sleep(sleep_needed)
+                    if audio_queue.empty():
+                        loop_start = None
 
             # Run pipeline concurrently
             streamer_t = asyncio.create_task(llm_streamer())
@@ -738,7 +897,7 @@ async def run_modular_pipeline(
                 full_reply = f"{spoken_text} [interrupted]"
                 last_ai_spoken = spoken_text
                 history.append({"role": "assistant", "content": full_reply})
-                await _update_call_transcript(local_id, f"AI: {full_reply}")
+                asyncio.create_task(_update_call_transcript(local_id, f"AI: {full_reply}"))
                 logger.info(f"[SPEECH-METER] Call {local_id} interrupted at frame {total_frames_played} (~{round(total_frames_played*0.02, 2)}s). Context truncated to: '{spoken_text}'")
             else:
                 full_reply = "".join(accumulated_reply).strip()
@@ -746,7 +905,7 @@ async def run_modular_pipeline(
                     full_reply = "..."
                 last_ai_spoken = full_reply
                 history.append({"role": "assistant", "content": full_reply})
-                await _update_call_transcript(local_id, f"AI: {full_reply}")
+                asyncio.create_task(_update_call_transcript(local_id, f"AI: {full_reply}"))
 
             # Latency profiling calculation
             t_now = time.perf_counter()
@@ -896,7 +1055,7 @@ async def run_modular_pipeline(
             flush_task: Optional[asyncio.Task] = None
 
             async def _debounced_flush():
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.2)
                 nonlocal accumulated_utterance
                 if accumulated_utterance:
                     full_text = " ".join(accumulated_utterance).strip()
@@ -961,6 +1120,12 @@ async def run_modular_pipeline(
     finally:
         silence_watchdog_task.cancel()
         watchdog_task.cancel()
+        if getattr(bridge, "_cartesia_ws", None):
+            try:
+                await bridge._cartesia_ws.close()
+            except Exception:
+                pass
+            bridge._cartesia_ws = None
         await bridge.close()
         bridge._dg_ws = None
         bridge.on_caller_audio = None

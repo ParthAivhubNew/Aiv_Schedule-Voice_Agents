@@ -196,6 +196,7 @@ class BridgedVoiceSession:
         self.on_caller_audio = None
         self.engine = "xai"
         self._dg_ws = None
+        self._cartesia_ws = None
         self._speaking_task = None
 
     async def close(self) -> None:
@@ -213,6 +214,12 @@ class BridgedVoiceSession:
             except Exception:
                 pass
             self._dg_ws = None
+        if self._cartesia_ws:
+            try:
+                await self._cartesia_ws.close()
+            except Exception:
+                pass
+            self._cartesia_ws = None
         if self.ws:
             try:
                 await self.ws.close()
