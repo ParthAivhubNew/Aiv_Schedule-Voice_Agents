@@ -129,6 +129,7 @@ import { humanizeAiReply } from "./scheduler/chatClean";
 import { CallingWorkspace } from "./calling/CallingWorkspace";
 import { CALLING_EDITION_EVENT, getCallingEdition, setCallingEdition } from "./calling/callingEdition";
 import { BookingPolicyEditor } from "./components/BookingPolicyEditor";
+import { LiveKitBrowserCallModal } from "./components/LiveKitBrowserCallModal";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -7124,6 +7125,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
   const [fromNumber, setFromNumber] = useState(defaultFromNumber || "");
   const [carrierChoice, setCarrierChoice] = useState("twilio");
   const [missionTitle, setMissionTitle] = useState(prefillData?.missionTitle || "Direct Client Outreach");
+  const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
 
   useEffect(() => {
     if (defaultFromNumber) {
@@ -7255,6 +7257,10 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
 
   const handleDial = async (e) => {
     if (e) e.preventDefault();
+    if (carrierChoice === "livekit") {
+      setLiveKitModalOpen(true);
+      return;
+    }
     if (!toNumber.trim()) {
       setDialError("Please enter a destination phone number.");
       return;
@@ -7538,6 +7544,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 <option value="twilio">Twilio Voice (UK PSTN)</option>
                 <option value="telnyx">Telnyx (BYO SIP Trunk)</option>
                 <option value="generic_sip">Generic SIP / PBX</option>
+                <option value="livekit">LiveKit WebRTC (In-Browser Test)</option>
                 <option value="simulation">Local Simulator (Free Test)</option>
               </select>
               <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
@@ -7785,8 +7792,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
             </div>
           )}
 
-          {/* Submit Button */}
-          <div>
+          {/* Submit & Test Buttons */}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <button
               type="submit"
               disabled={dialing}
@@ -7816,9 +7823,45 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 </>
               )}
             </button>
+
+            <button
+              type="button"
+              onClick={() => setLiveKitModalOpen(true)}
+              style={{
+                background: "linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 7,
+                padding: "10px 22px",
+                fontFamily: FONT_DISPLAY,
+                fontSize: 13.5,
+                fontWeight: 800,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                boxShadow: "0 4px 14px rgba(37,99,235,0.3)",
+                transition: "all 0.15s ease",
+              }}
+              title="Test call directly in web browser using LiveKit WebRTC (Zero carrier charges, 48kHz audio)"
+            >
+              <Headphones size={15} /> 🎙️ Test Call in Web (LiveKit WebRTC)
+            </button>
           </div>
         </form>
       )}
+
+      {/* LiveKit WebRTC In-Browser Voice Call Modal */}
+      <LiveKitBrowserCallModal
+        isOpen={liveKitModalOpen}
+        onClose={() => setLiveKitModalOpen(false)}
+        prospectName={prospectName.trim() || "Test Prospect"}
+        prospectPhone={toNumber.trim() || "Browser WebRTC"}
+        companyName={missionTitle.trim() || "AIVHub"}
+        onCallEnded={() => {
+          if (onViewLiveCalls) onViewLiveCalls();
+        }}
+      />
     </div>
   );
 }
@@ -8008,6 +8051,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [carrierChoice, setCarrierChoice] = useState("telnyx");
   const [engineChoice, setEngineChoice] = useState("xai");
   const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || "");
+  const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
 
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -8373,6 +8417,13 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       icon: Globe
     },
     {
+      id: "livekit",
+      name: "LiveKit WebRTC (Self-Hosted)",
+      badge: "In-Browser Web Test • Zero Cost",
+      desc: "Bidirectional high-fidelity 48kHz WebRTC audio testing directly in your browser without PSTN carrier costs.",
+      icon: Headphones
+    },
+    {
       id: "simulation",
       name: "Local Testing Simulator",
       badge: "Zero Cost • Demo Mode",
@@ -8446,7 +8497,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button
               onClick={handlePing}
               disabled={pinging}
@@ -8467,6 +8518,29 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             >
               {pinging ? <RefreshCw size={13} className="animate-spin" /> : <PhoneCall size={13} />}
               Test Inbound Ping
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLiveKitModalOpen(true)}
+              style={{
+                background: "linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)",
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 16px",
+                color: "#fff",
+                fontFamily: FONT_BODY,
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                boxShadow: "0 2px 8px rgba(37,99,235,0.3)",
+              }}
+              title="Test the AI agent voice directly in your web browser via LiveKit WebRTC (no phone needed)"
+            >
+              <Headphones size={14} /> Test Call in Web (LiveKit)
             </button>
           </div>
         </div>
@@ -9683,12 +9757,33 @@ function LeadRadarView({ notifications, setNotifications, onLaunchMission }) {
           )}
         </div>
       )}
+
+      {/* LiveKit WebRTC In-Browser Voice Call Modal */}
+      <LiveKitBrowserCallModal
+        isOpen={liveKitModalOpen}
+        onClose={() => setLiveKitModalOpen(false)}
+        prospectName="Line Setup Test User"
+        prospectPhone={phoneNumber || hubData.phoneNumber || "Browser WebRTC"}
+        companyName={profile?.name || "AIVHub"}
+      />
     </div>
   );
 }
 
 
 const LAYERS = VOICE_LAYERS;
+
+const MODEL_PRESETS_BY_PROVIDER = {
+  "deepgram": ["nova-2", "nova-3", "nova-2-phonecall", "nova-2-general", "nova-2-meeting"],
+  "deepgram aura": ["aura-orion-en", "aura-asteria-en", "aura-angus-en", "aura-arcas-en", "aura-luna-en", "aura-zeus-en"],
+  "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+  "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"],
+  "openai (gpt-4o)": ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"],
+  "anthropic (claude)": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-7-sonnet-20250219"],
+  "xai (grok)": ["grok-2-latest", "grok-2", "grok-beta"],
+  "cartesia": ["sonic-2", "sonic-turbo"],
+  "elevenlabs": ["eleven_turbo_v2_5", "eleven_multilingual_v2"],
+};
 
 function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile, onNavigateView, embedded = false }) {
   const [activeTab, setActiveTab] = useState("telephony-hub");
@@ -9723,7 +9818,15 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               ...group,
               items: (group.items || []).map((it) => {
                 const live = backendMap[`${group.group}|${it.name}`];
-                return live ? { ...it, id: live.id, status: live.status, apiKeyMasked: live.apiKeyMasked } : it;
+                return live ? {
+                  ...it,
+                  id: live.id,
+                  status: live.status,
+                  apiKeyMasked: live.apiKeyMasked,
+                  model: live.model,
+                  baseUrl: live.baseUrl,
+                  voiceId: live.voiceId
+                } : it;
               }),
             }));
           });
@@ -9790,8 +9893,18 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const setRow = (rowKey, patch) =>
     setRowState((s) => ({ ...s, [rowKey]: { ...(s[rowKey] || {}), ...patch } }));
 
-  const handleConnect = (rowKey) =>
-    setRow(rowKey, { phase: "editing", keyValue: "", phoneValue: profile?.callerId || "", agentIdValue: "", accountSidValue: "", errorMsg: "", testResult: null });
+  const handleConnect = (rowKey, it = {}) =>
+    setRow(rowKey, {
+      phase: "editing",
+      keyValue: "",
+      phoneValue: profile?.callerId || "",
+      agentIdValue: "",
+      accountSidValue: "",
+      modelValue: it?.model || "",
+      baseUrlValue: it?.baseUrl || "",
+      errorMsg: "",
+      testResult: null
+    });
 
   const handleCancel = (rowKey) =>
     setRowState((s) => { const n = { ...s }; delete n[rowKey]; return n; });
@@ -9820,6 +9933,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         provider: itemName,
         api_key: key,
         account_sid: accountSid || undefined,
+        base_url: (row.baseUrlValue || "").trim() || undefined,
+        model: (row.modelValue || "").trim() || undefined,
       });
       setRow(rowKey, { phase: "tested_ok", testResult: res.details || "Authentication verified! Ready to save." });
     } catch (err) {
@@ -9845,11 +9960,27 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         provider: itemName,
         api_key: key,
         account_sid: accountSid || undefined,
+        base_url: (row.baseUrlValue || "").trim() || undefined,
+        model: (row.modelValue || "").trim() || undefined,
       });
       setCredsState((s) =>
         s.map((g) =>
           g.group === groupName
-            ? { ...g, items: (g.items || []).map((x) => x.name === itemName ? { ...x, id: res.id || x.id, status: "connected", apiKeyMasked: res.maskedKey } : x) }
+            ? {
+                ...g,
+                items: (g.items || []).map((x) =>
+                  x.name === itemName
+                    ? {
+                        ...x,
+                        id: res.id || x.id,
+                        status: "connected",
+                        apiKeyMasked: res.maskedKey,
+                        model: (row.modelValue || "").trim() || x.model,
+                        baseUrl: (row.baseUrlValue || "").trim() || x.baseUrl,
+                      }
+                    : x
+                ),
+              }
             : g
         )
       );
@@ -10263,6 +10394,11 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px" }}>
                           <div style={{ width: 210, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.textInk }}>
                             {it.name}
+                            {it.model && (
+                              <div style={{ fontSize: 11, fontFamily: FONT_MONO, color: C.cobalt, marginTop: 2, fontWeight: 600 }}>
+                                Model: {it.model}
+                              </div>
+                            )}
                             {highlighted && (
                               <div style={{ fontSize: 10.5, fontWeight: 700, color: "#065F46", marginTop: 3, letterSpacing: "0.02em" }}>{usedBy}</div>
                             )}
@@ -10274,9 +10410,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 
                           {phase === "idle" && (
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                              <button onClick={() => handleConnect(rowKey)}
+                              <button onClick={() => handleConnect(rowKey, it)}
                                 style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer", whiteSpace: "nowrap" }}>
-                                {it.status === "connected" ? "Update key" : "Connect"}
+                                {it.status === "connected" ? "Configure / Update" : "Connect"}
                               </button>
                               {it.status === "connected" && (
                                 <button
@@ -10380,6 +10516,53 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                 </div>
                               </div>
                             )}
+
+                            {/* Model Selection & Custom Base URL */}
+                            {(["LLM", "Speech-to-Text", "Text-to-Speech"].includes(group.group) || String(it.name || "").toLowerCase().includes("other")) && (() => {
+                              const pName = String(it.name || "").toLowerCase();
+                              const presetsKey = Object.keys(MODEL_PRESETS_BY_PROVIDER).find(k => pName.includes(k));
+                              const presets = presetsKey ? MODEL_PRESETS_BY_PROVIDER[presetsKey] : [];
+                              return (
+                                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 10, marginTop: 4 }}>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                    <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                      Model (Select or Type Any)
+                                    </label>
+                                    <div style={{ display: "flex", gap: 6 }}>
+                                      <input
+                                        type="text"
+                                        value={rs.modelValue || ""}
+                                        onChange={(e) => setRow(rowKey, { modelValue: e.target.value })}
+                                        placeholder={group.group === "Speech-to-Text" ? "e.g. nova-2, nova-3, nova-2-phonecall" : group.group === "Text-to-Speech" ? "e.g. aura-orion-en, sonic-2" : "e.g. deepseek-chat, llama-3.3-70b-versatile"}
+                                        style={{ flex: 1, boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                      />
+                                      {presets.length > 0 && (
+                                        <select
+                                          onChange={(e) => { if (e.target.value) setRow(rowKey, { modelValue: e.target.value }); }}
+                                          value={presets.includes(rs.modelValue) ? rs.modelValue : ""}
+                                          style={{ width: 130, padding: "0 6px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11.5, background: "#fff", cursor: "pointer", color: C.textInk }}
+                                        >
+                                          <option value="">Presets...</option>
+                                          {presets.map((p) => <option key={p} value={p}>{p}</option>)}
+                                        </select>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                    <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                      Custom Base URL (Optional)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={rs.baseUrlValue || ""}
+                                      onChange={(e) => setRow(rowKey, { baseUrlValue: e.target.value })}
+                                      placeholder="https://... or http://localhost:11434/v1"
+                                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })()}
 
                             {rs.errorMsg && (
                               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.red }}>
