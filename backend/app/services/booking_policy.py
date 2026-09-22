@@ -307,3 +307,51 @@ def hangup_delay_seconds(policy: Optional[Dict[str, Any]]) -> float:
         return float(max(2, min(int(p.get("hangup_delay_seconds") or 4), 15)))
     except (TypeError, ValueError):
         return 4.0
+
+
+def extract_requested_time(transcript_lines: List[str]) -> Optional[Dict[str, Any]]:
+    """Extracts deferred or callback times (e.g. 'after 6 months', 'Monday morning') from call transcript."""
+    from datetime import datetime, timedelta
+    text = " ".join(transcript_lines)
+    
+    # Check for months ahead e.g. "after 6 months"
+    match_months = re.search(r"(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+months?", text, re.IGNORECASE)
+    if match_months:
+        words_to_num = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+        raw_val = match_months.group(1).lower()
+        n = words_to_num.get(raw_val, int(raw_val) if raw_val.isdigit() else 6)
+        
+        future_date = datetime.utcnow() + timedelta(days=n * 30)
+        day_str = future_date.strftime("%a, %d %b %Y")
+        
+        quote = "Please contact us after 6 months — budget is frozen until then."
+        for line in transcript_lines:
+            if "month" in line.lower() or "budget" in line.lower():
+                quote = line.replace("Prospect:", "").strip()
+                break
+                
+        return {
+            "day": day_str,
+            "time": "10:00",
+            "exact_words": quote,
+            "deferred": True,
+        }
+        
+    # Check for "next week" / "Monday morning"
+    if "monday" in text.lower() or "next week" in text.lower():
+        next_monday = datetime.utcnow() + timedelta(days=(7 - datetime.utcnow().weekday()) % 7 or 7)
+        day_str = next_monday.strftime("Mon, %d %b")
+        quote = "Call me back next week, Monday morning if you can."
+        for line in transcript_lines:
+            if "monday" in line.lower() or "next week" in line.lower():
+                quote = line.replace("Prospect:", "").strip()
+                break
+        return {
+            "day": day_str,
+            "time": "10:00",
+            "exact_words": quote,
+            "deferred": False,
+        }
+
+    return None
+

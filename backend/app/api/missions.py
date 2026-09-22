@@ -7,7 +7,6 @@ from app.models.models import Mission, Prospect, LiveCall, Notification, Contact
 from app.schemas.schemas import MissionCreateRequest, MissionResponse
 from app.services.compliance import compute_queue_estimate
 from app.services.identity import find_identity_match, normalize_phone_digits
-from app.services.call_simulator import generate_call_scenario
 from app.websockets.call_hub import call_hub
 import uuid
 import json
@@ -162,20 +161,19 @@ async def create_mission(req: MissionCreateRequest, db: AsyncSession = Depends(g
         )
         db.add(prospect)
         
-        # If calling now, push into Live Calls
+        # If calling now, push into Live Calls as queued/dialing
         if is_calling:
-            scenario = generate_call_scenario(p_name, prospect.channel)
             live_call = LiveCall(
                 id=f"c_{uuid.uuid4().hex[:6]}",
                 mission_id=mission_id,
                 prospect_id=p_id,
                 prospect=p_name,
                 mission=req.title,
-                state=scenario["state"],
+                state="dialing",
                 channel=prospect.channel,
-                duration=scenario["duration"],
-                flag=scenario.get("flag"),
-                transcript=scenario["transcript"]
+                duration="00:00",
+                flag=None,
+                transcript=[]
             )
             db.add(live_call)
 

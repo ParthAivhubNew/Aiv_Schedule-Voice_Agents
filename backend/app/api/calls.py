@@ -4,13 +4,12 @@ from sqlalchemy.future import select
 from sqlalchemy import delete
 from app.database import get_db
 from app.models.models import LiveCall, CallLog, Meeting, ScheduleItem, Notification, Prospect, ContactRegistry, Connection, CompanyProfile
-from app.services.call_simulator import extract_requested_time
+from app.services.booking_policy import extract_requested_time
 from app.services.identity import find_identity_match
 from app.websockets.call_hub import call_hub
 from app.services.telephony_provider import carrier_registry, normalize_phone_number
 from app.services.outbound_dial import drain_mission_queue, launch_outbound_mission, place_outbound_call
 from app.services.xai_voice_service import (
-    _run_simulated_xai_session,
     notify_prospect_answered,
     alias_sip_first_call,
     start_bridged_voice_session,
@@ -982,9 +981,6 @@ async def dial_outbound_call(
                 except Exception:
                     pass
 
-            # If simulation mode, launch the simulated conversation session in background
-            if dial_res.get("simulated") or "sim" in carrier_choice:
-                background_tasks.add_task(_run_simulated_xai_session, call_id, to_clean)
 
             return {
                 "success": True,

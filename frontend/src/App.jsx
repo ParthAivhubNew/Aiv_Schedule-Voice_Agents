@@ -7533,7 +7533,6 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
                 <option value="telnyx">Telnyx (BYO SIP Trunk)</option>
                 <option value="generic_sip">Generic SIP / PBX</option>
                 <option value="livekit">LiveKit WebRTC (In-Browser Test)</option>
-                <option value="simulation">Local Simulator (Free Test)</option>
               </select>
               <div style={{ fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
                 Multi-provider adapter
@@ -9047,13 +9046,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       badge: "In-Browser Web Test • Zero Cost",
       desc: "Bidirectional high-fidelity 48kHz WebRTC audio testing directly in your browser without PSTN carrier costs.",
       icon: Headphones
-    },
-    {
-      id: "simulation",
-      name: "Local Testing Simulator",
-      badge: "Zero Cost • Demo Mode",
-      desc: "Simulate live inbound voice calls directly in the browser without carrier account charges.",
-      icon: Sparkles
     }
   ];
 
@@ -9085,13 +9077,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
       badge: "Pick STT + LLM + TTS plugins",
       desc: "Full plugin stack from Connections: any Speech-to-Text, LLM, and Text-to-Speech (Cartesia, ElevenLabs, …).",
       icon: Layers
-    },
-    {
-      id: "simulation",
-      name: "Simulated Voice Engine",
-      badge: "Scripted Walker",
-      desc: "Instant scripted conversational turns for product demos, automated walkthroughs, and UI testing.",
-      icon: Play
     }
   ];
 
@@ -9414,11 +9399,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               ? "Uses self-hosted LiveKit Agents with your Connections STT → LLM → TTS plugins."
               : engineChoice === "openai"
                 ? "OpenAI built-in voices only."
-                : engineChoice === "simulation"
-                  ? "Demo mode — no live carrier."
-                  : hubData.externalTts
-                    ? `Hybrid: xAI + ${hubData.ttsName || hubData.ttsProvider || "TTS"}.`
-                    : "xAI built-in voice. Link a TTS Voice ID below for your clone."}
+                : hubData.externalTts
+                  ? `Hybrid: xAI + ${hubData.ttsName || hubData.ttsProvider || "TTS"}.`
+                  : "xAI built-in voice. Link a TTS Voice ID below for your clone."}
           </div>
         </div>
 
@@ -9444,9 +9427,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>The active caller ID that triggers this voice trunk.</div>
             </div>
 
-            {engineChoice !== "simulation" && (
-              <div>
-                <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
                   {engineChoice === "xai" ? "xAI API Key" : engineChoice === "openai" ? "OpenAI API Key" : engineChoice === "livekit" ? "LiveKit API Key (optional — uses Connections plugins)" : engineChoice === "modular" ? "Optional engine key (modular uses Connections STT/TTS/LLM)" : "Engine Primary API Key"}
                 </label>
                 <div style={{ position: "relative" }}>
@@ -9469,7 +9451,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   {hubData.hasApiKey ? `✓ Active Key Saved in Database: ${hubData.apiKeyMasked} (Leave blank to keep active key, or enter new key to replace)` : "Stored securely in database. Never exposed to callers."}
                 </div>
               </div>
-            )}
 
             {engineChoice === "xai" && (
               <div>

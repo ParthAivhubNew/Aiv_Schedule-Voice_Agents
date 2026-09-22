@@ -368,9 +368,7 @@ async def start_bridged_voice_session(
                 carrier_sid=carrier_sid,
             )
         )
-    elif plan.engine == "simulation":
-        sess.ready.set()
-        asyncio.create_task(_run_simulated_xai_session(call_id, caller_number))
+
     else:
         asyncio.create_task(
             join_xai_call_session(
@@ -2471,31 +2469,4 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
         logger.error(f"Error finalizing call {call_id}: {err}", exc_info=True)
 
 
-async def _run_simulated_xai_session(call_id: str, caller_number: str):
-    """Simulation fallback with ultra-natural human dialogue and contact capture."""
-    sample_dialogue = [
-        ("ai", "Hi there, this is Sam calling from AIVHub. How's your day going?"),
-        ("them", "Hi Sam. Good thanks, what's this regarding?"),
-        ("ai", "The reason for my call—we help ops teams connect scattered systems into live dashboards and AI insights. Just wanted to see if you'd be open to a quick 15-minute walkthrough sometime this week?"),
-        ("them", "We use several tools and reporting has been quite painful. How does your pricing work?"),
-        ("ai", "Gotcha, that makes total sense. Let me check our verified knowledge base for exact enterprise tier details."),
-        ("ai", "Our enterprise tier includes custom live connectors, private deployment, and dedicated SLA onboarding. Would you be open to a quick 15-minute walkthrough tomorrow at 2 PM?"),
-        ("them", "Tomorrow at 2 PM works nicely for me."),
-        ("ai", "Brilliant! What's the best email address to send the calendar invite and direct demo link to?"),
-        ("them", "Send it over to ops@company.co.uk please."),
-        ("ai", "Got it, ops@company.co.uk. I've locked in tomorrow at 2 PM and sent the invite straight over. Have a wonderful rest of your day!")
-    ]
 
-    for who, text in sample_dialogue:
-        await asyncio.sleep(1.8)
-        line = f"AI: {text}" if who == "ai" else f"Prospect: {text}"
-        await _update_call_transcript(call_id, line)
-        await call_hub.broadcast("call_transcript_delta", {
-            "callId": call_id,
-            "who": who,
-            "delta": text
-        })
-        if "locked in tomorrow" in text:
-            await execute_xai_tool("book_calendar_meeting", {"date": "Tomorrow", "time": "14:00", "email": "ops@company.co.uk", "notes": "Demo from simulated call"}, call_id)
-
-    await _finalize_call(call_id, "00:45", [f"{w.upper()}: {t}" for w, t in sample_dialogue])

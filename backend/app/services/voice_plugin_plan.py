@@ -105,7 +105,7 @@ def _key_from(conn: Optional[Connection]) -> str:
 
 def _norm_engine(name: str, cfg: Dict[str, Any]) -> str:
     eid = str(cfg.get("engine") or "").lower().strip()
-    if eid in ("xai", "openai", "modular", "livekit", "vapi", "retell", "custom", "simulation"):
+    if eid in ("xai", "openai", "modular", "livekit", "vapi", "retell", "custom"):
         return eid
     raw = f"{eid} {name or ''}".lower()
     if "livekit" in raw:
@@ -120,8 +120,6 @@ def _norm_engine(name: str, cfg: Dict[str, Any]) -> str:
         return "openai"
     if "modular" in raw:
         return "modular"
-    if "sim" in raw:
-        return "simulation"
     return "xai"
 
 

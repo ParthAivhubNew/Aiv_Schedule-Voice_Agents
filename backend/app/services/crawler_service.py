@@ -94,7 +94,7 @@ async def fetch_url_content(url: str) -> Tuple[str, str]:
     if not url.startswith("http://") and not url.startswith("https://"):
         url = "https://" + url
         
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+    async with httpx.AsyncClient(timeout=25.0, follow_redirects=True, verify=False, headers={"User-Agent": USER_AGENT}) as client:
         response = await client.get(url)
         response.raise_for_status()
         return extract_clean_text_from_html(response.text)

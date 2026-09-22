@@ -442,46 +442,6 @@ class GenericSipAdapter(BaseCarrierAdapter):
         return {"call_id": call_id, "status": "active"}
 
 
-class SimulationCarrierAdapter(BaseCarrierAdapter):
-    """
-    Simulation Carrier Plugin for Local Testing and Sandboxing.
-    Simulates ringing, connecting, and AI voice dialogue in UI without carrier charges.
-    """
-    name = "simulation"
-    display_name = "Local Testing Simulator"
-    description = "Zero-cost local sandbox simulating outbound dialing and live transcript events."
-
-    async def validate_credentials(self, credentials: Dict[str, Any]) -> Dict[str, Any]:
-        return {"valid": True, "details": "Simulation carrier ready for instant testing."}
-
-    async def dial_outbound(
-        self,
-        to_number: str,
-        from_number: str,
-        bridge_sip_uri: str,
-        metadata: Optional[Dict[str, Any]] = None,
-        credentials: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        to_clean = normalize_phone_number(to_number)
-        from_clean = normalize_phone_number(from_number or "")
-        sim_id = f"sim_out_{to_clean.replace('+', '')[-6:]}"
-        return {
-            "success": True,
-            "call_id": sim_id,
-            "status": "ringing",
-            "to": to_clean,
-            "from": from_clean,
-            "carrier": "Simulation",
-            "bridge_sip_uri": bridge_sip_uri,
-            "simulated": True
-        }
-
-    async def hangup_call(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> bool:
-        return True
-
-    async def get_call_status(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return {"call_id": call_id, "status": "in-progress"}
-
 
 class SipgateCarrierAdapter(BaseCarrierAdapter):
     """
@@ -672,7 +632,6 @@ class CarrierRegistry:
         "telnyx": TelnyxCarrierAdapter,
         "sipgate": SipgateCarrierAdapter,
         "generic_sip": GenericSipAdapter,
-        "simulation": SimulationCarrierAdapter,
         "vapi": VapiCarrierAdapter,
         "retell": RetellCarrierAdapter,
         "custom": CustomVoiceCarrierAdapter,

@@ -14,31 +14,23 @@ import {
   Bar,
   Legend,
 } from "recharts";
-
 export function AnalyticsView({ notifications, setNotifications, analyticsData = {} }) {
   const metrics = analyticsData.metrics || {
-    conversionRate: "18%",
-    conversionDelta: "+2.4% vs last week",
-    meetingsBooked: 10,
-    meetingsDelta: "+3 today",
-    activeMissions: 4,
-    prospectsReached: 41,
+    conversionRate: "0%",
+    conversionDelta: "0% vs last week",
+    meetingsBooked: 0,
+    meetingsDelta: "0 today",
+    activeMissions: 0,
+    prospectsReached: 0,
   };
 
-  const trend = analyticsData.trend || [
-    { day: "1 Aug", rate: 11 },
-    { day: "6 Aug", rate: 12 },
-    { day: "11 Aug", rate: 13 },
-    { day: "16 Aug", rate: 15 },
-    { day: "21 Aug", rate: 16 },
-    { day: "26 Aug", rate: 18 },
-  ];
+  const trend = analyticsData.trend || [];
 
   const costBreakdown = analyticsData.costBreakdown || [
-    { name: "LLM", Paid: 320, "Open Source": 42 },
-    { name: "STT", Paid: 180, "Open Source": 6 },
-    { name: "TTS", Paid: 260, "Open Source": 4 },
-    { name: "Telephony", Paid: 410, "Open Source": 380 },
+    { name: "LLM", Paid: 0, "Open Source": 0 },
+    { name: "STT", Paid: 0, "Open Source": 0 },
+    { name: "TTS", Paid: 0, "Open Source": 0 },
+    { name: "Telephony", Paid: 0, "Open Source": 0 },
   ];
 
   return (
