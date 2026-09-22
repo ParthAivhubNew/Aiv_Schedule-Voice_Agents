@@ -2541,35 +2541,6 @@ export function CallingWorkspace({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        const targetPhone = resolveDirectPhone() || direct.phone.trim() || "Browser WebRTC";
-                        setLiveKitTarget({
-                          name: direct.name.trim() || "Test Prospect",
-                          phone: targetPhone,
-                          company: (profile && profile.name) || "AIVHub",
-                        });
-                        setLiveKitModalOpen(true);
-                      }}
-                      style={{
-                        height: 40,
-                        padding: "0 14px",
-                        borderRadius: 10,
-                        border: `1px solid ${C.cobalt}`,
-                        background: C.cobaltSoft,
-                        color: C.cobalt,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        transition: "all 0.15s ease",
-                      }}
-                      title="Test AI voice agent directly in your browser with LiveKit WebRTC (no phone or carrier charges needed)"
-                    >
-                      <Headphones size={14} /> Talk in Browser (WebRTC)
-                    </button>
-                    <button
-                      type="button"
                       disabled={digitsInPhone(direct.phone).length < 7}
                       onClick={() => openChannel("sms", resolveDirectPhone() || direct.phone, direct.name, brandForMsg())}
                       style={{ height: 40, padding: "0 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: digitsInPhone(direct.phone).length >= 7 ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, opacity: digitsInPhone(direct.phone).length >= 7 ? 1 : 0.45 }}
