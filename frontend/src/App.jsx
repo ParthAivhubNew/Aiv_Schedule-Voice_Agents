@@ -7106,7 +7106,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
 
 /* ---------------------------------- Direct Outbound Calling Component ---------------------------------- */
 
-function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNumber, onViewLiveCalls, onCallCreated, prefillData }) {
+function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNumber, onViewLiveCalls, onCallCreated, prefillData, style }) {
   const [toNumber, setToNumber] = useState(prefillData?.toNumber || "");
   const [prospectName, setProspectName] = useState(prefillData?.prospectName || "");
   const [fromNumber, setFromNumber] = useState(defaultFromNumber || "");
@@ -7310,7 +7310,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
       color: C.textInk,
       border: `1px solid ${C.border}`,
       boxShadow: "0 8px 28px rgba(18,20,28,0.06)",
-      marginBottom: 20
+      margin: 0,
+      ...style
     }}>
       <div
         role="button"
@@ -8533,7 +8534,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
   ];
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
+    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 20, margin: 0 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>What Calling uses</div>
@@ -9018,7 +9019,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
 
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* 1. HERO ACTIVE STACK CARD */}
       <div
         style={{
@@ -9234,11 +9235,11 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           e.preventDefault();
           if (!provisioning) setProvisionConfirmOpen(true);
         }}
-        style={{ display: "flex", flexDirection: "column", gap: 24 }}
+        style={{ display: "flex", flexDirection: "column", gap: 20, margin: 0 }}
       >
         
         {/* Line Credentials & Activation Form */}
-        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 24 }}>
+        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 24, margin: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
             <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Configure Line Credentials & Activation</h3>
           </div>
