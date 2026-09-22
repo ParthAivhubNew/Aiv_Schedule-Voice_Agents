@@ -9937,36 +9937,47 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     setTimeout(() => setDirty(false), 1400);
   };
 
-  const isOss = (val) =>
-    ["self-hosted", "telnyx", "deepseek", "kokoro", "livekit", "whisper", "local"].some((kw) =>
-      String(val).toLowerCase().includes(kw)
-    );
+  const isOss = (val) => {
+    const lower = String(val).toLowerCase();
+    // Only mark as self-hosted if explicitly labeled as such by user
+    return lower.includes("self-hosted") || 
+           lower.includes("local") || 
+           lower.includes("localhost") ||
+           lower.includes("ollama") ||
+           (lower.includes("livekit") && lower.includes("self"));
+  };
 
   // Generate model options dynamically from Connections instead of hardcoded lists
   const llmConnections = credsState.find((g) => g.group === "LLM")?.items || [];
   const sttConnections = credsState.find((g) => g.group === "Speech-to-Text")?.items || [];
   const ttsConnections = credsState.find((g) => g.group === "Text-to-Speech")?.items || [];
   
+  console.log('[DEBUG] llmConnections:', llmConnections);
+  
+  // ONLY show user's connected providers - remove commonAi.providers that adds extra models
   const allLlmOptions = Array.from(new Set([
     ...llmConnections.filter(c => c.model).map(c => c.model),
-    ...llmConnections.map(c => c.name),
-    ...(commonAi?.providers?.filter((p) => p.type === "llm").flatMap((p) => p.models) || []),
+    ...llmConnections.filter(c => c.status === "connected").map(c => c.name),
   ])).filter(Boolean);
   
   const allSttOptions = Array.from(new Set([
     ...sttConnections.filter(c => c.model).map(c => c.model),
-    ...sttConnections.map(c => c.name),
+    ...sttConnections.filter(c => c.status === "connected").map(c => c.name),
   ])).filter(Boolean);
   
   const allTtsOptions = Array.from(new Set([
     ...ttsConnections.filter(c => c.model).map(c => c.model),
-    ...ttsConnections.map(c => c.name),
+    ...ttsConnections.filter(c => c.status === "connected").map(c => c.name),
   ])).filter(Boolean);
   
+  console.log('[DEBUG] allLlmOptions:', allLlmOptions);
+  console.log('[DEBUG] allSttOptions:', allSttOptions);
+  console.log('[DEBUG] allTtsOptions:', allTtsOptions);
+  
   // If no connections yet, show a helpful message instead of empty dropdown
-  if (allLlmOptions.length === 0) allLlmOptions.push("Add LLM in Connections tab");
-  if (allSttOptions.length === 0) allSttOptions.push("Add STT in Connections tab");
-  if (allTtsOptions.length === 0) allTtsOptions.push("Add TTS in Connections tab");
+  if (allLlmOptions.length === 0) allLlmOptions.push("No LLM connected - add in Connections tab");
+  if (allSttOptions.length === 0) allSttOptions.push("No STT connected - add in Connections tab");
+  if (allTtsOptions.length === 0) allTtsOptions.push("No TTS connected - add in Connections tab");
 
   // ── Credentials inline test→save helpers ──
   const setRow = (rowKey, patch) =>
