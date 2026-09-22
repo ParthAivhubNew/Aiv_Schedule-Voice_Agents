@@ -6577,48 +6577,8 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                   value={profile.demoScript || ""}
                   onChange={(v) => update("demoScript", v)}
                   placeholder={'Prospect: "Hello?"\nAI: "Hi John, Parth here from A.I.V. Hub! Did I catch you in the middle of something?"\nProspect: "A little bit, what is this regarding?"\nAI: "Totally get it, won\'t keep you! We help businesses automate their Power BI reports. Just curious, how are you currently tracking your KPIs?"\nProspect: "We use Excel sheets mostly."\nAI: "Makes total sense! Would you be open to a quick 15-minute walkthrough sometime this week to see how we automate that?"'}
-                  hint="Provide a 3 to 4-turn sample conversation showing how the prospect speaks and how the AI rep responds with warmth, brevity, natural feelings, and contractions. Leave blank to use configured steps below."
+                  hint="Provide a 3 to 4-turn sample conversation showing how the prospect speaks and how the AI rep responds with warmth, brevity, natural feelings, and contractions. The AI mimics this exact conversational style and rhythm."
                   textarea
-                />
-              </div>
-
-              {/* Outbound Conversational Script Flow */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-                <SectionIntro
-                  icon={HelpCircle}
-                  title="Outbound Conversational Script Flow"
-                  desc="Configure the natural 4-step conversation flow the AI uses when placing outbound calls to prospects. Works for any company and offering."
-                />
-                <Field
-                  label="1. Opening Greeting & Rapport Hook"
-                  value={profile.callOpener || ""}
-                  onChange={(v) => update("callOpener", v)}
-                  placeholder="Hi {name}, this is {caller_name} calling from {company} — did I catch you in the middle of something?"
-                  hint="Spoken the moment the prospect answers. Available variables: {name}, {caller_name}, {company}. Blank = polite unhurried default."
-                  textarea
-                />
-                <Field
-                  label="2. Call Recording Statutory Disclosure"
-                  value={profile.disclosure || ""}
-                  onChange={(v) => update("disclosure", v)}
-                  placeholder="This call may be recorded for quality and training purposes."
-                  hint="Required statutory line spoken during call opening or when compliance requires recording disclosure."
-                  textarea
-                />
-                <Field
-                  label="3. Reason for Call & Value Hook"
-                  value={profile.callHook || ""}
-                  onChange={(v) => update("callHook", v)}
-                  placeholder="The reason I'm reaching out is we help businesses turn scattered data and spreadsheets into real-time insights and automated workflows. Just curious—how are you currently tracking your business data?"
-                  hint="Spoken after they acknowledge the greeting. Ask a conversational qualifying question to invite dialogue, rather than reciting an aggressive pitch."
-                  textarea
-                />
-                <Field
-                  label="4. Walkthrough / Demo Booking Offer"
-                  value={profile.closingAsk || ""}
-                  onChange={(v) => update("closingAsk", v)}
-                  placeholder="Would you be open to a quick 15-minute walkthrough sometime this week?"
-                  hint="How the agent invites the prospect to book a walkthrough once they express interest."
                 />
               </div>
 

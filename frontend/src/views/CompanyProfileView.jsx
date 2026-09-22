@@ -198,29 +198,6 @@ export function CompanyProfileView({
                   <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Direct behavioral prompt rules injected into every outbound call.</span>
                 </div>
               </div>
-
-              {/* Individual Step Details */}
-              <div style={{ background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Individual Step Details (Fallback / Variables)</div>
-                <div style={{ fontSize: 12, color: C.slate }}>Configure specific variables and statutory disclosures.</div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>1. Opening Greeting & Rapport Hook</label>
-                  <textarea rows={2} value={localProfile.callOpener || localProfile.call_opener || ""} onChange={(e) => handleChange("callOpener", e.target.value)} placeholder="Hi {name}, this is {caller_name} calling from {company} — did I catch you in the middle of something?" style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                  <span style={{ fontSize: 11, color: C.slate, marginTop: 3, display: "block" }}>Variables: {'{name}, {caller_name}, {company}'}.</span>
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>2. Call Recording Statutory Disclosure</label>
-                  <textarea rows={2} value={localProfile.disclosure || ""} onChange={(e) => handleChange("disclosure", e.target.value)} placeholder="This call may be recorded for quality and training purposes." style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>3. Reason for Call & Value Hook</label>
-                  <textarea rows={2} value={localProfile.callHook || localProfile.call_hook || ""} onChange={(e) => handleChange("callHook", e.target.value)} placeholder="The reason I'm reaching out is we help businesses turn scattered data into real-time insights." style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>4. Walkthrough / Demo Offer</label>
-                  <input type="text" value={localProfile.closingAsk || localProfile.closing_ask || ""} onChange={(e) => handleChange("closingAsk", e.target.value)} placeholder="Would you be open to a quick 15-minute walkthrough sometime this week?" style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}` }} />
-                </div>
-              </div>
             </div>
           )}
 
