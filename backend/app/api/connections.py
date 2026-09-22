@@ -68,11 +68,15 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
                 "desc": descriptions.get(c.group_name, ""),
                 "items": []
             }
+        cfg = open_config(c.config if isinstance(c.config, dict) else {})
         grouped[c.group_name]["items"].append({
             "id": c.id,
             "name": c.name,
             "status": c.status,
-            "apiKeyMasked": c.api_key_masked or "••••••••"
+            "apiKeyMasked": c.api_key_masked or "••••••••",
+            "model": cfg.get("model") or "",
+            "baseUrl": cfg.get("base_url") or "",
+            "voiceId": cfg.get("voice_id") or "",
         })
         
     return list(grouped.values())
