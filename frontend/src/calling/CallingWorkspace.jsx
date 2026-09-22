@@ -2719,7 +2719,20 @@ export function CallingWorkspace({
                   </div>
 
                   {availableSheets.length > 1 && (
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fff", padding: "3px 6px", borderRadius: 8, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
+                    <div style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      background: "#fff",
+                      padding: "3px 6px",
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                      maxWidth: "100%",
+                      overflowX: "auto",
+                      scrollbarWidth: "thin",
+                      whiteSpace: "nowrap",
+                    }}>
                       <span style={{ fontSize: 11, fontWeight: 800, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", padding: "0 4px" }}>
                         Sheets:
                       </span>
