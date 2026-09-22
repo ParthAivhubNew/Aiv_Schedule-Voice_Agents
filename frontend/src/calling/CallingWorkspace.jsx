@@ -1042,13 +1042,33 @@ export function CallingWorkspace({
     refreshMeetings();
     refreshLogs();
     refreshSchedule();
+
+    // Instant refresh when user switches back to the tab
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshLive();
+        if (page === "meetings") refreshMeetings();
+        if (page === "logs") refreshLogs();
+        if (page === "schedule") refreshSchedule();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onVisibilityChange);
+
+    // Fallback sync: WebSockets deliver instant updates for active calls/meetings.
+    // Periodic background sync runs gently every 15s rather than spamming every 2s.
     const t = window.setInterval(() => {
       refreshLive();
-      refreshMeetings();
-      refreshLogs();
+      if (page === "meetings") refreshMeetings();
+      if (page === "logs") refreshLogs();
       if (page === "schedule") refreshSchedule();
-    }, page === "live" ? 2000 : 4000);
-    return () => window.clearInterval(t);
+    }, 15000);
+
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onVisibilityChange);
+    };
   }, [page, refreshLive, refreshMeetings, refreshLogs, refreshSchedule]);
 
   // Instant live-board updates (don't wait for poll / dial HTTP return)

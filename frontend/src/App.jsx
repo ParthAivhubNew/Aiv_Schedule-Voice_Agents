@@ -7880,7 +7880,605 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
 
 /* ---------------------------------- Voice & Telephony Trunking Hub (Multi-Provider) ---------------------------------- */
 
-function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
+function QuickSwitchModelModal({
+  layerKey,
+  layerTitle,
+  layerName,
+  hubData,
+  connections = [],
+  onClose,
+  onSelectSuccess,
+  onOpenCredentials,
+}) {
+  const [switching, setSwitching] = useState(false);
+  const [selectedVal, setSelectedVal] = useState(null);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const groupMap = {
+    llm: "LLM",
+    stt: "Speech-to-Text",
+    tts: "Text-to-Speech",
+    telephony: "Telephony",
+    engine: "Voice Orchestration",
+    voice: "Voice Persona",
+  };
+
+  const groupName = groupMap[layerKey] || layerName || "LLM";
+
+  // Build model and provider options strictly from connected/saved items in DB + built-ins
+  const options = useMemo(() => {
+    const groupItems = (connections.find((g) => g.group === groupName)?.items || []).filter(
+      (it) => it.status === "connected" || (it.apiKeyMasked && it.apiKeyMasked.length > 0)
+    );
+
+    if (layerKey === "engine") {
+      return [
+        {
+          id: "modular",
+          label: "Modular Voice Pipeline (Ultra-Low Latency Streaming)",
+          desc: "Decoupled Deepgram STT + Streaming LLM + Cartesia/ElevenLabs TTS with sub-500ms response.",
+          badge: "Ultra-Fast (300ms)",
+          value: "modular",
+          isBuiltIn: true,
+        },
+        {
+          id: "livekit",
+          label: "LiveKit WebRTC Agents",
+          desc: "WebRTC browser calling & SIP telephony bridge with realtime stream pacing.",
+          badge: "Browser & SIP",
+          value: "livekit",
+          isBuiltIn: true,
+        },
+        {
+          id: "xai",
+          label: "xAI Realtime Grok (Speech-to-Speech)",
+          desc: "Direct native speech-to-speech audio model via xAI SIP trunking.",
+          badge: "Speech-to-Speech",
+          value: "xai",
+          isBuiltIn: true,
+        },
+        {
+          id: "openai",
+          label: "OpenAI Realtime",
+          desc: "OpenAI Realtime bidirectional audio API pipeline.",
+          badge: "Realtime",
+          value: "openai",
+          isBuiltIn: true,
+        },
+      ];
+    }
+
+    if (layerKey === "voice") {
+      const builtin = [
+        { id: "rex", label: "Rex (Friendly Male)", desc: "Warm, energetic tone with fast pacing", value: "rex", badge: "Engine Persona", isBuiltIn: true },
+        { id: "ara", label: "Ara (Warm Female)", desc: "Professional, crisp executive tone", value: "ara", badge: "Engine Persona", isBuiltIn: true },
+        { id: "eve", label: "Eve (Energetic Female)", desc: "Bright, engaging conversationalist", value: "eve", badge: "Engine Persona", isBuiltIn: true },
+        { id: "leo", label: "Leo (Direct Male)", desc: "Authoritative, clear business speaker", value: "leo", badge: "Engine Persona", isBuiltIn: true },
+        { id: "sal", label: "Sal (Smooth Neutral)", desc: "Calm, reassuring voice profile", value: "sal", badge: "Engine Persona", isBuiltIn: true },
+      ];
+      const customClones = (Array.isArray(hubData?.customVoices) ? hubData.customVoices : []).map((cv) => ({
+        id: cv.id || cv.voice_id,
+        label: `${cv.name || "Custom Clone"} (Cloned Voice)`,
+        desc: `Custom voice profile · ID: ${cv.id || cv.voice_id}`,
+        value: cv.id || cv.voice_id,
+        badge: "Cloned Voice",
+      }));
+      return [...customClones, ...builtin];
+    }
+
+    if (layerKey === "llm") {
+      const res = [];
+      groupItems.forEach((c) => {
+        const cLower = (c.name || "").toLowerCase();
+        if (cLower.includes("deepseek")) {
+          res.push({
+            id: `${c.id}_chat`,
+            provider: "DeepSeek",
+            label: "DeepSeek (deepseek-chat V3)",
+            desc: "Ultra-fast response, smart conversational context & instant calendar slotting.",
+            badge: "Fast & Smart",
+            value: "DeepSeek",
+            model: "deepseek-chat",
+          });
+          res.push({
+            id: `${c.id}_reasoner`,
+            provider: "DeepSeek",
+            label: "DeepSeek Reasoner (R1)",
+            desc: "Deep reasoning & multi-step objection handling.",
+            badge: "Reasoning",
+            value: "DeepSeek",
+            model: "deepseek-reasoner",
+          });
+        } else if (cLower.includes("groq")) {
+          res.push({
+            id: `${c.id}_llama70`,
+            provider: "Groq",
+            label: "Groq (llama-3.3-70b-versatile)",
+            desc: "Sub-150ms token generation for ultra-low latency turns.",
+            badge: "Ultra-Fast 70B",
+            value: "Groq",
+            model: "llama-3.3-70b-versatile",
+          });
+          res.push({
+            id: `${c.id}_llama8`,
+            provider: "Groq",
+            label: "Groq (llama-3.1-8b-instant)",
+            desc: "Highest speed 8B model for simple qualification calls.",
+            badge: "Lightning 8B",
+            value: "Groq",
+            model: "llama-3.1-8b-instant",
+          });
+        } else if (cLower.includes("openai")) {
+          res.push({
+            id: `${c.id}_4o`,
+            provider: "OpenAI",
+            label: "OpenAI (gpt-4o)",
+            desc: "Flagship multimodal intelligence & natural conversational flow.",
+            badge: "Flagship",
+            value: "OpenAI",
+            model: "gpt-4o",
+          });
+          res.push({
+            id: `${c.id}_4omini`,
+            provider: "OpenAI",
+            label: "OpenAI (gpt-4o-mini)",
+            desc: "High-speed, cost-effective conversational model.",
+            badge: "Fast",
+            value: "OpenAI",
+            model: "gpt-4o-mini",
+          });
+        } else if (cLower.includes("anthropic") || cLower.includes("claude")) {
+          res.push({
+            id: `${c.id}_sonnet`,
+            provider: "Anthropic",
+            label: "Anthropic (Claude 3.5 Sonnet)",
+            desc: "Nuanced, high-EQ dialogue with advanced persuasion.",
+            badge: "High EQ",
+            value: "Anthropic",
+            model: "claude-3-5-sonnet-20241022",
+          });
+        } else if (cLower.includes("xai") || cLower.includes("grok")) {
+          res.push({
+            id: `${c.id}_grok4_fast`,
+            provider: "xAI (Grok)",
+            label: "xAI Grok 4 (grok-4.20-0309-non-reasoning)",
+            desc: "Fastest non-reasoning Grok-4 model for low-latency voice.",
+            badge: "Fast Voice",
+            value: "xAI (Grok)",
+            model: "grok-4.20-0309-non-reasoning",
+          });
+          res.push({
+            id: `${c.id}_grok4_3`,
+            provider: "xAI (Grok)",
+            label: "xAI Grok 4.3 (grok-4.3)",
+            desc: "Balanced intelligence and conversational speed.",
+            badge: "Balanced",
+            value: "xAI (Grok)",
+            model: "grok-4.3",
+          });
+          res.push({
+            id: `${c.id}_grok4_5`,
+            provider: "xAI (Grok)",
+            label: "xAI Grok 4.5 (grok-4.5)",
+            desc: "Advanced conversational reasoning from xAI.",
+            badge: "Advanced",
+            value: "xAI (Grok)",
+            model: "grok-4.5",
+          });
+        } else {
+          res.push({
+            id: c.id,
+            provider: c.name,
+            label: `${c.name}${c.model ? ` (${c.model})` : ""}`,
+            desc: `Saved provider connection (${c.baseUrl || "Default endpoint"})`,
+            badge: "Connected",
+            value: c.name,
+            model: c.model,
+          });
+        }
+      });
+      return res;
+    }
+
+    if (layerKey === "stt") {
+      const res = [];
+      groupItems.forEach((c) => {
+        const cLower = (c.name || "").toLowerCase();
+        if (cLower.includes("deepgram")) {
+          res.push({
+            id: `${c.id}_nova2`,
+            provider: "Deepgram",
+            label: "Deepgram Nova-2 (Telephony Optimized)",
+            desc: "Sub-200ms real-time audio transcription with acoustic noise filtering.",
+            badge: "Recommended",
+            value: "Deepgram",
+            model: "nova-2",
+          });
+          res.push({
+            id: `${c.id}_nova3`,
+            provider: "Deepgram",
+            label: "Deepgram Nova-3",
+            desc: "Next-gen accuracy for accented speakers and noisy environments.",
+            badge: "Next-Gen",
+            value: "Deepgram",
+            model: "nova-3",
+          });
+        } else if (cLower.includes("openai") || cLower.includes("whisper")) {
+          res.push({
+            id: `${c.id}_whisper`,
+            provider: "OpenAI",
+            label: "OpenAI Whisper",
+            desc: "High-accuracy multilingual speech transcription.",
+            badge: "Accurate",
+            value: "OpenAI Whisper",
+            model: "whisper-1",
+          });
+        } else {
+          res.push({
+            id: c.id,
+            provider: c.name,
+            label: `${c.name}${c.model ? ` (${c.model})` : ""}`,
+            desc: `Saved STT provider connection`,
+            badge: "Connected",
+            value: c.name,
+            model: c.model,
+          });
+        }
+      });
+      return res;
+    }
+
+    if (layerKey === "tts") {
+      const res = [];
+      groupItems.forEach((c) => {
+        const cLower = (c.name || "").toLowerCase();
+        if (cLower.includes("cartesia")) {
+          res.push({
+            id: `${c.id}_sonic`,
+            provider: "Cartesia",
+            label: "Cartesia Sonic (Ultra-Low Latency ~90ms)",
+            desc: "Instant sentence-level μ-law synthesis with sub-100ms voice output.",
+            badge: "Ultra-Fast (90ms)",
+            value: "Cartesia Sonic",
+            voiceId: c.voiceId,
+          });
+        } else if (cLower.includes("eleven")) {
+          res.push({
+            id: `${c.id}_turbo`,
+            provider: "ElevenLabs",
+            label: "ElevenLabs Turbo v2.5",
+            desc: "High fidelity lifelike speech with natural human inflection.",
+            badge: "High Fidelity",
+            value: "ElevenLabs Turbo",
+            voiceId: c.voiceId,
+          });
+        } else if (cLower.includes("deepgram")) {
+          res.push({
+            id: `${c.id}_aura`,
+            provider: "Deepgram Aura",
+            label: "Deepgram Aura",
+            desc: "Low-latency conversational voice synthesis.",
+            badge: "Low Latency",
+            value: "Deepgram Aura",
+            voiceId: c.voiceId,
+          });
+        } else {
+          res.push({
+            id: c.id,
+            provider: c.name,
+            label: `${c.name}${c.voiceId ? ` (Voice: ${c.voiceId.slice(0, 8)}…)` : ""}`,
+            desc: `Saved TTS provider connection`,
+            badge: "Connected",
+            value: c.name,
+            voiceId: c.voiceId,
+          });
+        }
+      });
+
+      // Built-in engine voices
+      res.push(
+        { id: "xai_rex", provider: "xAI", label: "xAI built-in (rex)", desc: "Warm energetic male voice persona bundled in engine.", badge: "Engine Voice", value: "xAI built-in (rex)", isBuiltIn: true },
+        { id: "xai_ara", provider: "xAI", label: "xAI built-in (ara)", desc: "Clear professional female voice persona bundled in engine.", badge: "Engine Voice", value: "xAI built-in (ara)", isBuiltIn: true },
+        { id: "xai_eve", provider: "xAI", label: "xAI built-in (eve)", desc: "Engaging female voice persona bundled in engine.", badge: "Engine Voice", value: "xAI built-in (eve)", isBuiltIn: true },
+        { id: "xai_leo", provider: "xAI", label: "xAI built-in (leo)", desc: "Direct authoritative male voice persona bundled in engine.", badge: "Engine Voice", value: "xAI built-in (leo)", isBuiltIn: true }
+      );
+      return res;
+    }
+
+    if (layerKey === "telephony") {
+      const res = [];
+      groupItems.forEach((c) => {
+        const cLower = (c.name || "").toLowerCase();
+        if (cLower.includes("telnyx")) {
+          res.push({
+            id: c.id,
+            provider: "Telnyx",
+            label: "Telnyx (SIP Trunking)",
+            desc: "High-throughput SIP trunking for low-latency bidirectional telephony.",
+            badge: "SIP Trunk",
+            value: "Telnyx",
+          });
+        } else if (cLower.includes("twilio")) {
+          res.push({
+            id: c.id,
+            provider: "Twilio",
+            label: "Twilio (Voice & Media Streams)",
+            desc: "Reliable global PSTN carrier with WebSocket bi-directional streaming.",
+            badge: "Media Stream",
+            value: "Twilio",
+          });
+        } else {
+          res.push({
+            id: c.id,
+            provider: c.name,
+            label: c.name,
+            desc: "Saved telephony carrier connection",
+            badge: "Connected",
+            value: c.name,
+          });
+        }
+      });
+      return res;
+    }
+
+    return groupItems.map((c) => ({
+      id: c.id,
+      label: c.name,
+      desc: c.model ? `Model: ${c.model}` : "Connected Provider",
+      badge: "Connected",
+      value: c.name,
+    }));
+  }, [layerKey, groupName, connections, hubData]);
+
+  const isOptionActive = (opt) => {
+    const v = (opt.value || opt.label || "").toLowerCase();
+    const m = (opt.model || "").toLowerCase();
+    const curModel = String(hubData?.llmModel || "").toLowerCase();
+    const curLlm = String(hubData?.llmName || hubData?.llmProvider || "").toLowerCase();
+
+    if (layerKey === "engine") {
+      const curEngine = String(hubData?.liveEngine || hubData?.activeEngine || "").toLowerCase();
+      return (opt.value && curEngine === opt.value.toLowerCase()) || curEngine.includes(v);
+    }
+    if (layerKey === "voice") {
+      const curVoice = String(hubData?.voiceName || "").toLowerCase();
+      return curVoice === v || (opt.id && curVoice === opt.id.toLowerCase());
+    }
+    if (layerKey === "llm") {
+      // If the option has a specific model (e.g. deepseek-chat vs deepseek-reasoner, llama-3.3-70b vs llama-3.1-8b)
+      if (m) {
+        if (curModel) return curModel === m;
+        // Default to flagship model if model is not explicitly set
+        if (curLlm.includes("deepseek")) return m === "deepseek-chat";
+        if (curLlm.includes("groq")) return m === "llama-3.3-70b-versatile";
+        if (curLlm.includes("openai")) return m === "gpt-4o";
+        if (curLlm.includes("anthropic")) return m === "claude-3-5-sonnet-20241022";
+        if (curLlm.includes("xai")) return m === "grok-2-latest";
+        return curLlm.includes(m);
+      }
+      return curLlm === v || curLlm.includes(v);
+    }
+    if (layerKey === "stt") {
+      const curStt = String(hubData?.sttName || hubData?.sttProvider || "").toLowerCase();
+      const curSttModel = String(hubData?.sttModel || "").toLowerCase();
+      if (m) {
+        if (curSttModel) return curSttModel === m;
+        if (curStt.includes("deepgram")) return m === "nova-2";
+        return curStt.includes(m);
+      }
+      return curStt === v || curStt.includes(v);
+    }
+    if (layerKey === "tts") {
+      const curTts = String(hubData?.ttsName || hubData?.ttsProvider || hubData?.voiceName || "").toLowerCase();
+      return curTts === v || (opt.id && curTts.includes(opt.id.toLowerCase())) || curTts.includes(v);
+    }
+    if (layerKey === "telephony") {
+      const curCarrier = String(hubData?.activeCarrier || "").toLowerCase();
+      return curCarrier.includes(v);
+    }
+    return false;
+  };
+
+  const handleSelect = async (opt) => {
+    setSelectedVal(opt.id || opt.value);
+    setSwitching(true);
+    setErrorMsg("");
+    try {
+      const payload = {};
+      if (layerKey === "engine") {
+        payload.engine = opt.value;
+        payload.voice = opt.value;
+      } else if (layerKey === "voice") {
+        payload.voice = opt.value;
+      } else if (layerKey === "llm") {
+        payload.llm = opt.provider || opt.value;
+        if (opt.model) payload.llm_model = opt.model;
+      } else if (layerKey === "stt") {
+        payload.stt = opt.provider || opt.value;
+        if (opt.model) payload.stt_model = opt.model;
+      } else if (layerKey === "tts") {
+        payload.tts = opt.provider || opt.value;
+        if (opt.voiceId) payload.voice = opt.voiceId;
+        if (opt.model) payload.tts_model = opt.model;
+      } else if (layerKey === "telephony") {
+        payload.carrier = opt.value;
+      }
+
+      await api.selectActiveStack(payload);
+      setTimeout(() => {
+        if (onSelectSuccess) onSelectSuccess(opt);
+        onClose();
+      }, 300);
+    } catch (err) {
+      setErrorMsg(err.message || "Failed to switch active model.");
+      setSwitching(false);
+    }
+  };
+
+  const getLayerIcon = () => {
+    if (layerKey === "llm") return <Brain size={20} color="#4F46E5" />;
+    if (layerKey === "stt") return <Mic size={20} color="#059669" />;
+    if (layerKey === "tts") return <Volume2 size={20} color="#D97706" />;
+    if (layerKey === "telephony") return <PhoneCall size={20} color="#2563EB" />;
+    if (layerKey === "engine") return <Cpu size={20} color="#7C3AED" />;
+    return <User size={20} color="#DB2777" />;
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.65)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 520, padding: 24, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", maxHeight: "90vh" }}>
+        
+        {/* Modal Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ padding: 8, borderRadius: 10, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {getLayerIcon()}
+            </div>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk }}>
+                Switch {layerTitle || "Model"}
+              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginTop: 2 }}>
+                1-click switch between saved & built-in options
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", color: C.slate, padding: 4, borderRadius: 6 }}
+          >
+            <X size={19} />
+          </button>
+        </div>
+
+        {errorMsg && (
+          <div style={{ padding: "8px 12px", borderRadius: 8, background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#B91C1C", fontSize: 12, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+            <AlertTriangle size={14} /> {errorMsg}
+          </div>
+        )}
+
+        {/* Scrollable Model Options */}
+        <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, paddingRight: 4, maxHeight: 380, margin: "4px 0 16px" }}>
+          {options.length === 0 ? (
+            <div style={{ padding: "28px 16px", textAlign: "center", background: "#F8FAFC", borderRadius: 12, border: `1px dashed ${C.border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.textInk, marginBottom: 4 }}>
+                No connected {layerTitle || "providers"} found
+              </div>
+              <div style={{ fontSize: 12, color: C.slate, maxWidth: 360, margin: "0 auto 14px", lineHeight: 1.4 }}>
+                Save your API key under Connections to unlock models in this category for live calling.
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenCredentials) onOpenCredentials();
+                }}
+                style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+              >
+                Go to Connections
+              </button>
+            </div>
+          ) : (
+            options.map((opt) => {
+              const active = isOptionActive(opt);
+              const isBusy = switching && selectedVal === (opt.id || opt.value);
+
+              return (
+                <div
+                  key={opt.id || opt.value}
+                  onClick={() => !active && !switching && handleSelect(opt)}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    border: active ? "1.5px solid #10B981" : "1px solid #E2E8F0",
+                    background: active ? "#F0FDF4" : "#fff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    cursor: active ? "default" : (switching ? "wait" : "pointer"),
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!active && !switching) {
+                      e.currentTarget.style.borderColor = "#94A3B8";
+                      e.currentTarget.style.background = "#F8FAFC";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active && !switching) {
+                      e.currentTarget.style.borderColor = "#E2E8F0";
+                      e.currentTarget.style.background = "#fff";
+                    }
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 3 }}>
+                      <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13.5, color: C.textInk }}>
+                        {opt.label}
+                      </span>
+                      {opt.badge && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 6px", borderRadius: 6, background: active ? "#D1FAE5" : "#F1F5F9", color: active ? "#065F46" : "#475569" }}>
+                          {opt.badge}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: C.slate, lineHeight: 1.35 }}>
+                      {opt.desc}
+                    </div>
+                  </div>
+
+                  <div>
+                    {active ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: "#10B981", color: "#fff" }}>
+                        <Check size={13} /> Active
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={switching}
+                        style={{
+                          background: isBusy ? "#94A3B8" : "#fff",
+                          color: isBusy ? "#fff" : C.ink,
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 7,
+                          padding: "5px 11px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: switching ? "wait" : "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {isBusy ? "Switching…" : "Use this"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: C.slate }}>
+          <span>Need a model not listed?</span>
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenCredentials) onOpenCredentials();
+            }}
+            style={{ background: "none", border: "none", color: C.cobalt, fontWeight: 600, cursor: "pointer", fontSize: 12, padding: 0 }}
+          >
+            + Connect new provider in Connections →
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddLayer, onOpenCredentials }) {
   const labels = liveStackLabels(hubData || {});
   const engine = String(hubData?.liveEngine || "").toLowerCase();
   const modular = engine === "modular" || engine === "livekit";
@@ -7904,7 +8502,7 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
       value: labels.engine,
       ok: !!engine && engine !== "simulation",
       hint: "xAI · Modular · OpenAI",
-      needPlugin: false,
+      needPlugin: true,
     },
     {
       key: "stt",
@@ -7913,7 +8511,7 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
       value: modular ? labels.stt : (xaiLike ? "Inside engine" : labels.stt),
       ok: modular ? !!(hubData?.sttProvider || hubData?.sttName) : true,
       hint: modular ? "Deepgram, Whisper, …" : "Bundled — no separate plugin",
-      needPlugin: modular,
+      needPlugin: true,
     },
     {
       key: "llm",
@@ -7922,7 +8520,7 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
       value: modular ? labels.llm : (xaiLike ? "Inside engine" : labels.llm),
       ok: modular ? !!(hubData?.llmProvider || hubData?.llmName) : true,
       hint: modular ? "Groq, OpenAI, Grok chat, …" : "Bundled — no separate plugin",
-      needPlugin: modular,
+      needPlugin: true,
     },
     {
       key: "tts",
@@ -7937,13 +8535,13 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
             : labels.tts),
       ok: modular || hybrid ? !!(hubData?.ttsProvider || hubData?.ttsName) : true,
       hint: hybrid || modular ? "Cartesia, ElevenLabs, PlayHT, Other…" : "Using engine voice — Add TTS only to clone",
-      needPlugin: modular || hybrid || (engine === "xai" && !hybrid),
+      needPlugin: true,
       recommend: engine === "xai" && !hybrid,
     },
     {
       key: "voice",
       title: "Voice ID",
-      layer: "Text-to-Speech",
+      layer: "Voice Persona",
       value: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
         ? "API key pasted by mistake"
         : (hybrid
@@ -7955,7 +8553,7 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
       hint: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
         ? "Paste Cartesia Voice UUID on Line setup"
         : (hybrid ? "Must be Cartesia UUID with dashes" : "Saved engine persona (ara / rex / …)"),
-      needPlugin: false,
+      needPlugin: true,
     },
   ];
 
@@ -7965,7 +8563,7 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
         <div>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>What Calling uses</div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 4, maxWidth: 560, lineHeight: 1.45 }}>
-            Live pieces for the next call. Connect keys under Connections. Yellow = still needed.
+            Live pieces for the next call. Click <strong>Change</strong> to switch between saved models. Yellow = still needed.
           </div>
         </div>
         <button
@@ -8014,7 +8612,13 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
               {r.needPlugin && (
                 <button
                   type="button"
-                  onClick={() => onAddLayer && onAddLayer(r.layer)}
+                  onClick={() => {
+                    if (r.ok && onChangeModel) {
+                      onChangeModel(r.key, r.title, r.layer);
+                    } else if (onAddLayer) {
+                      onAddLayer(r.layer);
+                    }
+                  }}
                   style={{
                     background: C.ink, color: "#fff", border: "none", borderRadius: 7,
                     padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
@@ -8040,17 +8644,34 @@ function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
 }
 
 function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProfile, onOpenCredentials }) {
-  const [hubData, setHubData] = useState({
-    activeCarrier: "Telnyx",
-    activeEngine: "xAI Realtime",
-    liveEngine: "xai",
+  const getCachedHub = () => {
+    try {
+      const raw = localStorage.getItem("aivhub_telephony_hub_cache");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    } catch (_) {}
+    return null;
+  };
+
+  const cached = getCachedHub();
+
+  const [hubData, setHubData] = useState(cached || {
+    activeCarrier: "Twilio",
+    activeEngine: "LiveKit (self-hosted)",
+    liveEngine: "livekit",
     liveNote: "",
-    externalTts: false,
-    ttsProvider: null,
-    ttsName: null,
-    ttsVoiceId: null,
+    externalTts: true,
+    ttsProvider: "cartesia",
+    ttsName: "Cartesia Sonic",
+    llmProvider: "deepseek",
+    llmName: "DeepSeek",
+    sttProvider: "deepgram",
+    sttName: "Deepgram",
+    ttsVoiceId: "84cc42cf-0831-49cc-a60c-b681dbb2180f",
     phoneNumber: profile?.callerId || "",
-    voiceName: "rex",
+    voiceName: "84cc42cf-0831-49cc-a60c-b681dbb2180f",
     silenceDurationMs: 380,
     temperature: 0.80,
     status: "connected",
@@ -8059,18 +8680,23 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
     codecs: ["G.711 μ-law (PCMU)", "G.711 A-law (PCMA)", "G.722"],
     isLive: true
   });
-  const [carrierChoice, setCarrierChoice] = useState("telnyx");
-  const [engineChoice, setEngineChoice] = useState("xai");
-  const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || "");
+  const [carrierChoice, setCarrierChoice] = useState(() => {
+    const c = String(cached?.activeCarrier || "twilio").toLowerCase();
+    return c.includes("telnyx") ? "telnyx" : c.includes("sip") ? "generic_sip" : "twilio";
+  });
+  const [engineChoice, setEngineChoice] = useState(() => {
+    return cached?.liveEngine || "livekit";
+  });
+  const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || cached?.phoneNumber || "");
   const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
 
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [accountSid, setAccountSid] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
-  const [voiceName, setVoiceName] = useState("rex");
-  const [speakMode, setSpeakMode] = useState("builtin"); // builtin | clone
-  const [customVoices, setCustomVoices] = useState([]);
+  const [voiceName, setVoiceName] = useState(cached?.voiceName || "84cc42cf-0831-49cc-a60c-b681dbb2180f");
+  const [speakMode, setSpeakMode] = useState("clone"); // builtin | clone
+  const [customVoices, setCustomVoices] = useState(cached?.customVoices || []);
   const [cloneName, setCloneName] = useState("My voice");
   const [pasteVoiceId, setPasteVoiceId] = useState("");
   const [cloneMsg, setCloneMsg] = useState("");
@@ -8084,9 +8710,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const recTimerRef = useRef(null);
   const recChunksRef = useRef([]);
   const [recBlob, setRecBlob] = useState(null);
-  const [silenceDurationMs, setSilenceDurationMs] = useState(380);
-  const [temperature, setTemperature] = useState(0.80);
-  const [webhookUrl, setWebhookUrl] = useState("");
+  const [silenceDurationMs, setSilenceDurationMs] = useState(cached?.silenceDurationMs || 380);
+  const [temperature, setTemperature] = useState(cached?.temperature || 0.80);
+  const [webhookUrl, setWebhookUrl] = useState(cached?.webhookUrl || "");
 
   const [provisioning, setProvisioning] = useState(false);
   const [provisionMsg, setProvisionMsg] = useState(null);
@@ -8103,12 +8729,23 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [inboundRoutingOpen, setInboundRoutingOpen] = useState(false);
   const [provisionConfirmOpen, setProvisionConfirmOpen] = useState(false);
   const [showProvisionTip, setShowProvisionTip] = useState(false);
+  const [connsState, setConnsState] = useState([]);
+  const [quickSwitchState, setQuickSwitchState] = useState({ open: false, layerKey: "", layerTitle: "", layerName: "" });
 
   const fetchStatus = async () => {
     try {
-      const data = await api.getTelephonyHub();
+      const [data, conns] = await Promise.all([
+        api.getTelephonyHub().catch(() => null),
+        api.getConnections().catch(() => []),
+      ]);
+      if (conns && Array.isArray(conns)) {
+        setConnsState(conns);
+      }
       if (data) {
         setHubData(data);
+        try {
+          localStorage.setItem("aivhub_telephony_hub_cache", JSON.stringify(data));
+        } catch (_) {}
         if (data.phoneNumber) {
           setPhoneNumber(data.phoneNumber);
           if (setProfile) {
@@ -8629,6 +9266,10 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
 
       <CallPluginStackBoard
         hubData={hubData}
+        connections={connsState}
+        onChangeModel={(layerKey, layerTitle, layerName) => {
+          setQuickSwitchState({ open: true, layerKey, layerTitle, layerName });
+        }}
         onAddLayer={(layer) => {
           setStackAddLayer(layer || "Text-to-Speech");
           setShowStackAdd(true);
@@ -8637,6 +9278,36 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           if (typeof onOpenCredentials === "function") onOpenCredentials();
         }}
       />
+
+      {quickSwitchState.open && (
+        <QuickSwitchModelModal
+          layerKey={quickSwitchState.layerKey}
+          layerTitle={quickSwitchState.layerTitle}
+          layerName={quickSwitchState.layerName}
+          hubData={hubData}
+          connections={connsState}
+          onClose={() => setQuickSwitchState({ open: false, layerKey: "", layerTitle: "", layerName: "" })}
+          onSelectSuccess={(opt) => {
+            fetchStatus();
+            if (typeof setNotifications === "function") {
+              setNotifications((ns) => [
+                {
+                  id: "n_" + Date.now(),
+                  text: `✓ Live call stack switched to ${opt.label || opt.name || opt.value}.`,
+                  time: "just now",
+                  unread: true,
+                  type: "success",
+                },
+                ...(ns || []),
+              ]);
+            }
+          }}
+          onOpenCredentials={() => {
+            setQuickSwitchState({ open: false, layerKey: "", layerTitle: "", layerName: "" });
+            if (typeof onOpenCredentials === "function") onOpenCredentials();
+          }}
+        />
+      )}
 
       {showStackAdd && (
         <AddIntegrationModal
@@ -9801,16 +10472,73 @@ function LeadRadarView({ notifications, setNotifications, onLaunchMission }) {
 
 const LAYERS = VOICE_LAYERS;
 
-const MODEL_PRESETS_BY_PROVIDER = {
-  "deepgram": ["nova-2", "nova-3", "nova-2-phonecall", "nova-2-general", "nova-2-meeting"],
-  "deepgram aura": ["aura-orion-en", "aura-asteria-en", "aura-angus-en", "aura-arcas-en", "aura-luna-en", "aura-zeus-en"],
-  "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-  "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"],
-  "openai (gpt-4o)": ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"],
-  "anthropic (claude)": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-7-sonnet-20250219"],
-  "xai": ["xAI built-in (rex)", "xAI built-in (ara)", "xAI built-in (eve)", "xAI built-in (leo)", "grok-voice-latest", "grok-2-latest"],
-  "cartesia": ["sonic-2", "sonic-turbo"],
-  "elevenlabs": ["eleven_turbo_v2_5", "eleven_multilingual_v2"],
+const getModelPresets = (groupName, itemName) => {
+  const g = String(groupName || "").toLowerCase();
+  const n = String(itemName || "").toLowerCase();
+
+  // LLM Layer Presets
+  if (g.includes("llm") || n.includes("llm")) {
+    if (n.includes("xai") || n.includes("grok")) {
+      return [
+        "grok-4.20-0309-non-reasoning",
+        "grok-4.3",
+        "grok-4.5",
+        "grok-4.6",
+        "grok-4.7"
+      ];
+    }
+    if (n.includes("deepseek")) {
+      return ["deepseek-chat", "deepseek-reasoner"];
+    }
+    if (n.includes("groq")) {
+      return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"];
+    }
+    if (n.includes("openai")) {
+      return ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini", "gpt-4.5-preview"];
+    }
+    if (n.includes("anthropic") || n.includes("claude")) {
+      return ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-7-sonnet-20250219"];
+    }
+    return [];
+  }
+
+  // Speech-to-Text Layer Presets
+  if (g.includes("speech-to-text") || g.includes("stt")) {
+    if (n.includes("deepgram")) {
+      return ["nova-2", "nova-3", "nova-2-phonecall", "nova-2-general", "nova-2-meeting"];
+    }
+    if (n.includes("whisper")) {
+      return ["large-v3", "medium.en", "small.en", "base.en"];
+    }
+    return [];
+  }
+
+  // Text-to-Speech Layer Presets
+  if (g.includes("text-to-speech") || g.includes("tts")) {
+    if (n.includes("xai")) {
+      return ["xAI built-in (rex)", "xAI built-in (ara)", "xAI built-in (eve)", "xAI built-in (leo)", "xAI built-in (sal)"];
+    }
+    if (n.includes("deepgram") || n.includes("aura")) {
+      return ["aura-orion-en", "aura-asteria-en", "aura-angus-en", "aura-arcas-en", "aura-luna-en", "aura-zeus-en"];
+    }
+    if (n.includes("cartesia")) {
+      return ["sonic-2", "sonic-turbo", "sonic-english"];
+    }
+    if (n.includes("eleven")) {
+      return ["eleven_turbo_v2_5", "eleven_multilingual_v2", "eleven_flash_v2_5"];
+    }
+    return [];
+  }
+
+  // Voice Orchestration Layer Presets
+  if (g.includes("voice orchestration") || n.includes("orchestrat")) {
+    if (n.includes("xai")) {
+      return ["grok-voice-latest", "xAI built-in (rex)", "xAI built-in (ara)"];
+    }
+    return [];
+  }
+
+  return [];
 };
 
 function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile, onNavigateView, embedded = false }) {
@@ -9940,6 +10668,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   };
 
   const updateLayer = async (key, val) => {
+    // Optimistic UI update — show the user's pick immediately in the dropdown
     if (setCommonAi) {
       setCommonAi((prev) => ({
         ...prev,
@@ -9950,9 +10679,27 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     flash();
 
     try {
+      // Build the correct select-stack payload for each layer type
       const payload = {};
       if (key === "voice") {
+        // Pass both `voice` (for name-based parsing) and explicit engine mapping
         payload.voice = val;
+        // Also derive engine code directly so backend doesn't have to guess
+        const engineMap = {
+          "xAI + cloned TTS (plugin)": "xai",
+          "xAI Grok (speech-to-speech)": "xai",
+          "xAI Voice Agent": "xai",
+          "OpenAI Realtime": "openai",
+          "LiveKit (self-hosted)": "livekit",
+          "LiveKit Agents": "livekit",
+          "Modular pipeline": "modular",
+          "Modular Voice Pipeline": "modular",
+          "Vapi Voice AI": "vapi",
+          "Retell AI": "retell",
+          "Simulation": "simulation",
+        };
+        const engineCode = engineMap[val] || val.toLowerCase().split("(")[0].trim();
+        payload.engine = engineCode;
       } else if (key === "tts") {
         payload.tts = val;
       } else if (key === "llm") {
@@ -9964,9 +10711,19 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       }
 
       await api.selectActiveStack(payload);
+
+      // Re-fetch hub to confirm backend persisted the change, then sync UI
       const freshHub = await api.getTelephonyHub();
       if (freshHub) {
         setLiveHub(freshHub);
+        // Update commonAi.voiceLayers from the confirmed hub, keeping the
+        // user's just-selected value authoritative so the dropdown stays correct.
+        if (setCommonAi) {
+          setCommonAi((prev) => ({
+            ...prev,
+            voiceLayers: voiceLayersFromHub(freshHub, { ...prev.voiceLayers, [key]: val }),
+          }));
+        }
       }
 
       if (setNotifications) {
@@ -10017,48 +10774,41 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const llmConnections = credsState.find((g) => g.group === "LLM")?.items || [];
   const sttConnections = credsState.find((g) => g.group === "Speech-to-Text")?.items || [];
   const ttsConnections = credsState.find((g) => g.group === "Text-to-Speech")?.items || [];
-  
-  console.log('[DEBUG] llmConnections:', llmConnections);
-  
-  // ONLY show user's connected providers - remove commonAi.providers that adds extra models
+
+  // Build options for each layer from live Connections + always-available defaults
   const allLlmOptions = Array.from(new Set([
     ...llmConnections.filter(c => c.model).map(c => c.model),
     ...llmConnections.filter(c => c.status === "connected").map(c => c.name),
-    // Always include currently active LLM from live hub
     ...(liveHub?.llmName ? [liveHub.llmName] : []),
     ...(liveHub?.llmProvider ? [liveHub.llmProvider] : []),
   ])).filter(Boolean);
-  
+
   const allSttOptions = Array.from(new Set([
     ...sttConnections.filter(c => c.model).map(c => c.model),
     ...sttConnections.filter(c => c.status === "connected").map(c => c.name),
-    // Always include currently active STT from live hub
     ...(liveHub?.sttName ? [liveHub.sttName] : []),
     ...(liveHub?.sttProvider ? [liveHub.sttProvider] : []),
-    // xAI built-in STT always available
     "xAI",
   ])).filter(Boolean);
-  
+
   const allTtsOptions = Array.from(new Set([
-    ...ttsConnections.filter(c => c.model).map(c => c.model),
-    ...ttsConnections.filter(c => c.status === "connected").map(c => c.name),
-    // Always include currently active TTS from live hub
-    ...(liveHub?.ttsName ? [liveHub.ttsName] : []),
-    ...(liveHub?.ttsProvider ? [liveHub.ttsProvider] : []),
-    // xAI Voice Agent & built-in TTS voices
-    "xAI Voice Agent",
+    // xAI built-in voices always appear first so they are always visible
     "xAI built-in (rex)",
     "xAI built-in (ara)",
     "xAI built-in (eve)",
     "xAI built-in (leo)",
+    "xAI Voice Agent",
+    // Currently active TTS from live hub
+    ...(liveHub?.ttsName ? [liveHub.ttsName] : []),
+    ...(liveHub?.ttsProvider ? [liveHub.ttsProvider] : []),
+    // Connected TTS providers
+    ...ttsConnections.filter(c => c.model).map(c => c.model),
+    ...ttsConnections.filter(c => c.status === "connected").map(c => c.name),
+    // Common paid options always visible
     "Cartesia Sonic",
     "ElevenLabs Turbo",
     "Deepgram Aura",
   ])).filter(Boolean);
-  
-  console.log('[DEBUG] allLlmOptions:', allLlmOptions);
-  console.log('[DEBUG] allSttOptions:', allSttOptions);
-  console.log('[DEBUG] allTtsOptions:', allTtsOptions);
   
   // If no connections yet, show a helpful message instead of empty dropdown
   if (allLlmOptions.length === 0) allLlmOptions.push("No LLM connected - add in Connections tab");
@@ -10521,7 +11271,28 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                         {oss ? "SELF-HOSTED" : "PAID API"}
                       </span>
                     </div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Preference only</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>
+                      {l.key === "voice" ? (
+                        <span style={{ color: "#047857", fontWeight: 700 }}>Live — applied ✓</span>
+                      ) : l.key === "tts" && liveHub?.ttsName ? (
+                        <>
+                          <span style={{ color: C.slate }}>Preference only</span>
+                          <div style={{ fontSize: 11, color: "#047857", marginTop: 2, fontWeight: 600 }}>Live: {liveHub.ttsName}</div>
+                        </>
+                      ) : l.key === "llm" && liveHub?.llmName ? (
+                        <>
+                          <span style={{ color: C.slate }}>Preference only</span>
+                          <div style={{ fontSize: 11, color: "#047857", marginTop: 2, fontWeight: 600 }}>Live: {liveHub.llmName}</div>
+                        </>
+                      ) : l.key === "stt" && liveHub?.sttName ? (
+                        <>
+                          <span style={{ color: C.slate }}>Preference only</span>
+                          <div style={{ fontSize: 11, color: "#047857", marginTop: 2, fontWeight: 600 }}>Live: {liveHub.sttName}</div>
+                        </>
+                      ) : (
+                        "Preference only"
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -10757,9 +11528,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 
                             {/* Model Selection & Custom Base URL */}
                             {(["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration"].includes(group.group) || String(it.name || "").toLowerCase().includes("other")) && (() => {
-                              const pName = String(it.name || "").toLowerCase();
-                              const presetsKey = Object.keys(MODEL_PRESETS_BY_PROVIDER).find(k => pName.includes(k));
-                              const presets = presetsKey ? MODEL_PRESETS_BY_PROVIDER[presetsKey] : [];
+                              const presets = getModelPresets(group.group, it.name);
                               return (
                                 <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 10, marginTop: 4 }}>
                                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -25001,7 +25770,17 @@ export default function App() {
     } catch (_) {}
 
     refreshGlobalLiveCalls();
-    const interval = setInterval(refreshGlobalLiveCalls, 2500);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshGlobalLiveCalls();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onVisibilityChange);
+
+    // Fallback sync every 20s (WebSocket provides instant real-time events)
+    const interval = setInterval(refreshGlobalLiveCalls, 20000);
 
     const ticker = setInterval(() => {
       setGlobalLiveCalls((prev) =>
@@ -25025,6 +25804,8 @@ export default function App() {
       if (ws) ws.close();
       clearInterval(interval);
       clearInterval(ticker);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onVisibilityChange);
     };
   }, []);
 

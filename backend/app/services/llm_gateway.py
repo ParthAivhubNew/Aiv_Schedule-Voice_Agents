@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -405,3 +405,246 @@ async def _call_openai_compatible(
             "error": str(e),
             "reply": f"⚠️ Could not reach AI endpoint ({endpoint}): {e}"
         }
+
+
+async def stream_open_chat_llm(
+    messages: List[Dict[str, str]],
+    system_prompt: Optional[str] = None,
+    api_key: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 2048,
+    db: Optional[AsyncSession] = None
+) -> AsyncGenerator[str, None]:
+    """
+    Streams LLM token chunks in real-time from any supported provider (OpenAI, DeepSeek, Groq, xAI, Anthropic, Ollama).
+    Yields string deltas as they arrive.
+    """
+    creds = await resolve_llm_credentials(
+        db=db,
+        api_key=api_key,
+        provider=provider,
+        model=model,
+        base_url=base_url
+    )
+
+    resolved_provider = (creds.get("provider") or "openai").lower()
+    resolved_key = creds.get("api_key") or ""
+    resolved_base_url = creds.get("base_url")
+    resolved_model = creds.get("model")
+
+    effective_system = system_prompt or (
+        "You are an expert autonomous AI partner in the AIVHub workspace."
+    )
+
+    formatted_messages = []
+    if effective_system:
+        formatted_messages.append({"role": "system", "content": effective_system})
+
+    if isinstance(messages, str):
+        messages = [{"role": "user", "content": messages}]
+
+    for m in messages:
+        if isinstance(m, str):
+            if m.strip():
+                formatted_messages.append({"role": "user", "content": m.strip()})
+            continue
+        role = m.get("role") or m.get("sender") or "user"
+        if role in ["ai", "assistant", "bot"]:
+            role = "assistant"
+        elif role not in ["system", "assistant", "user"]:
+            role = "user"
+        content = m.get("content") or m.get("text") or ""
+        if content.strip():
+            formatted_messages.append({"role": role, "content": content})
+
+    if not any(m["role"] == "user" for m in formatted_messages):
+        return
+
+    # Normalize vendor model names
+    norm_model = (resolved_model or "").strip()
+    friendly_slug_map = {
+        "claude 3.5 sonnet": "claude-3-5-sonnet-20241022",
+        "claude 3.7 sonnet": "claude-3-7-sonnet-20250219",
+        "claude 3.5 haiku": "claude-3-5-haiku-20241022",
+        "deepseek-v3": "deepseek-chat",
+        "deepseek-r1": "deepseek-reasoner",
+        "groq llama 3.3 70b": "llama-3.3-70b-versatile",
+        "xai grok-2": "grok-2-latest",
+    }
+    if norm_model.lower() in friendly_slug_map:
+        norm_model = friendly_slug_map[norm_model.lower()]
+
+    if not norm_model:
+        if "anthropic" in resolved_provider or "claude" in resolved_provider:
+            norm_model = "claude-3-5-sonnet-20241022"
+        elif "deepseek" in resolved_provider:
+            norm_model = "deepseek-chat"
+        elif "groq" in resolved_provider:
+            norm_model = "llama-3.3-70b-versatile"
+        elif "xai" in resolved_provider or "grok" in resolved_provider:
+            norm_model = "grok-4.20-0309-non-reasoning"
+        else:
+            norm_model = "gpt-4o"
+
+    resolved_model = norm_model
+
+    if "anthropic" in resolved_provider or "claude" in resolved_provider:
+        async for chunk in _stream_anthropic(
+            messages=formatted_messages,
+            api_key=resolved_key,
+            model=resolved_model,
+            temperature=temperature,
+            max_tokens=max_tokens
+        ):
+            yield chunk
+        return
+
+    async for chunk in _stream_openai_compatible(
+        messages=formatted_messages,
+        api_key=resolved_key,
+        provider=resolved_provider,
+        model=resolved_model,
+        base_url=resolved_base_url,
+        temperature=temperature,
+        max_tokens=max_tokens
+    ):
+        yield chunk
+
+
+async def _stream_anthropic(
+    messages: List[Dict[str, str]],
+    api_key: str,
+    model: str,
+    temperature: float,
+    max_tokens: int
+) -> AsyncGenerator[str, None]:
+    system_text = ""
+    chat_history = []
+    for m in messages:
+        if m["role"] == "system":
+            system_text += m["content"] + "\n\n"
+        else:
+            chat_history.append({"role": m["role"], "content": m["content"]})
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+    payload = {
+        "model": model or "claude-3-5-sonnet-20241022",
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": chat_history,
+        "stream": True
+    }
+    if system_text.strip():
+        payload["system"] = system_text.strip()
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+            async with client.stream("POST", "https://api.anthropic.com/v1/messages", headers=headers, json=payload) as response:
+                if response.status_code != 200:
+                    err_body = await response.aread()
+                    logger.error(f"[STREAM] Anthropic error {response.status_code}: {err_body.decode(errors='ignore')[:200]}")
+                    return
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if not data_str:
+                        continue
+                    try:
+                        ev = json.loads(data_str)
+                        ev_type = ev.get("type")
+                        if ev_type == "content_block_delta":
+                            text_delta = ev.get("delta", {}).get("text", "")
+                            if text_delta:
+                                yield text_delta
+                    except Exception:
+                        continue
+    except Exception as e:
+        logger.error(f"[STREAM] Anthropic stream error: {e}")
+
+
+async def _stream_openai_compatible(
+    messages: List[Dict[str, str]],
+    api_key: str,
+    provider: str,
+    model: Optional[str],
+    base_url: Optional[str],
+    temperature: float,
+    max_tokens: int
+) -> AsyncGenerator[str, None]:
+    prov = provider.lower()
+    if base_url:
+        endpoint = base_url.rstrip("/")
+        if "generativelanguage.googleapis.com" in endpoint and not endpoint.endswith("/openai"):
+            endpoint += "/openai"
+        if not endpoint.endswith("/chat/completions"):
+            endpoint += "/chat/completions"
+        target_model = model or "gpt-4o-mini"
+    elif "deepseek" in prov:
+        endpoint = "https://api.deepseek.com/chat/completions"
+        target_model = model or "deepseek-chat"
+    elif "groq" in prov:
+        endpoint = "https://api.groq.com/openai/v1/chat/completions"
+        target_model = model or "llama-3.3-70b-versatile"
+    elif "xai" in prov or "grok" in prov:
+        endpoint = "https://api.x.ai/v1/chat/completions"
+        target_model = model or "grok-4.20-0309-non-reasoning"
+    elif "gemini" in prov or "google" in prov:
+        endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        target_model = model or "gemini-1.5-flash"
+    elif "openrouter" in prov:
+        endpoint = "https://openrouter.ai/api/v1/chat/completions"
+        target_model = model or "meta-llama/llama-3.3-70b-instruct"
+    elif "ollama" in prov:
+        endpoint = "http://localhost:11434/v1/chat/completions"
+        target_model = model or "llama3.2"
+    else:
+        endpoint = "https://api.openai.com/v1/chat/completions"
+        target_model = model or "gpt-4o"
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    payload = {
+        "model": target_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+            async with client.stream("POST", endpoint, headers=headers, json=payload) as response:
+                if response.status_code != 200:
+                    err_body = await response.aread()
+                    logger.error(f"[STREAM] {prov} error {response.status_code}: {err_body.decode(errors='ignore')[:200]}")
+                    return
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        choices = chunk.get("choices") or []
+                        if choices:
+                            delta = choices[0].get("delta", {}).get("content", "")
+                            if delta:
+                                yield delta
+                    except Exception:
+                        continue
+    except Exception as e:
+        logger.error(f"[STREAM] OpenAI compatible stream ({endpoint}) failed: {e}")
+

@@ -312,20 +312,41 @@ async def synthesize_livekit_pcm(text: str) -> Optional[bytes]:
 
 
 async def stream_pcm_frames_to_source(source: Any, pcm_bytes: bytes, sample_rate: int = 24000) -> None:
-    """Streams 24kHz 16-bit linear PCM into LiveKit AudioSource in 20ms frames."""
+    """Streams 24kHz 16-bit linear PCM into LiveKit AudioSource in smooth 20ms frames with jitter buffer priming."""
     if not source or not pcm_bytes or not LIVEKIT_RTC_AVAILABLE:
         return
+    import time
     samples_per_frame = int(sample_rate * 0.02)  # 480 samples = 20ms at 24kHz
     bytes_per_frame = samples_per_frame * 2      # 16-bit = 2 bytes/sample -> 960 bytes
 
-    for offset in range(0, len(pcm_bytes), bytes_per_frame):
+    start_t = time.perf_counter()
+    frame_interval = 0.020
+    offsets = list(range(0, len(pcm_bytes), bytes_per_frame))
+
+    # Pre-fill 3 frames (60ms jitter buffer) to prevent initial WebRTC playback underrun
+    burst_count = min(3, len(offsets))
+    for i in range(burst_count):
+        chunk = pcm_bytes[offsets[i]:offsets[i] + bytes_per_frame]
+        if len(chunk) < bytes_per_frame:
+            chunk = chunk + b"\x00" * (bytes_per_frame - len(chunk))
+        try:
+            frame = rtc.AudioFrame(chunk, sample_rate, 1, samples_per_frame)
+            await source.capture_frame(frame)
+        except Exception:
+            return
+
+    for idx, offset in enumerate(offsets[burst_count:], start=1):
         chunk = pcm_bytes[offset:offset + bytes_per_frame]
         if len(chunk) < bytes_per_frame:
             chunk = chunk + b"\x00" * (bytes_per_frame - len(chunk))
         try:
             frame = rtc.AudioFrame(chunk, sample_rate, 1, samples_per_frame)
             await source.capture_frame(frame)
-            await asyncio.sleep(0.018)  # 20ms cadence slightly accelerated to prevent buffer underflow
+            expected_time = idx * frame_interval
+            actual_time = time.perf_counter() - start_t
+            sleep_needed = expected_time - actual_time
+            if sleep_needed > 0.002:
+                await asyncio.sleep(sleep_needed)
         except Exception as frame_err:
             logger.debug("LiveKit frame push error: %s", frame_err)
             break
@@ -412,6 +433,16 @@ async def start_livekit_room_agent(
 
     conversation_history: List[Dict[str, str]] = []
     agent_audio_source = rtc.AudioSource(24000, 1)
+    speaking_task: Optional[asyncio.Task] = None
+    barge_event = asyncio.Event()
+
+    def _is_livekit_backchannel(text: str) -> bool:
+        cleaned = re.sub(r"[^\w\s]", "", (text or "").lower()).strip()
+        words = cleaned.split()
+        return len(words) <= 1 and cleaned in (
+            "yeah", "yep", "mhm", "uhhuh", "uh-huh", "right", "ok", "okay",
+            "sure", "gotcha", "yup", "yes", "ah", "oh", "cool", "alright",
+        )
 
     async def speak_text(reply_text: str):
         """Sends data channel transcript and plays synthesized audio into the room."""
@@ -447,20 +478,36 @@ async def start_livekit_room_agent(
 
         # 3. Synthesize and push PCM audio into room track
         pcm_bytes = await synthesize_livekit_pcm(reply_text)
-        if pcm_bytes:
+        if pcm_bytes and not barge_event.is_set():
             await stream_pcm_frames_to_source(agent_audio_source, pcm_bytes, 24000)
 
     # Event: Incoming data messages (from browser Web Speech API or chat)
     @room.on("data_received")
     def on_data_received(data_packet: rtc.DataPacket):
+        nonlocal speaking_task
         try:
             raw_text = data_packet.data.decode("utf-8")
             data = json.loads(raw_text)
             user_text = data.get("text") or data.get("message")
             if user_text and user_text.strip():
                 logger.info("[LiveKit-Agent] User spoke via data channel: %s", user_text)
+
+                is_speaking = bool(speaking_task and not speaking_task.done())
+                # If agent is speaking and caller gives a 1-word backchannel, do not cancel speech
+                if is_speaking and _is_livekit_backchannel(user_text):
+                    logger.info("[LiveKit-Agent] Backchannel acknowledged: %s", user_text)
+                    return
+
+                # True interruption: cancel speech and clear buffer
+                if is_speaking:
+                    logger.info("[LiveKit-Agent] Barge-in detected (%s). Cancelling speech.", user_text)
+                    barge_event.set()
+                    speaking_task.cancel()
+
+                barge_event.clear()
                 conversation_history.append({"role": "user", "content": user_text.strip()})
-                # Spawn async response handler
+
+                # Spawn async preemptive response handler
                 async def handle_response():
                     ai_reply = await query_livekit_agent_llm(
                         conversation_history,
@@ -470,7 +517,7 @@ async def start_livekit_room_agent(
                     conversation_history.append({"role": "assistant", "content": ai_reply})
                     await speak_text(ai_reply)
 
-                asyncio.create_task(handle_response())
+                speaking_task = asyncio.create_task(handle_response())
         except Exception as data_err:
             logger.debug("Error parsing incoming LiveKit data packet: %s", data_err)
 

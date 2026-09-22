@@ -33,7 +33,9 @@ DEFAULT_ACTIVE_STACK = {
     "engine_label": "LiveKit (self-hosted)",
     "tts": "xAI built-in (rex)",
     "llm": "DeepSeek",
+    "llm_model": "deepseek-chat",
     "stt": "Deepgram",
+    "stt_model": "nova-2",
     "carrier": "Twilio",
 }
 
@@ -175,6 +177,39 @@ def looks_like_external_voice_id(vid: str) -> bool:
     if len(v) >= 16 and re.fullmatch(r"[A-Za-z0-9]+", v):
         return True
     return False
+
+
+def _resolve_llm_model(provider: str, candidate_model: Optional[str], conn_model: Optional[str]) -> str:
+    p = (provider or "").lower()
+    m = (candidate_model or conn_model or "").strip()
+    m_lower = m.lower()
+
+    if "xai" in p or "grok" in p:
+        if not m or any(cross in m_lower for cross in ["grok-beta", "grok-2", "deepseek", "llama", "gpt", "claude", "whisper", "nova", "sonic"]):
+            return "grok-4.20-0309-non-reasoning"
+        return m
+
+    if "deepseek" in p:
+        if not m or any(cross in m_lower for cross in ["grok", "llama", "gpt", "claude", "whisper", "nova", "sonic"]):
+            return "deepseek-chat"
+        return m
+
+    if "groq" in p:
+        if not m or any(cross in m_lower for cross in ["grok", "deepseek", "gpt", "claude", "whisper", "nova", "sonic"]):
+            return "llama-3.3-70b-versatile"
+        return m
+
+    if "openai" in p:
+        if not m or any(cross in m_lower for cross in ["grok", "deepseek", "llama", "claude", "whisper", "nova", "sonic"]):
+            return "gpt-4o"
+        return m
+
+    if "anthropic" in p or "claude" in p:
+        if not m or any(cross in m_lower for cross in ["grok", "deepseek", "llama", "gpt", "whisper", "nova", "sonic"]):
+            return "claude-3-5-sonnet-20241022"
+        return m
+
+    return m or "grok-4.20-0309-non-reasoning"
 
 
 def _strip_voice(v: Any) -> str:
@@ -354,11 +389,13 @@ async def resolve_voice_plan() -> VoicePlan:
 
     llm = None
     if llm_conn and _key_from(llm_conn):
+        llm_provider = _match_provider(llm_conn.name) or "openai"
+        resolved_model = _resolve_llm_model(llm_provider, active_stack.get("llm_model"), _cfg(llm_conn).get("model"))
         llm = PluginCreds(
-            provider=_match_provider(llm_conn.name) or "openai",
+            provider=llm_provider,
             api_key=_key_from(llm_conn),
             base_url=_cfg(llm_conn).get("base_url") or "",
-            model=_cfg(llm_conn).get("model") or "",
+            model=resolved_model,
             extra={"display_name": llm_conn.name or ""},
         )
 

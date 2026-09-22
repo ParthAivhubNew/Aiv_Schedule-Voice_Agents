@@ -290,13 +290,9 @@ export function LiveKitBrowserCallModal({
               ...prev,
               { who: data.who || (participant ? participant.identity : "ai"), text: data.text },
             ]);
-            // If remote audio is paused or not delivering sound, speak aloud via browser speech
-            if (data.who === "ai" || !data.who) {
-              const el = audioElementRef.current;
-              const isPlaying = el && !el.paused && el.currentTime > 0;
-              if (!isPlaying) {
-                speakFallback(data.text);
-              }
+            // Only use speakFallback if no WebRTC audio track exists in the room
+            if ((data.who === "ai" || !data.who) && !hasRemoteAudioRef.current) {
+              speakFallback(data.text);
             }
           }
         } catch (_) {}

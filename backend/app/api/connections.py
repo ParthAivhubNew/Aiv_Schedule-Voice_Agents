@@ -130,7 +130,8 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
         provider=req.provider,
         api_key=key,
         base_url=req.resolved_base_url,
-        account_sid=req.account_sid
+        account_sid=req.account_sid,
+        model=req.resolved_model
     )
     if not validation["valid"]:
         raise HTTPException(
@@ -200,7 +201,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         provider=req.provider,
         api_key=key,
         base_url=req.resolved_base_url,
-        account_sid=req.account_sid
+        account_sid=req.account_sid,
+        model=req.resolved_model
     )
     
     if not validation["valid"]:
@@ -576,9 +578,15 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     if active_stack.get("llm"):
         llm_name = active_stack["llm"]
         llm_provider = active_stack["llm"].split()[0].lower()
+    if active_stack.get("llm_model"):
+        llm_model = active_stack["llm_model"]
     if active_stack.get("stt"):
         stt_name = active_stack["stt"]
         stt_provider = active_stack["stt"].split()[0].lower()
+    if active_stack.get("stt_model"):
+        stt_model = active_stack["stt_model"]
+    if active_stack.get("tts_model"):
+        tts_model = active_stack["tts_model"]
     if active_stack.get("carrier"):
         active_carrier = active_stack["carrier"]
 
@@ -650,6 +658,10 @@ class SelectActiveStackRequest(BaseModel):
     stt: Optional[str] = None
     carrier: Optional[str] = None
     telephony: Optional[str] = None
+    llm_model: Optional[str] = None
+    stt_model: Optional[str] = None
+    tts_model: Optional[str] = None
+    model: Optional[str] = None
 
 
 @router.get("/telephony-hub/select-stack")
@@ -696,10 +708,28 @@ async def select_active_stack_endpoint(req: SelectActiveStackRequest, db: AsyncS
         patch["tts"] = req.tts
     if req.llm:
         patch["llm"] = req.llm
+        llm_low = req.llm.lower()
+        if not req.llm_model and not req.model:
+            if "xai" in llm_low or "grok" in llm_low:
+                patch["llm_model"] = "grok-beta"
+            elif "deepseek" in llm_low:
+                patch["llm_model"] = "deepseek-chat"
+            elif "groq" in llm_low:
+                patch["llm_model"] = "llama-3.3-70b-versatile"
+            elif "openai" in llm_low:
+                patch["llm_model"] = "gpt-4o"
+            elif "anthropic" in llm_low or "claude" in llm_low:
+                patch["llm_model"] = "claude-3-5-sonnet-20241022"
     if req.stt:
         patch["stt"] = req.stt
     if req.carrier or req.telephony:
         patch["carrier"] = req.carrier or req.telephony
+    if req.llm_model or (req.model and req.llm):
+        patch["llm_model"] = req.llm_model or req.model
+    if req.stt_model or (req.model and req.stt):
+        patch["stt_model"] = req.stt_model or req.model
+    if req.tts_model or (req.model and req.tts):
+        patch["tts_model"] = req.tts_model or req.model
 
     updated = set_active_stack(patch)
     return {"status": "ok", "active_stack": updated}

@@ -1,8 +1,21 @@
 const API_BASE = "/api";
 
+// In-flight GET request deduplication map to prevent redundant concurrent fetches
+const inFlightGetRequests = new Map();
+
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
   const { timeoutMs, signal: outerSignal, ...fetchOptions } = options;
+  const isGet = (!fetchOptions.method || fetchOptions.method.toUpperCase() === 'GET');
+
+  // Deduplicate identical concurrent GET requests
+  if (isGet && !outerSignal && !timeoutMs) {
+    const existingPromise = inFlightGetRequests.get(url);
+    if (existingPromise) {
+      return existingPromise;
+    }
+  }
+
   const headers = {
     'Content-Type': 'application/json',
     ...(fetchOptions.headers || {}),
@@ -29,58 +42,75 @@ export async function apiRequest(endpoint, options = {}) {
     delete headers['Content-Type'];
   }
 
-  const controller = new AbortController();
-  let timedOut = false;
-  let timer = null;
-  if (timeoutMs && timeoutMs > 0) {
-    timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
-  }
-  if (outerSignal) {
-    if (outerSignal.aborted) controller.abort();
-    else outerSignal.addEventListener("abort", () => controller.abort(), { once: true });
-  }
-
-  try {
-    const response = await fetch(url, {
-      ...fetchOptions,
-      headers,
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      let msg = `Request failed with status ${response.status}`;
-      if (response.status === 413) {
-        msg = "Upload too large (413). Record 30–60 seconds; the app compresses audio before send.";
-      }
-      if (typeof errData.detail === 'string') {
-        msg = errData.detail;
-      } else if (Array.isArray(errData.detail)) {
-        msg = errData.detail.map(d => (d.msg ? `${d.loc ? d.loc.slice(-1)[0] + ': ' : ''}${d.msg}` : JSON.stringify(d))).join('; ');
-      } else if (errData.detail && typeof errData.detail === 'object') {
-        msg = JSON.stringify(errData.detail);
-      } else if (errData.error) {
-        msg = typeof errData.error === 'string' ? errData.error : JSON.stringify(errData.error);
-      }
-      throw new Error(msg);
+  const executeFetch = async () => {
+    const controller = new AbortController();
+    let timedOut = false;
+    let timer = null;
+    if (timeoutMs && timeoutMs > 0) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+    }
+    if (outerSignal) {
+      if (outerSignal.aborted) controller.abort();
+      else outerSignal.addEventListener("abort", () => controller.abort(), { once: true });
     }
 
-    return await response.json();
-  } catch (error) {
-    if (timedOut) {
-      throw new Error("Request timed out — backend may be restarting or unreachable. Try again.");
-    }
-    if (error && (error.name === "AbortError" || error.message === "The user aborted a request.")) {
+    try {
+      const response = await fetch(url, {
+        ...fetchOptions,
+        headers,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        let msg = `Request failed with status ${response.status}`;
+        if (response.status === 413) {
+          msg = "Upload too large (413). Record 30–60 seconds; the app compresses audio before send.";
+        }
+        if (typeof errData.detail === 'string') {
+          msg = errData.detail;
+        } else if (Array.isArray(errData.detail)) {
+          msg = errData.detail.map(d => (d.msg ? `${d.loc ? d.loc.slice(-1)[0] + ': ' : ''}${d.msg}` : JSON.stringify(d))).join('; ');
+        } else if (errData.detail && typeof errData.detail === 'object') {
+          msg = JSON.stringify(errData.detail);
+        } else if (errData.error) {
+          msg = typeof errData.error === 'string' ? errData.error : JSON.stringify(errData.error);
+        }
+        throw new Error(msg);
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (timedOut) {
+        throw new Error("Request timed out — backend may be restarting or unreachable. Try again.");
+      }
+      if (error && (error.name === "AbortError" || error.message === "The user aborted a request.")) {
+        throw error;
+      }
+      console.error(`API Error on ${url}:`, error);
       throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    console.error(`API Error on ${url}:`, error);
-    throw error;
-  } finally {
-    if (timer) clearTimeout(timer);
+  };
+
+  if (isGet && !outerSignal && !timeoutMs) {
+    const p = executeFetch().finally(() => {
+      // Clear from in-flight cache shortly after resolution
+      setTimeout(() => {
+        if (inFlightGetRequests.get(url) === p) {
+          inFlightGetRequests.delete(url);
+        }
+      }, 1000);
+    });
+    inFlightGetRequests.set(url, p);
+    return p;
   }
+
+  return executeFetch();
 }
 
 export const api = {

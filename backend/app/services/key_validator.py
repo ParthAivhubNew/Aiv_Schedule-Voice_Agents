@@ -11,15 +11,17 @@ async def validate_api_key(
     provider: str,
     api_key: str,
     base_url: Optional[str] = None,
-    account_sid: Optional[str] = None
+    account_sid: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Performs a real-time live probe to the provider's official API endpoint
-    to verify that the supplied credentials are authentic and authorized.
+    to verify that the supplied credentials are authentic and authorized,
+    and ensures the specified model belongs to this provider.
     Logs each probe to dedicated subsystem process logs.
     """
     start_time = time.time()
-    res = await _do_validate_api_key(provider, api_key, base_url, account_sid)
+    res = await _do_validate_api_key(provider, api_key, base_url, account_sid, model=model)
     duration_ms = (time.time() - start_time) * 1000
 
     p_lower = provider.lower()
@@ -39,7 +41,7 @@ async def validate_api_key(
         process_name=f"{provider.lower().replace(' ', '_')}_validation",
         message=msg,
         level=level,
-        details={"provider": provider, "valid": res.get("valid"), "error": res.get("error")},
+        details={"provider": provider, "valid": res.get("valid"), "error": res.get("error"), "model": model},
         duration_ms=duration_ms
     )
     return res
@@ -48,7 +50,8 @@ async def _do_validate_api_key(
     provider: str,
     api_key: str,
     base_url: Optional[str] = None,
-    account_sid: Optional[str] = None
+    account_sid: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     p = provider.lower().replace(" ", "").replace("-", "").replace(".", "")
     api_key = api_key.strip()
@@ -103,7 +106,12 @@ async def _do_validate_api_key(
                 headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
-                    return {"valid": True, "provider": "DeepSeek", "details": "Authenticated successfully (DeepSeek-V3 / DeepSeek-R1 ready)."}
+                    if model:
+                        m_clean = model.strip()
+                        m_lower = m_clean.lower()
+                        if any(cross in m_lower for cross in ["llama", "grok", "gpt-", "claude", "whisper", "nova", "sonic", "gemini"]):
+                            return {"valid": False, "error": f"Model '{m_clean}' is not a DeepSeek model. For DeepSeek, select deepseek-chat or deepseek-reasoner."}
+                    return {"valid": True, "provider": "DeepSeek", "details": f"Authenticated successfully ({model or 'DeepSeek-V3'} ready)."}
                 elif res.status_code == 401:
                     return {"valid": False, "error": "DeepSeek authentication failed (Invalid API key - 401 Unauthorized)."}
                 elif res.status_code == 402:
@@ -122,10 +130,14 @@ async def _do_validate_api_key(
                 headers = {"Authorization": f"Bearer {api_key}"}
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
+                    if model:
+                        m_clean = model.strip()
+                        m_lower = m_clean.lower()
+                    m_display = model.strip() if model and model.strip() else "GPT-4o / GPT-4o-mini"
                     details_str = (
-                        "Authenticated successfully (DALL-E 3 / DALL-E 2 / GPT-4o ready)." if ("dall" in p or "image" in p)
+                        "Authenticated successfully (DALL-E 3 ready)." if ("dall" in p or "image" in p)
                         else "Authenticated successfully (Embeddings & RAG ready - text-embedding-3-small active)." if ("embed" in p)
-                        else "Authenticated successfully (GPT-4o / Whisper / TTS ready)."
+                        else f"Authenticated successfully ({m_display} ready)."
                     )
                     return {"valid": True, "provider": "OpenAI", "details": details_str}
                 elif res.status_code == 401:
@@ -156,7 +168,12 @@ async def _do_validate_api_key(
                 }
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
-                    return {"valid": True, "provider": "Anthropic", "details": "Authenticated successfully (Claude 3.5 Sonnet ready)."}
+                    if model:
+                        m_clean = model.strip()
+                        m_lower = m_clean.lower()
+                        if any(cross in m_lower for cross in ["llama", "grok", "gpt-", "deepseek", "nova", "sonic", "gemini", "mistral"]):
+                            return {"valid": False, "error": f"Model '{m_clean}' is not an Anthropic model. For Anthropic, select claude-3-5-sonnet-20241022 or claude-3-5-haiku."}
+                    return {"valid": True, "provider": "Anthropic", "details": f"Authenticated successfully ({model or 'Claude 3.5 Sonnet'} ready)."}
                 elif res.status_code == 401:
                     return {"valid": False, "error": "Anthropic authentication failed (Invalid x-api-key)."}
                 else:
@@ -206,7 +223,12 @@ async def _do_validate_api_key(
                 headers = {"Authorization": f"Bearer {api_key}"}
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
-                    return {"valid": True, "provider": "Groq", "details": "Authenticated successfully (Llama-3-70b @ 800 tps)."}
+                    if model:
+                        m_clean = model.strip()
+                        m_lower = m_clean.lower()
+                        if any(cross in m_lower for cross in ["grok", "gpt-", "claude", "deepseek", "nova", "sonic", "gemini"]):
+                            return {"valid": False, "error": f"Model '{m_clean}' is not available on Groq. For Groq, select llama-3.3-70b-versatile or llama-3.1-8b-instant."}
+                    return {"valid": True, "provider": "Groq", "details": f"Authenticated successfully ({model or 'Llama-3.3-70b'} ready)."}
                 else:
                     return {"valid": False, "error": "Groq authentication failed (Invalid API key)."}
 
@@ -216,7 +238,12 @@ async def _do_validate_api_key(
                 headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
-                    return {"valid": True, "provider": "xAI (Grok)", "details": "Authenticated successfully (Grok-2 / Grok-4 ready)."}
+                    if model:
+                        m_clean = model.strip()
+                        m_lower = m_clean.lower()
+                        if any(cross in m_lower for cross in ["llama", "mixtral", "gpt-", "claude", "deepseek", "whisper", "nova", "sonic", "gemini"]):
+                            return {"valid": False, "error": f"Model '{m_clean}' is not an xAI Grok model (it belongs to Groq/OpenAI/Anthropic). For xAI, select grok-2-latest or grok-beta."}
+                    return {"valid": True, "provider": "xAI (Grok)", "details": f"Authenticated successfully ({model or 'xAI Grok'} ready)."}
                 elif res.status_code == 401:
                     return {"valid": False, "error": "xAI authentication failed (Invalid API key - 401 Unauthorized)."}
                 else:

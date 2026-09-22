@@ -16,7 +16,7 @@ from sqlalchemy.future import select
 
 from app.database import AsyncSessionLocal
 from app.models.models import CompanyProfile, LiveCall
-from app.services.llm_gateway import call_open_chat_llm
+from app.services.llm_gateway import call_open_chat_llm, stream_open_chat_llm
 from app.services.voice_plugin_plan import VoicePlan, looks_like_external_voice_id
 from app.services.xai_voice_service import (
     BridgedVoiceSession,
@@ -101,11 +101,106 @@ def _resolve_eleven_vid(voice_hint: str, voice_id: Optional[str]) -> str:
     return ELEVEN_VOICES["rachel"]
 
 
-async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: bool = False) -> None:
+def _clean_for_speech(text: str) -> str:
+    """Format text for natural, human-sounding speech synthesis."""
+    if not text:
+        return ""
+    # Strip markdown, brackets, URLs, emojis, and code formatting
+    t = re.sub(r"[*_`#\[\]\(\)<>]+", " ", text)
+    t = re.sub(r"https?://\S+", "", t)
+    # Convert em-dashes to commas for natural brief breath pauses
+    t = re.sub(r"—|–", ", ", t)
+    # Ensure brand name is pronounced clearly as "A.I.V. Hub" so TTS never spells individual letters or mispronounces
+    t = re.sub(r"\bAIVHUB\b|\bAivhub\b|\bA\s*I\s*V\s*H\s*U\s*B\b|\bAIV\s*Hub\b", "A.I.V. Hub", t, flags=re.I)
+    t = re.sub(r"\bA\s*I\s*V\b", "A.I.V.", t, flags=re.I)
+    # Clean spoken email artifacts
+    t = re.sub(r"@aivhub\.com", " at aivhub dot com", t, flags=re.I)
+    t = re.sub(r"\bat the rate\b|\bat direct\b|\bat the rate of\b|\bat rate\b|\bat grid\b", "at", t, flags=re.I)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _is_hangup_intent(user_text: str, ai_reply: str) -> bool:
+    """Detect if caller wants to hang up or if a farewell conversation closing was reached."""
+    u = (user_text or "").lower().strip()
+    a = (ai_reply or "").lower().strip()
+    hangup_user = (
+        "cut the call", "cut call", "hang up", "hangup", "end the call", "end call",
+        "disconnect", "bye bye", "goodbye", "bye now", "not interested bye",
+        "leave me alone", "stop calling", "dont call again", "don't call again",
+        "take me off", "i have to go bye", "gotta go bye", "end conversation",
+        "please stop", "no thank you bye", "no thanks bye", "cut the phone",
+        "cut phone", "finish call", "end it here", "thanks bye", "thank you bye",
+    )
+    if any(p in u for p in hangup_user):
+        return True
+    if u in ("bye", "goodbye", "cya", "stop", "no bye", "bye.", "goodbye.", "bye-bye", "bye bye"):
+        return True
+    # If the AI completed a definitive farewell wrap-up closing
+    farewell_phrases = (
+        "goodbye", "have a wonderful day", "have a great day", "have a good day",
+        "take care, bye", "thanks for your time", "talk soon, bye", "see you then", "bye-bye", "goodbye!",
+        "have a lovely day", "have a fantastic day", "thanks, bye", "thank you, bye", "cheers, bye",
+        "follow up with you by email", "follow up with an email instead", "thanks so much for your time"
+    )
+    if any(p in a for p in farewell_phrases):
+        return True
+    return False
+
+
+def _split_into_chunks(text_buffer: str) -> tuple[list[str], str]:
+    """
+    Extracts complete sentences or natural pause clauses from text_buffer.
+    Returns (list_of_complete_chunks, remaining_unsplit_buffer).
+    """
+    chunks = []
+    current = text_buffer
+    
+    while current:
+        # Match standard sentence ending: punctuation followed by space or end
+        match = re.search(r'([.!?\n])(\s+|$)', current)
+        if match:
+            end_pos = match.end()
+            chunk = current[:end_pos].strip()
+            if chunk:
+                chunks.append(chunk)
+            current = current[end_pos:]
+            continue
+        
+        # Match clause pause if >= 6 words
+        words = current.split()
+        if len(words) >= 6:
+            clause_match = re.search(r'([,;:]| — )(\s+)', current)
+            if clause_match and clause_match.start() > 8:
+                end_pos = clause_match.end()
+                chunk = current[:end_pos].strip()
+                if chunk:
+                    chunks.append(chunk)
+                current = current[end_pos:]
+                continue
+        
+        # If buffer is getting very long (>= 12 words), split at last space
+        if len(words) >= 12:
+            last_space = current.rfind(' ')
+            if last_space > 0:
+                chunk = current[:last_space].strip()
+                if chunk:
+                    chunks.append(chunk)
+                current = current[last_space:].strip()
+                continue
+
+        break
+        
+    return chunks, current
+
+
+async def _synthesize_tts_frames(plan: VoicePlan, text: str) -> list[str]:
     tts = plan.tts
     if not tts or not text.strip():
-        return
-    clean = re.sub(r"[*_`#]+", "", text).strip()
+        return []
+    clean = _clean_for_speech(text)
+    if not clean:
+        return []
     if len(clean) > 600:
         clean = clean[:600]
     provider = (tts.provider or "elevenlabs").lower()
@@ -122,90 +217,158 @@ async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: 
             raw = await _eleven_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
     except Exception as err:
         logger.warning(f"[MODULAR] TTS failed ({provider}): {err}")
-        return
-    frames = list(_ulaw_frames(raw))
+        return []
+    return list(_ulaw_frames(raw))
+
+
+async def _play_frames(bridge: BridgedVoiceSession, frames: list[str], on_frame_played: Optional[Any] = None) -> int:
+    """
+    Streams μ-law audio frames with precise, drift-free 20ms frame pacing.
+    """
     if not frames:
-        return
-    # Pre-fill burst buffer (initial ~160ms = 8 frames) so Twilio/carrier jitter buffer is primed
-    burst_count = min(8, len(frames))
-    for i in range(burst_count):
+        return 0
+    played = 0
+    loop_start = time.perf_counter()
+    frame_duration = 0.020  # 20ms per 160-byte μ-law frame
+    for idx, b64 in enumerate(frames):
         if getattr(bridge, "_barge", None) and bridge._barge.is_set():
-            return
-        await bridge.emit_ai_audio(frames[i])
+            break
+        await bridge.emit_ai_audio(b64)
+        played += 1
+        if on_frame_played:
+            on_frame_played(1)
+        expected_elapsed = (idx + 1) * frame_duration
+        actual_elapsed = time.perf_counter() - loop_start
+        sleep_needed = expected_elapsed - actual_elapsed
+        if sleep_needed > 0.001:
+            await asyncio.sleep(sleep_needed)
+    return played
+
+
+async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: bool = True) -> None:
+    frames = await _synthesize_tts_frames(plan, text)
+    if frames and not (getattr(bridge, "_barge", None) and bridge._barge.is_set()):
+        await _play_frames(bridge, frames)
+
+
+def _is_phantom_noise(text: str) -> bool:
+    """Rule 3.2: Detects short noise impulses, coughs, throat clearings (<300ms equivalent or noise words)."""
+    cleaned = re.sub(r"[^\w\s]", "", (text or "").lower()).strip()
+    if not cleaned or len(cleaned) < 2:
+        return True
+    noise_tokens = {"ah", "eh", "oh", "um", "uh", "er", "cough", "throat", "grunt", "sigh", "noise", "click"}
+    words = cleaned.split()
+    if len(words) == 1 and words[0] in noise_tokens:
+        return True
+    return False
+
+
+def _is_acoustic_echo(caller_text: str, recent_ai_text: str) -> bool:
+    """
+    Rule 2.3: Detects if the incoming caller transcript is an acoustic reflection of what the agent just said.
+    """
+    if not caller_text or not recent_ai_text:
+        return False
+    c_words = set(re.sub(r"[^\w\s]", "", caller_text.lower()).split())
+    a_words = set(re.sub(r"[^\w\s]", "", recent_ai_text.lower()).split())
+    if not c_words:
+        return False
+    overlap = len(c_words.intersection(a_words))
+    # If >= 75% of words match the agent's recent speech and length is >= 3 words
+    if len(c_words) >= 3 and (overlap / len(c_words)) >= 0.75:
+        return True
+    return False
+
+
+def _calculate_spoken_text(chunks_with_frames: list[tuple[str, int]], total_played_frames: int) -> str:
+    """
+    Rule 3.1: The Speech Meter — Context Truncation Indexing.
+    Calculates the exact words spoken up to total_played_frames.
+    """
+    accumulated_frames = 0
+    spoken_parts = []
     
-    if len(frames) > burst_count:
-        if pace:
-            loop_start = time.perf_counter()
-            frame_duration = 0.020  # 20ms per 160-byte frame
-            for idx, b64 in enumerate(frames[burst_count:], start=1):
-                if getattr(bridge, "_barge", None) and bridge._barge.is_set():
-                    break
-                await bridge.emit_ai_audio(b64)
-                expected_elapsed = idx * frame_duration
-                actual_elapsed = time.perf_counter() - loop_start
-                sleep_needed = expected_elapsed - actual_elapsed
-                if sleep_needed > 0.003:
-                    await asyncio.sleep(sleep_needed)
+    for text, frame_count in chunks_with_frames:
+        if accumulated_frames + frame_count <= total_played_frames:
+            spoken_parts.append(text)
+            accumulated_frames += frame_count
         else:
-            for b64 in frames[burst_count:]:
-                if getattr(bridge, "_barge", None) and bridge._barge.is_set():
-                    break
-                await bridge.emit_ai_audio(b64)
+            # Partially spoken chunk
+            remaining_frames = max(0, total_played_frames - accumulated_frames)
+            ratio = min(1.0, remaining_frames / max(1, frame_count))
+            words = text.split()
+            words_to_keep = max(1, int(len(words) * ratio))
+            partial = " ".join(words[:words_to_keep])
+            if partial:
+                spoken_parts.append(f"{partial}...")
+            break
+            
+    res = " ".join(spoken_parts).strip()
+    return res if res else "(interrupted at start)"
+
+
+# Persistent HTTP client with keep-alive connection pooling to eliminate TLS handshake latency on each turn
+_tts_http_client: Optional[httpx.AsyncClient] = None
+
+def _get_tts_client() -> httpx.AsyncClient:
+    global _tts_http_client
+    if _tts_http_client is None or _tts_http_client.is_closed:
+        _tts_http_client = httpx.AsyncClient(
+            timeout=15.0,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0)
+        )
+    return _tts_http_client
 
 
 async def _eleven_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, model: str) -> bytes:
     vid = _resolve_eleven_vid(voice_hint, voice_id)
     model_id = model or "eleven_turbo_v2_5"
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=ulaw_8000"
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        res = await client.post(
-            url,
-            headers={"xi-api-key": api_key, "Accept": "application/octet-stream", "Content-Type": "application/json"},
-            json={"text": text, "model_id": model_id, "optimize_streaming_latency": 3},
-        )
-        res.raise_for_status()
-        return res.content
+    client = _get_tts_client()
+    res = await client.post(
+        url,
+        headers={"xi-api-key": api_key, "Accept": "application/octet-stream", "Content-Type": "application/json"},
+        json={"text": text, "model_id": model_id, "optimize_streaming_latency": 3},
+    )
+    res.raise_for_status()
+    return res.content
 
 
 async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str) -> bytes:
     vid = _resolve_cartesia_vid(voice_hint, voice_id)
-    # sonic-english / sonic are sunset; sonic-2 still serves mulaw telephony today.
+    # sonic-2 / sonic-turbo / sonic-3
     model_candidates = ("sonic-2", "sonic-turbo", "sonic-3", "sonic-3.5", "sonic-latest")
     last_err: Optional[Exception] = None
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        for model_id in model_candidates:
-            try:
-                res = await client.post(
-                    "https://api.cartesia.ai/tts/bytes",
-                    headers={
-                        "X-API-Key": api_key,
-                        "Cartesia-Version": "2024-06-10",
-                        "Content-Type": "application/json",
+    client = _get_tts_client()
+    for model_id in model_candidates:
+        try:
+            res = await client.post(
+                "https://api.cartesia.ai/tts/bytes",
+                headers={
+                    "X-API-Key": api_key,
+                    "Cartesia-Version": "2024-06-10",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model_id": model_id,
+                    "transcript": text,
+                    "voice": {"mode": "id", "id": vid},
+                    "language": "en",
+                    "output_format": {
+                        "container": "raw",
+                        "encoding": "pcm_mulaw",
+                        "sample_rate": 8000,
                     },
-                    json={
-                        "model_id": model_id,
-                        "transcript": text,
-                        "voice": {"mode": "id", "id": vid},
-                        "language": "en",
-                        "output_format": {
-                            "container": "raw",
-                            "encoding": "pcm_mulaw",
-                            "sample_rate": 8000,
-                        },
-                    },
-                )
-                if res.status_code == 200 and res.content:
-                    logger.info(
-                        f"[MODULAR] Cartesia TTS ok model_id={model_id} bytes={len(res.content)} voice={vid[:12]}…"
-                    )
-                    return res.content
-                last_err = RuntimeError(f"Cartesia {model_id} HTTP {res.status_code}: {res.text[:180]}")
-                # Sunset / bad model → try next; auth errors stop early
-                if res.status_code in (401, 403):
-                    raise last_err
-            except Exception as err:
-                last_err = err
-                continue
+                },
+            )
+            if res.status_code == 200 and res.content:
+                return res.content
+            last_err = RuntimeError(f"Cartesia {model_id} HTTP {res.status_code}: {res.text[:180]}")
+            if res.status_code in (401, 403):
+                raise last_err
+        except Exception as err:
+            last_err = err
+            continue
     raise RuntimeError(f"Cartesia TTS failed for voice {vid[:12]}…: {last_err}")
 
 
@@ -254,6 +417,15 @@ async def _greeting_line(is_inbound: bool, prospect_name: Optional[str]) -> str:
     return f"Hi there, this is {rep} calling from {company} — did I catch you in the middle of something?"
 
 
+def _is_backchannel(text: str) -> bool:
+    """Return True ONLY for non-word sub-vocal murmurs (e.g. 'mhm', 'uh-huh') that carry no semantic instruction."""
+    cleaned = re.sub(r"[^\w\s]", "", (text or "").lower()).strip()
+    words = cleaned.split()
+    if len(words) > 1:
+        return False
+    return cleaned in ("mhm", "uhhuh", "uh-huh", "mm", "mmm")
+
+
 async def run_modular_pipeline(
     bridge: BridgedVoiceSession,
     call_id: str,
@@ -279,11 +451,36 @@ async def run_modular_pipeline(
         logger.warning(f"[MODULAR] LiveCall link failed: {err}")
 
     system = await build_xai_system_instructions(caller_number, prospect_name, hold_opening=False)
-    system += "\n\nKeep spoken replies short: 1-3 sentences unless they ask for detail. No markdown."
+    
+    # Modular real-time conversational guidelines: prevent schedule stalling, enforce instant slot proposals, natural brief human dialogue
+    modular_rules = (
+        "\n\nCRITICAL CONVERSATIONAL, EMAIL CAPTURE & SCHEDULING RULES FOR LIVE PHONE CALL:\n"
+        "1. NATURAL HUMAN CONVERSATION (HUMAN FLOW):\n"
+        "   - Speak warmly, casually, and concisely like a helpful colleague (1 to 2 short sentences per turn).\n"
+        "   - Vary your phrases naturally ('Got it', 'Awesome', 'Makes sense', 'Understood', 'Sure thing') instead of repeating the exact same words.\n"
+        "   - If the prospect says 'Hello?' or 'Are you there?', NEVER repeat your previous long question or pitch. Simply acknowledge briefly: 'Yes, I\\'m right here! Go ahead, I\\'m listening.'\n"
+        "2. INSTANT AVAILABILITY (NEVER STALL):\n"
+        "   - You already have the host's diary in this prompt. Propose 2-3 concrete times immediately in the SAME turn (e.g. 'Today I've got 1:00, 1:15, 1:30, or 1:45 PM — which suits you best?').\n"
+        "   - If the prospect asks 'What times are available?', re-state the concrete options immediately.\n"
+        "3. EMAIL CAPTURE (NEVER SPELL LETTER-BY-LETTER):\n"
+        "   - Understand spoken email phrases: 'at the rate', 'at direct', or 'at grid' mean '@'. 'aivhub dot com' means '@aivhub.com'.\n"
+        "   - When the caller speaks their email (e.g. 'parth dot baro at aivhub dot com'), capture it as a whole address.\n"
+        "   - NEVER spell out words letter-by-letter with hyphens (e.g. NEVER output 'P-A-R-T-S'). Say it naturally as a regular email address.\n"
+        "   - DO NOT trap the user in spelling confirmation questions. Once they provide their email or a correction, IMMEDIATELY finalize the booking.\n"
+        "4. ONE-STEP FINAL BOOKING SUMMARY & FAREWELL (AUTO-HANGUP):\n"
+        "   - Once the meeting time and email are provided, DO NOT ask more questions. Finalize the call in ONE complete summary and goodbye:\n"
+        "     'Awesome! I have you locked in for tomorrow at 9:15 AM via video call, and I\\'ve sent the calendar invite to your email. Thanks so much for your time, have a wonderful day! Goodbye.'\n"
+        "5. AUTOMATIC LINE DISCONNECT:\n"
+        "   - Whenever you say 'Goodbye' or 'have a wonderful day', or if the prospect says 'goodbye' / 'hang up', the phone line will automatically disconnect.\n"
+        "6. FLEXIBLE FORMAT & OPTION SELECTION (NEVER GET STUCK):\n"
+        "   - When asking meeting formats ('phone call, video meeting, or in person?') or proposing options, if the caller replies with any partial word, sound-alike word, or ordinal (e.g. 'phone', 'four', 'for', '1', 'first one', 'video', 'meet', 'online', 'in person'):\n"
+        "   - IMMEDIATELY accept their choice warmly without asking them to repeat (e.g. 'Awesome, video call it is!'). Then propose specific slots immediately."
+    )
+    system = system + modular_rules
     history = []
 
     greeting = await _greeting_line(is_inbound, prospect_name)
-    await _speak(bridge, plan, greeting, pace=False)
+    await _speak(bridge, plan, greeting, pace=True)
     if not bridge.ready.is_set():
         bridge.ready.set()
     await _update_call_transcript(local_id, f"AI: {greeting}")
@@ -299,9 +496,13 @@ async def run_modular_pipeline(
         return
 
     dg_model = stt.model or "nova-2"
+    # LiveKit Turn-Taking & Telephony parameters:
+    # 200ms endpointing + 450ms utterance boundary + smart formatting + keyword boosting for domain, Power BI & email terms
     dg_url = (
         f"wss://api.deepgram.com/v1/listen?encoding=mulaw&sample_rate=8000"
-        f"&channels=1&model={dg_model}&punctuate=true&interim_results=false&endpointing=400"
+        f"&channels=1&model={dg_model}&punctuate=true&smart_format=true"
+        f"&endpointing=200&utterance_end_ms=450&vad_events=true"
+        f"&keywords=Power BI:5&keywords=PowerBI:5&keywords=aivhub.com:5&keywords=aivhub:5&keywords=phone:5&keywords=phone call:5&keywords=video:5&keywords=video meeting:5&keywords=in person:5&keywords=at the rate:5&keywords=at direct:5&keywords=dot com:4&keywords=email:4&keywords=gmail:3"
     )
 
     async def on_caller(b64: str):
@@ -335,50 +536,314 @@ async def run_modular_pipeline(
 
     watchdog_task = asyncio.create_task(stream_watchdog())
 
-    async def handle_final(text: str):
-        nonlocal speaking_task
+    last_ai_spoken = ""
+    last_activity_time = time.perf_counter()
+    silence_nudge_count = 0
+
+    async def handle_final(text: str, is_system_prompt: bool = False):
+        nonlocal speaking_task, last_ai_spoken, last_activity_time, silence_nudge_count
         if bridge.closed.is_set():
             return
         text = (text or "").strip()
         if not text:
             return
-        bridge._barge.set()
-        if speaking_task and not speaking_task.done():
-            speaking_task.cancel()
-        await _update_call_transcript(local_id, f"Prospect: {text}")
-        try:
-            await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "them", "delta": text})
-        except Exception:
-            pass
-        history.append({"role": "user", "content": text})
+
+        is_speaking = bool(speaking_task and not speaking_task.done())
+
+        if not is_system_prompt:
+            # Caller spoke -> reset silence nudge count and update activity timestamp
+            silence_nudge_count = 0
+            last_activity_time = time.perf_counter()
+
+            # Rule 2.3: Suppress Acoustic Echo reflection while speaking
+            if is_speaking and _is_acoustic_echo(text, last_ai_spoken):
+                logger.info(f"[MODULAR] Acoustic reflection / self-echo suppressed ({text}). Continuing speech.")
+                return
+
+            # Rule 3.2: Suppress Phantom noise / short non-speech impulses
+            if is_speaking and _is_phantom_noise(text):
+                logger.info(f"[MODULAR] Phantom noise / impulse suppressed ({text}) while speaking. Continuing playback.")
+                return
+
+            # Rule: Adaptive Interruption Handling (1-word backchannels)
+            if is_speaking and _is_backchannel(text):
+                logger.info(f"[MODULAR] Backchannel acknowledged ({text}) while speaking — continuing playback without interruption.")
+                return
+
+            # True interruption: caller spoke genuine words
+            if is_speaking:
+                logger.info(f"[MODULAR] True barge-in detected ({text}) — cancelling active speech.")
+                bridge._barge.set()
+                speaking_task.cancel()
+
+            await _update_call_transcript(local_id, f"Prospect: {text}")
+            try:
+                await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "them", "delta": text})
+            except Exception:
+                pass
+            history.append({"role": "user", "content": text})
+        else:
+            # System-injected silence re-prompt
+            if is_speaking:
+                return
+            history.append({"role": "user", "content": text})
+
+        t_turn_start = time.perf_counter()
         llm = plan.llm
-        result = await call_open_chat_llm(
-            messages=history[-12:],
-            system_prompt=system,
-            api_key=llm.api_key if llm else None,
-            provider=llm.provider if llm else None,
-            model=llm.model if llm else None,
-            base_url=llm.base_url if llm else None,
-            temperature=0.7,
-            max_tokens=180,
-        )
-        reply = (result.get("reply") or "").strip()
-        if not reply or reply.startswith("⚠️"):
-            reply = "Sorry, I missed that — could you say that again?"
-        history.append({"role": "assistant", "content": reply})
-        await _update_call_transcript(local_id, f"AI: {reply}")
-        try:
-            await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "ai", "delta": reply})
-        except Exception:
-            pass
         bridge._barge = asyncio.Event()
 
-        async def speak_reply():
-            if not bridge.closed.is_set():
-                await _speak(bridge, plan, reply, pace=True)
+        async def run_streaming_turn():
+            nonlocal history, last_ai_spoken
+            t_first_token: Optional[float] = None
+            t_first_audio: Optional[float] = None
+            t_llm_done: Optional[float] = None
+            first_chunk_tts_ms: float = 0.0
+            first_chunk_text: str = ""
+            accumulated_reply = []
+            chunks_synthesized: list[tuple[str, int]] = []
+            total_frames_played = 0
 
-        speaking_task = asyncio.create_task(speak_reply())
+            sentence_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+            audio_queue: asyncio.Queue[Optional[tuple[str, list[str]]]] = asyncio.Queue()
+
+            def on_frame_dispatched(n: int = 1):
+                nonlocal total_frames_played
+                total_frames_played += n
+
+            # Task 1: LLM Token Streamer & Sentence Segmenter
+            async def llm_streamer():
+                nonlocal t_first_token, t_llm_done
+                text_buffer = ""
+                token_count = 0
+                try:
+                    async for token in stream_open_chat_llm(
+                        messages=history[-12:],
+                        system_prompt=system,
+                        api_key=llm.api_key if llm else None,
+                        provider=llm.provider if llm else None,
+                        model=llm.model if llm else None,
+                        base_url=llm.base_url if llm else None,
+                        temperature=0.7,
+                        max_tokens=180,
+                    ):
+                        if bridge._barge.is_set() or bridge.closed.is_set():
+                            break
+                        if token_count == 0:
+                            t_first_token = time.perf_counter()
+                        token_count += 1
+                        accumulated_reply.append(token)
+                        text_buffer += token
+
+                        # Broadcast live token delta to UI
+                        try:
+                            await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "ai", "delta": token})
+                        except Exception:
+                            pass
+
+                        # Split complete sentences / clauses to queue for TTS
+                        ready_chunks, text_buffer = _split_into_chunks(text_buffer)
+                        for chunk in ready_chunks:
+                            if bridge._barge.is_set():
+                                break
+                            await sentence_queue.put(chunk)
+
+                except Exception as stream_err:
+                    logger.warning(f"[MODULAR] LLM streaming error: {stream_err}")
+
+                t_llm_done = time.perf_counter()
+
+                # Flush remaining buffer
+                if text_buffer.strip() and not bridge._barge.is_set():
+                    await sentence_queue.put(text_buffer.strip())
+
+                # If no tokens produced at all (e.g. error), produce fallback
+                if token_count == 0 and not bridge._barge.is_set():
+                    fallback = "Sorry, I missed that — could you say that again?"
+                    accumulated_reply.append(fallback)
+                    await sentence_queue.put(fallback)
+                    try:
+                        await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "ai", "delta": fallback})
+                    except Exception:
+                        pass
+
+                await sentence_queue.put(None)
+
+            # Task 2: Sentence-Level TTS Synthesizer
+            async def tts_worker():
+                nonlocal t_first_audio, first_chunk_tts_ms, first_chunk_text
+                while not bridge._barge.is_set() and not bridge.closed.is_set():
+                    sentence_text = await sentence_queue.get()
+                    if sentence_text is None:
+                        await audio_queue.put(None)
+                        break
+                    if bridge._barge.is_set():
+                        break
+
+                    t_chunk_tts_start = time.perf_counter()
+                    frames = await _synthesize_tts_frames(plan, sentence_text)
+                    t_chunk_tts_end = time.perf_counter()
+
+                    if frames and not bridge._barge.is_set():
+                        if t_first_audio is None:
+                            t_first_audio = t_chunk_tts_end
+                            first_chunk_tts_ms = round((t_chunk_tts_end - t_chunk_tts_start) * 1000, 1)
+                            first_chunk_text = sentence_text
+                        chunks_synthesized.append((sentence_text, len(frames)))
+                        await audio_queue.put((sentence_text, frames))
+
+            # Task 3: Continuous Audio Player with Speech Meter tracking
+            async def audio_player():
+                while not bridge._barge.is_set() and not bridge.closed.is_set():
+                    item = await audio_queue.get()
+                    if item is None:
+                        break
+                    if bridge._barge.is_set():
+                        break
+                    chunk_str, frames = item
+                    await _play_frames(bridge, frames, on_frame_played=on_frame_dispatched)
+
+            # Run pipeline concurrently
+            streamer_t = asyncio.create_task(llm_streamer())
+            tts_t = asyncio.create_task(tts_worker())
+            player_t = asyncio.create_task(audio_player())
+
+            was_interrupted = False
+            try:
+                await asyncio.gather(streamer_t, tts_t, player_t)
+            except asyncio.CancelledError:
+                was_interrupted = True
+                streamer_t.cancel()
+                tts_t.cancel()
+                player_t.cancel()
+
+            # Rule 3.1: The Speech Meter — Context Truncation Indexing
+            if was_interrupted:
+                spoken_text = _calculate_spoken_text(chunks_synthesized, total_frames_played)
+                full_reply = f"{spoken_text} [interrupted]"
+                last_ai_spoken = spoken_text
+                history.append({"role": "assistant", "content": full_reply})
+                await _update_call_transcript(local_id, f"AI: {full_reply}")
+                logger.info(f"[SPEECH-METER] Call {local_id} interrupted at frame {total_frames_played} (~{round(total_frames_played*0.02, 2)}s). Context truncated to: '{spoken_text}'")
+            else:
+                full_reply = "".join(accumulated_reply).strip()
+                if not full_reply:
+                    full_reply = "..."
+                last_ai_spoken = full_reply
+                history.append({"role": "assistant", "content": full_reply})
+                await _update_call_transcript(local_id, f"AI: {full_reply}")
+
+            # Latency profiling calculation
+            t_now = time.perf_counter()
+            ttft_ms = round(((t_first_token or t_now) - t_turn_start) * 1000, 1)
+            ttfa_ms = round(((t_first_audio or t_now) - t_turn_start) * 1000, 1)
+            total_llm_stream_ms = round(((t_llm_done or t_now) - t_turn_start) * 1000, 1)
+            total_turn_ms = round((t_now - t_turn_start) * 1000, 1)
+
+            llm_name = (llm.provider or "deepseek") if llm else "deepseek"
+            tts_name = (plan.tts.provider or "cartesia") if plan.tts else "cartesia"
+
+            # Exact structured speed telemetry log for terminal monitoring
+            first_words = len(first_chunk_text.split()) if first_chunk_text else 0
+            logger.info(
+                f"\n" + "="*84 + "\n"
+                f" [SPEED TELEMETRY] Turn Turnaround Profile (Call {local_id}):\n"
+                f"   1. STT  (Deepgram):      Endpointing ~700ms | Utterance: '{text}'\n"
+                f"   2. LLM  ({llm_name}):    TTFT (First Token): {ttft_ms}ms | Stream Finished: {total_llm_stream_ms}ms\n"
+                f"   3. TTS  ({tts_name}):    Chunk 1 ({first_words} words): {first_chunk_tts_ms}ms\n"
+                f"   ------------------------------------------------------------------------\n"
+                f"   ==> TOTAL TIME-TO-FIRST-AUDIO (TTFA): {ttfa_ms}ms (~{round(ttfa_ms/1000, 2)}s to first voice sound)\n"
+                + "="*84
+            )
+
+            try:
+                await call_hub.broadcast("call_latency_profile", {
+                    "callId": local_id,
+                    "ttft_ms": ttft_ms,
+                    "ttfa_ms": ttfa_ms,
+                    "total_ms": total_turn_ms,
+                    "llm_ms": ttft_ms,
+                    "tts_ms": first_chunk_tts_ms,
+                    "llm": f"{llm_name} (streamed)",
+                    "tts": f"{tts_name} (streamed)",
+                })
+            except Exception:
+                pass
+
+            hangup_triggered = _is_hangup_intent(text, full_reply)
+            if hangup_triggered:
+                logger.info(f"[MODULAR] Hangup intent triggered for call {local_id}. Gracefully closing call.")
+                # Give 1.5s for the last audio packet buffer to clear to the caller's phone
+                await asyncio.sleep(1.5)
+                resolved_sid = carrier_sid
+                try:
+                    async with AsyncSessionLocal() as sid_db:
+                        c_row = (await sid_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
+                        if c_row:
+                            if not resolved_sid:
+                                resolved_sid = getattr(c_row, "carrier_sid", None)
+                            if not resolved_sid:
+                                for line in c_row.transcript or []:
+                                    m = re.search(r"\b(CA[0-9a-fA-F]{32})\b", str(line))
+                                    if m:
+                                        resolved_sid = m.group(1)
+                                        break
+                            c_row.ended = True
+                            c_row.state = "ended"
+                            await sid_db.commit()
+                            await call_hub.broadcast("call_ended", {"callId": local_id, "id": local_id, "state": "ended"})
+                except Exception:
+                    pass
+
+                if resolved_sid:
+                    try:
+                        from app.services.outbound_dial import _resolve_carrier_and_creds
+                        from app.services.telephony_provider import carrier_registry
+                        async with AsyncSessionLocal() as cr_db:
+                            carrier_choice, credentials, _ = await _resolve_carrier_and_creds(cr_db, str(plan.carrier or "twilio").lower(), None, None)
+                            adapter = carrier_registry.get_adapter(carrier_choice or "twilio")
+                            await adapter.hangup_call(resolved_sid, credentials=credentials)
+                            logger.info(f"[MODULAR] Auto-hangup successfully terminated carrier call {resolved_sid} on {carrier_choice}")
+                    except Exception as h_err:
+                        logger.warning(f"[MODULAR] Carrier hangup: {h_err}")
+
+                await bridge.close()
+
+            last_activity_time = time.perf_counter()
+
+        speaking_task = asyncio.create_task(run_streaming_turn())
         bridge._speaking_task = speaking_task
+
+    async def silence_watchdog():
+        nonlocal silence_nudge_count, last_activity_time
+        while not bridge.closed.is_set():
+            await asyncio.sleep(0.5)
+            if bridge.closed.is_set():
+                break
+
+            is_speaking = bool(speaking_task and not speaking_task.done())
+            if is_speaking:
+                continue
+
+            idle_sec = time.perf_counter() - last_activity_time
+
+            # 4.0s silence after AI speech -> gentle 1-sentence check-in
+            if idle_sec >= 4.0 and silence_nudge_count == 0:
+                silence_nudge_count = 1
+                logger.info(f"[MODULAR] Caller silence detected ({round(idle_sec, 1)}s dead air). Prompting caller.")
+                await handle_final(
+                    "[System Event: The caller has been quiet for 4 seconds. Politely ask a brief 1-sentence check-in to see if they are still there or if they need you to repeat the last question.]",
+                    is_system_prompt=True,
+                )
+            # 12s prolonged silence -> conclude politely
+            elif idle_sec >= 12.0 and silence_nudge_count == 1:
+                silence_nudge_count = 2
+                logger.info(f"[MODULAR] Second silence timeout ({round(idle_sec, 1)}s dead air). Ending call politely.")
+                await handle_final(
+                    "[System Event: The caller has remained silent. Say: 'It seems like we might have a bad connection. I'll follow up with an email instead. Thanks, goodbye!' and conclude.]",
+                    is_system_prompt=True,
+                )
+
+    silence_watchdog_task = asyncio.create_task(silence_watchdog())
 
     try:
         async with websockets.connect(
@@ -411,6 +876,18 @@ async def run_modular_pipeline(
                         return
 
             ka = asyncio.create_task(keepalive())
+            accumulated_utterance: list[str] = []
+            flush_task: Optional[asyncio.Task] = None
+
+            async def _debounced_flush():
+                await asyncio.sleep(0.4)
+                nonlocal accumulated_utterance
+                if accumulated_utterance:
+                    full_text = " ".join(accumulated_utterance).strip()
+                    accumulated_utterance = []
+                    if full_text:
+                        await handle_final(full_text)
+
             try:
                 async for raw_msg in dg:
                     if bridge.closed.is_set():
@@ -421,20 +898,52 @@ async def run_modular_pipeline(
                         ev = json.loads(raw_msg)
                     except Exception:
                         continue
+
+                    msg_type = ev.get("type")
+
+                    # Handle UtteranceEnd event (caller pause boundary)
+                    if msg_type == "UtteranceEnd":
+                        if flush_task and not flush_task.done():
+                            flush_task.cancel()
+                        if accumulated_utterance:
+                            full_text = " ".join(accumulated_utterance).strip()
+                            accumulated_utterance = []
+                            if full_text:
+                                await handle_final(full_text)
+                        continue
+
                     alt = (ev.get("channel") or {}).get("alternatives") or []
                     if not alt:
                         continue
-                    transcript = (alt[0].get("transcript") or "").strip()
-                    if not transcript:
+                    chunk_text = (alt[0].get("transcript") or "").strip()
+                    if not chunk_text:
                         continue
-                    is_final = bool(ev.get("is_final") or ev.get("speech_final"))
+
+                    is_final = bool(ev.get("is_final"))
+                    speech_final = bool(ev.get("speech_final"))
+
                     if is_final:
-                        await handle_final(transcript)
+                        accumulated_utterance.append(chunk_text)
+                        if flush_task and not flush_task.done():
+                            flush_task.cancel()
+                        flush_task = asyncio.create_task(_debounced_flush())
+
+                    # Trigger LLM immediately when caller has finished their utterance
+                    if speech_final:
+                        if flush_task and not flush_task.done():
+                            flush_task.cancel()
+                        full_text = " ".join(accumulated_utterance).strip()
+                        accumulated_utterance = []
+                        if full_text:
+                            await handle_final(full_text)
             finally:
+                if flush_task and not flush_task.done():
+                    flush_task.cancel()
                 ka.cancel()
     except Exception as err:
         logger.warning(f"[MODULAR] Deepgram session ended for {call_id}: {err}")
     finally:
+        silence_watchdog_task.cancel()
         watchdog_task.cancel()
         await bridge.close()
         bridge._dg_ws = None

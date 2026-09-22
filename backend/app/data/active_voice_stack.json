@@ -1,0 +1,10 @@
+{
+  "engine": "livekit",
+  "engine_label": "LiveKit (self-hosted)",
+  "tts": "Cartesia Sonic",
+  "llm": "OpenAI",
+  "stt": "Deepgram",
+  "carrier": "Twilio",
+  "llm_model": "grok-4.20-0309-non-reasoning",
+  "stt_model": "nova-2"
+}
