@@ -527,10 +527,10 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         if external_tts and plan.tts:
             tts_voice_id = plan.tts.voice_id or None
         else:
-            tts_provider = None if not (plan.engine == "modular") else tts_provider
-            tts_name = None if not (plan.engine == "modular") else tts_name
+            tts_provider = None if not (plan.engine == "modular" or plan.engine == "livekit") else tts_provider
+            tts_name = None if not (plan.engine == "modular" or plan.engine == "livekit") else tts_name
             tts_voice_id = None
-            if plan.engine != "modular":
+            if plan.engine != "modular" and plan.engine != "livekit":
                 tts_model = None
     except Exception as plan_err:
         logger.warning(f"Could not resolve live voice plan: {plan_err}")

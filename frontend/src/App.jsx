@@ -203,6 +203,7 @@ function liveStackLabels(hub) {
   const engineLabel =
     engine === "xai" ? "xAI Grok (speech-to-speech)"
     : engine === "openai" ? "OpenAI Realtime"
+    : engine === "livekit" ? "LiveKit Agents"
     : engine === "modular" ? "Modular pipeline"
     : engine === "simulation" ? "Simulation"
     : hub?.activeEngine || "—";
@@ -7872,7 +7873,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
 function CallPluginStackBoard({ hubData, onAddLayer, onOpenCredentials }) {
   const labels = liveStackLabels(hubData || {});
   const engine = String(hubData?.liveEngine || "").toLowerCase();
-  const modular = engine === "modular";
+  const modular = engine === "modular" || engine === "livekit";
   const hybrid = !!hubData?.externalTts;
   const xaiLike = engine === "xai" || engine === "openai";
 
@@ -10447,12 +10448,12 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                       )) {
                         usedBy = "In use · Calling engine";
                       } else if (group.group === "Speech-to-Text" && (
-                        (String(liveHub?.liveEngine || "").toLowerCase() === "modular" && liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase())) ||
+                        ((String(liveHub?.liveEngine || "").toLowerCase() === "modular" || String(liveHub?.liveEngine || "").toLowerCase() === "livekit") && liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase())) ||
                         (liveHub?.sttProvider && nameL.includes(String(liveHub.sttProvider).toLowerCase()))
                       )) {
                         usedBy = "In use · Calling listen";
                       } else if (group.group === "LLM" && (
-                        (String(liveHub?.liveEngine || "").toLowerCase() === "modular" && liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase())) ||
+                        ((String(liveHub?.liveEngine || "").toLowerCase() === "modular" || String(liveHub?.liveEngine || "").toLowerCase() === "livekit") && liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase())) ||
                         (liveHub?.llmProvider && nameL.includes(String(liveHub.llmProvider).toLowerCase()))
                       )) {
                         usedBy = "In use · Calling think";

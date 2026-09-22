@@ -323,7 +323,7 @@ async def start_bridged_voice_session(
                 carrier_sid=carrier_sid,
             )
         )
-    elif plan.engine == "modular":
+    elif plan.engine == "modular" or plan.engine == "livekit":
         from app.services.voice_modular import run_modular_pipeline
         asyncio.create_task(
             run_modular_pipeline(
