@@ -9995,10 +9995,23 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       // Call provision endpoint to update the engine
       await api.provisionTelephonyHub(provisionPayload);
       
-      // Refresh hub status
+      // Refresh hub status - give backend a moment to persist
+      await new Promise(resolve => setTimeout(resolve, 300));
       const freshHub = await api.getTelephonyHub();
       if (freshHub) {
         setLiveHub(freshHub);
+        console.log("[What Runs Where] Hub refreshed:", {
+          liveEngine: freshHub.liveEngine,
+          activeEngine: freshHub.activeEngine,
+          llm: freshHub.llmName,
+          stt: freshHub.sttName,
+          tts: freshHub.ttsName
+        });
+      }
+      
+      // Also refresh the telephony hub display in Voice Trunking Tab
+      if (typeof fetchStatus === "function") {
+        fetchStatus();
       }
       
       if (setNotifications) {
@@ -10077,6 +10090,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     // Always include currently active TTS from live hub
     ...(liveHub?.ttsName ? [liveHub.ttsName] : []),
     ...(liveHub?.ttsProvider ? [liveHub.ttsProvider] : []),
+    // xAI Voice Agent always available
+    "xAI Voice Agent",
     // xAI built-in TTS voices always available
     "xAI built-in (ara)",
     "xAI built-in (rex)",
