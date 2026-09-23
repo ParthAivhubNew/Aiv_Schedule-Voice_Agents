@@ -290,11 +290,13 @@ def _harvest_contacts_from_text(blob: str) -> Tuple[List[str], List[str]]:
     phones: List[str] = []
     text = blob or ""
     for em in re.findall(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", text):
-        if _is_public_email(em) and em.lower() not in emails:
-            emails.append(em.lower())
+        clean_em = em.strip(".,;:\"'()<>").lower()
+        if _is_public_email(clean_em) and clean_em not in emails:
+            emails.append(clean_em)
     for pm in re.findall(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}", text):
-        if _is_real_phone(pm) and pm.strip() not in phones:
-            phones.append(pm.strip())
+        clean_pm = pm.strip(".,;:\"'()<>")
+        if _is_real_phone(clean_pm) and clean_pm not in phones:
+            phones.append(clean_pm)
     return emails, phones
 
 
@@ -421,6 +423,11 @@ def _is_real_phone(raw: str) -> bool:
         and not re.search(r"[()+\-]", raw)
     ):
         return False
+    if "." in raw:
+        dot_parts = raw.split(".")
+        # Allow standard US phone 3.3.4 (e.g. 800.555.1212) but reject European financial numbers like 1.035.413.496
+        if len(dot_parts) > 3 or (len(dot_parts) == 3 and not (len(dot_parts[0]) == 3 and len(dot_parts[1]) == 3 and len(dot_parts[2]) == 4)):
+            return False
     if len(set(digits)) == 1:
         return False
     if digits in {"1234567890", "0123456789", "9876543210"}:
