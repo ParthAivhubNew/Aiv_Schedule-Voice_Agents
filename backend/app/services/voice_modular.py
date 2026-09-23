@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from typing import Any, AsyncGenerator, Optional
 
 import httpx
@@ -176,10 +177,10 @@ def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[s
         
         words = current.split()
 
-        # Match early first-chunk clause pause (2-4 words with comma/pause)
-        if is_first and len(words) >= 2:
+        # Match early first-chunk clause pause (require 4+ words total and at least 3 words before comma)
+        if is_first and len(words) >= 4:
             early_match = re.search(r'([,;:]| — )(\s+)', current)
-            if early_match and early_match.start() >= 4:
+            if early_match and len(current[:early_match.start()].split()) >= 3:
                 end_pos = early_match.end()
                 chunk = current[:end_pos].strip()
                 if chunk:
@@ -396,12 +397,16 @@ async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str
 
 async def _get_or_create_cartesia_ws(bridge: BridgedVoiceSession, api_key: str) -> Optional[Any]:
     ws = getattr(bridge, "_cartesia_ws", None)
-    if ws is not None and not ws.closed:
+    if ws is not None and getattr(getattr(ws, "state", None), "name", "") == "OPEN":
         return ws
     try:
         url = f"wss://api.cartesia.ai/tts/websocket?api_key={api_key}&cartesia_version=2024-06-10"
         ws = await websockets.connect(
             url,
+            additional_headers={
+                "X-API-Key": api_key,
+                "Cartesia-Version": "2024-06-10",
+            },
             ping_interval=20,
             ping_timeout=15,
         )
@@ -429,7 +434,7 @@ async def _stream_cartesia_frames(
     ws = await _get_or_create_cartesia_ws(bridge, api_key)
     
     if ws is not None:
-        context_id = f"ctx_{int(time.perf_counter()*1000)}"
+        context_id = f"ctx_{uuid.uuid4().hex[:12]}"
         req = {
             "context_id": context_id,
             "model_id": "sonic-2",

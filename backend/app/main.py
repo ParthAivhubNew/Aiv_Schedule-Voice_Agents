@@ -139,6 +139,7 @@ async def lifespan(app: FastAPI):
             ("call_hook", "TEXT"),
             ("closing_ask", "TEXT"),
             ("custom_rules", "TEXT"),
+            ("demo_script", "TEXT"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS {col} {col_type};"))
@@ -147,6 +148,15 @@ async def lifespan(app: FastAPI):
                     await conn.execute(text(f"ALTER TABLE company_profile ADD COLUMN {col} {col_type};"))
                 except Exception:
                     pass
+
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE social_oauth_apps ADD COLUMN IF NOT EXISTS config_id VARCHAR DEFAULT '';"))
+        except Exception:
+            try:
+                await conn.execute(text("ALTER TABLE social_oauth_apps ADD COLUMN config_id VARCHAR DEFAULT '';"))
+            except Exception:
+                pass
 
         for col, col_type in [
             ("prospect_timezone_override", "VARCHAR"),
