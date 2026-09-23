@@ -42,6 +42,10 @@ class TestKeyRequest(BaseModel):
     def resolved_voice_id(self) -> str:
         return (self.voice_id or self.voiceId or "").strip()
 
+    @property
+    def resolved_model(self) -> Optional[str]:
+        return (self.model or "").strip() or None
+
 @router.get("", response_model=list[dict])
 async def list_connections(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Connection))
