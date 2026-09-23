@@ -3,6 +3,10 @@ from sqlalchemy.orm import declarative_base
 from app.config import settings
 
 from pathlib import Path
+import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Adjust sqlite database URL if needed
 db_url = settings.DATABASE_URL
@@ -16,7 +20,7 @@ elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+as
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 # If postgres hostname cannot be resolved (e.g. running locally on Windows outside Docker), fallback to SQLite
-if "asyncpg" in db_url or "postgres" in db_url:
+if ("asyncpg" in db_url or "postgres" in db_url) and not (Path("/.dockerenv").exists() or os.getenv("DOCKER_CONTAINER")):
     try:
         import socket
         parsed_host = db_url.split("@")[-1].split(":")[0].split("/")[0]
@@ -26,6 +30,8 @@ if "asyncpg" in db_url or "postgres" in db_url:
         backend_dir = Path(__file__).resolve().parent.parent
         db_file = (backend_dir / "aivhub.db").as_posix()
         db_url = f"sqlite+aiosqlite:///{db_file}"
+
+logger.info(f"Database engine initialized using: {db_url.split('@')[-1] if '@' in db_url else db_url}")
 
 engine = create_async_engine(
     db_url,
