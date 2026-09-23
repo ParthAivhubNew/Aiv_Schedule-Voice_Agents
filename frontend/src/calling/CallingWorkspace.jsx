@@ -33,6 +33,8 @@ import {
   ChevronUp,
   MessageSquare,
   Bookmark,
+  Volume2,
+  Download,
 } from "lucide-react";
 import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
@@ -1990,12 +1992,23 @@ export function CallingWorkspace({
     }
     // 2+ selected → up to 2 at once. Whole list (or 0–1 selected) → 1 at a time.
     const cap = useSelected ? MAX_CONCURRENT : 1;
-    const label = useSelected
-      ? `Call ${prospects.length} selected · ${cap} at once?`
-      : `Call all ${prospects.length} phones · 1 at a time?`;
-    if (!window.confirm(label)) return;
+    
+    // 0ms Optimistic UI transition: immediate page switch & live card render
     setBusy("dial");
     goPage("live");
+    const optimisticCalls = prospects.slice(0, cap).map((p, idx) => ({
+      id: `batch_pending_${Date.now()}_${idx}`,
+      prospect: p.name || p.contact || p.phone,
+      mission: fileName ? `List — ${fileName}` : `Outbound list — ${prospects.length} contacts`,
+      state: "calling",
+      duration: "00:00",
+      channel: "voice",
+      ended: false,
+      transcript: ["System: Placing carrier call in background..."],
+      startedAt: new Date().toISOString(),
+    }));
+    setLiveCalls((prev) => [...optimisticCalls, ...(prev || [])]);
+
     try {
       const res = await api.dialOutboundBatch({
         prospects,
@@ -3313,6 +3326,38 @@ export function CallingWorkspace({
                           Show full transcript ({lines.length} lines) →
                         </button>
                       ) : null}
+                      {open && (
+                        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, marginTop: 8, padding: "10px 14px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}` }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: C.textInk, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <Volume2 size={14} color={C.cobalt} /> Call Recording:
+                          </span>
+                          <audio
+                            controls
+                            src={`/api/calls/${l.id}/recording`}
+                            style={{ height: 32, flex: 1, minWidth: 200 }}
+                            onError={(e) => { e.currentTarget.style.display = "none"; }}
+                          />
+                          <a
+                            href={`/api/calls/${l.id}/recording/download`}
+                            download
+                            title="Download WAV audio recording"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "6px 12px",
+                              borderRadius: 8,
+                              background: C.cobaltSoft,
+                              color: C.cobaltDeep,
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              textDecoration: "none",
+                            }}
+                          >
+                            <Download size={13} /> Download WAV
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

@@ -148,6 +148,24 @@ class MediaStreamHub:
         except Exception as e:
             logger.warning(f"[AudioHub] Error injecting operator audio to Twilio: {e}")
 
+        # Broadcast outbound track (AI / Operator voice) to listening supervisor(s)
+        try:
+            await self.broadcast_to_listeners(canonical, {
+                "type": "audio_chunk",
+                "callId": canonical,
+                "track": "outbound",
+                "payload": base64_payload,
+            })
+        except Exception as b_err:
+            logger.debug(f"[AudioHub] Supervisor outbound broadcast error: {b_err}")
+
+        # Buffer for per-call dual-track recording
+        try:
+            from app.services.call_recorder import recorder_manager
+            recorder_manager.record_chunk(canonical, "outbound", base64_payload)
+        except Exception as r_err:
+            logger.debug(f"[AudioHub] Recorder outbound chunk error: {r_err}")
+
     async def clear_twilio_audio(self, call_id: str) -> bool:
         """Sends Twilio clear event to instantly flush buffered audio on interruption/barge-in."""
         canonical = self.resolve_canonical(call_id)
@@ -317,6 +335,14 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                                 logger.warning(f"[MediaStream] ❌ No xAI session found for call IDs: {chunk_call_id}, canonical: {canonical_id}, callSid: {call_sid} — inbound audio NOT forwarded to xAI")
                         except Exception as push_err:
                             logger.warning(f"[MediaStream] Failed to push caller audio: {push_err}")
+                    # Buffer for dual-track recording
+                    try:
+                        from app.services.call_recorder import recorder_manager
+                        canonical_rec_id = media_stream_hub.resolve_canonical(chunk_call_id)
+                        recorder_manager.record_chunk(canonical_rec_id, track or "inbound", payload)
+                    except Exception:
+                        pass
+
                     await media_stream_hub.broadcast_to_listeners(chunk_call_id, {
                         "type": "audio_chunk",
                         "callId": chunk_call_id,
@@ -356,6 +382,12 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
         logger.warning(f"[TwilioStream] Stream error: {exc}")
     finally:
         if call_id:
+            try:
+                from app.services.call_recorder import recorder_manager
+                canonical_rec_id = media_stream_hub.resolve_canonical(call_id)
+                recorder_manager.finish_recording(canonical_rec_id)
+            except Exception:
+                pass
             try:
                 from app.services.xai_voice_service import get_bridged_session
                 sess = get_bridged_session(call_id, call_sid)

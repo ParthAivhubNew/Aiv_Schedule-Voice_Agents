@@ -265,7 +265,8 @@ class BridgedVoiceSession:
                 await self.on_caller_audio(b64)
                 return
             if not self.ws:
-                logger.warning(f"[XAI-BRIDGE] ❌ No WebSocket on session {self.call_id} — caller audio NOT sent to xAI")
+                if getattr(self, "engine", "") not in ("modular", "livekit"):
+                    logger.warning(f"[XAI-BRIDGE] ❌ No WebSocket on session {self.call_id} — caller audio NOT sent to xAI")
                 return
             await self.ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": b64}))
             logger.debug(f"[XAI-BRIDGE] Appended caller audio ({len(b64)} bytes) to xAI input buffer for {self.call_id}")

@@ -403,14 +403,17 @@ _NON_NAME_WORDS = {
 def _is_real_phone(raw: str) -> bool:
     if not raw:
         return False
-    if "555-0" in raw or "inferred" in raw.lower():
+    if "555-0" in raw or "inferred" in raw.lower() or "reg" in raw.lower() or "company" in raw.lower():
         return False
     digits = re.sub(r"\D", "", raw)
-    if len(digits) < 8 or len(digits) > 15:
+    if len(digits) < 9 or len(digits) > 15:
         return False
     if digits.startswith("202") or digits.startswith("000"):
         return False
-    if digits.startswith("20") and len(digits) == 4:
+    # UK 8-digit or 9-digit starting with 0 without standard UK prefix (likely Companies House number e.g. 09446231)
+    if len(digits) == 8:
+        return False
+    if len(digits) == 9 and digits.startswith("0") and not raw.startswith("+"):
         return False
     # Dates / year-year / year+headcount (8–9 digits). Do not treat 10+ digit
     # NANP numbers whose area code is 201–209 as years (e.g. 2015551234).

@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+import urllib.parse
 import uuid
 from typing import Any, AsyncGenerator, Optional
 
@@ -271,7 +272,11 @@ async def _play_frames(bridge: BridgedVoiceSession, frames: list[str], on_frame_
 async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: bool = True) -> None:
     frames = await _synthesize_tts_frames(plan, text)
     if frames and not (getattr(bridge, "_barge", None) and bridge._barge.is_set()):
-        await _play_frames(bridge, frames)
+        if pace and bridge._live and bridge._released:
+            await _play_frames(bridge, frames)
+        else:
+            for b64 in frames:
+                await bridge.emit_ai_audio(b64)
 
 
 def _is_phantom_noise(text: str) -> bool:
@@ -612,8 +617,20 @@ async def run_modular_pipeline(
     system = await build_xai_system_instructions(caller_number, prospect_name, hold_opening=False)
     history = []
 
+    # Hook up caller audio handler IMMEDIATELY so inbound audio packets are captured from frame 0
+    async def on_caller(b64: str):
+        try:
+            raw = base64.b64decode(b64)
+            if raw and getattr(bridge, "_dg_ws", None):
+                await bridge._dg_ws.send(raw)
+        except Exception:
+            pass
+
+    bridge.on_caller_audio = on_caller
+    speaking_task: Optional[asyncio.Task] = None
+
     greeting = await _greeting_line(is_inbound, prospect_name)
-    await _speak(bridge, plan, greeting, pace=True)
+    await _speak(bridge, plan, greeting, pace=False)
     if not bridge.ready.is_set():
         bridge.ready.set()
     await _update_call_transcript(local_id, f"AI: {greeting}")
@@ -630,24 +647,27 @@ async def run_modular_pipeline(
 
     dg_model = stt.model or "nova-2"
     # LiveKit Turn-Taking & Telephony parameters:
-    # 200ms endpointing + 450ms utterance boundary + smart formatting + keyword boosting for domain, Power BI & email terms
-    dg_url = (
-        f"wss://api.deepgram.com/v1/listen?encoding=mulaw&sample_rate=8000"
-        f"&channels=1&model={dg_model}&punctuate=true&smart_format=true"
-        f"&endpointing=200&utterance_end_ms=450&vad_events=true"
-        f"&keywords=Power BI:5&keywords=PowerBI:5&keywords=aivhub.com:5&keywords=aivhub:5&keywords=phone:5&keywords=phone call:5&keywords=video:5&keywords=video meeting:5&keywords=in person:5&keywords=at the rate:5&keywords=at direct:5&keywords=dot com:4&keywords=email:4&keywords=gmail:3"
-    )
-
-    async def on_caller(b64: str):
-        try:
-            raw = base64.b64decode(b64)
-            if raw and getattr(bridge, "_dg_ws", None):
-                await bridge._dg_ws.send(raw)
-        except Exception:
-            pass
-
-    bridge.on_caller_audio = on_caller
-    speaking_task: Optional[asyncio.Task] = None
+    # 300ms endpointing + smart formatting + keyword boosting for domain, Power BI & email terms
+    dg_params = [
+        ("encoding", "mulaw"),
+        ("sample_rate", "8000"),
+        ("channels", "1"),
+        ("model", dg_model),
+        ("punctuate", "true"),
+        ("smart_format", "true"),
+        ("endpointing", "300"),
+        ("vad_events", "true"),
+        ("interim_results", "true"),
+        ("keywords", "PowerBI:5"),
+        ("keywords", "Power BI:5"),
+        ("keywords", "aivhub.com:5"),
+        ("keywords", "aivhub:5"),
+        ("keywords", "phone call:5"),
+        ("keywords", "video meeting:5"),
+        ("keywords", "in person:5"),
+        ("keywords", "email:4"),
+    ]
+    dg_url = f"wss://api.deepgram.com/v1/listen?{urllib.parse.urlencode(dg_params)}"
 
     # Watchdog: if no carrier media stream connects within 12s, stop phantom session
     async def stream_watchdog():
@@ -980,20 +1000,28 @@ async def run_modular_pipeline(
 
             idle_sec = time.perf_counter() - last_activity_time
 
-            # 4.0s silence after AI speech -> gentle 1-sentence check-in
-            if idle_sec >= 4.0 and silence_nudge_count == 0:
+            # 9.0s silence after AI speech -> gentle 1-sentence check-in
+            if idle_sec >= 9.0 and silence_nudge_count == 0:
                 silence_nudge_count = 1
                 logger.info(f"[MODULAR] Caller silence detected ({round(idle_sec, 1)}s dead air). Prompting caller.")
                 await handle_final(
-                    "[System Event: The caller has been quiet for 4 seconds. Politely ask a brief 1-sentence check-in to see if they are still there or if they need you to repeat the last question.]",
+                    "[System Event: The caller has been quiet for 9 seconds. Politely ask a brief 1-sentence check-in to see if they are still there or if they have any questions on what was said.]",
                     is_system_prompt=True,
                 )
-            # 12s prolonged silence -> conclude politely
-            elif idle_sec >= 12.0 and silence_nudge_count == 1:
+            # 28.0s prolonged silence -> politely ask for email address
+            elif idle_sec >= 28.0 and silence_nudge_count == 1:
                 silence_nudge_count = 2
-                logger.info(f"[MODULAR] Second silence timeout ({round(idle_sec, 1)}s dead air). Ending call politely.")
+                logger.info(f"[MODULAR] Prolonged silence ({round(idle_sec, 1)}s dead air). Asking for email follow-up.")
                 await handle_final(
-                    "[System Event: The caller has remained silent. Say: 'It seems like we might have a bad connection. I'll follow up with an email instead. Thanks, goodbye!' and conclude.]",
+                    "[System Event: The caller has remained quiet. Say: 'I might have a weak connection. Could you share the best email address so I can send the information directly over to you?' and pause for their answer.]",
+                    is_system_prompt=True,
+                )
+            # 45.0s total silence -> conclude call politely
+            elif idle_sec >= 45.0 and silence_nudge_count == 2:
+                silence_nudge_count = 3
+                logger.info(f"[MODULAR] Final silence timeout ({round(idle_sec, 1)}s dead air). Ending call gracefully.")
+                await handle_final(
+                    "[System Event: Complete silence for 45 seconds. Say: 'Thanks for your time, I'll send the details over. Have a wonderful day!' and conclude.]",
                     is_system_prompt=True,
                 )
 
@@ -1053,49 +1081,104 @@ async def run_modular_pipeline(
                     except Exception:
                         continue
 
-                    msg_type = ev.get("type")
+                    try:
+                        # Normalize ev: handle if root is a list
+                        if isinstance(ev, list):
+                            ev = ev[0] if (ev and isinstance(ev[0], dict)) else {}
+                        if not isinstance(ev, dict):
+                            continue
 
-                    # Handle UtteranceEnd event (caller pause boundary)
-                    if msg_type == "UtteranceEnd":
-                        if flush_task and not flush_task.done():
-                            flush_task.cancel()
-                        if accumulated_utterance:
+                        msg_type = ev.get("type")
+
+                        # Deepgram SpeechStarted event (VAD notification that caller began speaking)
+                        if msg_type == "SpeechStarted":
+                            logger.debug(f"[MODULAR] Deepgram SpeechStarted event received for {call_id}")
+                            last_activity_time = time.perf_counter()
+                            silence_nudge_count = 0
+                            # Barge-in: If AI is actively speaking, interrupt immediately
+                            if speaking_task and not speaking_task.done():
+                                bridge._barge.set()
+                                speaking_task.cancel()
+                                try:
+                                    from app.websockets.media_stream import media_stream_hub
+                                    asyncio.create_task(media_stream_hub.clear_twilio_audio(call_id))
+                                except Exception:
+                                    pass
+                            continue
+
+                        # Deepgram Metadata event (session summaries / diagnostics)
+                        if msg_type == "Metadata":
+                            logger.debug(f"[MODULAR] Deepgram Metadata received for {call_id}: request_id={ev.get('request_id')}")
+                            continue
+
+                        # Handle UtteranceEnd event (caller pause boundary)
+                        if msg_type == "UtteranceEnd":
+                            last_activity_time = time.perf_counter()
+                            silence_nudge_count = 0
+                            if flush_task and not flush_task.done():
+                                flush_task.cancel()
+                            if accumulated_utterance:
+                                full_text = " ".join(accumulated_utterance).strip()
+                                accumulated_utterance = []
+                                if full_text:
+                                    await handle_final(full_text)
+                            continue
+
+                        # Per Deepgram docs, only 'Results' frames contain transcription alternatives
+                        if msg_type != "Results":
+                            continue
+
+                        # Extract channel safely whether dict or list
+                        channel = ev.get("channel")
+                        if isinstance(channel, list):
+                            channel = channel[0] if (channel and isinstance(channel[0], dict)) else {}
+                        elif not isinstance(channel, dict):
+                            channels = ev.get("channels")
+                            if isinstance(channels, list) and channels and isinstance(channels[0], dict):
+                                channel = channels[0]
+                            else:
+                                channel = {}
+
+                        alt = channel.get("alternatives") or []
+                        if not isinstance(alt, list) or not alt:
+                            continue
+                        first_alt = alt[0]
+                        if not isinstance(first_alt, dict):
+                            continue
+                        chunk_text = (first_alt.get("transcript") or "").strip()
+                        if not chunk_text:
+                            continue
+
+                        last_activity_time = time.perf_counter()
+                        silence_nudge_count = 0
+                        logger.debug(f"[MODULAR] DG transcript: '{chunk_text}' (is_final={ev.get('is_final')}, speech_final={ev.get('speech_final')})")
+
+                        is_final = bool(ev.get("is_final"))
+                        speech_final = bool(ev.get("speech_final"))
+
+                        if is_final:
+                            accumulated_utterance.append(chunk_text)
+                            if flush_task and not flush_task.done():
+                                flush_task.cancel()
+                            flush_task = asyncio.create_task(_debounced_flush())
+
+                        # Trigger LLM immediately when caller has finished their utterance
+                        if speech_final:
+                            if flush_task and not flush_task.done():
+                                flush_task.cancel()
                             full_text = " ".join(accumulated_utterance).strip()
                             accumulated_utterance = []
                             if full_text:
                                 await handle_final(full_text)
+                    except Exception as parse_err:
+                        logger.warning(f"[MODULAR] Error handling Deepgram event: {parse_err}")
                         continue
-
-                    alt = (ev.get("channel") or {}).get("alternatives") or []
-                    if not alt:
-                        continue
-                    chunk_text = (alt[0].get("transcript") or "").strip()
-                    if not chunk_text:
-                        continue
-
-                    is_final = bool(ev.get("is_final"))
-                    speech_final = bool(ev.get("speech_final"))
-
-                    if is_final:
-                        accumulated_utterance.append(chunk_text)
-                        if flush_task and not flush_task.done():
-                            flush_task.cancel()
-                        flush_task = asyncio.create_task(_debounced_flush())
-
-                    # Trigger LLM immediately when caller has finished their utterance
-                    if speech_final:
-                        if flush_task and not flush_task.done():
-                            flush_task.cancel()
-                        full_text = " ".join(accumulated_utterance).strip()
-                        accumulated_utterance = []
-                        if full_text:
-                            await handle_final(full_text)
             finally:
                 if flush_task and not flush_task.done():
                     flush_task.cancel()
                 ka.cancel()
     except Exception as err:
-        logger.warning(f"[MODULAR] Deepgram session ended for {call_id}: {err}")
+        logger.warning(f"[MODULAR] Deepgram session ended for {call_id}: {err}", exc_info=True)
     finally:
         silence_watchdog_task.cancel()
         watchdog_task.cancel()
@@ -1106,6 +1189,11 @@ async def run_modular_pipeline(
                 pass
             bridge._cartesia_ws = None
         await bridge.close()
+        if getattr(bridge, "_dg_ws", None):
+            try:
+                await bridge._dg_ws.send(json.dumps({"type": "CloseStream"}))
+            except Exception:
+                pass
         bridge._dg_ws = None
         bridge.on_caller_audio = None
         logger.info(f"[MODULAR] Pipeline finished for {call_id}")

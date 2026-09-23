@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -1566,6 +1567,49 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         f"</Response>"
     )
     return Response(content=twiml, media_type="application/xml")
+
+
+@router.get("/{call_id}/recording")
+async def get_call_recording(call_id: str):
+    """Streams the dual-track synchronized WAV recording for this call."""
+    from app.services.call_recorder import recorder_manager
+    from app.websockets.media_stream import media_stream_hub
+    import os
+
+    canonical = media_stream_hub.resolve_canonical(call_id)
+    rec_path = recorder_manager.get_recording_path(canonical) or recorder_manager.get_recording_path(call_id)
+    
+    if not rec_path or not os.path.exists(rec_path):
+        raise HTTPException(status_code=404, detail="Recording not found for this call.")
+
+    return FileResponse(
+        path=rec_path,
+        media_type="audio/wav",
+        headers={"Accept-Ranges": "bytes"}
+    )
+
+
+@router.get("/{call_id}/recording/download")
+async def download_call_recording(call_id: str):
+    """Downloads the WAV recording for this call as an attachment."""
+    from app.services.call_recorder import recorder_manager
+    from app.websockets.media_stream import media_stream_hub
+    import os
+
+    canonical = media_stream_hub.resolve_canonical(call_id)
+    rec_path = recorder_manager.get_recording_path(canonical) or recorder_manager.get_recording_path(call_id)
+
+    if not rec_path or not os.path.exists(rec_path):
+        raise HTTPException(status_code=404, detail="Recording not found for this call.")
+
+    filename = f"call_recording_{call_id}.wav"
+    return FileResponse(
+        path=rec_path,
+        media_type="audio/wav",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
 
 
 
