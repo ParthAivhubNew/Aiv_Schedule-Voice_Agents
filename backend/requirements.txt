@@ -22,5 +22,5 @@ beautifulsoup4>=4.12.3
 livekit>=1.1.19
 livekit-api>=1.2.1
 miniaudio>=1.61
-audioop-lts>=0.2.1
+audioop-lts>=0.2.1; python_version >= '3.13'
 
