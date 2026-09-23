@@ -49,8 +49,8 @@ class Settings(BaseSettings):
     LIVEKIT_API_SECRET: str = os.getenv("LIVEKIT_API_SECRET", "secret1234567890abcdef1234567890abcdef")
     LIVEKIT_PUBLIC_URL: Optional[str] = os.getenv("LIVEKIT_PUBLIC_URL", None)
     
-    # Open Web Search & Enrichment (Optional self-hosted SearXNG instance)
-    SEARXNG_URL: Optional[str] = os.getenv("SEARXNG_URL", None)
+    # Open Web Search & Enrichment (Local self-hosted SearXNG instance)
+    SEARXNG_URL: Optional[str] = os.getenv("SEARXNG_URL", "http://localhost:8888")
     
     # Calendar & Cal.com (Self-Hosted or Cloud)
     CALCOM_BASE_URL: str = os.getenv("CALCOM_BASE_URL", "http://calcom:3000/api/v1")

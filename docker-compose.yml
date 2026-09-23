@@ -83,6 +83,7 @@ services:
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret1234567890abcdef1234567890abcdef}
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,6 +126,23 @@ services:
       - "7880:7880"
       - "7881:7881"
       - "7882:7882/udp"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500k"
+        max-file: "1"
+
+  # 7. SearXNG Local Meta-Search Engine (100% Open, Unlimited & Keyless)
+  searxng:
+    image: searxng/searxng:latest
+    container_name: aivhub_searxng
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
     logging:
       driver: "json-file"
       options:
