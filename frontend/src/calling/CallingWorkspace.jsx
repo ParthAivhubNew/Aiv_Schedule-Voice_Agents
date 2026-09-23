@@ -35,6 +35,8 @@ import {
   Bookmark,
   Volume2,
   Download,
+  Play,
+  Pause,
 } from "lucide-react";
 import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
@@ -863,6 +865,46 @@ export function CallingWorkspace({
   const [logQuery, setLogQuery] = useState("");
   const [logOutcome, setLogOutcome] = useState("all");
   const [openLogId, setOpenLogId] = useState("");
+  const [activeAudioLogId, setActiveAudioLogId] = useState("");
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const globalAudioRef = useRef(null);
+
+  const togglePlayRecording = (e, logId) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (activeAudioLogId === logId && isPlayingAudio) {
+      if (globalAudioRef.current) {
+        globalAudioRef.current.pause();
+        setIsPlayingAudio(false);
+      }
+      return;
+    }
+    if (!globalAudioRef.current) {
+      globalAudioRef.current = new Audio();
+      globalAudioRef.current.onended = () => {
+        setIsPlayingAudio(false);
+        setActiveAudioLogId("");
+      };
+      globalAudioRef.current.onerror = () => {
+        setIsPlayingAudio(false);
+        setActiveAudioLogId("");
+        alert("Audio stream was not captured or archived for this call.");
+      };
+    }
+    globalAudioRef.current.src = `/api/calls/${logId}/recording`;
+    globalAudioRef.current.play()
+      .then(() => {
+        setActiveAudioLogId(logId);
+        setIsPlayingAudio(true);
+      })
+      .catch((err) => {
+        setIsPlayingAudio(false);
+        setActiveAudioLogId("");
+        alert("Could not play audio recording: " + (err.message || err));
+      });
+  };
   const [chat, setChat] = useState(() => {
     const saved = readJson(LS_CHAT, null);
     return cleanChat(saved);
@@ -3264,6 +3306,38 @@ export function CallingWorkspace({
                           </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <button
+                            type="button"
+                            onClick={(e) => togglePlayRecording(e, l.id)}
+                            title={activeAudioLogId === l.id && isPlayingAudio ? "Pause recording" : "Play call recording"}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 5,
+                              padding: "5px 12px",
+                              borderRadius: 20,
+                              border: "none",
+                              background: activeAudioLogId === l.id && isPlayingAudio ? "#10B981" : C.cobaltSoft,
+                              color: activeAudioLogId === l.id && isPlayingAudio ? "#fff" : C.cobaltDeep,
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              transition: "all 0.15s ease",
+                              boxShadow: activeAudioLogId === l.id && isPlayingAudio ? "0 0 10px rgba(16,185,129,0.4)" : "none",
+                            }}
+                          >
+                            {activeAudioLogId === l.id && isPlayingAudio ? (
+                              <>
+                                <Pause size={12} fill="#fff" />
+                                <span>Playing</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play size={12} fill={C.cobaltDeep} />
+                                <span>Play Call</span>
+                              </>
+                            )}
+                          </button>
                           <span style={{
                             fontSize: 11,
                             fontWeight: 800,
@@ -3330,8 +3404,29 @@ export function CallingWorkspace({
                       ) : null}
                       {open && (
                         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, marginTop: 8, padding: "10px 14px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}` }}>
+                          <button
+                            type="button"
+                            onClick={(e) => togglePlayRecording(e, l.id)}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: 32,
+                              height: 32,
+                              borderRadius: "50%",
+                              border: "none",
+                              background: activeAudioLogId === l.id && isPlayingAudio ? "#10B981" : C.cobalt,
+                              color: "#fff",
+                              cursor: "pointer",
+                              flexShrink: 0,
+                              transition: "all 0.15s ease",
+                            }}
+                            title={activeAudioLogId === l.id && isPlayingAudio ? "Pause" : "Play Recording"}
+                          >
+                            {activeAudioLogId === l.id && isPlayingAudio ? <Pause size={14} fill="#fff" /> : <Play size={14} fill="#fff" style={{ marginLeft: 2 }} />}
+                          </button>
                           <span style={{ fontSize: 12, fontWeight: 700, color: C.textInk, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                            <Volume2 size={14} color={C.cobalt} /> Call Recording:
+                            <Volume2 size={14} color={C.cobalt} /> Call Audio:
                           </span>
                           <audio
                             controls
