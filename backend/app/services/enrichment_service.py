@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
 import urllib.parse
 from typing import Dict, List, Any, Optional, Tuple
@@ -130,8 +131,87 @@ async def _resolve_redirect_once(url: str) -> str:
     return ""
 
 
-async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+async def search_duckduckgo_lite(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Open text-only DuckDuckGo search that bypasses heavy JS and CAPTCHAs."""
     results = []
+    try:
+        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=8.0, follow_redirects=True) as client:
+            resp = await client.post("https://lite.duckduckgo.com/lite/", data={"q": query})
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                rows = soup.find_all("tr")
+                cur_item = None
+                for tr in rows:
+                    a = tr.find("a", class_="result-link")
+                    if a:
+                        href = a.get("href") or ""
+                        url = _unwrap_result_url(href)
+                        if url and not url.startswith("http"):
+                            url = "https://" + url.lstrip("/")
+                        if url and _is_junk_web_host(url):
+                            url = ""
+                        title = a.get_text(strip=True)
+                        cur_item = {"title": title, "snippet": "", "url": url or ""}
+                        if title or url:
+                            results.append(cur_item)
+                    else:
+                        td = tr.find("td", class_="result-snippet")
+                        if td and cur_item:
+                            cur_item["snippet"] = td.get_text(strip=True)
+                    if len(results) >= max_results:
+                        break
+    except Exception as err:
+        logger.debug(f"DuckDuckGo Lite search error for '{query}': {err}")
+    return results[:max_results]
+
+
+async def search_searxng(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Query configurable or local SearXNG metasearch instance if available."""
+    searx_url = getattr(settings, "SEARXNG_URL", None) or os.getenv("SEARXNG_URL", "")
+    if not searx_url:
+        return []
+    results = []
+    try:
+        endpoint = searx_url.rstrip("/") + "/search"
+        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=6.0, follow_redirects=True) as client:
+            resp = await client.get(endpoint, params={"q": query, "format": "json"})
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("results", [])[:max_results]:
+                    url = item.get("url") or ""
+                    if url and not _is_junk_web_host(url):
+                        results.append({
+                            "title": item.get("title") or "",
+                            "snippet": item.get("content") or "",
+                            "url": url,
+                        })
+    except Exception as err:
+        logger.debug(f"SearXNG search error for '{query}': {err}")
+    return results
+
+
+async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """
+    Open, unlimited multi-engine search rotator:
+    1. SearXNG (if local/self-hosted instance configured)
+    2. DuckDuckGo Lite (resilient text-only endpoint)
+    3. DuckDuckGo Standard HTML
+    4. Bing Web Search (fallback)
+    """
+    if not query or not query.strip():
+        return []
+
+    # 1. SearXNG if configured
+    results = await search_searxng(query, max_results=max_results)
+    if results:
+        return results
+
+    # 2. DuckDuckGo Lite
+    results = await search_duckduckgo_lite(query, max_results=max_results)
+    if results:
+        return results
+
+    # 3. DuckDuckGo HTML
     try:
         async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=8.0, follow_redirects=True) as client:
             resp = await client.post("https://html.duckduckgo.com/html/", data={"q": query})
@@ -163,12 +243,12 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, 
                             "url": url or "",
                         })
     except Exception as err:
-        logger.warning(f"DuckDuckGo search error for '{query}': {err}")
+        logger.debug(f"DuckDuckGo HTML search error for '{query}': {err}")
 
     if results:
         return results
 
-    # Fallback: Bing HTML (DDG often empty / blocked from cloud IPs)
+    # 4. Fallback: Bing HTML
     try:
         async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=8.0, follow_redirects=True) as client:
             resp = await client.get("https://www.bing.com/search", params={"q": query})
@@ -183,7 +263,6 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, 
                     cite_text = cite.get_text(strip=True) if cite else ""
                     url = _unwrap_result_url(href)
                     if not url or _is_junk_web_host(url):
-                        # Prefer visible cite domain (real site) over bing.com/ck wrapper
                         if cite_text and not _is_junk_web_host(cite_text):
                             url = cite_text if cite_text.startswith("http") else "https://" + cite_text.lstrip("/")
                             url = url.split()[0].split("›")[0].strip()
@@ -198,7 +277,11 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, 
                         results.append({"title": title, "snippet": snippet, "url": url})
     except Exception as err:
         logger.warning(f"Bing search fallback error for '{query}': {err}")
+
     return results
+
+
+search_duckduckgo = search_open_web
 
 
 def _harvest_contacts_from_text(blob: str) -> Tuple[List[str], List[str]]:
@@ -544,7 +627,7 @@ def _remember_social(socials: dict, url: str) -> None:
         socials[key] = cleaned
 
 
-def _harvest_jsonld(soup: BeautifulSoup, socials: dict) -> None:
+def _harvest_jsonld(soup: BeautifulSoup, socials: dict, phones: Optional[set] = None, emails: Optional[set] = None) -> None:
     for script in soup.find_all("script"):
         stype = " ".join(script.get("type") or "").lower()
         if "ld+json" not in stype:
@@ -573,6 +656,24 @@ def _harvest_jsonld(soup: BeautifulSoup, socials: dict) -> None:
                 if isinstance(item, str):
                     _remember_social(socials, item)
 
+            # Official telephone from Schema.org
+            if phones is not None:
+                tel = node.get("telephone") or node.get("phone")
+                if tel:
+                    tels = tel if isinstance(tel, list) else [tel]
+                    for t in tels:
+                        if _is_real_phone(str(t)):
+                            phones.add(str(t).strip())
+
+            # Official email from Schema.org
+            if emails is not None:
+                em = node.get("email")
+                if em:
+                    ems = em if isinstance(em, list) else [em]
+                    for e in ems:
+                        if _is_public_email(str(e)):
+                            emails.add(str(e).lower().strip())
+
 
 def _harvest_regex_urls(html: str, socials: dict) -> None:
     if not html:
@@ -591,7 +692,7 @@ def _harvest_soup(soup: BeautifulSoup, phones: set, emails: set, socials: dict) 
     for em in re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', text):
         if _is_public_email(em):
             emails.add(em.lower())
-    _harvest_jsonld(soup, socials)
+    _harvest_jsonld(soup, socials, phones, emails)
     for tag in soup.find_all(["a", "link"]):
         href = _clean_href(tag.get("href") or tag.get("data-href") or tag.get("data-url") or "")
         low = href.lower()
@@ -681,7 +782,7 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
 
     try:
         limits = httpx.Limits(max_keepalive_connections=5, max_connections=8)
-        timeout = httpx.Timeout(6.0, connect=3.0)
+        timeout = httpx.Timeout(10.0, connect=4.0)
         async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=timeout, follow_redirects=True, limits=limits) as client:
             resp = await client.get(clean_url)
             if resp.status_code == 200:
@@ -728,13 +829,13 @@ async def enrich_prospect_intelligence(
 
     host = ""
     if domain:
-        raw = domain.strip()
-        if not raw.startswith("http"):
-            raw = "https://" + raw
-        host = urllib.parse.urlparse(raw).netloc.replace("www.", "")
-
-    if domain:
-        scraped_info = await crawl_homepage_contacts(domain)
+        host = _host_of(domain if domain.startswith("http") else "https://" + domain)
+        if _is_junk_web_host(host):
+            host = ""
+        else:
+            home = _usable_website(domain)
+            if home:
+                scraped_info = await crawl_homepage_contacts(home)
 
     search_terms = []
     if host:
@@ -771,7 +872,12 @@ async def enrich_prospect_intelligence(
             uniq_terms.append(q.strip())
 
     if uniq_terms:
-        search_results = await asyncio.gather(*[search_duckduckgo(q, max_results=4) for q in uniq_terms[:6]])
+        _search_sem = asyncio.Semaphore(2)
+        async def _run_search(query_str: str) -> List[Dict[str, str]]:
+            async with _search_sem:
+                return await search_open_web(query_str, max_results=4)
+
+        search_results = await asyncio.gather(*[_run_search(q) for q in uniq_terms[:5]])
         for res in search_results:
             snippets.extend(res)
 
@@ -920,7 +1026,7 @@ async def discover_new_target_accounts(
     target_role: Optional[str] = "VP, Operations, Decision-Maker"
 ) -> List[Dict[str, Any]]:
     search_query = f"{query_or_domain} contact phone email {target_role}"
-    results = await search_duckduckgo(search_query, max_results=6)
+    results = await search_open_web(search_query, max_results=8)
     
     discovered_accounts = []
     for idx, item in enumerate(results):
@@ -933,7 +1039,18 @@ async def discover_new_target_accounts(
             continue
 
         phone_match = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', snippet)
-        phone = phone_match.group(0).strip() if phone_match else "+1-888-555-0142"
+        phone = phone_match.group(0).strip() if (phone_match and _is_real_phone(phone_match.group(0))) else ""
+
+        usable_site = _usable_website(url)
+
+        # Realistic fit score based on authentic verified data availability
+        fit_score = 40
+        if usable_site:
+            fit_score += 30
+        if phone:
+            fit_score += 20
+        if len(snippet) > 80:
+            fit_score += 10
 
         discovered_accounts.append({
             "id": f"disc_{idx}_{idx}",
@@ -941,11 +1058,11 @@ async def discover_new_target_accounts(
             "sector": "Target Industry",
             "region": "National / Global",
             "phone": phone,
-            "site": url or f"https://{comp_name.lower().replace(' ', '')}.com",
-            "contactPerson": target_role.split(",")[0] if target_role else "Operations Lead",
+            "site": usable_site,
+            "contactPerson": "",  # Empty until verified contact is found
             "snippet": snippet,
-            "openingHook": f"Saw {comp_name}'s recent operations focus on {snippet[:60]}... Calling to discuss how our AI voice receptionist can convert more inbound inquiries.",
-            "fit": 85,
+            "openingHook": f"Saw {comp_name}'s recent operations focus on {snippet[:60]}... Calling to discuss how our AI voice receptionist can convert more inbound inquiries." if snippet else "",
+            "fit": min(fit_score, 100),
             "sourceUrl": url
         })
 
@@ -971,13 +1088,13 @@ def _row_missing_fields(row: Dict[str, Any]) -> List[str]:
         # Treat random free-mail / junk emails as still missing so we can replace
         if email.split("@")[-1].lower() in _FREE_MAIL:
             email = ""
-    if not phone:
+    if not phone or not _is_real_phone(phone):
         missing.append("phone")
     if not email:
         missing.append("email")
     if not contact:
         missing.append("person")
-    if not company or _is_person_name(company):
+    if not company:
         missing.append("company")
     if not website:
         missing.append("website")
@@ -1015,21 +1132,18 @@ async def fill_contact_gaps(
             domain = ""
         if domain and _is_junk_web_host(domain):
             domain = ""
-        person = str(row.get("contact") or "").strip()
-        company_field = str(row.get("company") or "").strip()
-        if company_field and _is_person_name(company_field) and not person:
-            person = company_field
-            company_field = ""
+        person = str(row.get("contact") or row.get("contactPerson") or "").strip()
+        company_field = str(row.get("company") or row.get("name") or "").strip()
         phone = str(row.get("phone") or "").strip()
         town = " ".join(str(x).strip() for x in [row.get("town"), row.get("postcode")] if x).strip()
-        query_company = company_field if company_field and not _is_person_name(company_field) else ""
+        query_company = company_field
         query_name = query_company or person or name
         try:
             async with sem:
                 data = await asyncio.wait_for(
                     enrich_prospect_intelligence(
                         name=query_name,
-                        company=query_company or (query_name if not _is_person_name(query_name) else ""),
+                        company=query_company,
                         domain=domain or None,
                         existing_notes=(f"{person} {phone} {row.get('sector') or ''}").strip() or None,
                         deep=True,
