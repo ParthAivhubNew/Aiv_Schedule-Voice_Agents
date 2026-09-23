@@ -1,4 +1,4 @@
-﻿"""
+"""
 xAI Voice Agent & Telnyx Number Registration Utility
 Registers your BYO Trunk (Telnyx) phone number with xAI API:
 POST https://api.x.ai/v2/phone-numbers
@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description="Register Telnyx Phone Number with xAI Voice Agent")
     parser.add_argument("--api-key", type=str, help="Your xAI API Key (xai-...)")
     parser.add_argument("--phone-number", type=str, help="Telnyx phone number in E.164 (e.g. +12025550199)")
-    parser.add_argument("--webhook-url", type=str, default="https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai/api/sip-webhook", help="Public Webhook URL")
+    parser.add_argument("--webhook-url", type=str, default=f"{(getattr(settings, 'PUBLIC_BASE_URL', None) or 'http://127.0.0.1:8000').rstrip('/')}/api/sip-webhook", help="Public Webhook URL")
     args = parser.parse_args()
 
     api_key = args.api_key or settings.XAI_API_KEY or os.getenv("XAI_API_KEY")

@@ -553,8 +553,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
     return matchesSearch && b.status === statusFilter;
   });
 
-  const appBaseUrl = window.location.origin;
-  const calcomPublicUrl = "https://3000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai";
+  const appBaseUrl = typeof window !== "undefined" ? window.location.origin : "";
+  const calcomPublicUrl = typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:3000` : "";
   const primaryAccount = accounts.find(a => a.config?.is_primary) || accounts[0];
 
   return (

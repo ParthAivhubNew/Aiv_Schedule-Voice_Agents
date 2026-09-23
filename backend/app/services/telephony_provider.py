@@ -10,17 +10,16 @@ from app.services.process_logger import log_process_event
 
 logger = logging.getLogger("telephony_provider")
 
-# Default public host used when PUBLIC_BASE_URL is local / unset (Lightning Spaces).
-_DEFAULT_PUBLIC_HOST = "https://8000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai"
+def public_http_base(override_base: Optional[str] = None) -> str:
+    """Dynamically resolves the public base URL without hardcoded fallback URLs."""
+    if override_base and override_base.strip():
+        return override_base.strip().rstrip("/")
 
-
-def public_http_base() -> str:
     raw = (getattr(settings, "PUBLIC_BASE_URL", None) or "").strip().rstrip("/")
-    # If a custom production domain is explicitly set in server environment, honor it immediately
     if raw and not any(x in raw for x in ("127.0.0.1", "localhost", "ngrok")):
         return raw
 
-    # In local development or when using ngrok, check if an active local ngrok tunnel is available on port 4040
+    # In local development or when using ngrok, auto-discover active tunnel from ngrok local agent
     try:
         import json
         import urllib.request
@@ -33,14 +32,14 @@ def public_http_base() -> str:
     except Exception:
         pass
 
-    if raw and "127.0.0.1" not in raw and "localhost" not in raw:
+    if raw:
         return raw
 
-    return _DEFAULT_PUBLIC_HOST
+    return "http://127.0.0.1:8000"
 
 
-def public_wss_base() -> str:
-    http = public_http_base()
+def public_wss_base(override_base: Optional[str] = None) -> str:
+    http = public_http_base(override_base)
     if http.startswith("https://"):
         return "wss://" + http[len("https://"):]
     if http.startswith("http://"):
