@@ -112,21 +112,59 @@ class CallAudioRecorder:
                 for i in range(start_idx, end_idx):
                     out_samples[i] = max(-32768, min(32767, out_samples[i] + samples[i - start_idx]))
 
-        interleaved_bytes = bytearray(total_samples * 4)
+        import math
+        import audioop
+
+        # 1. Automatic Gain Control & Active RMS calculation to balance caller vs AI loudness
+        def active_rms(track: list) -> float:
+            active = [abs(s) for s in track if abs(s) > 180]
+            if not active:
+                return 1.0
+            return (sum(s * s for s in active) / len(active)) ** 0.5
+
+        in_rms = active_rms(in_samples)
+        out_rms = active_rms(out_samples)
+
+        target_rms = 2800.0
+        in_gain = min(8.0, max(0.8, target_rms / max(100.0, in_rms)))
+        out_gain = min(2.5, max(0.4, target_rms / max(100.0, out_rms)))
+
+        # 2. Studio Master Stereo Mix with Tanh Peak Soft-Limiting
+        def soft_clip(v: float) -> int:
+            if v > 30000:
+                return 30000 + int(2767 * math.tanh((v - 30000) / 2767))
+            elif v < -30000:
+                return -30000 + int(2767 * math.tanh((v + 30000) / 2767))
+            return int(v)
+
+        mixed_bytes = bytearray(total_samples * 4)
         for i in range(total_samples):
-            struct.pack_into("<hh", interleaved_bytes, i * 4, in_samples[i], out_samples[i])
+            in_s = in_samples[i] * in_gain
+            out_s = out_samples[i] * out_gain
+            # 70% primary / 30% cross-channel blend for natural stereo depth without hard-ear isolation
+            l_val = soft_clip(in_s * 0.70 + out_s * 0.30)
+            r_val = soft_clip(out_s * 0.70 + in_s * 0.30)
+            struct.pack_into("<hh", mixed_bytes, i * 4, l_val, r_val)
+
+        # 3. High-Fidelity Anti-Aliased Resampling to 24kHz
+        OUTPUT_RATE = 24000
+        try:
+            rendered_bytes, _ = audioop.ratecv(bytes(mixed_bytes), 2, 2, SAMPLE_RATE, OUTPUT_RATE, None)
+        except Exception:
+            rendered_bytes = bytes(mixed_bytes)
+            OUTPUT_RATE = SAMPLE_RATE
 
         out_path = self.get_file_path()
         try:
             with wave.open(out_path, "wb") as wf:
                 wf.setnchannels(2)
                 wf.setsampwidth(2)
-                wf.setframerate(SAMPLE_RATE)
-                wf.writeframes(interleaved_bytes)
+                wf.setframerate(OUTPUT_RATE)
+                wf.writeframes(rendered_bytes)
 
             file_size_kb = round(os.path.getsize(out_path) / 1024, 1)
             duration_sec = round(total_duration, 1)
-            logger.info(f"[Recorder] Saved dual-track call recording for {self.call_id} -> {out_path} ({duration_sec}s, {file_size_kb} KB)")
+            logger.info(f"[Recorder] Saved studio-mastered call recording for {self.call_id} -> {out_path} ({duration_sec}s, {file_size_kb} KB, {OUTPUT_RATE}Hz)")
             return out_path
         except Exception as err:
             logger.error(f"[Recorder] Failed to write WAV recording for {self.call_id}: {err}")
