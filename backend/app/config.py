@@ -83,8 +83,8 @@ class Settings(BaseSettings):
     SIPGATE_SERVER: Optional[str] = os.getenv("SIPGATE_SERVER", "sipconnect.sipgate.co.uk")
     SIPGATE_PHONE_NUMBER: Optional[str] = os.getenv("SIPGATE_PHONE_NUMBER", None)
     
-    # Public URLs for OAuth callbacks (must match the developer-app redirect URI)
-    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8000")
+    # Public URLs for OAuth callbacks and telephony media streams
+    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "http://62.171.163.98:8000")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
     # Social OAuth apps (optional; can also be saved in Accounts UI)
