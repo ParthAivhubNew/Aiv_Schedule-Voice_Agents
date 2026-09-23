@@ -75,6 +75,18 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
         "Embeddings": "Generates 384-dimensional vector embeddings for website crawls and knowledge base semantic retrieval.",
         "Other": "Anything else your team connects — CRM, spreadsheets, custom internal tools."
     }
+
+    # Detect global Telnyx API key if saved in any Telnyx connection or environment
+    telnyx_saved_key = getattr(settings, "TELNYX_API_KEY", None) or os.getenv("TELNYX_API_KEY")
+    telnyx_masked = ""
+    for c in conns:
+        if "telnyx" in (c.name or "").lower():
+            cfg = open_config(c.config if isinstance(c.config, dict) else {})
+            k = config_get_secret(cfg, "api_key", "auth_token")
+            if k and not is_masked(k):
+                telnyx_saved_key = k
+                telnyx_masked = c.api_key_masked or mask_secret(k)
+                break
     
     grouped = {}
     for c in conns:
@@ -85,11 +97,18 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
                 "items": []
             }
         cfg = open_config(c.config if isinstance(c.config, dict) else {})
+        is_telnyx = "telnyx" in (c.name or "").lower()
+        
+        status = c.status
         masked = c.api_key_masked if c.api_key_masked else ("••••••••" if c.status == "connected" else "")
+        if is_telnyx and telnyx_saved_key:
+            status = "connected"
+            masked = telnyx_masked or mask_secret(telnyx_saved_key)
+
         grouped[c.group_name]["items"].append({
             "id": c.id,
             "name": c.name,
-            "status": c.status,
+            "status": status,
             "apiKeyMasked": masked,
             "model": cfg.get("model") or "",
             "baseUrl": cfg.get("base_url") or "",
@@ -306,6 +325,39 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             config=conn_config
         )
         db.add(conn)
+
+    # If saving a Telnyx API Key, automatically sync and activate all standard Telnyx plugins
+    if "telnyx" in (req.provider or "").lower() or clean_key.startswith("KEY"):
+        settings.TELNYX_API_KEY = clean_key
+        os.environ["TELNYX_API_KEY"] = clean_key
+        telnyx_peers = [
+            ("LLM", "Telnyx AI", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
+            ("Speech-to-Text", "Telnyx Whisper", "openai/whisper-large-v3"),
+            ("Text-to-Speech", "Telnyx Natural", "telnyx/natural"),
+            ("Telephony", "Telnyx", ""),
+        ]
+        for p_group, p_name, p_def_model in telnyx_peers:
+            p_res = await db.execute(select(Connection).where(Connection.group_name == p_group, Connection.name.ilike(f"%{p_name}%")))
+            p_row = p_res.scalars().first()
+            p_cfg = open_config(p_row.config) if (p_row and p_row.config) else {}
+            p_cfg["api_key"] = clean_key
+            p_cfg["auth_token"] = clean_key
+            p_cfg["provider"] = p_name
+            if p_def_model and not p_cfg.get("model"):
+                p_cfg["model"] = p_def_model
+            if p_row:
+                p_row.status = "connected"
+                p_row.api_key_masked = masked
+                p_row.config = seal_config(p_cfg)
+            else:
+                db.add(Connection(
+                    id=f"conn_{uuid.uuid4().hex[:6]}",
+                    group_name=p_group,
+                    name=p_name,
+                    status="connected",
+                    api_key_masked=masked,
+                    config=seal_config(p_cfg)
+                ))
 
     if req.resolved_voice_id:
         try:

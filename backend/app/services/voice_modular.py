@@ -728,6 +728,39 @@ async def _telnyx_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, 
         return b""
 
 
+async def _telnyx_whisper_transcribe(raw_mulaw_frames: bytes, api_key: str, model: str = "openai/whisper-large-v3") -> str:
+    """Transcribes an audio chunk using Telnyx Whisper API."""
+    if not raw_mulaw_frames or len(raw_mulaw_frames) < 1600:
+        return ""
+    import io, wave, audioop
+    try:
+        lin_pcm = audioop.ulaw2lin(raw_mulaw_frames, 2)
+        resampled_pcm, _ = audioop.ratecv(lin_pcm, 2, 1, 8000, 16000, None)
+        wav_buf = io.BytesIO()
+        with wave.open(wav_buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(resampled_pcm)
+        wav_bytes = wav_buf.getvalue()
+
+        url = "https://api.telnyx.com/v2/ai/audio/transcriptions"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        files = {"file": ("audio.wav", wav_bytes, "audio/wav")}
+        data = {"model": model or "openai/whisper-large-v3"}
+
+        client = _get_tts_client()
+        res = await client.post(url, headers=headers, data=data, files=files, timeout=12.0)
+        if res.status_code == 200:
+            return str(res.json().get("text") or "").strip()
+        else:
+            logger.warning(f"[TELNYX-STT] Whisper error {res.status_code}: {res.text[:200]}")
+    except Exception as e:
+        logger.warning(f"[TELNYX-STT] Transcription error: {e}")
+    return ""
+
+
+
 async def _greeting_line(is_inbound: bool, prospect_name: Optional[str]) -> str:
     company = "your company"
     rep = "our team"
@@ -792,12 +825,96 @@ async def run_modular_pipeline(
     system = await build_xai_system_instructions(caller_number, prospect_name, hold_opening=False)
     history = []
 
+    # Resolve STT credentials: Check for Deepgram or Telnyx Whisper
+    stt = plan.stt
+    dg_key = ""
+    if stt and stt.provider == "deepgram" and stt.api_key and not stt.api_key.startswith("KEY"):
+        dg_key = stt.api_key.strip()
+    if not dg_key and getattr(settings, "DEEPGRAM_API_KEY", None):
+        dg_key = settings.DEEPGRAM_API_KEY.strip()
+    if not dg_key:
+        try:
+            async with AsyncSessionLocal() as dg_db:
+                dg_res = await dg_db.execute(
+                    select(Connection).where(
+                        (Connection.group_name == "Speech-to-Text")
+                        & (Connection.name.ilike("%deepgram%"))
+                    )
+                )
+                dg_row = dg_res.scalars().first()
+                if dg_row and dg_row.status == "connected":
+                    from app.services.secret_box import config_get_secret
+                    k = config_get_secret(dg_row.config or {}, "api_key", "apiKey", "auth_token")
+                    if k and not k.startswith("KEY"):
+                        dg_key = k
+        except Exception:
+            pass
+
+    telnyx_stt_key = ""
+    if stt and ("telnyx" in (stt.provider or "").lower() or (stt.api_key and stt.api_key.startswith("KEY"))):
+        telnyx_stt_key = stt.api_key.strip()
+    if not telnyx_stt_key and getattr(settings, "TELNYX_API_KEY", None):
+        telnyx_stt_key = settings.TELNYX_API_KEY.strip()
+    if not telnyx_stt_key and plan.tts and ("telnyx" in (plan.tts.provider or "").lower() or (plan.tts.api_key and plan.tts.api_key.startswith("KEY"))):
+        telnyx_stt_key = plan.tts.api_key.strip()
+    if not telnyx_stt_key and plan.llm and ("telnyx" in (plan.llm.provider or "").lower() or (plan.llm.api_key and plan.llm.api_key.startswith("KEY"))):
+        telnyx_stt_key = plan.llm.api_key.strip()
+
+    if not dg_key and not telnyx_stt_key:
+        logger.error("[MODULAR] No real-time STT key (Deepgram or Telnyx) found — greeting only")
+        return
+
+    # Energy VAD state for Telnyx Whisper chunking
+    speech_buffer = bytearray()
+    in_speech = False
+    silence_frames_count = 0
+    speech_frames_count = 0
+    import audioop
+
+    async def _process_telnyx_speech_chunk(audio_chunk: bytes):
+        nonlocal last_activity_time, silence_nudge_count
+        t_model = (stt.model if stt and stt.model else "openai/whisper-large-v3")
+        txt = await _telnyx_whisper_transcribe(audio_chunk, telnyx_stt_key, t_model)
+        if txt and not bridge.closed.is_set():
+            logger.info(f"[TELNYX-STT] Caller said: '{txt}'")
+            last_activity_time = time.perf_counter()
+            silence_nudge_count = 0
+            await handle_final(txt)
+
     # Hook up caller audio handler IMMEDIATELY so inbound audio packets are captured from frame 0
     async def on_caller(b64: str):
+        nonlocal speech_buffer, in_speech, silence_frames_count, speech_frames_count
         try:
             raw = base64.b64decode(b64)
-            if raw and getattr(bridge, "_dg_ws", None):
+            if not raw:
+                return
+            if getattr(bridge, "_dg_ws", None):
                 await bridge._dg_ws.send(raw)
+            elif telnyx_stt_key:
+                pcm = audioop.ulaw2lin(raw, 2)
+                rms = audioop.rms(pcm, 2)
+                if rms > 320:
+                    speech_buffer.extend(raw)
+                    in_speech = True
+                    speech_frames_count += 1
+                    silence_frames_count = 0
+                else:
+                    if in_speech:
+                        speech_buffer.extend(raw)
+                        silence_frames_count += 1
+                        if silence_frames_count >= 18:
+                            if speech_frames_count >= 10:
+                                chunk = bytes(speech_buffer)
+                                speech_buffer = bytearray()
+                                in_speech = False
+                                silence_frames_count = 0
+                                speech_frames_count = 0
+                                asyncio.create_task(_process_telnyx_speech_chunk(chunk))
+                            else:
+                                speech_buffer = bytearray()
+                                in_speech = False
+                                silence_frames_count = 0
+                                speech_frames_count = 0
         except Exception:
             pass
 
@@ -814,33 +931,6 @@ async def run_modular_pipeline(
         await call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "ai", "delta": greeting})
     except Exception:
         pass
-
-    stt = plan.stt
-    # Resolve real-time WebSocket STT credentials (prefer Deepgram token for low-latency streaming)
-    dg_key = (stt.api_key if stt and stt.provider == "deepgram" else "") or ""
-    if not dg_key:
-        try:
-            async with AsyncSessionLocal() as dg_db:
-                dg_res = await dg_db.execute(
-                    select(Connection).where(
-                        (Connection.group_name == "Speech-to-Text")
-                        & (Connection.name.ilike("%deepgram%"))
-                    )
-                )
-                dg_row = dg_res.scalars().first()
-                if dg_row and dg_row.status == "connected":
-                    from app.services.secret_box import config_get_secret
-                    dg_key = config_get_secret(dg_row.config or {}, "api_key", "apiKey", "auth_token")
-        except Exception:
-            pass
-    if not dg_key and getattr(settings, "DEEPGRAM_API_KEY", None):
-        dg_key = settings.DEEPGRAM_API_KEY.strip()
-    if not dg_key and stt and stt.api_key:
-        dg_key = stt.api_key.strip()
-
-    if not dg_key:
-        logger.error("[MODULAR] No real-time STT key found — greeting only")
-        return
 
     dg_model = "nova-2"
     if stt and stt.model and stt.provider == "deepgram":
@@ -1236,148 +1326,152 @@ async def run_modular_pipeline(
     silence_watchdog_task = asyncio.create_task(silence_watchdog())
 
     try:
-        async with websockets.connect(
-            dg_url,
-            additional_headers={"Authorization": f"Token {dg_key}"},
-            ping_interval=20,
-            ping_timeout=15,
-        ) as dg:
-            bridge._dg_ws = dg
-            logger.info(f"[MODULAR] Deepgram connected for {call_id}")
+        if dg_key:
+            async with websockets.connect(
+                dg_url,
+                additional_headers={"Authorization": f"Token {dg_key}"},
+                ping_interval=20,
+                ping_timeout=15,
+            ) as dg:
+                bridge._dg_ws = dg
+                logger.info(f"[MODULAR] Deepgram connected for {call_id}")
 
-            async def keepalive():
-                while not bridge.closed.is_set():
-                    await asyncio.sleep(4)
-                    if bridge.closed.is_set():
-                        break
-                    # Periodic DB check to ensure call has not been marked ended
-                    try:
-                        async with AsyncSessionLocal() as chk_db:
-                            c_row = (await chk_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
-                            if c_row and c_row.ended:
-                                logger.info(f"[MODULAR] Call {local_id} marked ended in DB. Halting pipeline.")
-                                await bridge.close()
-                                break
-                    except Exception:
-                        pass
-                    try:
-                        await dg.send(json.dumps({"type": "KeepAlive"}))
-                    except Exception:
-                        return
+                async def keepalive():
+                    while not bridge.closed.is_set():
+                        await asyncio.sleep(4)
+                        if bridge.closed.is_set():
+                            break
+                        try:
+                            async with AsyncSessionLocal() as chk_db:
+                                c_row = (await chk_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
+                                if c_row and c_row.ended:
+                                    logger.info(f"[MODULAR] Call {local_id} marked ended in DB. Halting pipeline.")
+                                    await bridge.close()
+                                    break
+                        except Exception:
+                            pass
+                        try:
+                            await dg.send(json.dumps({"type": "KeepAlive"}))
+                        except Exception:
+                            return
 
-            ka = asyncio.create_task(keepalive())
-            accumulated_utterance: list[str] = []
-            flush_task: Optional[asyncio.Task] = None
+                ka = asyncio.create_task(keepalive())
+                accumulated_utterance: list[str] = []
+                flush_task: Optional[asyncio.Task] = None
 
-            async def _debounced_flush():
-                await asyncio.sleep(0.2)
-                nonlocal accumulated_utterance
-                if accumulated_utterance:
-                    full_text = " ".join(accumulated_utterance).strip()
-                    accumulated_utterance = []
-                    if full_text:
-                        await handle_final(full_text)
+                async def _debounced_flush():
+                    await asyncio.sleep(0.2)
+                    nonlocal accumulated_utterance
+                    if accumulated_utterance:
+                        full_text = " ".join(accumulated_utterance).strip()
+                        accumulated_utterance = []
+                        if full_text:
+                            await handle_final(full_text)
 
-            try:
-                async for raw_msg in dg:
-                    if bridge.closed.is_set():
-                        break
-                    if isinstance(raw_msg, bytes):
-                        continue
-                    try:
-                        ev = json.loads(raw_msg)
-                    except Exception:
-                        continue
-
-                    try:
-                        # Normalize ev: handle if root is a list
-                        if isinstance(ev, list):
-                            ev = ev[0] if (ev and isinstance(ev[0], dict)) else {}
-                        if not isinstance(ev, dict):
+                try:
+                    async for raw_msg in dg:
+                        if bridge.closed.is_set():
+                            break
+                        if isinstance(raw_msg, bytes):
+                            continue
+                        try:
+                            ev = json.loads(raw_msg)
+                        except Exception:
                             continue
 
-                        msg_type = ev.get("type")
+                        try:
+                            if isinstance(ev, list):
+                                ev = ev[0] if (ev and isinstance(ev[0], dict)) else {}
+                            if not isinstance(ev, dict):
+                                continue
 
-                        # Deepgram SpeechStarted event (VAD notification that caller began speaking)
-                        if msg_type == "SpeechStarted":
-                            logger.debug(f"[MODULAR] Deepgram SpeechStarted event received for {call_id}")
+                            msg_type = ev.get("type")
+                            if msg_type == "SpeechStarted":
+                                logger.debug(f"[MODULAR] Deepgram SpeechStarted event received for {call_id}")
+                                last_activity_time = time.perf_counter()
+                                silence_nudge_count = 0
+                                continue
+
+                            if msg_type == "Metadata":
+                                continue
+
+                            if msg_type == "UtteranceEnd":
+                                last_activity_time = time.perf_counter()
+                                silence_nudge_count = 0
+                                if flush_task and not flush_task.done():
+                                    flush_task.cancel()
+                                if accumulated_utterance:
+                                    full_text = " ".join(accumulated_utterance).strip()
+                                    accumulated_utterance = []
+                                    if full_text:
+                                        await handle_final(full_text)
+                                continue
+
+                            if msg_type != "Results":
+                                continue
+
+                            channel = ev.get("channel")
+                            if isinstance(channel, list):
+                                channel = channel[0] if (channel and isinstance(channel[0], dict)) else {}
+                            elif not isinstance(channel, dict):
+                                channels = ev.get("channels")
+                                if isinstance(channels, list) and channels and isinstance(channels[0], dict):
+                                    channel = channels[0]
+                                else:
+                                    channel = {}
+
+                            alt = channel.get("alternatives") or []
+                            if not isinstance(alt, list) or not alt:
+                                continue
+                            first_alt = alt[0]
+                            if not isinstance(first_alt, dict):
+                                continue
+                            chunk_text = (first_alt.get("transcript") or "").strip()
+                            if not chunk_text:
+                                continue
+
                             last_activity_time = time.perf_counter()
                             silence_nudge_count = 0
-                            continue
+                            is_final = bool(ev.get("is_final"))
+                            speech_final = bool(ev.get("speech_final"))
 
-                        # Deepgram Metadata event (session summaries / diagnostics)
-                        if msg_type == "Metadata":
-                            logger.debug(f"[MODULAR] Deepgram Metadata received for {call_id}: request_id={ev.get('request_id')}")
-                            continue
+                            if is_final:
+                                accumulated_utterance.append(chunk_text)
+                                if flush_task and not flush_task.done():
+                                    flush_task.cancel()
+                                flush_task = asyncio.create_task(_debounced_flush())
 
-                        # Handle UtteranceEnd event (caller pause boundary)
-                        if msg_type == "UtteranceEnd":
-                            last_activity_time = time.perf_counter()
-                            silence_nudge_count = 0
-                            if flush_task and not flush_task.done():
-                                flush_task.cancel()
-                            if accumulated_utterance:
+                            if speech_final:
+                                if flush_task and not flush_task.done():
+                                    flush_task.cancel()
                                 full_text = " ".join(accumulated_utterance).strip()
                                 accumulated_utterance = []
                                 if full_text:
                                     await handle_final(full_text)
+                        except Exception as parse_err:
+                            logger.warning(f"[MODULAR] Error handling Deepgram event: {parse_err}")
                             continue
-
-                        # Per Deepgram docs, only 'Results' frames contain transcription alternatives
-                        if msg_type != "Results":
-                            continue
-
-                        # Extract channel safely whether dict or list
-                        channel = ev.get("channel")
-                        if isinstance(channel, list):
-                            channel = channel[0] if (channel and isinstance(channel[0], dict)) else {}
-                        elif not isinstance(channel, dict):
-                            channels = ev.get("channels")
-                            if isinstance(channels, list) and channels and isinstance(channels[0], dict):
-                                channel = channels[0]
-                            else:
-                                channel = {}
-
-                        alt = channel.get("alternatives") or []
-                        if not isinstance(alt, list) or not alt:
-                            continue
-                        first_alt = alt[0]
-                        if not isinstance(first_alt, dict):
-                            continue
-                        chunk_text = (first_alt.get("transcript") or "").strip()
-                        if not chunk_text:
-                            continue
-
-                        last_activity_time = time.perf_counter()
-                        silence_nudge_count = 0
-                        logger.debug(f"[MODULAR] DG transcript: '{chunk_text}' (is_final={ev.get('is_final')}, speech_final={ev.get('speech_final')})")
-
-                        is_final = bool(ev.get("is_final"))
-                        speech_final = bool(ev.get("speech_final"))
-
-                        if is_final:
-                            accumulated_utterance.append(chunk_text)
-                            if flush_task and not flush_task.done():
-                                flush_task.cancel()
-                            flush_task = asyncio.create_task(_debounced_flush())
-
-                        # Trigger LLM immediately when caller has finished their utterance
-                        if speech_final:
-                            if flush_task and not flush_task.done():
-                                flush_task.cancel()
-                            full_text = " ".join(accumulated_utterance).strip()
-                            accumulated_utterance = []
-                            if full_text:
-                                await handle_final(full_text)
-                    except Exception as parse_err:
-                        logger.warning(f"[MODULAR] Error handling Deepgram event: {parse_err}")
-                        continue
-            finally:
-                if flush_task and not flush_task.done():
-                    flush_task.cancel()
-                ka.cancel()
+                finally:
+                    if flush_task and not flush_task.done():
+                        flush_task.cancel()
+                    ka.cancel()
+        else:
+            logger.info(f"[MODULAR] Telnyx Whisper VAD STT active for {call_id}")
+            while not bridge.closed.is_set():
+                await asyncio.sleep(2)
+                if bridge.closed.is_set():
+                    break
+                try:
+                    async with AsyncSessionLocal() as chk_db:
+                        c_row = (await chk_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
+                        if c_row and c_row.ended:
+                            logger.info(f"[MODULAR] Call {local_id} marked ended in DB. Halting pipeline.")
+                            await bridge.close()
+                            break
+                except Exception:
+                    pass
     except Exception as err:
-        logger.warning(f"[MODULAR] Deepgram session ended for {call_id}: {err}", exc_info=True)
+        logger.warning(f"[MODULAR] STT session ended for {call_id}: {err}", exc_info=True)
     finally:
         silence_watchdog_task.cancel()
         watchdog_task.cancel()
