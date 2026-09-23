@@ -299,6 +299,13 @@ async def resolve_voice_plan() -> VoicePlan:
             model=_cfg(stt_conn).get("model") or "nova-2",
             extra={"display_name": stt_conn.name or ""},
         )
+    elif "telnyx" in target_stt and (getattr(settings, "TELNYX_API_KEY", None) or os.getenv("TELNYX_API_KEY")):
+        stt = PluginCreds(
+            provider="telnyx",
+            api_key=(getattr(settings, "TELNYX_API_KEY", None) or os.getenv("TELNYX_API_KEY")).strip(),
+            model="openai/whisper-large-v3",
+            extra={"display_name": "Telnyx Whisper"},
+        )
     elif settings.DEEPGRAM_API_KEY:
         stt = PluginCreds(provider="deepgram", api_key=settings.DEEPGRAM_API_KEY.strip(), model="nova-2", extra={"display_name": "Deepgram Nova-2"})
 
@@ -328,6 +335,14 @@ async def resolve_voice_plan() -> VoicePlan:
             voice_id=vid,
             model=tts_cfg.get("model") or "",
             extra={"display_name": tts_conn.name or ""},
+        )
+    elif "telnyx" in target_tts and (getattr(settings, "TELNYX_API_KEY", None) or os.getenv("TELNYX_API_KEY")):
+        tts = PluginCreds(
+            provider="telnyx",
+            api_key=(getattr(settings, "TELNYX_API_KEY", None) or os.getenv("TELNYX_API_KEY")).strip(),
+            voice_id="telnyx/natural",
+            model="telnyx/natural",
+            extra={"display_name": "Telnyx Natural TTS"},
         )
     elif settings.CARTESIA_API_KEY:
         vid = cartesia_vid or (orch_clone if looks_like_external_voice_id(orch_clone) else "") or (
@@ -369,6 +384,14 @@ async def resolve_voice_plan() -> VoicePlan:
             model=resolved_model,
             extra={"display_name": llm_conn.name or ""},
         )
+    elif "telnyx" in target_llm and (getattr(settings, "TELNYX_API_KEY", None) or os.getenv("TELNYX_API_KEY")):
+        llm = PluginCreds(
+            provider="telnyx",
+            api_key=(getattr(settings, "TELNYX_API_KEY", None) or os.getenv("TELNYX_API_KEY")).strip(),
+            base_url="https://api.telnyx.com/v2/ai",
+            model=active_stack.get("llm_model") or "meta-llama/Meta-Llama-3.1-70B-Instruct",
+            extra={"display_name": "Telnyx AI"},
+        )
 
     openai_key = (engine_cfg.get("api_key") or settings.OPENAI_API_KEY or "").strip()
     xai_key = (engine_cfg.get("api_key") or settings.XAI_API_KEY or "").strip()
@@ -381,11 +404,23 @@ async def resolve_voice_plan() -> VoicePlan:
 
     if engine in ("modular", "livekit"):
         if not (stt and stt.api_key):
-            raise ValueError(f"STT provider '{stt.provider if stt else 'Speech-to-Text'}' has no API key configured in Connections.")
+            req_stt = target_stt or (stt_conn.name if stt_conn else "Speech-to-Text")
+            raise ValueError(
+                f"STT provider '{req_stt}' is missing an API key. Save your API key in Connections "
+                f"(Speech-to-Text -> {req_stt}) or configure the corresponding environment variable in .env."
+            )
         if not (tts and tts.api_key):
-            raise ValueError(f"TTS provider '{tts.provider if tts else 'Text-to-Speech'}' has no API key configured in Connections.")
+            req_tts = target_tts or (tts_conn.name if tts_conn else "Text-to-Speech")
+            raise ValueError(
+                f"TTS provider '{req_tts}' is missing an API key. Save your API key in Connections "
+                f"(Text-to-Speech -> {req_tts}) or configure the corresponding environment variable in .env."
+            )
         if not (llm and llm.api_key):
-            raise ValueError(f"LLM provider '{llm.provider if llm else 'LLM'}' has no API key configured in Connections.")
+            req_llm = target_llm or (llm_conn.name if llm_conn else "LLM")
+            raise ValueError(
+                f"LLM provider '{req_llm}' is missing an API key. Save your API key in Connections "
+                f"(LLM -> {req_llm}) or configure the corresponding environment variable in .env."
+            )
 
     if engine == "xai" and (not xai_key or xai_key.startswith("mock")):
         # Log detailed diagnostic info
