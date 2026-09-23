@@ -65,6 +65,7 @@ async def _resolve_carrier_and_creds(
     api_key: Optional[str] = None,
 ) -> tuple[str, Dict[str, Any], Optional[Connection]]:
     from app.services.voice_plugin_plan import get_active_stack
+    from app.services.secret_box import open_config
     active_stack = get_active_stack()
 
     if not carrier_choice or carrier_choice in ("default", "auto", ""):
@@ -78,89 +79,91 @@ async def _resolve_carrier_and_creds(
             Connection.group_name == "Telephony"
         )
     )
-    tele_conns = conn_res.scalars().all()
-    tele_conn = None
+    tele_conns = list(conn_res.scalars().all())
 
-    # 1. Look for matching carrier name in Telephony group
+    # Helper to decrypt config
+    def _get_open_cfg(c: Optional[Connection]) -> Dict[str, Any]:
+        if not c or not isinstance(c.config, dict):
+            return {}
+        try:
+            return open_config(c.config)
+        except Exception:
+            return c.config
+
+    # Helper to check if a connection actually has valid credentials
+    def _is_configured(c: Connection) -> bool:
+        cfg = _get_open_cfg(c)
+        cname = (c.name or "").lower()
+        if "twilio" in cname:
+            s = (cfg.get("account_sid") or "").strip()
+            t = (cfg.get("auth_token") or cfg.get("api_key") or "").strip()
+            return bool(s and t and s.startswith("AC"))
+        elif "telnyx" in cname:
+            k = (cfg.get("api_key") or cfg.get("auth_token") or "").strip()
+            return bool(k)
+        elif "sipgate" in cname:
+            t = (cfg.get("auth_token") or cfg.get("api_key") or cfg.get("token") or "").strip()
+            return bool(t)
+        return bool(cfg.get("api_key") or cfg.get("auth_token") or c.status == "connected")
+
+    tele_conn = None
+    # 1. Match requested carrier
     for c in tele_conns:
         if carrier_choice and carrier_choice in (c.name or "").lower():
             tele_conn = c
             break
 
-    # 2. If not found by name, check any connected Telephony provider
-    if not tele_conn:
-        for c in tele_conns:
-            if c.status == "connected":
-                tele_conn = c
-                break
+    # 2. If matched carrier is not configured, check if env vars or direct request creds satisfy it
+    has_req_or_env = False
+    if carrier_choice == "twilio":
+        sid = (account_sid or "").strip() or (settings.TWILIO_ACCOUNT_SID or "").strip()
+        token = (api_key or "").strip() or (settings.TWILIO_AUTH_TOKEN or "").strip()
+        has_req_or_env = bool(sid and token and sid.startswith("AC"))
+    elif carrier_choice == "telnyx":
+        key = (api_key or "").strip() or (getattr(settings, "TELNYX_API_KEY", None) or "").strip()
+        has_req_or_env = bool(key)
 
-    # 3. Fallback to any Telephony connection
+    # 3. If the selected carrier has no creds anywhere, look for ANY other configured/connected carrier
+    if not has_req_or_env and (not tele_conn or not _is_configured(tele_conn)):
+        for c in tele_conns:
+            if _is_configured(c):
+                tele_conn = c
+                carrier_choice = (c.name or "").lower()
+                logger.info(f"Auto-selected configured telephony provider: {c.name}")
+                break
+        else:
+            # Check env vars for other providers
+            if getattr(settings, "TELNYX_API_KEY", None):
+                carrier_choice = "telnyx"
+                tele_conn = next((c for c in tele_conns if "telnyx" in (c.name or "").lower()), None)
+            elif settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
+                carrier_choice = "twilio"
+                tele_conn = next((c for c in tele_conns if "twilio" in (c.name or "").lower()), None)
+
+    # 4. Fallback if still nothing found
     if not tele_conn and tele_conns:
         tele_conn = tele_conns[0]
-
-    # If carrier_choice is still unset, derive from tele_conn
+    if not carrier_choice and tele_conn:
+        carrier_choice = (tele_conn.name or "twilio").lower()
     if not carrier_choice:
-        if tele_conn:
-            name = (tele_conn.name or "").lower()
-            if "twilio" in name:
-                carrier_choice = "twilio"
-            elif "sipgate" in name:
-                carrier_choice = "sipgate"
-            elif "telnyx" in name:
-                carrier_choice = "telnyx"
-            elif "vapi" in name:
-                carrier_choice = "vapi"
-            elif "retell" in name:
-                carrier_choice = "retell"
-            elif "custom" in name or "other" in name:
-                carrier_choice = "custom"
-            else:
-                carrier_choice = name
-        else:
-            carrier_choice = "twilio" if settings.TWILIO_ACCOUNT_SID else "sipgate"
+        carrier_choice = "twilio" if settings.TWILIO_ACCOUNT_SID else "telnyx" if getattr(settings, "TELNYX_API_KEY", None) else "twilio"
 
-    stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
-    try:
-        from app.services.secret_box import open_config
-        stored_cfg = open_config(stored_cfg)
-    except Exception:
-        pass
+    stored_cfg = _get_open_cfg(tele_conn)
     req_sid = (account_sid or "").strip()
     req_token = (api_key or "").strip()
 
-    if req_sid and req_sid.startswith("AC") and len(req_sid) == 34:
-        sid = req_sid
-    else:
-        sid = (stored_cfg.get("account_sid") or "").strip() or None
-
-    if req_token and len(req_token) == 32 and not req_token.startswith("xai-"):
-        token = req_token
-    else:
-        token = (stored_cfg.get("auth_token") or stored_cfg.get("api_key") or "").strip() or None
-
-    if token and token.startswith("xai-"):
-        token = None
-
-    if not sid and settings.TWILIO_ACCOUNT_SID:
-        sid = settings.TWILIO_ACCOUNT_SID.strip()
-    if not token and settings.TWILIO_AUTH_TOKEN:
-        token = settings.TWILIO_AUTH_TOKEN.strip()
-
     if "twilio" in carrier_choice:
+        sid = req_sid if (req_sid.startswith("AC") and len(req_sid) == 34) else (stored_cfg.get("account_sid") or settings.TWILIO_ACCOUNT_SID or "").strip()
+        token = req_token if (req_token and len(req_token) == 32 and not req_token.startswith("xai-")) else (stored_cfg.get("auth_token") or stored_cfg.get("api_key") or settings.TWILIO_AUTH_TOKEN or "").strip()
         if not sid or not token:
             raise ValueError(
                 "Twilio Account SID and Auth Token are required to place real calls. Save them in Connections "
-                "(classic AI config → Voice stack / Direct outbound Expand → Save Credentials)."
+                "(Telephony -> Twilio) or configure Telnyx in Connections if using Telnyx."
             )
         if not sid.startswith("AC") or len(sid) != 34:
-            raise ValueError(
-                f"Twilio Account SID is invalid ({len(sid or '')} chars; expected 34 starting with AC)."
-            )
+            raise ValueError(f"Twilio Account SID is invalid ({len(sid)} chars; expected 34 starting with AC).")
         if len(token) != 32:
-            raise ValueError(
-                f"Twilio Auth Token is invalid ({len(token)} chars; expected 32)."
-            )
-        # Persist so new calling UI + classic share the same server vault (not only browser localStorage).
+            raise ValueError(f"Twilio Auth Token is invalid ({len(token)} chars; expected 32).")
         try:
             await _upsert_telephony_connection(
                 db,
@@ -172,18 +175,41 @@ async def _resolve_carrier_and_creds(
             )
         except Exception as persist_err:
             logger.warning(f"Could not persist Twilio creds to Connections: {persist_err}")
+        credentials = {
+            "account_sid": sid,
+            "api_key": token,
+            "auth_token": token,
+            "carrier": "twilio",
+            "connection_id": stored_cfg.get("connection_id"),
+            "phoneNumber": stored_cfg.get("phoneNumber"),
+        }
+    elif "telnyx" in carrier_choice:
+        telnyx_key = req_token or stored_cfg.get("api_key") or stored_cfg.get("auth_token") or getattr(settings, "TELNYX_API_KEY", None) or ""
+        telnyx_key = str(telnyx_key).strip()
+        if not telnyx_key:
+            raise ValueError(
+                "Telnyx API Key is required to place real calls. Save it in Connections (Telephony -> Telnyx) "
+                "or set TELNYX_API_KEY in your server environment."
+            )
+        credentials = {
+            "api_key": telnyx_key,
+            "auth_token": telnyx_key,
+            "carrier": "telnyx",
+            "connection_id": stored_cfg.get("connection_id") or stored_cfg.get("telnyx_connection_id") or getattr(settings, "TELNYX_CONNECTION_ID", "") or "",
+            "phoneNumber": stored_cfg.get("phoneNumber") or stored_cfg.get("phone") or getattr(settings, "TELNYX_PHONE_NUMBER", "") or "",
+            "phone_number_id": stored_cfg.get("phone_number_id") or stored_cfg.get("phoneNumberId"),
+        }
+    else:
+        # Generic / Sipgate / Vapi / Retell / Custom
+        credentials = {
+            "account_sid": req_sid or stored_cfg.get("account_sid") or "",
+            "api_key": req_token or stored_cfg.get("api_key") or stored_cfg.get("auth_token") or "",
+            "auth_token": req_token or stored_cfg.get("auth_token") or stored_cfg.get("api_key") or "",
+            "carrier": carrier_choice,
+            "connection_id": stored_cfg.get("connection_id") or stored_cfg.get("telnyx_connection_id"),
+            "phoneNumber": stored_cfg.get("phoneNumber"),
+        }
 
-    credentials = {
-        "account_sid": sid,
-        "api_key": token,
-        "auth_token": token,
-        "carrier": carrier_choice,
-        "connection_id": stored_cfg.get("connection_id") or stored_cfg.get("telnyx_connection_id"),
-        "assistant_id": stored_cfg.get("assistant_id") or stored_cfg.get("model"),
-        "agent_id": stored_cfg.get("agent_id") or stored_cfg.get("model"),
-        "phone_number_id": stored_cfg.get("phone_number_id") or stored_cfg.get("phoneNumberId"),
-        "base_url": stored_cfg.get("base_url") or stored_cfg.get("baseUrl"),
-    }
     return carrier_choice, credentials, tele_conn
 
 
