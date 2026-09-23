@@ -729,19 +729,18 @@ async def _telnyx_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, 
 
 
 async def _telnyx_whisper_transcribe(raw_mulaw_frames: bytes, api_key: str, model: str = "openai/whisper-large-v3") -> str:
-    """Transcribes an audio chunk using Telnyx Whisper API."""
-    if not raw_mulaw_frames or len(raw_mulaw_frames) < 1600:
+    """Transcribes an audio chunk using Telnyx Whisper API with minimal latency."""
+    if not raw_mulaw_frames or len(raw_mulaw_frames) < 800:
         return ""
     import io, wave, audioop
     try:
         lin_pcm = audioop.ulaw2lin(raw_mulaw_frames, 2)
-        resampled_pcm, _ = audioop.ratecv(lin_pcm, 2, 1, 8000, 16000, None)
         wav_buf = io.BytesIO()
         with wave.open(wav_buf, "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
-            wf.setframerate(16000)
-            wf.writeframes(resampled_pcm)
+            wf.setframerate(8000)
+            wf.writeframes(lin_pcm)
         wav_bytes = wav_buf.getvalue()
 
         url = "https://api.telnyx.com/v2/ai/audio/transcriptions"
@@ -750,7 +749,7 @@ async def _telnyx_whisper_transcribe(raw_mulaw_frames: bytes, api_key: str, mode
         data = {"model": model or "openai/whisper-large-v3"}
 
         client = _get_tts_client()
-        res = await client.post(url, headers=headers, data=data, files=files, timeout=12.0)
+        res = await client.post(url, headers=headers, data=data, files=files, timeout=8.0)
         if res.status_code == 200:
             return str(res.json().get("text") or "").strip()
         else:
@@ -893,7 +892,7 @@ async def run_modular_pipeline(
             elif telnyx_stt_key:
                 pcm = audioop.ulaw2lin(raw, 2)
                 rms = audioop.rms(pcm, 2)
-                if rms > 320:
+                if rms > 260:
                     speech_buffer.extend(raw)
                     in_speech = True
                     speech_frames_count += 1
@@ -902,8 +901,8 @@ async def run_modular_pipeline(
                     if in_speech:
                         speech_buffer.extend(raw)
                         silence_frames_count += 1
-                        if silence_frames_count >= 18:
-                            if speech_frames_count >= 10:
+                        if silence_frames_count >= 10:  # 200ms silence endpointing
+                            if speech_frames_count >= 6:  # 120ms of speech minimum
                                 chunk = bytes(speech_buffer)
                                 speech_buffer = bytearray()
                                 in_speech = False
