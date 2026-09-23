@@ -729,18 +729,19 @@ async def _telnyx_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, 
 
 
 async def _telnyx_whisper_transcribe(raw_mulaw_frames: bytes, api_key: str, model: str = "openai/whisper-large-v3") -> str:
-    """Transcribes an audio chunk using Telnyx Whisper API with minimal latency."""
-    if not raw_mulaw_frames or len(raw_mulaw_frames) < 800:
+    """Transcribes an audio chunk using Telnyx Whisper API."""
+    if not raw_mulaw_frames or len(raw_mulaw_frames) < 1600:
         return ""
     import io, wave, audioop
     try:
         lin_pcm = audioop.ulaw2lin(raw_mulaw_frames, 2)
+        resampled_pcm, _ = audioop.ratecv(lin_pcm, 2, 1, 8000, 16000, None)
         wav_buf = io.BytesIO()
         with wave.open(wav_buf, "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
-            wf.setframerate(8000)
-            wf.writeframes(lin_pcm)
+            wf.setframerate(16000)
+            wf.writeframes(resampled_pcm)
         wav_bytes = wav_buf.getvalue()
 
         url = "https://api.telnyx.com/v2/ai/audio/transcriptions"
@@ -749,7 +750,7 @@ async def _telnyx_whisper_transcribe(raw_mulaw_frames: bytes, api_key: str, mode
         data = {"model": model or "openai/whisper-large-v3"}
 
         client = _get_tts_client()
-        res = await client.post(url, headers=headers, data=data, files=files, timeout=8.0)
+        res = await client.post(url, headers=headers, data=data, files=files, timeout=12.0)
         if res.status_code == 200:
             return str(res.json().get("text") or "").strip()
         else:
@@ -826,44 +827,32 @@ async def run_modular_pipeline(
 
     # Resolve STT credentials: Check for Deepgram or Telnyx Whisper
     stt = plan.stt
+    # Determine active STT plugin provider
+    stt_provider = (stt.provider if stt else "deepgram").lower().strip()
+    stt_key = (stt.api_key if stt else "").strip()
+    stt_model = (stt.model if stt and stt.model else "").strip()
+
     dg_key = ""
-    if stt and stt.provider == "deepgram" and stt.api_key and not stt.api_key.startswith("KEY"):
-        dg_key = stt.api_key.strip()
-    if not dg_key and getattr(settings, "DEEPGRAM_API_KEY", None):
+    if "deepgram" in stt_provider and stt_key and not stt_key.startswith("KEY"):
+        dg_key = stt_key
+    elif getattr(settings, "DEEPGRAM_API_KEY", None):
         dg_key = settings.DEEPGRAM_API_KEY.strip()
-    if not dg_key:
-        try:
-            async with AsyncSessionLocal() as dg_db:
-                dg_res = await dg_db.execute(
-                    select(Connection).where(
-                        (Connection.group_name == "Speech-to-Text")
-                        & (Connection.name.ilike("%deepgram%"))
-                    )
-                )
-                dg_row = dg_res.scalars().first()
-                if dg_row and dg_row.status == "connected":
-                    from app.services.secret_box import config_get_secret
-                    k = config_get_secret(dg_row.config or {}, "api_key", "apiKey", "auth_token")
-                    if k and not k.startswith("KEY"):
-                        dg_key = k
-        except Exception:
-            pass
 
     telnyx_stt_key = ""
-    if stt and ("telnyx" in (stt.provider or "").lower() or (stt.api_key and stt.api_key.startswith("KEY"))):
-        telnyx_stt_key = stt.api_key.strip()
-    if not telnyx_stt_key and getattr(settings, "TELNYX_API_KEY", None):
+    if "telnyx" in stt_provider or (stt_key and stt_key.startswith("KEY")):
+        telnyx_stt_key = stt_key
+    elif getattr(settings, "TELNYX_API_KEY", None):
         telnyx_stt_key = settings.TELNYX_API_KEY.strip()
-    if not telnyx_stt_key and plan.tts and ("telnyx" in (plan.tts.provider or "").lower() or (plan.tts.api_key and plan.tts.api_key.startswith("KEY"))):
+    elif plan.tts and ("telnyx" in (plan.tts.provider or "").lower() or (plan.tts.api_key and plan.tts.api_key.startswith("KEY"))):
         telnyx_stt_key = plan.tts.api_key.strip()
-    if not telnyx_stt_key and plan.llm and ("telnyx" in (plan.llm.provider or "").lower() or (plan.llm.api_key and plan.llm.api_key.startswith("KEY"))):
+    elif plan.llm and ("telnyx" in (plan.llm.provider or "").lower() or (plan.llm.api_key and plan.llm.api_key.startswith("KEY"))):
         telnyx_stt_key = plan.llm.api_key.strip()
 
     if not dg_key and not telnyx_stt_key:
-        logger.error("[MODULAR] No real-time STT key (Deepgram or Telnyx) found — greeting only")
+        logger.error(f"[MODULAR] No API key found for STT plugin '{stt_provider}' — greeting only")
         return
 
-    # Energy VAD state for Telnyx Whisper chunking
+    # Fast Energy VAD state for chunking (ultra-low 180ms silence endpointing)
     speech_buffer = bytearray()
     in_speech = False
     silence_frames_count = 0
@@ -872,7 +861,7 @@ async def run_modular_pipeline(
 
     async def _process_telnyx_speech_chunk(audio_chunk: bytes):
         nonlocal last_activity_time, silence_nudge_count
-        t_model = (stt.model if stt and stt.model else "openai/whisper-large-v3")
+        t_model = stt_model or "openai/whisper-large-v3"
         txt = await _telnyx_whisper_transcribe(audio_chunk, telnyx_stt_key, t_model)
         if txt and not bridge.closed.is_set():
             logger.info(f"[TELNYX-STT] Caller said: '{txt}'")
@@ -880,19 +869,21 @@ async def run_modular_pipeline(
             silence_nudge_count = 0
             await handle_final(txt)
 
-    # Hook up caller audio handler IMMEDIATELY so inbound audio packets are captured from frame 0
+    # Dynamic caller audio router based on active STT plugin
     async def on_caller(b64: str):
         nonlocal speech_buffer, in_speech, silence_frames_count, speech_frames_count
         try:
             raw = base64.b64decode(b64)
             if not raw:
                 return
+            # If Deepgram WebSocket is active for Deepgram plugin
             if getattr(bridge, "_dg_ws", None):
                 await bridge._dg_ws.send(raw)
+            # If Telnyx STT plugin is active
             elif telnyx_stt_key:
                 pcm = audioop.ulaw2lin(raw, 2)
                 rms = audioop.rms(pcm, 2)
-                if rms > 260:
+                if rms > 300:
                     speech_buffer.extend(raw)
                     in_speech = True
                     speech_frames_count += 1
@@ -901,8 +892,9 @@ async def run_modular_pipeline(
                     if in_speech:
                         speech_buffer.extend(raw)
                         silence_frames_count += 1
-                        if silence_frames_count >= 10:  # 200ms silence endpointing
-                            if speech_frames_count >= 6:  # 120ms of speech minimum
+                        # 9 frames * 20ms = 180ms pause -> immediate speech endpointing
+                        if silence_frames_count >= 9:
+                            if speech_frames_count >= 6:
                                 chunk = bytes(speech_buffer)
                                 speech_buffer = bytearray()
                                 in_speech = False
