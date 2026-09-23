@@ -162,7 +162,7 @@ async def dispatch_vapi_phone_call(
             "firstMessage": first_msg,
             "model": {
                 "provider": "openai",
-                "model": "gpt-4o",
+                "model": "gpt-4o-mini",
                 "messages": [
                     {
                         "role": "system",

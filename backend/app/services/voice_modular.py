@@ -178,10 +178,10 @@ def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[s
         
         words = current.split()
 
-        # Match early first-chunk clause pause (require 4+ words total and at least 3 words before comma)
-        if is_first and len(words) >= 4:
+        # Match early first-chunk clause pause (require 2+ words total)
+        if is_first and len(words) >= 2:
             early_match = re.search(r'([,;:]| — )(\s+)', current)
-            if early_match and len(current[:early_match.start()].split()) >= 3:
+            if early_match and len(current[:early_match.start()].split()) >= 2:
                 end_pos = early_match.end()
                 chunk = current[:end_pos].strip()
                 if chunk:
@@ -190,7 +190,7 @@ def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[s
                 continue
 
         # For subsequent chunks, only split on a mid-sentence clause if >= 14 words
-        clause_threshold = 6 if is_first else 14
+        clause_threshold = 4 if is_first else 14
         if len(words) >= clause_threshold:
             clause_match = re.search(r'([,;:]| — )(\s+)', current)
             if clause_match and clause_match.start() > 8:
@@ -202,8 +202,8 @@ def _split_into_chunks(text_buffer: str, is_first: bool = False) -> tuple[list[s
                 continue
         
         # Space split fallback if buffer is getting long without punctuation:
-        # 6 words for first chunk (if no comma arrived), 16 words for subsequent chunks
-        space_threshold = 6 if is_first else 16
+        # 3 words for first chunk (if no comma arrived), 16 words for subsequent chunks
+        space_threshold = 3 if is_first else 16
         if len(words) >= space_threshold:
             last_space = current.rfind(' ')
             if last_space > 0:
@@ -231,9 +231,12 @@ async def _synthesize_tts_frames(plan: VoicePlan, text: str) -> list[str]:
     voice_hint = (tts.voice_id or plan.voice_name or "rachel").strip()
     raw = b""
     try:
+        use_telnyx = "telnyx" in provider
         use_deepgram = "deepgram" in provider or "aura" in provider
         use_cartesia = "cartesia" in provider or voice_hint.lower() == "sonic" or looks_like_external_voice_id(tts.voice_id) or looks_like_external_voice_id(voice_hint)
-        if use_deepgram and "cartesia" not in provider and "eleven" not in provider:
+        if use_telnyx:
+            raw = await _telnyx_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
+        elif use_deepgram and "cartesia" not in provider and "eleven" not in provider:
             raw = await _deepgram_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
         elif use_cartesia and "eleven" not in provider:
             raw = await _cartesia_ulaw(tts.api_key, voice_hint, clean, tts.voice_id)
@@ -362,10 +365,102 @@ async def _eleven_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, 
     return res.content
 
 
-async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str) -> bytes:
+def _detect_speech_language(text: str, fallback_lang: str = "en") -> str:
+    """
+    Rapid, zero-latency detection of spoken text language.
+    Inspects Unicode character scripts and high-frequency colloquial markers
+    to set Cartesia TTS synthesis language dynamically.
+    """
+    if not text:
+        return fallback_lang or "en"
+
+    # 1. Non-Latin Unicode script checks (100% deterministic)
+    # Devanagari (Hindi, Marathi, Sanskrit)
+    if re.search(r"[\u0900-\u097F]", text):
+        return "hi"
+    # Arabic / Urdu script
+    if re.search(r"[\u0600-\u06FF\u0750-\u077F]", text):
+        return "ar"
+    # Chinese (CJK Unified Ideographs)
+    if re.search(r"[\u4E00-\u9FFF]", text):
+        return "zh"
+    # Japanese (Hiragana / Katakana)
+    if re.search(r"[\u3040-\u309F\u30A0-\u30FF]", text):
+        return "ja"
+    # Korean (Hangul)
+    if re.search(r"[\uAC00-\uD7AF\u1100-\u11FF]", text):
+        return "ko"
+    # Cyrillic (Russian, etc.)
+    if re.search(r"[\u0400-\u04FF]", text):
+        return "ru"
+
+    lower = text.lower()
+    words = set(re.findall(r"\b\w+\b", lower))
+
+    # 2. Hindi / Hinglish Romanized markers
+    hinglish_markers = {
+        "namaste", "namaskar", "haan", "nahin", "nahi", "kaise", "kya", "bhai",
+        "theek", "shukriya", "dhanyawad", "dhanyavad", "karo", "karenge", "karna",
+        "baat", "samajh", "aap", "tum", "mera", "meri", "hum", "accha", "achha",
+        "bahut", "kripya", "chahiye", "boliye", "batao", "bataiye"
+    }
+    if any(w in words for w in hinglish_markers) or "theek hai" in lower or "kya haal" in lower or "kaise ho" in lower:
+        return "hi"
+
+    # 3. Spanish markers
+    spanish_markers = {
+        "hola", "gracias", "por favor", "buenos días", "buenas tardes", "buenas noches",
+        "cómo estás", "cómo está", "estoy", "amigo", "amiga", "señor", "señora",
+        "también", "usted", "mucho", "gusto", "claro", "hablar"
+    }
+    if "¿" in text or "¡" in text or any(m in lower for m in spanish_markers) or any(w in words for w in {"hola", "gracias", "cómo", "está", "estás", "pero", "para", "buenos", "buenas"}):
+        return "es"
+
+    # 4. French markers
+    french_markers = {
+        "bonjour", "salut", "merci", "s'il vous plaît", "comment allez-vous", "ça va",
+        "d'accord", "oui", "bienvenue", "bonne journée", "au revoir"
+    }
+    if any(m in lower for m in french_markers) or any(w in words for w in {"bonjour", "salut", "merci", "plaît", "avec", "vous", "allez", "c'est"}):
+        return "fr"
+
+    # 5. German markers
+    german_markers = {
+        "guten tag", "guten morgen", "guten abend", "danke", "bitte", "wie geht's",
+        "wie geht es", "auf wiedersehen", "tschüss"
+    }
+    if any(m in lower for m in german_markers) or any(w in words for w in {"hallo", "danke", "bitte", "nicht", "sehr", "tschüss"}):
+        return "de"
+
+    # 6. Portuguese markers
+    portuguese_markers = {
+        "olá", "obrigado", "obrigada", "bom dia", "boa tarde", "boa noite",
+        "como vai", "tudo bem", "por favor", "valeu"
+    }
+    if any(m in lower for m in portuguese_markers) or any(w in words for w in {"olá", "obrigado", "obrigada", "você", "está"}):
+        return "pt"
+
+    # 7. Italian markers
+    italian_markers = {
+        "buongiorno", "buonasera", "grazie", "come va", "per favore", "prego",
+        "arriverderci", "va bene"
+    }
+    if any(m in lower for m in italian_markers) or any(w in words for w in {"ciao", "grazie", "buongiorno", "buonasera", "prego"}):
+        return "it"
+
+    if fallback_lang and fallback_lang != "en":
+        english_only_markers = {"the", "is", "are", "would", "could", "should", "what", "which", "there", "about"}
+        if len(words.intersection(english_only_markers)) >= 2:
+            return "en"
+        return fallback_lang
+
+    return "en"
+
+
+async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, language: str = "en") -> bytes:
     vid = _resolve_cartesia_vid(voice_hint, voice_id)
-    # sonic-2 / sonic-turbo / sonic-3
-    model_candidates = ("sonic-2", "sonic-turbo", "sonic-3", "sonic-3.5", "sonic-latest")
+    # sonic-3 / sonic-3.5 / sonic-turbo (sonic-2 sunsetted by Cartesia)
+    model_candidates = ("sonic-3", "sonic-3.5", "sonic-turbo", "sonic-latest")
     last_err: Optional[Exception] = None
     client = _get_tts_client()
     for model_id in model_candidates:
@@ -381,7 +476,7 @@ async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str
                     "model_id": model_id,
                     "transcript": text,
                     "voice": {"mode": "id", "id": vid},
-                    "language": "en",
+                    "language": language,
                     "output_format": {
                         "container": "raw",
                         "encoding": "pcm_mulaw",
@@ -428,7 +523,8 @@ async def _stream_cartesia_frames(
     api_key: str,
     voice_hint: str,
     text: str,
-    voice_id: Optional[str]
+    voice_id: Optional[str],
+    language: str = "en",
 ) -> AsyncGenerator[list[str], None]:
     """
     Streams μ-law audio frames from Cartesia WebSocket as they are generated.
@@ -442,7 +538,7 @@ async def _stream_cartesia_frames(
         context_id = f"ctx_{uuid.uuid4().hex[:12]}"
         req = {
             "context_id": context_id,
-            "model_id": "sonic-2",
+            "model_id": "sonic-3",
             "transcript": text,
             "voice": {
                 "mode": "id",
@@ -453,7 +549,7 @@ async def _stream_cartesia_frames(
                 "encoding": "pcm_mulaw",
                 "sample_rate": 8000,
             },
-            "language": "en",
+            "language": language,
             "continue": False,
         }
         got_any_chunk = False
@@ -493,7 +589,7 @@ async def _stream_cartesia_frames(
 
     # Fallback to REST _cartesia_ulaw
     try:
-        raw = await _cartesia_ulaw(api_key, voice_hint, text, voice_id)
+        raw = await _cartesia_ulaw(api_key, voice_hint, text, voice_id, language=language)
         if raw:
             yield list(_ulaw_frames(raw))
     except Exception as rest_err:
@@ -519,11 +615,19 @@ async def _stream_tts_frames(
     provider = (tts.provider or "elevenlabs").lower()
     voice_hint = (tts.voice_id or plan.voice_name or "rachel").strip()
 
+    session_lang = getattr(bridge, "_current_language", "en")
+    lang = _detect_speech_language(clean, fallback_lang=session_lang)
+    bridge._current_language = lang
+
     use_deepgram = "deepgram" in provider or "aura" in provider
     use_cartesia = "cartesia" in provider or voice_hint.lower() == "sonic" or looks_like_external_voice_id(tts.voice_id) or looks_like_external_voice_id(voice_hint)
 
-    if use_cartesia and "eleven" not in provider:
-        async for frames_batch in _stream_cartesia_frames(bridge, tts.api_key, voice_hint, clean, tts.voice_id):
+    if "telnyx" in provider:
+        raw = await _telnyx_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
+        if raw:
+            yield list(_ulaw_frames(raw))
+    elif use_cartesia and "eleven" not in provider:
+        async for frames_batch in _stream_cartesia_frames(bridge, tts.api_key, voice_hint, clean, tts.voice_id, language=lang):
             if frames_batch:
                 yield frames_batch
     elif use_deepgram and "cartesia" not in provider and "eleven" not in provider:
@@ -551,6 +655,77 @@ async def _deepgram_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str
     )
     res.raise_for_status()
     return res.content
+
+
+TELNYX_DEFAULT_VOICE = "Telnyx.Ultra.fcaed1d0-d7d5-4466-be0b-5a3e1e61a9a5"
+
+def _resolve_telnyx_vid(voice_hint: str, voice_id: Optional[str]) -> str:
+    raw = (voice_id or voice_hint or "").strip()
+    if not raw:
+        return TELNYX_DEFAULT_VOICE
+    if raw.startswith("Telnyx.") or raw.startswith("AWS.") or raw.startswith("Azure.") or raw.startswith("ElevenLabs."):
+        return raw
+    return TELNYX_DEFAULT_VOICE
+
+
+async def _telnyx_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, model: str) -> bytes:
+    """Synthesize speech using Telnyx Text-to-Speech API and transcode to 8kHz mu-law."""
+    import audioop
+    try:
+        import miniaudio
+    except ImportError:
+        miniaudio = None
+
+    url = "https://api.telnyx.com/v2/text-to-speech/speech"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    voice_name = _resolve_telnyx_vid(voice_hint, voice_id)
+    payload = {
+        "text": text,
+        "voice": voice_name,
+        "output_type": "binary_output",
+    }
+    client = _get_tts_client()
+    try:
+        res = await client.post(url, headers=headers, json=payload, timeout=12.0)
+        if res.status_code != 200 and voice_name != TELNYX_DEFAULT_VOICE:
+            logger.warning(f"[TELNYX TTS] Voice {voice_name} failed ({res.status_code}); retrying with default {TELNYX_DEFAULT_VOICE}")
+            payload["voice"] = TELNYX_DEFAULT_VOICE
+            res = await client.post(url, headers=headers, json=payload, timeout=12.0)
+
+        if res.status_code != 200:
+            logger.warning(f"[TELNYX TTS] API error {res.status_code}: {res.text[:200]}")
+            return b""
+        audio_bytes = res.content
+        if not audio_bytes:
+            return b""
+        if miniaudio is not None:
+            decoded = miniaudio.decode(
+                audio_bytes,
+                output_format=miniaudio.SampleFormat.SIGNED16,
+                nchannels=1,
+                sample_rate=8000,
+            )
+            return audioop.lin2ulaw(decoded.samples, 2)
+        else:
+            import io, wave
+            with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+                n_channels = wf.getnchannels()
+                sampwidth = wf.getsampwidth()
+                framerate = wf.getframerate()
+                frames = wf.readframes(wf.getnframes())
+            if n_channels == 2:
+                frames = audioop.tomono(frames, sampwidth, 0.5, 0.5)
+            if sampwidth != 2:
+                frames = audioop.lin2lin(frames, sampwidth, 2)
+            if framerate != 8000:
+                frames, _ = audioop.ratecv(frames, 2, 1, framerate, 8000, None)
+            return audioop.lin2ulaw(frames, 2)
+    except Exception as conv_err:
+        logger.warning(f"[TELNYX TTS] Synthesis/conversion error: {conv_err}")
+        return b""
 
 
 async def _greeting_line(is_inbound: bool, prospect_name: Optional[str]) -> str:
@@ -641,13 +816,37 @@ async def run_modular_pipeline(
         pass
 
     stt = plan.stt
-    if not stt or not stt.api_key:
-        logger.error("[MODULAR] No STT key — greeting only")
+    # Resolve real-time WebSocket STT credentials (prefer Deepgram token for low-latency streaming)
+    dg_key = (stt.api_key if stt and stt.provider == "deepgram" else "") or ""
+    if not dg_key:
+        try:
+            async with AsyncSessionLocal() as dg_db:
+                dg_res = await dg_db.execute(
+                    select(Connection).where(
+                        (Connection.group_name == "Speech-to-Text")
+                        & (Connection.name.ilike("%deepgram%"))
+                    )
+                )
+                dg_row = dg_res.scalars().first()
+                if dg_row and dg_row.status == "connected":
+                    from app.services.secret_box import config_get_secret
+                    dg_key = config_get_secret(dg_row.config or {}, "api_key", "apiKey", "auth_token")
+        except Exception:
+            pass
+    if not dg_key and getattr(settings, "DEEPGRAM_API_KEY", None):
+        dg_key = settings.DEEPGRAM_API_KEY.strip()
+    if not dg_key and stt and stt.api_key:
+        dg_key = stt.api_key.strip()
+
+    if not dg_key:
+        logger.error("[MODULAR] No real-time STT key found — greeting only")
         return
 
-    dg_model = stt.model or "nova-2"
+    dg_model = "nova-2"
+    if stt and stt.model and stt.provider == "deepgram":
+        dg_model = stt.model
     # LiveKit Turn-Taking & Telephony parameters:
-    # 300ms endpointing + smart formatting + keyword boosting for domain, Power BI & email terms
+    # 200ms endpointing + smart formatting + keyword boosting for domain, Power BI & email terms
     dg_params = [
         ("encoding", "mulaw"),
         ("sample_rate", "8000"),
@@ -655,9 +854,10 @@ async def run_modular_pipeline(
         ("model", dg_model),
         ("punctuate", "true"),
         ("smart_format", "true"),
-        ("endpointing", "300"),
+        ("endpointing", "200"),
         ("vad_events", "true"),
         ("interim_results", "true"),
+        ("language", "multi"),
         ("keywords", "PowerBI:5"),
         ("keywords", "Power BI:5"),
         ("keywords", "aivhub.com:5"),
@@ -704,7 +904,10 @@ async def run_modular_pipeline(
         is_speaking = bool(speaking_task and not speaking_task.done())
 
         if not is_system_prompt:
-            # Caller spoke -> reset silence nudge count and update activity timestamp
+            # Caller spoke -> detect language, reset silence nudge count and update activity timestamp
+            user_lang = _detect_speech_language(text, fallback_lang=getattr(bridge, "_current_language", "en"))
+            bridge._current_language = user_lang
+            logger.info(f"[MODULAR] Caller language detected: '{user_lang}' for utterance '{text}'")
             silence_nudge_count = 0
             last_activity_time = time.perf_counter()
 
@@ -890,14 +1093,19 @@ async def run_modular_pipeline(
                 tts_t.cancel()
                 player_t.cancel()
 
+            full_reply = ""
             # Rule 3.1: The Speech Meter — Context Truncation Indexing
             if was_interrupted:
-                spoken_text = _calculate_spoken_text(chunks_synthesized, total_frames_played)
-                full_reply = f"{spoken_text} [interrupted]"
-                last_ai_spoken = spoken_text
-                history.append({"role": "assistant", "content": full_reply})
-                asyncio.create_task(_update_call_transcript(local_id, f"AI: {full_reply}"))
-                logger.info(f"[SPEECH-METER] Call {local_id} interrupted at frame {total_frames_played} (~{round(total_frames_played*0.02, 2)}s). Context truncated to: '{spoken_text}'")
+                if total_frames_played == 0:
+                    logger.info(f"[SPEECH-METER] Call {local_id} cancelled before speech playback began (frame 0).")
+                    full_reply = ""
+                else:
+                    spoken_text = _calculate_spoken_text(chunks_synthesized, total_frames_played)
+                    full_reply = f"{spoken_text} [interrupted]"
+                    last_ai_spoken = spoken_text
+                    history.append({"role": "assistant", "content": full_reply})
+                    asyncio.create_task(_update_call_transcript(local_id, f"AI: {full_reply}"))
+                    logger.info(f"[SPEECH-METER] Call {local_id} interrupted at frame {total_frames_played} (~{round(total_frames_played*0.02, 2)}s). Context truncated to: '{spoken_text}'")
             else:
                 full_reply = "".join(accumulated_reply).strip()
                 if not full_reply:
@@ -1030,7 +1238,7 @@ async def run_modular_pipeline(
     try:
         async with websockets.connect(
             dg_url,
-            additional_headers={"Authorization": f"Token {stt.api_key}"},
+            additional_headers={"Authorization": f"Token {dg_key}"},
             ping_interval=20,
             ping_timeout=15,
         ) as dg:
@@ -1095,15 +1303,6 @@ async def run_modular_pipeline(
                             logger.debug(f"[MODULAR] Deepgram SpeechStarted event received for {call_id}")
                             last_activity_time = time.perf_counter()
                             silence_nudge_count = 0
-                            # Barge-in: If AI is actively speaking, interrupt immediately
-                            if speaking_task and not speaking_task.done():
-                                bridge._barge.set()
-                                speaking_task.cancel()
-                                try:
-                                    from app.websockets.media_stream import media_stream_hub
-                                    asyncio.create_task(media_stream_hub.clear_twilio_audio(call_id))
-                                except Exception:
-                                    pass
                             continue
 
                         # Deepgram Metadata event (session summaries / diagnostics)

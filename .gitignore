@@ -65,3 +65,12 @@ build/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Audio & Recordings
+recordings/
+backend/recordings/
+*.wav
+*.mp3
+*.ogg
+*.flac
+

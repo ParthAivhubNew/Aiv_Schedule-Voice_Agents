@@ -856,6 +856,7 @@ export function CallingWorkspace({
   const [takenId, setTakenId] = useState(null);
   const [endingId, setEndingId] = useState(null);
   const [voiceName, setVoiceName] = useState("ara-uk");
+  const [customVoices, setCustomVoices] = useState([]);
   const [direct, setDirect] = useState({ phone: "", name: "" });
   const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
   const [liveKitTarget, setLiveKitTarget] = useState({ name: "Browser Caller", phone: "Browser WebRTC", company: "" });
@@ -1125,6 +1126,7 @@ export function CallingWorkspace({
     api.getTelephonyHub().then((res) => {
       const vid = res?.voiceName || res?.voice?.voice_id;
       if (vid) setVoiceName(vid);
+      if (Array.isArray(res?.customVoices)) setCustomVoices(res.customVoices);
       const phone = (res?.phoneNumber || "").trim();
       if (phone && setProfile) {
         setProfile((p) => (p && p.callerId ? p : { ...(p || {}), callerId: phone }));
@@ -3407,6 +3409,11 @@ export function CallingWorkspace({
                     <label style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
                       Voice
                       <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} style={{ ...fieldStyle(), marginTop: 6 }}>
+                        {customVoices.map((cv) => (
+                          <option key={cv.voice_id || cv.id} value={cv.voice_id || cv.id}>
+                            ★ {cv.name || cv.voice_id || cv.id} (Cloned Voice)
+                          </option>
+                        ))}
                         <option value="ara-uk">Ara UK (British, female)</option>
                         <option value="eve-uk">Eve UK (British, female)</option>
                         <option value="ara">Ara (female)</option>

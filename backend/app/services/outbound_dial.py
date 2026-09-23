@@ -64,40 +64,50 @@ async def _resolve_carrier_and_creds(
     account_sid: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> tuple[str, Dict[str, Any], Optional[Connection]]:
+    from app.services.voice_plugin_plan import get_active_stack
+    active_stack = get_active_stack()
+
+    if not carrier_choice or carrier_choice in ("default", "auto", ""):
+        carrier_choice = (active_stack.get("carrier") or "").strip().lower()
+
     carrier_choice = (carrier_choice or "").strip().lower()
+
+    # Specifically search connections belonging to the Telephony group
     conn_res = await db.execute(
         select(Connection).where(
-            (Connection.group_name.in_(["Telephony", "Voice Orchestration"]))
-            | (Connection.name.ilike("%twilio%"))
-            | (Connection.name.ilike("%sipgate%"))
-            | (Connection.name.ilike("%telnyx%"))
-            | (Connection.name.ilike("%vapi%"))
-            | (Connection.name.ilike("%retell%"))
+            Connection.group_name == "Telephony"
         )
     )
     tele_conns = conn_res.scalars().all()
     tele_conn = None
+
+    # 1. Look for matching carrier name in Telephony group
     for c in tele_conns:
         if carrier_choice and carrier_choice in (c.name or "").lower():
             tele_conn = c
             break
+
+    # 2. If not found by name, check any connected Telephony provider
     if not tele_conn:
         for c in tele_conns:
             if c.status == "connected":
                 tele_conn = c
                 break
+
+    # 3. Fallback to any Telephony connection
     if not tele_conn and tele_conns:
         tele_conn = tele_conns[0]
 
+    # If carrier_choice is still unset, derive from tele_conn
     if not carrier_choice:
         if tele_conn:
             name = (tele_conn.name or "").lower()
-            if "sipgate" in name:
+            if "twilio" in name:
+                carrier_choice = "twilio"
+            elif "sipgate" in name:
                 carrier_choice = "sipgate"
             elif "telnyx" in name:
                 carrier_choice = "telnyx"
-            elif "twilio" in name:
-                carrier_choice = "twilio"
             elif "vapi" in name:
                 carrier_choice = "vapi"
             elif "retell" in name:
@@ -107,7 +117,7 @@ async def _resolve_carrier_and_creds(
             else:
                 carrier_choice = name
         else:
-            carrier_choice = "sipgate" if settings.SIPGATE_SIP_ID else "twilio"
+            carrier_choice = "twilio" if settings.TWILIO_ACCOUNT_SID else "sipgate"
 
     stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
     try:

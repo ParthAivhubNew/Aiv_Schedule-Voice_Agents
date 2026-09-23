@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -290,7 +290,6 @@ async def lifespan(app: FastAPI):
                     group_name="Text-to-Speech",
                     name="xAI Voice Agent",
                     status="connected" if settings.XAI_API_KEY else "not_configured",
-                    model="xai built-in (rex)",
                     config=seal_config({
                         "api_key": settings.XAI_API_KEY or "",
                         "model": "xai built-in (rex)",
@@ -318,6 +317,33 @@ async def lifespan(app: FastAPI):
                 )
                 init_db.add(xai_vo_conn)
                 await init_db.commit()
+
+            # Ensure standard provider connections exist (Telnyx AI/STT/TTS, Twilio, Deepgram, Cartesia, ElevenLabs, etc.)
+            standard_templates = [
+                ("LLM", "Telnyx AI", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
+                ("Speech-to-Text", "Telnyx Whisper", "openai/whisper-large-v3"),
+                ("Text-to-Speech", "Telnyx Natural (TTS)", "telnyx/natural"),
+                ("Telephony", "Telnyx", ""),
+                ("Speech-to-Text", "Deepgram", "nova-2"),
+                ("Text-to-Speech", "Cartesia", "sonic-3"),
+                ("Text-to-Speech", "ElevenLabs", "eleven_turbo_v2_5"),
+                ("LLM", "DeepSeek", "deepseek-chat"),
+                ("LLM", "OpenAI", "gpt-4o-mini"),
+                ("LLM", "Anthropic (Claude)", "claude-3-5-sonnet-20241022"),
+                ("Telephony", "Twilio", ""),
+            ]
+            for group, name, default_model in standard_templates:
+                res = await init_db.execute(select(Connection).where(Connection.group_name == group, Connection.name == name))
+                if not res.scalars().first():
+                    init_db.add(Connection(
+                        id=f"c_{group.lower()[:3]}_{name.lower().replace(' ', '_').replace('(', '').replace(')', '')}",
+                        group_name=group,
+                        name=name,
+                        status="not_configured",
+                        config={"model": default_model, "provider": name} if default_model else {"provider": name}
+                    ))
+            await init_db.commit()
+
     except Exception as auto_conn_err:
         logger.warning("Auto-configuration of built-in connections skipped: %s", auto_conn_err)
     try:
@@ -412,6 +438,12 @@ app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call
 async def direct_twilio_inbound_fallback(request: Request, db: AsyncSession = Depends(get_db)):
     from app.api.calls import twilio_inbound_voice
     return await twilio_inbound_voice(request, db)
+
+@app.api_route("/api/sip/webhook", methods=["GET", "POST"])
+@app.api_route("/sip/webhook", methods=["GET", "POST"])
+async def direct_sip_webhook_slash_alias(request: Request, background_tasks: BackgroundTasks):
+    from app.api.sip_webhook import handle_xai_sip_webhook
+    return await handle_xai_sip_webhook(request, background_tasks)
 
 
 # WebSocket Endpoint

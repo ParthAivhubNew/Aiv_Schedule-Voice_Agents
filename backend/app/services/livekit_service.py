@@ -253,7 +253,7 @@ async def synthesize_livekit_pcm(text: str) -> Optional[bytes]:
 
         # 1. Cartesia Sonic -> 24kHz raw PCM
         if "cartesia" in provider or vid.startswith("a0e9"):
-            model_candidates = ("sonic-2", "sonic-turbo", "sonic-3", "sonic-latest")
+            model_candidates = ("sonic-3", "sonic-3.5", "sonic-turbo", "sonic-latest")
             async with httpx.AsyncClient(timeout=10.0) as client:
                 for mid in model_candidates:
                     try:

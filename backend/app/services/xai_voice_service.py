@@ -229,6 +229,7 @@ class BridgedVoiceSession:
 
     async def attach_stream(self, stream_sid: Optional[str] = None) -> None:
         self._live = True
+        self._released = True
         await self._flush_if_released()
 
     async def release_to_caller(self) -> None:
@@ -248,10 +249,20 @@ class BridgedVoiceSession:
         self._buf = []
         if chunks:
             logger.info(f"[XAI-BRIDGE] Flushing {len(chunks)} greeting frames onto the live line for {self.call_id}")
+            async def _paced_flush(frames: list[str]):
+                loop_start = time.perf_counter()
+                for idx, chunk in enumerate(frames):
+                    if getattr(self, "_barge", None) and self._barge.is_set():
+                        break
+                    await self._send_to_twilio(chunk)
+                    expected_elapsed = (idx + 1) * 0.020
+                    actual_elapsed = time.perf_counter() - loop_start
+                    sleep_needed = expected_elapsed - actual_elapsed
+                    if sleep_needed > 0.001:
+                        await asyncio.sleep(sleep_needed)
+            asyncio.create_task(_paced_flush(chunks))
         else:
             logger.info(f"[XAI-BRIDGE] No buffered frames to flush for {self.call_id}")
-        for chunk in chunks:
-            await self._send_to_twilio(chunk)
 
     async def push_caller_audio(self, b64: str) -> None:
         if not b64:
@@ -388,9 +399,23 @@ async def start_bridged_voice_session(
 
 
 def get_bridged_session(*ids: Optional[str]) -> Optional[BridgedVoiceSession]:
+    from app.websockets.media_stream import media_stream_hub
     for raw in ids:
-        if raw and str(raw) in bridged_sessions:
-            return bridged_sessions[str(raw)]
+        if not raw:
+            continue
+        s_raw = str(raw)
+        if s_raw in bridged_sessions:
+            return bridged_sessions[s_raw]
+        canonical = media_stream_hub.resolve_canonical(s_raw)
+        if canonical in bridged_sessions:
+            return bridged_sessions[canonical]
+        for alias, c_id in media_stream_hub.alias_map.items():
+            if (alias == s_raw or c_id == s_raw or c_id == canonical) and alias in bridged_sessions:
+                return bridged_sessions[alias]
+            if (alias == s_raw or c_id == s_raw or c_id == canonical) and c_id in bridged_sessions:
+                return bridged_sessions[c_id]
+    if len(bridged_sessions) == 1:
+        return next(iter(bridged_sessions.values()))
     return None
 
 async def notify_xai_takeover_state(call_id: str, taken: bool, recent_transcript: List[str] = None):
@@ -812,6 +837,7 @@ Propose 2-3 concrete times directly from this dictionary when scheduling (never 
 4. EMAIL CAPTURE: Understand spoken phrases ('at the rate', 'at direct' mean '@'; 'dot com' means '.com'). Capture whole address. NEVER spell words letter-by-letter with hyphens (e.g. NEVER output 'P-A-R-T-S').
 5. BARGE-IN & INTERRUPTIONS: If interrupted, immediately address what the caller said. If they say "Hello?" or "Are you there?", acknowledge warmly ("Yes, I'm right here!") and continue.
 6. AUTOMATIC HANGUP: When meeting details are finalized and you say goodbye, or when the caller says goodbye, the call gracefully ends.
+7. DYNAMIC MULTILINGUAL AUTO-SWITCH: Seamlessly detect and respond in whatever language the caller speaks (e.g., English, Hindi, Spanish, French, German, Italian, Portuguese, etc.). If the caller greets or asks questions in Hindi or Hinglish (e.g. 'Namaste', 'Kaise ho', 'Haan boliye'), reply naturally in conversational Hindi/Hinglish. If they speak Spanish, reply in Spanish. If they speak or switch to any other language, mirror their language instantly. If they switch back to English, smoothly switch back to English. Never ask them what language they want to speak — simply mirror their chosen language immediately and naturally.
 """
     return instructions.strip()
 

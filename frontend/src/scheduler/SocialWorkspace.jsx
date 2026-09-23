@@ -2716,7 +2716,7 @@ export function SocialWorkspace({
       messages: history.concat([{ role: "user", content: sendText }]).slice(-12),
       apiKey: creds.apiKey || "",
       provider: creds.provider || "openai",
-      model: creds.model || "gpt-4o",
+      model: creds.model || "gpt-4o-mini",
       baseUrl: creds.baseUrl || "",
       returnPlan: true,
       currentPlan,

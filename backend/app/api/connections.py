@@ -11,7 +11,7 @@ from app.database import get_db
 from app.config import settings
 from app.models.models import Connection, Mission, CallLog, Meeting, Prospect, CompanyProfile
 from app.schemas.schemas import ConnectionSchema
-from app.services.key_validator import validate_api_key
+from app.services.key_validator import validate_api_key, identify_provider
 from app.services.process_logger import log_process_event
 from app.services.secret_box import seal_config, open_config, config_get_secret, public_config, mask_secret, is_masked
 from pydantic import BaseModel
@@ -26,6 +26,10 @@ class TestKeyRequest(BaseModel):
     base_url: Optional[str] = None
     baseUrl: Optional[str] = None
     account_sid: Optional[str] = None
+    accountSid: Optional[str] = None
+    connection_id: Optional[str] = None
+    connectionId: Optional[str] = None
+    phone: Optional[str] = None
     model: Optional[str] = None
     voice_id: Optional[str] = None
     voiceId: Optional[str] = None
@@ -45,6 +49,14 @@ class TestKeyRequest(BaseModel):
     @property
     def resolved_model(self) -> Optional[str]:
         return (self.model or "").strip() or None
+
+    @property
+    def resolved_account_sid(self) -> Optional[str]:
+        return (self.account_sid or self.accountSid or "").strip() or None
+
+    @property
+    def resolved_connection_id(self) -> Optional[str]:
+        return (self.connection_id or self.connectionId or "").strip() or None
 
 @router.get("", response_model=list[dict])
 async def list_connections(db: AsyncSession = Depends(get_db)):
@@ -82,6 +94,8 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
             "model": cfg.get("model") or "",
             "baseUrl": cfg.get("base_url") or "",
             "voiceId": cfg.get("voice_id") or "",
+            "accountSid": cfg.get("account_sid") or cfg.get("phone_id") or "",
+            "phone": cfg.get("phone") or "",
         })
         
     return list(grouped.values())
@@ -104,7 +118,8 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
             for lc in layer_conns.scalars().all():
                 lc_norm = lc.name.lower().replace(" ", "").replace("-", "")
                 if (p_norm in lc_norm or lc_norm in p_norm) or \
-                   ("xai" in p_norm and "xai" in lc_norm) or \
+                   ("telnyx" in p_norm and "telnyx" in lc_norm) or \
+                   (("xai" in p_norm and "telnyx" not in p_norm) and ("xai" in lc_norm and "telnyx" not in lc_norm)) or \
                    ("livekit" in p_norm and "livekit" in lc_norm) or \
                    ("vapi" in p_norm and "vapi" in lc_norm) or \
                    ("retell" in p_norm and "retell" in lc_norm) or \
@@ -112,12 +127,16 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
                    ("eleven" in p_norm and "eleven" in lc_norm) or \
                    ("deepgram" in p_norm and "deepgram" in lc_norm) or \
                    ("twilio" in p_norm and "twilio" in lc_norm) or \
+                   ("whatsapp" in p_norm and "whatsapp" in lc_norm) or \
                    ("cal" in p_norm and "cal" in lc_norm):
                     existing = lc
                     break
         if not existing:
             result = await db.execute(
-                select(Connection).where(Connection.name.ilike(f"%{req.provider}%"))
+                select(Connection).where(
+                    Connection.group_name == req.layer,
+                    Connection.name.ilike(f"%{req.provider}%")
+                )
             )
             existing = result.scalars().first()
         if existing:
@@ -169,7 +188,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         for lc in layer_conns.scalars().all():
             lc_norm = lc.name.lower().replace(" ", "").replace("-", "")
             if (p_norm in lc_norm or lc_norm in p_norm) or \
-               ("xai" in p_norm and "xai" in lc_norm) or \
+               ("telnyx" in p_norm and "telnyx" in lc_norm) or \
+               (("xai" in p_norm and "telnyx" not in p_norm) and ("xai" in lc_norm and "telnyx" not in lc_norm)) or \
                ("livekit" in p_norm and "livekit" in lc_norm) or \
                ("vapi" in p_norm and "vapi" in lc_norm) or \
                ("retell" in p_norm and "retell" in lc_norm) or \
@@ -177,22 +197,31 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
                ("eleven" in p_norm and "eleven" in lc_norm) or \
                ("deepgram" in p_norm and "deepgram" in lc_norm) or \
                ("twilio" in p_norm and "twilio" in lc_norm) or \
+               ("whatsapp" in p_norm and "whatsapp" in lc_norm) or \
                ("cal" in p_norm and "cal" in lc_norm):
                 existing = lc
                 break
     if not existing:
         result = await db.execute(
-            select(Connection).where(Connection.name.ilike(f"%{req.provider}%"))
+            select(Connection).where(
+                Connection.group_name == req.layer,
+                Connection.name.ilike(f"%{req.provider}%")
+            )
         )
         existing = result.scalars().first()
 
     is_retest_existing = False
     if not key or key in ("dummy_configured", "dummy_key") or is_masked(key):
-        if existing:
+        if existing and (existing.name.lower() == req.provider.lower() or identify_provider(existing.name) == identify_provider(req.provider)):
             saved_key = config_get_secret(existing.config, "api_key", "auth_token")
             if saved_key:
                 key = saved_key
                 is_retest_existing = True
+        if not is_retest_existing:
+            raise HTTPException(
+                status_code=400,
+                detail="Please paste your raw API key (masked dots cannot be authenticated)."
+            )
 
     if not key:
         raise HTTPException(
@@ -234,16 +263,30 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     masked = clean_key[:3] + "••••••••" + clean_key[-4:] if len(clean_key) > 8 else "••••••••"
     
     # 4. Save or update connection in database
+    existing_cfg = existing.config if existing and isinstance(existing.config, dict) else {}
+    conn_connection_id = (
+        req.resolved_connection_id
+        or (req.resolved_account_sid if "twilio" not in req.provider.lower() else None)
+        or existing_cfg.get("connection_id")
+    )
+    conn_account_sid = (
+        req.resolved_account_sid
+        or existing_cfg.get("account_sid")
+    )
+    conn_phone = (
+        (req.phone or "").strip()
+        or existing_cfg.get("phone")
+    )
     conn_config = seal_config({
         "api_key": clean_key,
         "auth_token": clean_key,
-        "account_sid": req.account_sid or (existing.config.get("account_sid") if existing and isinstance(existing.config, dict) else None),
+        "account_sid": conn_account_sid,
+        "connection_id": conn_connection_id,
+        "phone": conn_phone,
         "base_url": req.resolved_base_url,
         "provider": req.provider,
-        "model": req.model or (existing.config.get("model") if existing and isinstance(existing.config, dict) else None),
-        "voice_id": req.resolved_voice_id or (
-            existing.config.get("voice_id") if existing and isinstance(existing.config, dict) else None
-        ),
+        "model": req.model or existing_cfg.get("model"),
+        "voice_id": req.resolved_voice_id or existing_cfg.get("voice_id"),
     })
 
     if existing:
@@ -264,8 +307,28 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         )
         db.add(conn)
 
-    await db.commit()
-    
+    if req.resolved_voice_id:
+        try:
+            from app.services.voice_clone import upsert_voice_list
+            orch_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            orch_conn = orch_res.scalars().first()
+            if orch_conn and isinstance(orch_conn.config, dict):
+                o_cfg = open_config(orch_conn.config)
+                prev_v = o_cfg.get("custom_voices") or []
+                new_v = upsert_voice_list(prev_v, {
+                    "voice_id": req.resolved_voice_id,
+                    "id": req.resolved_voice_id,
+                    "name": f"{req.provider} Voice ({req.resolved_voice_id[:8]}...)",
+                    "provider": req.provider.lower(),
+                })
+                o_cfg["custom_voices"] = new_v
+                o_cfg["cloned_voice_id"] = req.resolved_voice_id
+                o_cfg["voice_name"] = req.resolved_voice_id
+                orch_conn.config = seal_config(o_cfg)
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Could not auto-register voice_id in Voice Orchestration: {e}")
+
     if (req.layer or "").lower() == "embeddings" or "embed" in (req.provider or "").lower():
         try:
             from app.services.embedding_service import set_active_embedding_config
@@ -282,6 +345,7 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         "success": True,
         "id": conn_id,
         "provider": req.provider,
+        "voice_id": req.resolved_voice_id or None,
         "layer": req.layer,
         "status": "connected",
         "maskedKey": masked,
@@ -602,16 +666,31 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "carrier": active_carrier,
         "voice": ui_voice,
         "note": live_note,
+        "llmModel": llm_model,
+        "sttModel": stt_model,
+        "ttsModel": tts_model,
     }
 
     custom_voices = list(stored_custom) if isinstance(stored_custom, list) else []
     try:
         from app.services.voice_clone import list_xai_custom_voices, upsert_voice_list, xai_api_key as _xai_key
+        all_conns_res = await db.execute(select(Connection))
+        for tc in all_conns_res.scalars().all():
+            if tc.config and isinstance(tc.config, dict):
+                tc_cfg = open_config(tc.config)
+                vid = (tc_cfg.get("voice_id") or tc_cfg.get("cloned_voice_id") or "").strip()
+                if vid:
+                    custom_voices = upsert_voice_list(custom_voices, {
+                        "voice_id": vid,
+                        "id": vid,
+                        "name": tc_cfg.get("voice_name") or f"{tc.name} Voice ({vid[:8]}...)",
+                        "provider": tc.name.lower(),
+                    })
         remote, _err = await list_xai_custom_voices(_xai_key(engine_conn))
         for v in remote:
             custom_voices = upsert_voice_list(custom_voices, v)
     except Exception as v_err:
-        logger.warning(f"Could not list xAI custom voices: {v_err}")
+        logger.warning(f"Could not list custom voices: {v_err}")
 
     return {
         "activeCarrier": active_carrier,
@@ -707,22 +786,65 @@ async def select_active_stack_endpoint(req: SelectActiveStackRequest, db: AsyncS
 
     if req.tts:
         patch["tts"] = req.tts
+        tts_low = req.tts.lower()
+        if not req.tts_model and not req.model:
+            try:
+                res = await db.execute(select(Connection).where(Connection.group_name == "Text-to-Speech"))
+                tts_conns = res.scalars().all()
+                matched = next((c for c in tts_conns if (c.name and c.name.lower() in tts_low) or (c.id and c.id.lower() in tts_low) or (tts_low in (c.name or "").lower())), None)
+                if matched and isinstance(matched.config, dict) and matched.config.get("model"):
+                    patch["tts_model"] = matched.config.get("model")
+            except Exception:
+                pass
+            if "tts_model" not in patch:
+                if "cartesia" in tts_low or "sonic" in tts_low:
+                    patch["tts_model"] = "sonic-3"
+                elif "telnyx" in tts_low:
+                    patch["tts_model"] = "telnyx/natural"
+                elif "eleven" in tts_low:
+                    patch["tts_model"] = "eleven_turbo_v2_5"
     if req.llm:
         patch["llm"] = req.llm
         llm_low = req.llm.lower()
         if not req.llm_model and not req.model:
-            if "xai" in llm_low or "grok" in llm_low:
-                patch["llm_model"] = "grok-beta"
-            elif "deepseek" in llm_low:
-                patch["llm_model"] = "deepseek-chat"
-            elif "groq" in llm_low:
-                patch["llm_model"] = "llama-3.3-70b-versatile"
-            elif "openai" in llm_low:
-                patch["llm_model"] = "gpt-4o"
-            elif "anthropic" in llm_low or "claude" in llm_low:
-                patch["llm_model"] = "claude-3-5-sonnet-20241022"
+            try:
+                res = await db.execute(select(Connection).where(Connection.group_name == "LLM"))
+                llm_conns = res.scalars().all()
+                matched = next((c for c in llm_conns if (c.name and c.name.lower() in llm_low) or (c.id and c.id.lower() in llm_low) or (llm_low in (c.name or "").lower())), None)
+                if matched and isinstance(matched.config, dict) and matched.config.get("model"):
+                    patch["llm_model"] = matched.config.get("model")
+            except Exception:
+                pass
+            if "llm_model" not in patch:
+                if "xai" in llm_low or "grok" in llm_low:
+                    patch["llm_model"] = "grok-4.20-0309-non-reasoning"
+                elif "telnyx" in llm_low:
+                    patch["llm_model"] = "meta-llama/Meta-Llama-3.1-70B-Instruct"
+                elif "deepseek" in llm_low:
+                    patch["llm_model"] = "deepseek-chat"
+                elif "groq" in llm_low:
+                    patch["llm_model"] = "llama-3.3-70b-versatile"
+                elif "openai" in llm_low:
+                    patch["llm_model"] = "gpt-4o-mini"
+                elif "anthropic" in llm_low or "claude" in llm_low:
+                    patch["llm_model"] = "claude-3-5-sonnet-20241022"
     if req.stt:
         patch["stt"] = req.stt
+        stt_low = req.stt.lower()
+        if not req.stt_model and not req.model:
+            try:
+                res = await db.execute(select(Connection).where(Connection.group_name == "Speech-to-Text"))
+                stt_conns = res.scalars().all()
+                matched = next((c for c in stt_conns if (c.name and c.name.lower() in stt_low) or (c.id and c.id.lower() in stt_low) or (stt_low in (c.name or "").lower())), None)
+                if matched and isinstance(matched.config, dict) and matched.config.get("model"):
+                    patch["stt_model"] = matched.config.get("model")
+            except Exception:
+                pass
+            if "stt_model" not in patch:
+                if "deepgram" in stt_low:
+                    patch["stt_model"] = "nova-2"
+                elif "telnyx" in stt_low or "whisper" in stt_low:
+                    patch["stt_model"] = "openai/whisper-large-v3"
     if req.carrier or req.telephony:
         patch["carrier"] = req.carrier or req.telephony
     if req.llm_model or (req.model and req.llm):
@@ -747,6 +869,21 @@ async def list_cloned_voices(db: AsyncSession = Depends(get_db)):
     )
     conn = await _orchestration_conn(db)
     voices = stored_custom_voices(conn)
+    try:
+        all_conns_res = await db.execute(select(Connection))
+        for tc in all_conns_res.scalars().all():
+            if tc.config and isinstance(tc.config, dict):
+                tc_cfg = open_config(tc.config)
+                vid = (tc_cfg.get("voice_id") or tc_cfg.get("cloned_voice_id") or "").strip()
+                if vid:
+                    voices = upsert_voice_list(voices, {
+                        "voice_id": vid,
+                        "id": vid,
+                        "name": tc_cfg.get("voice_name") or f"{tc.name} Voice ({vid[:8]}...)",
+                        "provider": tc.name.lower(),
+                    })
+    except Exception as e:
+        logger.warning(f"Could not aggregate connection voices: {e}")
     remote, err = await list_xai_custom_voices(xai_api_key(conn))
     for v in remote:
         voices = upsert_voice_list(voices, v)
@@ -896,9 +1033,19 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
             "name": label or vid,
             "provider": provider,
         })
+    if not label or label.lower() == "my voice":
+        label = f"{provider.capitalize()} Voice ({vid[:8]}...)" if len(vid) > 10 else vid
+
     display_label = label or (
         f"{vid}-uk" if accent == "british" and vid in ("ara", "eve", "rex", "leo") else vid
     )
+    if is_clone:
+        voices = upsert_voice_list(voices, {
+            "voice_id": vid,
+            "id": vid,
+            "name": display_label,
+            "provider": provider,
+        })
     await save_orchestration_config(db, {
         "custom_voices": voices,
         "voice_name": vid,
@@ -913,7 +1060,7 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
         tts_res = await db.execute(select(Connection).where(Connection.group_name == "Text-to-Speech"))
         tts_conns = list(tts_res.scalars().all())
         target = None
-        needle = "cartesia" if provider == "cartesia" or ("-" in vid and len(vid) >= 32) else "eleven"
+        needle = "telnyx" if provider == "telnyx" else ("cartesia" if provider == "cartesia" or ("-" in vid and len(vid) >= 32) else "eleven")
         for c in tts_conns:
             name = (c.name or "").lower()
             if needle in name or (provider and provider in name):
@@ -924,25 +1071,20 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
         if target is not None:
             cfg = dict(target.config) if isinstance(target.config, dict) else {}
             cfg["voice_id"] = vid
-            cfg["provider"] = provider if provider in ("cartesia", "elevenlabs") else (
+            cfg["provider"] = provider if provider in ("cartesia", "elevenlabs", "telnyx") else (
                 "cartesia" if "cartesia" in (target.name or "").lower() else cfg.get("provider")
             )
             target.config = seal_config(cfg)
             target.status = "connected"
             await db.commit()
 
-    hybrid_hint = (
-        " With engine=xAI + a Text-to-Speech plugin key, live calls use xAI brain and this clone for TTS."
-        if is_clone
-        else " Builtin xAI voice active — external TTS plugins stay idle until you select a clone Voice ID."
-    )
     return {
         "success": True,
         "voice_id": vid,
         "accent": accent,
         "external_tts": is_clone,
         "voices": voices,
-        "message": f"Active voice set to {display_label}.{hybrid_hint}",
+        "message": f"Active voice set to {display_label}.",
     }
 
 

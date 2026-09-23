@@ -1,10 +1,11 @@
 {
   "engine": "livekit",
   "engine_label": "LiveKit (self-hosted)",
-  "tts": "Cartesia Sonic",
-  "llm": "OpenAI",
-  "stt": "Deepgram",
-  "carrier": "Twilio",
-  "llm_model": "grok-4.20-0309-non-reasoning",
-  "stt_model": "nova-2"
+  "tts": "Telnyx Natural (TTS)",
+  "tts_model": "telnyx/natural",
+  "llm": "Telnyx AI",
+  "llm_model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+  "stt": "Telnyx Whisper",
+  "stt_model": "openai/whisper-large-v3",
+  "carrier": "Twilio"
 }

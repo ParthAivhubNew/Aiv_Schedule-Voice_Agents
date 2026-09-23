@@ -349,6 +349,54 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
         if not api_key:
             raise ValueError("Telnyx API Key must be configured in Connections or Settings.")
 
+        # Auto-discover or auto-create Telnyx Call Control App ID
+        async def _resolve_call_control_app(client: httpx.AsyncClient) -> Optional[str]:
+            pub_url = public_http_base()
+            if not pub_url.startswith("https://") and not pub_url.startswith("http://"):
+                pub_url = "https://agent.aivhub.com"
+
+            # 1. Look for existing Call Control Applications
+            try:
+                cc_res = await client.get(
+                    "https://api.telnyx.com/v2/call_control_applications",
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+                if cc_res.status_code == 200:
+                    cc_list = cc_res.json().get("data") or []
+                    if cc_list and isinstance(cc_list, list) and len(cc_list) > 0:
+                        for app in cc_list:
+                            app_id = str(app.get("id") or "").strip()
+                            if app_id:
+                                logger.info(f"Found existing Telnyx Call Control App: {app_id} ({app.get('application_name')})")
+                                return app_id
+            except Exception as e:
+                logger.warning(f"Could not list call control applications: {e}")
+
+            # 2. Auto-create Call Control Application if none exists
+            try:
+                create_res = await client.post(
+                    "https://api.telnyx.com/v2/call_control_applications",
+                    json={
+                        "application_name": "AIVHub Voice AI",
+                        "webhook_event_url": f"{pub_url}/api/sip-webhook",
+                        "webhook_api_version": "2",
+                    },
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                )
+                if create_res.status_code in (200, 201):
+                    created_app = create_res.json().get("data") or {}
+                    new_id = str(created_app.get("id") or "").strip()
+                    if new_id:
+                        logger.info(f"Auto-created new Telnyx Call Control App: {new_id} with webhook {pub_url}/api/sip-webhook")
+                        return new_id
+            except Exception as e:
+                logger.warning(f"Could not auto-create Telnyx call control application: {e}")
+            return None
+
+        if not connection_id or connection_id.lower() in ("default", "none", "null"):
+            async with httpx.AsyncClient(timeout=8.0) as disc_client:
+                connection_id = (await _resolve_call_control_app(disc_client)) or ""
+
         url = "https://api.telnyx.com/v2/calls"
         meta = metadata or {}
         internal_call_id = str(meta.get("call_id") or "call_outbound")
@@ -356,17 +404,28 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
         payload: Dict[str, Any] = {
             "to": to_clean,
             "from": from_clean,
-            "connection_id": connection_id or "default",
+            "connection_id": connection_id,
             "stream_url": media_stream_url,
             "stream_track": "inbound_track",
             "stream_bidirectional_mode": "rtp",
             "stream_bidirectional_codec": "PCMU",
             "client_state": base64.b64encode(internal_call_id.encode("utf-8")).decode("ascii"),
         }
-        logger.info(f"Dispatching Telnyx stream-bridge outbound: To={to_clean} stream={media_stream_url}")
+        logger.info(f"Dispatching Telnyx stream-bridge outbound: To={to_clean} connection_id={connection_id} stream={media_stream_url}")
 
         async with httpx.AsyncClient(timeout=12.0) as client:
             res = await client.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+            
+            # If rejected due to stream or invalid connection_id (e.g. SIP Trunk ID provided instead of Call Control App ID)
+            if res.status_code == 422 and ("10015" in res.text or "connection_id" in res.text):
+                logger.warning(f"Telnyx rejected connection_id '{connection_id}' (Code 10015). Auto-discovering/creating Call Control App...")
+                fresh_cc_id = await _resolve_call_control_app(client)
+                if fresh_cc_id and fresh_cc_id != connection_id:
+                    connection_id = fresh_cc_id
+                    payload["connection_id"] = connection_id
+                    logger.info(f"Retrying Telnyx outbound call with fresh Call Control App ID: {connection_id}")
+                    res = await client.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+
             if res.status_code not in [200, 201] and "stream" in (res.text or "").lower():
                 logger.warning(f"Telnyx rejected stream attach ({res.status_code}); retrying dial without stream")
                 payload.pop("stream_url", None)
@@ -375,6 +434,7 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
                 payload.pop("stream_bidirectional_codec", None)
                 payload.pop("client_state", None)
                 res = await client.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+                
             if res.status_code in [200, 201]:
                 data = res.json().get("data", {})
                 call_control_id = data.get("call_control_id", f"telnyx_{to_clean[-4:]}")
@@ -388,7 +448,13 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
                     "bridge_sip_uri": bridge_sip_uri
                 }
             else:
-                raise RuntimeError(f"Telnyx Error ({res.status_code}): {res.text[:200]}")
+                err_text = res.text[:250]
+                if "10015" in err_text or "connection_id" in err_text:
+                    raise RuntimeError(
+                        "Telnyx Error (10015): The connection_id must be a 'Call Control Application' ID from Telnyx Portal "
+                        "(Voice → Call Control Applications), not a SIP Trunk Connection ID."
+                    )
+                raise RuntimeError(f"Telnyx Error ({res.status_code}): {err_text}")
 
     async def hangup_call(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> bool:
         creds = credentials or {}

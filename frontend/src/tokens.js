@@ -361,7 +361,7 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
     if (looksClaude && !hasAnthropic && (openaiProv?.apiKey || (schedProv === "openai" && schedKey))) {
       schedProv = "openai";
       schedKey = schedKey || openaiProv?.apiKey;
-      schedModel = "gpt-4o";
+      schedModel = "gpt-4o-mini";
       schedBaseUrl = schedBaseUrl || openaiProv?.baseUrl || "https://api.openai.com/v1";
     }
 
@@ -389,18 +389,18 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
     return {
       apiKey: isMaskedSecret(schedKey) ? "" : (schedKey || ""),
       provider: schedProv || "openai",
-      model: schedModel || "gpt-4o",
+      model: schedModel || "gpt-4o-mini",
       baseUrl: schedBaseUrl || ""
     };
   }
 
   if (!commonAi) {
-    return { apiKey: "", provider: "openai", model: "gpt-4o", baseUrl: "" };
+    return { apiKey: "", provider: "openai", model: "gpt-4o-mini", baseUrl: "" };
   }
 
   let modelName = "";
-  if (pluginType === "leadgen") modelName = commonAi.leadgenLayers?.[featureKey || "researchLlm"] || "DeepSeek-V3";
-  else if (pluginType === "scheduler") modelName = commonAi.schedulerLayers?.[featureKey || "postWriter"] || commonAi.schedulerAi?.model || "gpt-4o";
+  if (pluginType === "leadgen") modelName = commonAi.leadgenLayers?.[featureKey || "researchLlm"] || "deepseek-chat";
+  else if (pluginType === "scheduler") modelName = commonAi.schedulerLayers?.[featureKey || "postWriter"] || commonAi.schedulerAi?.model || "gpt-4o-mini";
   else if (pluginType === "email") modelName = commonAi.emailLayers?.[featureKey || "copywriterLlm"] || "Claude 3.5 Sonnet";
   else if (pluginType === "voice") modelName = commonAi.voiceLayers?.[featureKey || "llm"] || "xAI Grok-2";
 
@@ -463,7 +463,7 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
   return {
     apiKey: isMaskedSecret(resolvedKey) ? "" : resolvedKey,
     provider: provId,
-    model: modelName || "gpt-4o",
+    model: modelName || "gpt-4o-mini",
     baseUrl: provObj?.baseUrl || commonAi?.schedulerAi?.baseUrl || ""
   };
 }

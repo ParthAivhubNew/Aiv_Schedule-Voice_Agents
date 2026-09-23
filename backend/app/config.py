@@ -26,10 +26,10 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_PHONE_NUMBER: Optional[str] = None
     TWILIO_WHATSAPP_NUMBER: Optional[str] = os.getenv("TWILIO_WHATSAPP_NUMBER", None)
-    # Meta WhatsApp Cloud API (Using Facebook Developer provided test/production number)
     WHATSAPP_CLOUD_ACCESS_TOKEN: Optional[str] = os.getenv("WHATSAPP_CLOUD_ACCESS_TOKEN", None)
     WHATSAPP_CLOUD_PHONE_NUMBER_ID: Optional[str] = os.getenv("WHATSAPP_CLOUD_PHONE_NUMBER_ID", "1238965585975808")
     WHATSAPP_CLOUD_WABA_ID: Optional[str] = os.getenv("WHATSAPP_CLOUD_WABA_ID", "1488177123071552")
+    WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "aivhub_whatsapp_webhook_secret")
     # Parallel outbound: operator concurrency is honored up to this cap.
     # CPS gap keeps Twilio/Telnyx from rejecting a burst (default ~1 call/sec).
     OUTBOUND_MAX_CONCURRENCY: int = int(os.getenv("OUTBOUND_MAX_CONCURRENCY", "5"))

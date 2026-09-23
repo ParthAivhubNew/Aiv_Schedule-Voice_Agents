@@ -6,11 +6,11 @@ export function ProviderConfigView({ notifications, setNotifications }) {
   const [activeMode, setActiveMode] = useState("paid"); // "paid" or "oss"
 
   const layers = [
-    { name: "LLM / Brain", paid: "Anthropic Claude 3.5 Sonnet / GPT-4o", oss: "DeepSeek-V3 / DeepSeek-R1" },
-    { name: "Speech-to-Text", paid: "Deepgram Nova-2 (en-GB)", oss: "Faster-Whisper (large-v3-turbo)" },
-    { name: "Text-to-Speech", paid: "Cartesia Sonic / ElevenLabs Flash", oss: "Kokoro-82M (British RP bf_emma)" },
-    { name: "Voice Engine", paid: "Retell AI / Vapi Core", oss: "LiveKit Agents + SIP Gateway" },
-    { name: "Telephony", paid: "Twilio Voice UK DIDs", oss: "Telnyx Wholesale SIP Trunk" },
+    { name: "LLM / Brain", paid: "OpenAI (gpt-4o-mini)", oss: "DeepSeek (deepseek-chat)" },
+    { name: "Speech-to-Text", paid: "Deepgram (nova-2)", oss: "Faster-Whisper (self-hosted)" },
+    { name: "Text-to-Speech", paid: "Cartesia (sonic-3)", oss: "Kokoro (self-hosted)" },
+    { name: "Voice Engine", paid: "LiveKit", oss: "LiveKit (self-hosted)" },
+    { name: "Telephony", paid: "Twilio", oss: "Twilio" },
     { name: "Calendar", paid: "Cal.com Cloud API", oss: "Cal.com Community Edition" },
   ];
 

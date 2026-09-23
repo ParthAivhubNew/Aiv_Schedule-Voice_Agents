@@ -309,9 +309,12 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                 logger.info(f"[MediaStream] Stream started ({protocol}): streamSid={stream_sid}, callSid={call_sid} -> call_id={call_id}")
                 try:
                     from app.services.xai_voice_service import get_bridged_session
-                    sess = get_bridged_session(call_id, call_sid)
+                    canonical_id = media_stream_hub.resolve_canonical(call_id)
+                    sess = get_bridged_session(call_id, canonical_id, call_sid, stream_sid)
                     if sess:
                         await sess.attach_stream(stream_sid)
+                        await sess.release_to_caller()
+                        logger.info(f"[TwilioStream] Attached and released voice bridge for {call_id} (streamSid={stream_sid})")
                 except Exception as bridge_err:
                     logger.warning(f"[TwilioStream] Bridge attach failed: {bridge_err}")
 

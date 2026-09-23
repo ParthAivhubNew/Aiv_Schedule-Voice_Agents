@@ -88,7 +88,7 @@ async def resolve_llm_credentials(
                         "provider": c_prov,
                         "api_key": k,
                         "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
-                        "model": "gpt-4o" if c_prov == "openai" else (mod or cfg.get("model"))
+                        "model": mod or cfg.get("model") or c.model or "gpt-4o-mini"
                     }
 
             # 3. Next check any connection with a non-empty key
@@ -103,18 +103,19 @@ async def resolve_llm_credentials(
                         "provider": c_prov,
                         "api_key": k,
                         "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
-                        "model": "gpt-4o" if c_prov == "openai" else (mod or cfg.get("model"))
+                        "model": mod or cfg.get("model") or c.model or "gpt-4o-mini"
                     }
         except Exception as e:
             logger.warning(f"Failed to query DB for LLM connections: {e}")
 
     # Fallback to standard environment variables
     prov_env_map = {
-        "openai": ("OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4o"),
+        "openai": ("OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4o-mini"),
         "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "deepseek-chat"),
         "anthropic": ("ANTHROPIC_API_KEY", "https://api.anthropic.com/v1", "claude-3-5-sonnet-20241022"),
         "groq": ("GROQ_API_KEY", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-        "xai": ("XAI_API_KEY", "https://api.x.ai/v1", "grok-2-latest"),
+        "xai": ("XAI_API_KEY", "https://api.x.ai/v1", "grok-4.20-0309-non-reasoning"),
+        "telnyx": ("TELNYX_API_KEY", "https://api.telnyx.com/v2/ai", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
     }
 
     if prov in prov_env_map:
@@ -144,7 +145,7 @@ async def resolve_llm_credentials(
         "provider": prov or "openai",
         "api_key": "",
         "base_url": burl or "",
-        "model": mod or "gpt-4o"
+        "model": mod or "gpt-4o-mini"
     }
 
 
@@ -242,6 +243,9 @@ async def call_open_chat_llm(
         "deepseek-r1": "deepseek-reasoner",
         "groq llama 3.3 70b": "llama-3.3-70b-versatile",
         "xai grok-2": "grok-2-latest",
+        "telnyx llama 3.1 70b": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "telnyx llama 3.1 8b": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "telnyx deepseek r1": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
     }
     if norm_model.lower() in friendly_slug_map:
         norm_model = friendly_slug_map[norm_model.lower()]
@@ -255,9 +259,11 @@ async def call_open_chat_llm(
         elif "groq" in resolved_provider:
             norm_model = "llama-3.3-70b-versatile"
         elif "xai" in resolved_provider or "grok" in resolved_provider:
-            norm_model = "grok-2-latest"
+            norm_model = "grok-4.20-0309-non-reasoning"
+        elif "telnyx" in resolved_provider:
+            norm_model = "meta-llama/Meta-Llama-3.1-70B-Instruct"
         else:
-            norm_model = "gpt-4o"
+            norm_model = "gpt-4o-mini"
 
     resolved_model = norm_model
 
@@ -361,9 +367,12 @@ async def _call_openai_compatible(
     elif "groq" in prov:
         endpoint = "https://api.groq.com/openai/v1/chat/completions"
         target_model = model or "llama-3.3-70b-versatile"
-    elif "xai" in prov or "grok" in prov:
+    elif "telnyx" in prov:
+        endpoint = "https://api.telnyx.com/v2/ai/chat/completions"
+        target_model = model or "meta-llama/Meta-Llama-3.1-70B-Instruct"
+    elif ("xai" in prov or "grok" in prov) and "telnyx" not in prov:
         endpoint = "https://api.x.ai/v1/chat/completions"
-        target_model = model or "grok-2-latest"
+        target_model = model or "grok-4.20-0309-non-reasoning"
     elif "gemini" in prov or "google" in prov:
         endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         target_model = model or "gemini-1.5-flash"
@@ -375,7 +384,7 @@ async def _call_openai_compatible(
         target_model = model or "llama3.2"
     else:
         endpoint = "https://api.openai.com/v1/chat/completions"
-        target_model = model or "gpt-4o"
+        target_model = model or "gpt-4o-mini"
 
     headers = {
         "Content-Type": "application/json"
@@ -485,6 +494,9 @@ async def stream_open_chat_llm(
         "deepseek-r1": "deepseek-reasoner",
         "groq llama 3.3 70b": "llama-3.3-70b-versatile",
         "xai grok-2": "grok-2-latest",
+        "telnyx llama 3.1 70b": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "telnyx llama 3.1 8b": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "telnyx deepseek r1": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
     }
     if norm_model.lower() in friendly_slug_map:
         norm_model = friendly_slug_map[norm_model.lower()]
@@ -498,8 +510,10 @@ async def stream_open_chat_llm(
             norm_model = "llama-3.3-70b-versatile"
         elif "xai" in resolved_provider or "grok" in resolved_provider:
             norm_model = "grok-4.20-0309-non-reasoning"
+        elif "telnyx" in resolved_provider:
+            norm_model = "meta-llama/Meta-Llama-3.1-70B-Instruct"
         else:
-            norm_model = "gpt-4o"
+            norm_model = "gpt-4o-mini"
 
     resolved_model = norm_model
 
@@ -612,7 +626,10 @@ async def _stream_openai_compatible(
     elif "groq" in prov:
         endpoint = "https://api.groq.com/openai/v1/chat/completions"
         target_model = model or "llama-3.3-70b-versatile"
-    elif "xai" in prov or "grok" in prov:
+    elif "telnyx" in prov:
+        endpoint = "https://api.telnyx.com/v2/ai/chat/completions"
+        target_model = model or "meta-llama/Meta-Llama-3.1-70B-Instruct"
+    elif ("xai" in prov or "grok" in prov) and "telnyx" not in prov:
         endpoint = "https://api.x.ai/v1/chat/completions"
         target_model = model or "grok-4.20-0309-non-reasoning"
     elif "gemini" in prov or "google" in prov:
@@ -626,7 +643,7 @@ async def _stream_openai_compatible(
         target_model = model or "llama3.2"
     else:
         endpoint = "https://api.openai.com/v1/chat/completions"
-        target_model = model or "gpt-4o"
+        target_model = model or "gpt-4o-mini"
 
     headers = {"Content-Type": "application/json"}
     if api_key:

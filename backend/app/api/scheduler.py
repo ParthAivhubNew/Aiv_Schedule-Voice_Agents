@@ -934,7 +934,7 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
     messages = payload.get("messages") or []
     api_key = (payload.get("apiKey") or payload.get("api_key") or "").strip() or None
     provider = (payload.get("provider") or "openai").strip().lower()
-    model = payload.get("model") or ("gpt-4o" if provider == "openai" else None)
+    model = payload.get("model") or ("gpt-4o-mini" if provider == "openai" else None)
     base_url = payload.get("baseUrl") or payload.get("base_url")
     image_style = payload.get("imageStyle", "modern_saas")
 

@@ -135,44 +135,48 @@ import { LiveKitBrowserCallModal } from "./components/LiveKitBrowserCallModal";
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
 
 const INITIAL_BUILTIN_PROVIDERS = [
-  { id: "xai", name: "xAI (Grok)", type: "llm", badge: "xAI Voice & LPU", status: "not_configured", latencyMs: null, baseUrl: "https://api.x.ai/v1", apiKey: "", phoneNumber: "", agentId: "", models: ["xAI Grok-2", "xAI Grok-beta", "xAI Grok-4.6", "xAI Grok-4.5"] },
-  { id: "deepseek", name: "DeepSeek AI", type: "llm", badge: "Open-Weight Cloud", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepseek.com/v1", apiKey: "", models: ["DeepSeek V4 Flash", "DeepSeek-V3", "DeepSeek-R1"] },
-  { id: "anthropic", name: "Anthropic Claude", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.anthropic.com/v1", apiKey: "", models: ["Claude Sonnet 4.5", "Claude 3.5 Sonnet", "Claude 3.7 Sonnet", "Claude 3.5 Haiku"] },
-  { id: "openai", name: "OpenAI", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.openai.com/v1", apiKey: "", models: ["GPT-4o", "GPT-4o-mini", "o3-mini", "text-embedding-3", "dall-e-3", "dall-e-2"] },
-  { id: "groq", name: "Groq LPU (Ultra-Fast)", type: "llm", badge: "LPU Accelerator", status: "not_configured", latencyMs: null, baseUrl: "https://api.groq.com/openai/v1", apiKey: "", models: ["Groq Llama 3.3 70B", "Groq Llama 3.1 8B", "DeepSeek-R1 Distill Llama 70B"] },
-  { id: "gemini", name: "Google Gemini", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: "", models: ["Gemini 2.0 Flash", "Gemini 1.5 Pro", "Gemini Embedding"] },
+  { id: "xai", name: "xAI (Grok)", type: "llm", badge: "xAI Voice & LPU", status: "not_configured", latencyMs: null, baseUrl: "https://api.x.ai/v1", apiKey: "", phoneNumber: "", agentId: "", models: ["grok-4.20-0309-non-reasoning"] },
+  { id: "deepseek", name: "DeepSeek AI", type: "llm", badge: "Open-Weight Cloud", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepseek.com/v1", apiKey: "", models: ["deepseek-chat"] },
+  { id: "anthropic", name: "Anthropic Claude", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.anthropic.com/v1", apiKey: "", models: ["claude-3-5-sonnet-20241022"] },
+  { id: "openai", name: "OpenAI", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://api.openai.com/v1", apiKey: "", models: ["gpt-4o-mini"] },
+  { id: "groq", name: "Groq LPU (Ultra-Fast)", type: "llm", badge: "LPU Accelerator", status: "not_configured", latencyMs: null, baseUrl: "https://api.groq.com/openai/v1", apiKey: "", models: ["llama-3.3-70b-versatile"] },
+  { id: "gemini", name: "Google Gemini", type: "llm", badge: "Managed API", status: "not_configured", latencyMs: null, baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: "", models: ["gemini-2.0-flash"] },
   { id: "stability", name: "Stability AI", type: "image", badge: "Image Synthesis", status: "not_configured", latencyMs: null, baseUrl: "https://api.stability.ai", apiKey: "", models: ["sdxl-1.0", "sd-1.5"] },
-  { id: "fal", name: "Fal.ai", type: "image", badge: "Fast FLUX / Diffusion", status: "not_configured", latencyMs: null, baseUrl: "https://fal.run", apiKey: "", models: ["fal-ai/flux/schnell", "fal-ai/flux-pro", "fal-ai/flux-realism"] },
+  { id: "fal", name: "Fal.ai", type: "image", badge: "Fast FLUX / Diffusion", status: "not_configured", latencyMs: null, baseUrl: "https://fal.run", apiKey: "", models: ["fal-ai/flux/schnell"] },
   { id: "pollinations", name: "Pollinations AI", type: "image", badge: "Free Built-in FLUX", status: "connected", latencyMs: null, baseUrl: "https://image.pollinations.ai", apiKey: "", models: ["FLUX.1 Schnell", "Flux.1 Dev"] },
-  { id: "cartesia", name: "Cartesia", type: "tts", badge: "Sonic Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.cartesia.ai", apiKey: "", models: ["Cartesia Sonic"] },
-  { id: "ollama", name: "Ollama / Self-Hosted", type: "llm", badge: "100% Private On-Prem", status: "not_configured", latencyMs: null, baseUrl: "http://localhost:11434/v1", apiKey: "", models: ["Ollama Llama 3.2 (Local)", "Ollama Mistral (Local)", "DeepSeek-R1 (Local)", "Ollama nomic-embed (Local)"] },
-  { id: "deepgram", name: "Deepgram", type: "stt", badge: "Managed STT", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepgram.com/v1", apiKey: "", models: ["Deepgram Nova-3", "Deepgram Nova-2"] },
-  { id: "elevenlabs", name: "ElevenLabs", type: "tts", badge: "Managed Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.elevenlabs.io/v1", apiKey: "", models: ["ElevenLabs Turbo", "ElevenLabs Multilingual v2"] },
+  { id: "cartesia", name: "Cartesia", type: "tts", badge: "Sonic Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.cartesia.ai", apiKey: "", models: ["sonic-3"] },
+  { id: "ollama", name: "Ollama / Self-Hosted", type: "llm", badge: "100% Private On-Prem", status: "not_configured", latencyMs: null, baseUrl: "http://localhost:11434/v1", apiKey: "", models: ["llama3.2"] },
+  { id: "deepgram", name: "Deepgram", type: "stt", badge: "Managed STT", status: "not_configured", latencyMs: null, baseUrl: "https://api.deepgram.com/v1", apiKey: "", models: ["nova-2"] },
+  { id: "elevenlabs", name: "ElevenLabs", type: "tts", badge: "Managed Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.elevenlabs.io/v1", apiKey: "", models: ["ElevenLabs Turbo"] },
   { id: "vapi", name: "Vapi Voice AI", type: "voice", badge: "Voice Orchestration", status: "not_configured", latencyMs: null, baseUrl: "https://api.vapi.ai", apiKey: "", models: ["Vapi Orchestrator"] },
   { id: "twilio", name: "Twilio Telephony", type: "telephony", badge: "Carrier", status: "not_configured", latencyMs: null, baseUrl: "https://api.twilio.com", apiKey: "", models: ["Twilio Voice Trunk"] },
+  { id: "telnyx_llm", name: "Telnyx AI", type: "llm", badge: "Telnyx Inference", status: "not_configured", latencyMs: null, baseUrl: "https://api.telnyx.com/v2/ai", apiKey: "", models: ["meta-llama/Meta-Llama-3.1-70B-Instruct"] },
+  { id: "telnyx_stt", name: "Telnyx Whisper", type: "stt", badge: "Managed STT", status: "not_configured", latencyMs: null, baseUrl: "https://api.telnyx.com/v2/ai", apiKey: "", models: ["openai/whisper-large-v3"] },
+  { id: "telnyx_tts", name: "Telnyx Natural (TTS)", type: "tts", badge: "Telnyx Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.telnyx.com/v2/ai", apiKey: "", models: ["telnyx/natural"] },
+  { id: "whatsapp", name: "WhatsApp Cloud API (Meta)", type: "messaging", badge: "Official Meta API", status: "not_configured", latencyMs: null, baseUrl: "https://graph.facebook.com/v20.0", apiKey: "", models: ["WhatsApp Cloud API"] },
 ];
 
 const VOICE_LAYERS = [
-  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI Grok", oss: "DeepSeek V4 Flash", options: [] },
-  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "Cartesia Sonic", oss: "Kokoro (self-hosted)", options: [] },
-  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "xAI", oss: "Faster-Whisper (self-hosted)", options: [] },
-  { key: "voice", label: "Voice Orchestration & Interruption Engine", desc: "Manages audio buffers, turn-taking arbitration, and silence detection", paid: "xAI + cloned TTS (plugin)", oss: "LiveKit (self-hosted)", options: ["xAI + cloned TTS (plugin)", "xAI Grok (speech-to-speech)", "xAI Voice Agent", "OpenAI Realtime", "Vapi Voice AI", "Retell AI", "LiveKit (self-hosted)", "Bland AI"] },
-  { key: "telephony", label: "Telephony Carrier & SIP Trunk", desc: "PSTN inbound numbers, caller ID preservation, and carrier routing", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "xAI Voice Number", "Telnyx", "Plivo", "Vonage"] },
+  { key: "llm", label: "Dialogue & Conversational Reasoning LLM", desc: "Real-time conversation turns, context memory, and objection handling", paid: "xAI (Grok)", oss: "DeepSeek", options: [] },
+  { key: "tts", label: "Text-to-Speech (Ultra-Low Latency)", desc: "Ultra-realistic speech generation with human inflection and natural breath", paid: "Cartesia", oss: "Kokoro (self-hosted)", options: [] },
+  { key: "stt", label: "Speech-to-Text Acoustic Recognition", desc: "Real-time acoustic streaming transcription with noise suppression", paid: "Deepgram", oss: "Faster-Whisper (self-hosted)", options: [] },
+  { key: "voice", label: "Voice Orchestration & Interruption Engine", desc: "Manages audio buffers, turn-taking arbitration, and silence detection", paid: "LiveKit (self-hosted)", oss: "LiveKit (self-hosted)", options: ["LiveKit (self-hosted)", "Vapi Voice AI", "Retell AI"] },
+  { key: "telephony", label: "Telephony Carrier & SIP Trunk", desc: "PSTN inbound numbers, caller ID preservation, and carrier routing", paid: "Twilio", oss: "Telnyx", options: ["Twilio", "Telnyx"] },
 ];
 
 function prettyProvider(raw, fallback) {
   const s = String(raw || "").trim();
   if (!s) return fallback;
   const map = {
-    xai: "xAI Grok (speech-to-speech)",
-    openai: "OpenAI Realtime",
-    groq: "Groq Llama 3.3 70B",
-    anthropic: "Claude 3.5 Sonnet",
-    deepseek: "DeepSeek-V3",
-    deepgram: "Deepgram Nova-3",
-    elevenlabs: "ElevenLabs Turbo",
-    cartesia: "Cartesia Sonic",
-    whisper: "OpenAI Whisper",
+    xai: "xAI (Grok)",
+    openai: "OpenAI",
+    groq: "Groq",
+    anthropic: "Anthropic",
+    deepseek: "DeepSeek",
+    deepgram: "Deepgram",
+    elevenlabs: "ElevenLabs",
+    cartesia: "Cartesia",
+    whisper: "Whisper",
     telnyx: "Telnyx",
     twilio: "Twilio",
   };
@@ -191,10 +195,9 @@ function looksLikeApiKeyNotVoiceId(v) {
 
 function isValidCloneVoiceId(v) {
   const s = String(v || "").trim();
-  if (!s || looksLikeApiKeyNotVoiceId(s)) return false;
-  if (isCartesiaUuid(s)) return true;
-  // ElevenLabs-style ids
-  return /^[A-Za-z0-9]{16,}$/.test(s);
+  if (!s || s.length < 2 || looksLikeApiKeyNotVoiceId(s)) return false;
+  // Valid for Telnyx (e.g. Telnyx.Ultra.cc91c96c-...), Cartesia UUID, ElevenLabs ID, Deepgram, OpenAI, or custom voice slugs
+  return true;
 }
 
 function liveStackLabels(hub) {
@@ -394,29 +397,29 @@ function syncCommonAiWithBackend(prevCommonAi, backendConns, liveHub) {
 }
 
 const LEADGEN_LAYERS = [
-  { key: "researchLlm", label: "Web Search & Account Discovery LLM", desc: "Discovers target accounts matching ICP criteria across sectors", paid: "xAI Grok-2", oss: "Groq Llama 3.3 70B", options: ["xAI Grok-2", "DeepSeek-V3", "Claude 3.5 Sonnet", "GPT-4o", "Gemini 2.0 Flash", "Groq Llama 3.3 70B"] },
-  { key: "extractorLlm", label: "Decision-Maker & Contact Extractor", desc: "Extracts verified names, job titles, and contact signals", paid: "xAI Grok-2", oss: "Ollama Llama 3.2 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "GPT-4o-mini", "DeepSeek-V3", "Claude 3.5 Sonnet", "Ollama Llama 3.2 (Local)"] },
+  { key: "researchLlm", label: "Web Search & Account Discovery LLM", desc: "Discovers target accounts matching ICP criteria across sectors", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
+  { key: "extractorLlm", label: "Decision-Maker & Contact Extractor", desc: "Extracts verified names, job titles, and contact signals", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
   { key: "enrichmentEngine", label: "Live Web & Domain Crawler", desc: "Performs real-time scraping of company websites and news", paid: "DuckDuckGo Live + Crawler", oss: "Direct Domain Scraping", options: ["DuckDuckGo Live + Crawler", "Direct Domain Scraping", "Google Custom Search"] },
-  { key: "dossierSynth", label: "Pain-Point & Strategic Hook Synthesizer", desc: "Synthesizes intelligence into conversation openers and cold hooks", paid: "xAI Grok-2", oss: "DeepSeek-V3", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "DeepSeek-V3", "GPT-4o", "Groq Llama 3.3 70B"] },
-  { key: "intentScoring", label: "Autonomous ICP & Intent Fit Scorer", desc: "Calculates account priority and purchase readiness scores", paid: "xAI Grok-2", oss: "Groq Llama 3.3 70B", options: ["xAI Grok-2", "DeepSeek-V3", "GPT-4o-mini", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet"] },
+  { key: "dossierSynth", label: "Pain-Point & Strategic Hook Synthesizer", desc: "Synthesizes intelligence into conversation openers and cold hooks", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
+  { key: "intentScoring", label: "Autonomous ICP & Intent Fit Scorer", desc: "Calculates account priority and purchase readiness scores", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
 ];
 
 const LOCAL_BGE_EMBEDDINGS = "BAAI/bge-small-en-v1.5 (local CPU)";
 
 const SCHEDULER_LAYERS = [
-  { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "xAI Grok-2", oss: "Ollama Llama 3.2 (Local)", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "GPT-4o", "Groq Llama 3.3 70B", "DeepSeek-V3", "Ollama Llama 3.2 (Local)"] },
-  { key: "topicResearch", label: "Topic Research & Trend Discovery", desc: "Monitors industry trends to formulate timely editorial hooks", paid: "xAI Grok-2", oss: "Gemini 2.0 Flash", options: ["xAI Grok-2", "Gemini 2.0 Flash", "GPT-4o", "Claude 3.5 Sonnet", "DeepSeek-V3"] },
+  { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
+  { key: "topicResearch", label: "Topic Research & Trend Discovery", desc: "Monitors industry trends to formulate timely editorial hooks", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
   { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "Pollinations FLUX (Free)", oss: "Pollinations FLUX", options: ["Pollinations FLUX (Free)", "OpenAI DALL-E 3", "Stability SDXL", "Fal.ai FLUX.1 Pro", "Custom Image API"] },
-  { key: "chatPlanner", label: "Plan Chat Editorial Assistant", desc: "Refines campaign concepts and schedules interactively", paid: "xAI Grok-2", oss: "DeepSeek-R1 (Local)", options: ["xAI Grok-2", "Groq Llama 3.3 70B", "Claude 3.5 Sonnet", "GPT-4o-mini", "DeepSeek-R1 (Local)"] },
+  { key: "chatPlanner", label: "Plan Chat Editorial Assistant", desc: "Refines campaign concepts and schedules interactively", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
   { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Generates 384-dimensional vector embeddings for website crawls, voice RAG, and knowledge retrieval.", paid: LOCAL_BGE_EMBEDDINGS, oss: LOCAL_BGE_EMBEDDINGS, options: [LOCAL_BGE_EMBEDDINGS, "text-embedding-3-small (OpenAI)", "all-MiniLM-L6-v2 (local FastEmbed)", "nomic-embed-text (Ollama)", "text-embedding-3-large (OpenAI)"] },
 ];
 
 const EMAIL_LAYERS = [
-  { key: "copywriterLlm", label: "Outreach Copywriter & Sequencer", desc: "Drafts concise, high-converting B2B cold email sequences", paid: "xAI Grok-2", oss: "Groq Llama 3.3 70B", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B", "Gemini 2.0 Flash"] },
-  { key: "replyClassifier", label: "Inbound Reply Classifier & Sentiment", desc: "Categorizes inbound emails into Interested, Objections, or Not Now", paid: "xAI Grok-2", oss: "GPT-4o-mini", options: ["xAI Grok-2", "DeepSeek-V3", "GPT-4o-mini", "Claude 3.5 Sonnet", "Groq Llama 3.3 70B"] },
-  { key: "replyDrafter", label: "Context-Aware Auto-Response Drafter", desc: "Generates tailored responses to inbound client inquiries", paid: "xAI Grok-2", oss: "DeepSeek-V3", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
-  { key: "spamAuditor", label: "Deliverability & Spam Auditor", desc: "Scans copy for trigger phrases to ensure high inbox delivery", paid: "AIV Spam Guard v2", oss: "DeepSeek-V3", options: ["AIV Spam Guard v2", "GPT-4o-mini", "DeepSeek-V3"] },
-  { key: "contentTransformer", label: "Social Post-to-Email Repurposer", desc: "Transforms published social posts into broadcast emails", paid: "xAI Grok-2", oss: "DeepSeek-V3", options: ["xAI Grok-2", "Claude 3.5 Sonnet", "GPT-4o", "DeepSeek-V3", "Groq Llama 3.3 70B"] },
+  { key: "copywriterLlm", label: "Outreach Copywriter & Sequencer", desc: "Drafts concise, high-converting B2B cold email sequences", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
+  { key: "replyClassifier", label: "Inbound Reply Classifier & Sentiment", desc: "Categorizes inbound emails into Interested, Objections, or Not Now", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
+  { key: "replyDrafter", label: "Context-Aware Auto-Response Drafter", desc: "Generates tailored responses to inbound client inquiries", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
+  { key: "spamAuditor", label: "Deliverability & Spam Auditor", desc: "Scans copy for trigger phrases to ensure high inbox delivery", paid: "AIV Spam Guard v2", oss: "deepseek-chat", options: ["AIV Spam Guard v2", "gpt-4o-mini", "deepseek-chat"] },
+  { key: "contentTransformer", label: "Social Post-to-Email Repurposer", desc: "Transforms published social posts into broadcast emails", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
 ];
 
 const INITIAL_COMMON_AI_CONFIG = {
@@ -454,9 +457,9 @@ const INITIAL_COMMON_AI_CONFIG = {
 
   // Future plugin definitions
   futurePlugins: [
-    { id: "leadHunter", name: "CRM Lead Hunter", icon: Search, reqs: "1 Research LLM + 1 Web Data Extractor", assigned: { researchLlm: "xAI Grok-2", extractor: "Groq Llama 3.3 70B" }, status: "ready" },
-    { id: "emailOutreach", name: "Cold Email Sequencer", icon: Mail, reqs: "1 Copywriter LLM + 1 Spam Classifier", assigned: { writerLlm: "xAI Grok-2", classifier: "GPT-4o-mini" }, status: "ready" },
-    { id: "supportBot", name: "24/7 Tier-1 Helpdesk Bot", icon: Bot, reqs: "1 Fast Low-Latency LLM + Knowledge RAG", assigned: { botLlm: "xAI Grok-2", rag: LOCAL_BGE_EMBEDDINGS }, status: "ready" },
+    { id: "leadHunter", name: "CRM Lead Hunter", icon: Search, reqs: "1 Research LLM + 1 Web Data Extractor", assigned: { researchLlm: "grok-4.20-0309-non-reasoning", extractor: "gpt-4o-mini" }, status: "ready" },
+    { id: "emailOutreach", name: "Cold Email Sequencer", icon: Mail, reqs: "1 Copywriter LLM + 1 Spam Classifier", assigned: { writerLlm: "grok-4.20-0309-non-reasoning", classifier: "gpt-4o-mini" }, status: "ready" },
+    { id: "supportBot", name: "24/7 Tier-1 Helpdesk Bot", icon: Bot, reqs: "1 Fast Low-Latency LLM + Knowledge RAG", assigned: { botLlm: "deepseek-chat", rag: LOCAL_BGE_EMBEDDINGS }, status: "ready" },
   ],
 
   // Master Subscription & Token Quota (Live database metrics populated on load)
@@ -1082,7 +1085,7 @@ const CONNECTIONS = [
     { name: "Groq", status: "not_configured" },
     { name: "DeepSeek", status: "not_configured" },
     { name: "Anthropic (Claude)", status: "not_configured" },
-    { name: "OpenAI (GPT-4o)", status: "not_configured" },
+    { name: "OpenAI", status: "not_configured" },
   ]},
   { group: "Speech-to-Text", desc: "Turns the prospect's spoken voice into text the AI can understand.", items: [
     { name: "Deepgram", status: "not_configured" },
@@ -1104,7 +1107,6 @@ const CONNECTIONS = [
   { group: "Telephony", desc: "Places and receives the actual phone calls.", items: [
     { name: "xAI Voice Number", status: "not_configured" },
     { name: "Twilio", status: "not_configured" },
-    { name: "Telnyx", status: "not_configured" },
   ]},
   { group: "Messaging", desc: "Sends automated confirmations and follow-ups via WhatsApp and SMS.", items: [
     { name: "WhatsApp Cloud API (Meta)", status: "not_configured" },
@@ -6802,12 +6804,13 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 /* ---------------------------------- connections & key validator ---------------------------------- */
 
 const FAMOUS_PROVIDERS_BY_LAYER = {
-  "LLM": ["xAI (Grok-2 / Grok-4)", "DeepSeek", "OpenAI (GPT-4o)", "Anthropic (Claude 3.5 Sonnet)", "Groq", "Mistral", "Together AI", "Other (Custom Base URL)"],
-  "Speech-to-Text": ["Deepgram (Nova-2)", "Faster-Whisper (Self-Hosted)", "OpenAI Whisper", "Gladia", "Speechmatics", "Other (Custom Base URL)"],
-  "Text-to-Speech": ["ElevenLabs", "Cartesia (Sonic)", "PlayHT", "Kokoro-82M (Self-Hosted)", "Other (Custom Base URL)"],
+  "LLM": ["Telnyx AI", "xAI (Grok)", "DeepSeek", "OpenAI", "Anthropic", "Groq", "Mistral", "Together AI", "Other (Custom Base URL)"],
+  "Speech-to-Text": ["Deepgram", "Telnyx Whisper", "Faster-Whisper (Self-Hosted)", "OpenAI Whisper", "Gladia", "Speechmatics", "Other (Custom Base URL)"],
+  "Text-to-Speech": ["Cartesia", "ElevenLabs", "Telnyx Natural (TTS)", "Deepgram Aura", "PlayHT", "Kokoro-82M (Self-Hosted)", "Other (Custom Base URL)"],
   "Telephony": ["Twilio", "Telnyx", "Plivo", "SIP Trunk (Custom)", "Other (Custom Base URL)"],
+  "Messaging": ["WhatsApp Cloud API (Meta)", "Twilio WhatsApp", "Other (Custom Base URL)"],
   "Calendar": ["Cal.com (Self-Hosted)", "Cal.com (Cloud)", "Google Calendar", "Microsoft Outlook", "Other (Custom Base URL)"],
-  "Voice Orchestration": ["xAI Realtime Voice (Direct SIP)", "OpenAI Realtime API", "LiveKit (Self-Hosted)", "Retell AI", "Vapi", "Other (Custom Base URL)"],
+  "Voice Orchestration": ["LiveKit (Self-Hosted)", "xAI Voice Agent", "Vapi", "Retell AI", "OpenAI Realtime API", "Other (Custom Base URL)"],
   "Business Discovery": ["Apollo.io", "LeadMagic", "Google Places API", "Other (Custom Base URL)"],
   "Other": ["Other (Custom Base URL)"]
 };
@@ -6819,22 +6822,44 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
   );
   const [customName, setCustomName] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [accountSid, setAccountSid] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [showPhoneField, setShowPhoneField] = useState(false);
 
   const [testing, setTesting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
   const isOther = providerChoice.startsWith("Other") || category === "Other";
-  const isTwilio = providerChoice === "Twilio";
+  const isTwilio = providerChoice === "Twilio" || providerChoice.includes("Twilio");
   const isTelnyx = providerChoice.toLowerCase().includes("telnyx");
+  const isWhatsApp = providerChoice.toLowerCase().includes("whatsapp") || category === "Messaging";
   const isTts = category === "Text-to-Speech";
-  const [phoneNumber, setPhoneNumber] = useState("");
   const providerList = FAMOUS_PROVIDERS_BY_LAYER[category] || ["Other (Custom Base URL)"];
 
+  const getModelPlaceholder = (cat, prov) => {
+    if (prov.includes("Telnyx AI") || (cat === "LLM" && prov.includes("Telnyx"))) return "meta-llama/Meta-Llama-3.1-70B-Instruct";
+    if (prov.includes("Telnyx Whisper") || (cat === "Speech-to-Text" && prov.includes("Telnyx"))) return "openai/whisper-large-v3";
+    if (prov.includes("Telnyx Natural") || (cat === "Text-to-Speech" && prov.includes("Telnyx"))) return "telnyx/natural";
+    if (prov.includes("DeepSeek")) return "deepseek-chat";
+    if (prov.includes("OpenAI") && cat === "LLM") return "gpt-4o-mini";
+    if (prov.includes("OpenAI") && cat === "Speech-to-Text") return "whisper-1";
+    if (prov.includes("Anthropic")) return "claude-3-5-sonnet-20241022";
+    if (prov.includes("xAI") || prov.includes("Grok")) return "grok-4.20-0309-non-reasoning";
+    if (prov.includes("Groq")) return "llama-3.3-70b-versatile";
+    if (prov.includes("Deepgram") && cat === "Speech-to-Text") return "nova-2";
+    if (prov.includes("Deepgram") && cat === "Text-to-Speech") return "aura-asteria-en";
+    if (prov.includes("Cartesia")) return "sonic-3";
+    if (prov.includes("ElevenLabs")) return "eleven_turbo_v2_5";
+    if (cat === "LLM") return "e.g. meta-llama/Meta-Llama-3.1-70B-Instruct";
+    if (cat === "Speech-to-Text") return "e.g. nova-2, openai/whisper-large-v3";
+    if (cat === "Text-to-Speech") return "e.g. sonic-3, telnyx/natural";
+    return "e.g. model-id-or-slug";
+  };
 
   const handleCategoryChange = (cat) => {
     setCategory(cat);
@@ -6842,6 +6867,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
     setProviderChoice(firstChoice);
     setErrorMsg("");
     setSuccessMsg("");
+    setShowPhoneField(false);
   };
 
   const handleTestAndSave = async (e) => {
@@ -6864,6 +6890,11 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
       return;
     }
 
+    if (isWhatsApp && !accountSid.trim()) {
+      setErrorMsg("WhatsApp Cloud API requires your Meta Phone Number ID.");
+      return;
+    }
+
     setTesting(true);
 
     const effProviderName = isOther ? (customName.trim() || "Custom Provider") : providerChoice.split(" (")[0];
@@ -6876,6 +6907,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
         api_key: apiKey.trim(),
         base_url: baseUrl.trim() || undefined,
         account_sid: accountSid.trim() || undefined,
+        model: model.trim() || undefined,
         voice_id: isTts && voiceId.trim() ? voiceId.trim() : undefined,
       });
 
@@ -6894,6 +6926,9 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
           status: "connected",
           key: apiKey.trim(),
           masked: res.maskedKey,
+          model: model.trim() || undefined,
+          baseUrl: baseUrl.trim() || undefined,
+          voiceId: isTts && voiceId.trim() ? voiceId.trim() : undefined,
           phoneNumber: phoneNumber.trim() || undefined,
         });
         onClose();
@@ -6907,7 +6942,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 480, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
+      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk, display: "flex", alignItems: "center", gap: 8 }}>
             <KeyRound size={18} color={C.cobalt} /> Add & Validate Provider Key
@@ -6963,6 +6998,41 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
             </div>
           )}
 
+          {/* Model Name / Slug */}
+          {(category === "LLM" || category === "Speech-to-Text" || category === "Text-to-Speech" || category === "Voice Orchestration" || isOther) && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  {category === "LLM" ? "Model Name / Slug" : category === "Speech-to-Text" ? "STT Model / Engine" : category === "Text-to-Speech" ? "TTS Voice / Model" : "Model Identifier (Optional)"}
+                </label>
+                {(category === "LLM" || category === "Speech-to-Text" || category === "Text-to-Speech") && (
+                  <span
+                    style={{ fontSize: 11, color: C.cobalt, cursor: "pointer", fontWeight: 600 }}
+                    onClick={() => setModel(getModelPlaceholder(category, providerChoice))}
+                    title="Click to fill recommended default model"
+                  >
+                    Auto-fill default
+                  </span>
+                )}
+              </div>
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder={getModelPlaceholder(category, providerChoice)}
+                style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
+              />
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                {category === "LLM"
+                  ? "Specify the model to run for conversational reasoning (e.g. meta-llama/Meta-Llama-3.1-70B-Instruct for Telnyx AI)."
+                  : category === "Speech-to-Text"
+                  ? "Acoustic model for speech recognition (e.g. openai/whisper-large-v3, nova-2)."
+                  : category === "Text-to-Speech"
+                  ? "Voice model synthesis engine (e.g. telnyx/natural, sonic-3)."
+                  : "Model or engine identifier required by this endpoint."}
+              </div>
+            </div>
+          )}
+
           {/* Twilio SID */}
           {isTwilio && (
             <div>
@@ -6978,7 +7048,44 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
             </div>
           )}
 
-          {isTelnyx && (
+          {/* WhatsApp Phone Number ID */}
+          {isWhatsApp && (
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                WhatsApp Phone Number ID
+              </label>
+              <input
+                value={accountSid}
+                onChange={(e) => setAccountSid(e.target.value)}
+                placeholder="e.g. 1238965585975808 (15-digit ID from Meta Dev App)"
+                style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
+              />
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                Found in Meta for Developers &gt; WhatsApp &gt; API Setup &gt; Phone number ID.
+              </div>
+            </div>
+          )}
+
+          {/* WhatsApp Registered Phone Number */}
+          {isWhatsApp && (
+            <div>
+              <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                WhatsApp Registered Phone Number
+              </label>
+              <input
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="e.g. +44... or +1..."
+                style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
+              />
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                The verified WhatsApp Business phone number used to send/receive messages.
+              </div>
+            </div>
+          )}
+
+          {/* Telnyx Telephony Outbound Phone Number (Direct for Telephony layer) */}
+          {isTelnyx && category === "Telephony" && (
             <div>
               <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
                 Telnyx Outbound Phone Number
@@ -6995,17 +7102,47 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
             </div>
           )}
 
+          {/* Telnyx Phone Number Optional Accordion Dropdown (for LLM / STT / TTS) */}
+          {isTelnyx && category !== "Telephony" && (
+            <div style={{ border: `1px dashed ${C.border}`, borderRadius: 8, padding: "10px 12px", background: "#FAF9F6" }}>
+              <button
+                type="button"
+                onClick={() => setShowPhoneField(!showPhoneField)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: C.cobalt, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, padding: 0, display: "flex", alignItems: "center", gap: 4 }}
+              >
+                {showPhoneField ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {showPhoneField ? "Hide Telnyx Outbound Caller ID" : "Attach Outbound Phone Number (Optional)"}
+              </button>
+              {showPhoneField && (
+                <div style={{ marginTop: 8 }}>
+                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>
+                    Telnyx Outbound Phone Number
+                  </label>
+                  <input
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="e.g. +44... or +1..."
+                    style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, background: "#fff" }}
+                  />
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
+                    Optional: Save as your outbound Caller ID when dialing via Telnyx.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* API Key */}
           <div>
             <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
-              {isTwilio ? "Auth Token" : isTelnyx ? "Telnyx API V2 Key" : "API Key / Token"}
+              {isTwilio ? "Auth Token" : isTelnyx ? "Telnyx API V2 Key" : isWhatsApp ? "Meta WhatsApp Access Token (EAAG...)" : "API Key / Token"}
             </label>
             <div style={{ position: "relative", width: "100%" }}>
               <input
                 type={showApiKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => { setApiKey(e.target.value); setErrorMsg(""); setSuccessMsg(""); }}
-                placeholder={isTelnyx ? "KEY018..." : providerChoice.includes("DeepSeek") ? "sk-..." : providerChoice.includes("OpenAI") ? "sk-proj-..." : providerChoice.includes("Deepgram") ? "Token..." : "Paste API key..."}
+                placeholder={isTelnyx ? "KEY018..." : isWhatsApp ? "EAAG..." : providerChoice.includes("DeepSeek") ? "sk-..." : providerChoice.includes("OpenAI") ? "sk-proj-..." : providerChoice.includes("Deepgram") ? "Token..." : "Paste API key..."}
                 style={{ width: "100%", boxSizing: "border-box", height: 38, padding: "0 38px 0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
               />
               <button
@@ -7881,11 +8018,10 @@ function QuickSwitchModelModal({
 
   const groupName = groupMap[layerKey] || layerName || "LLM";
 
-  // Build model and provider options strictly from connected/saved items in DB + built-ins
+  // Build model and provider options from all configured/registered items in DB + built-ins + standard options
   const options = useMemo(() => {
-    const groupItems = (connections.find((g) => g.group === groupName)?.items || []).filter(
-      (it) => it.status === "connected" || (it.apiKeyMasked && it.apiKeyMasked.length > 0)
-    );
+    const rawGroupItems = connections.find((g) => g.group === groupName)?.items || [];
+    const groupItems = rawGroupItems;
 
     if (layerKey === "engine") {
       return [
@@ -7932,124 +8068,79 @@ function QuickSwitchModelModal({
         { id: "leo", label: "Leo (Direct Male)", desc: "Authoritative, clear business speaker", value: "leo", badge: "Engine Persona", isBuiltIn: true },
         { id: "sal", label: "Sal (Smooth Neutral)", desc: "Calm, reassuring voice profile", value: "sal", badge: "Engine Persona", isBuiltIn: true },
       ];
-      const customClones = (Array.isArray(hubData?.customVoices) ? hubData.customVoices : []).map((cv) => ({
-        id: cv.id || cv.voice_id,
-        label: `${cv.name || "Custom Clone"} (Cloned Voice)`,
-        desc: `Custom voice profile · ID: ${cv.id || cv.voice_id}`,
-        value: cv.id || cv.voice_id,
-        badge: "Cloned Voice",
-      }));
+      const seenVids = new Set();
+      const customClones = [];
+      (Array.isArray(hubData?.customVoices) ? hubData.customVoices : []).forEach((cv) => {
+        const vid = cv.id || cv.voice_id;
+        if (vid && !seenVids.has(vid)) {
+          seenVids.add(vid);
+          customClones.push({
+            id: vid,
+            label: `${cv.name || "Custom Clone"} (Cloned Voice)`,
+            desc: `Custom voice profile · ID: ${vid}`,
+            value: vid,
+            badge: "Cloned Voice",
+          });
+        }
+      });
+      (connections || []).forEach((group) => {
+        (group.items || []).forEach((item) => {
+          const vid = item.voiceId || item.config?.voice_id;
+          if (vid && isValidCloneVoiceId(vid) && !seenVids.has(vid)) {
+            seenVids.add(vid);
+            customClones.push({
+              id: vid,
+              label: `${item.name} (${vid.slice(0, 8)}...)`,
+              desc: `Saved in Connections (${item.name}) · ID: ${vid}`,
+              value: vid,
+              badge: `${item.name} Clone`,
+            });
+          }
+        });
+      });
       return [...customClones, ...builtin];
     }
 
     if (layerKey === "llm") {
       const res = [];
+      const seenProviders = new Set();
       groupItems.forEach((c) => {
-        const cLower = (c.name || "").toLowerCase();
-        if (cLower.includes("deepseek")) {
+        const modelName = (c.model || (c.name.toLowerCase().includes("telnyx") ? "meta-llama/Meta-Llama-3.1-70B-Instruct" : c.name.toLowerCase().includes("deepseek") ? "deepseek-chat" : c.name.toLowerCase().includes("openai") ? "gpt-4o-mini" : c.name.toLowerCase().includes("anthropic") ? "claude-3-5-sonnet-20241022" : "")).trim();
+        const providerTitle = c.name || "LLM";
+        seenProviders.add(providerTitle.toLowerCase());
+        const isConnected = c.status === "connected" || (c.apiKeyMasked && c.apiKeyMasked.length > 0);
+        res.push({
+          id: c.id,
+          provider: providerTitle,
+          label: modelName ? `${providerTitle} (${modelName})` : providerTitle,
+          desc: `${providerTitle} · Model: ${modelName || "Default"}`,
+          badge: isConnected ? (modelName || "Connected") : "Needs Key",
+          value: providerTitle,
+          model: modelName,
+          isConnected,
+        });
+      });
+
+      // Default standard templates if not already present
+      const standardLlms = [
+        { name: "Telnyx AI", model: "meta-llama/Meta-Llama-3.1-70B-Instruct" },
+        { name: "OpenAI", model: "gpt-4o-mini" },
+        { name: "DeepSeek", model: "deepseek-chat" },
+        { name: "Anthropic (Claude)", model: "claude-3-5-sonnet-20241022" },
+        { name: "xAI (Grok)", model: "grok-4.20-0309-non-reasoning" },
+        { name: "Groq", model: "llama-3.3-70b-versatile" },
+      ];
+      standardLlms.forEach((sl) => {
+        if (!seenProviders.has(sl.name.toLowerCase()) && ![...seenProviders].some((p) => p.includes(sl.name.toLowerCase()) || sl.name.toLowerCase().includes(p))) {
           res.push({
-            id: `${c.id}_chat`,
-            provider: "DeepSeek",
-            label: "DeepSeek (deepseek-chat V3)",
-            desc: "Ultra-fast response, smart conversational context & instant calendar slotting.",
-            badge: "Fast & Smart",
-            value: "DeepSeek",
-            model: "deepseek-chat",
-          });
-          res.push({
-            id: `${c.id}_reasoner`,
-            provider: "DeepSeek",
-            label: "DeepSeek Reasoner (R1)",
-            desc: "Deep reasoning & multi-step objection handling.",
-            badge: "Reasoning",
-            value: "DeepSeek",
-            model: "deepseek-reasoner",
-          });
-        } else if (cLower.includes("groq")) {
-          res.push({
-            id: `${c.id}_llama70`,
-            provider: "Groq",
-            label: "Groq (llama-3.3-70b-versatile)",
-            desc: "Sub-150ms token generation for ultra-low latency turns.",
-            badge: "Ultra-Fast 70B",
-            value: "Groq",
-            model: "llama-3.3-70b-versatile",
-          });
-          res.push({
-            id: `${c.id}_llama8`,
-            provider: "Groq",
-            label: "Groq (llama-3.1-8b-instant)",
-            desc: "Highest speed 8B model for simple qualification calls.",
-            badge: "Lightning 8B",
-            value: "Groq",
-            model: "llama-3.1-8b-instant",
-          });
-        } else if (cLower.includes("openai")) {
-          res.push({
-            id: `${c.id}_4o`,
-            provider: "OpenAI",
-            label: "OpenAI (gpt-4o)",
-            desc: "Flagship multimodal intelligence & natural conversational flow.",
-            badge: "Flagship",
-            value: "OpenAI",
-            model: "gpt-4o",
-          });
-          res.push({
-            id: `${c.id}_4omini`,
-            provider: "OpenAI",
-            label: "OpenAI (gpt-4o-mini)",
-            desc: "High-speed, cost-effective conversational model.",
-            badge: "Fast",
-            value: "OpenAI",
-            model: "gpt-4o-mini",
-          });
-        } else if (cLower.includes("anthropic") || cLower.includes("claude")) {
-          res.push({
-            id: `${c.id}_sonnet`,
-            provider: "Anthropic",
-            label: "Anthropic (Claude 3.5 Sonnet)",
-            desc: "Nuanced, high-EQ dialogue with advanced persuasion.",
-            badge: "High EQ",
-            value: "Anthropic",
-            model: "claude-3-5-sonnet-20241022",
-          });
-        } else if (cLower.includes("xai") || cLower.includes("grok")) {
-          res.push({
-            id: `${c.id}_grok4_fast`,
-            provider: "xAI (Grok)",
-            label: "xAI Grok 4 (grok-4.20-0309-non-reasoning)",
-            desc: "Fastest non-reasoning Grok-4 model for low-latency voice.",
-            badge: "Fast Voice",
-            value: "xAI (Grok)",
-            model: "grok-4.20-0309-non-reasoning",
-          });
-          res.push({
-            id: `${c.id}_grok4_3`,
-            provider: "xAI (Grok)",
-            label: "xAI Grok 4.3 (grok-4.3)",
-            desc: "Balanced intelligence and conversational speed.",
-            badge: "Balanced",
-            value: "xAI (Grok)",
-            model: "grok-4.3",
-          });
-          res.push({
-            id: `${c.id}_grok4_5`,
-            provider: "xAI (Grok)",
-            label: "xAI Grok 4.5 (grok-4.5)",
-            desc: "Advanced conversational reasoning from xAI.",
-            badge: "Advanced",
-            value: "xAI (Grok)",
-            model: "grok-4.5",
-          });
-        } else {
-          res.push({
-            id: c.id,
-            provider: c.name,
-            label: `${c.name}${c.model ? ` (${c.model})` : ""}`,
-            desc: `Saved provider connection (${c.baseUrl || "Default endpoint"})`,
-            badge: "Connected",
-            value: c.name,
-            model: c.model,
+            id: `std_llm_${sl.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+            provider: sl.name,
+            label: `${sl.name} (${sl.model})`,
+            desc: `Standard LLM · Model: ${sl.model}`,
+            badge: sl.model,
+            value: sl.name,
+            model: sl.model,
+            isConnected: false,
           });
         }
       });
@@ -8058,46 +8149,39 @@ function QuickSwitchModelModal({
 
     if (layerKey === "stt") {
       const res = [];
+      const seenProviders = new Set();
       groupItems.forEach((c) => {
-        const cLower = (c.name || "").toLowerCase();
-        if (cLower.includes("deepgram")) {
+        const modelName = (c.model || (c.name.toLowerCase().includes("deepgram") ? "nova-2" : c.name.toLowerCase().includes("telnyx") ? "openai/whisper-large-v3" : "")).trim();
+        const providerTitle = c.name || "STT";
+        seenProviders.add(providerTitle.toLowerCase());
+        const isConnected = c.status === "connected" || (c.apiKeyMasked && c.apiKeyMasked.length > 0);
+        res.push({
+          id: c.id,
+          provider: providerTitle,
+          label: modelName ? `${providerTitle} (${modelName})` : providerTitle,
+          desc: `${providerTitle} · Model: ${modelName || "Default"}`,
+          badge: isConnected ? (modelName || "Connected") : "Needs Key",
+          value: providerTitle,
+          model: modelName,
+          isConnected,
+        });
+      });
+
+      const standardStts = [
+        { name: "Deepgram", model: "nova-2" },
+        { name: "Telnyx Whisper", model: "openai/whisper-large-v3" },
+      ];
+      standardStts.forEach((st) => {
+        if (!seenProviders.has(st.name.toLowerCase()) && ![...seenProviders].some((p) => p.includes(st.name.toLowerCase()) || st.name.toLowerCase().includes(p))) {
           res.push({
-            id: `${c.id}_nova2`,
-            provider: "Deepgram",
-            label: "Deepgram Nova-2 (Telephony Optimized)",
-            desc: "Sub-200ms real-time audio transcription with acoustic noise filtering.",
-            badge: "Recommended",
-            value: "Deepgram",
-            model: "nova-2",
-          });
-          res.push({
-            id: `${c.id}_nova3`,
-            provider: "Deepgram",
-            label: "Deepgram Nova-3",
-            desc: "Next-gen accuracy for accented speakers and noisy environments.",
-            badge: "Next-Gen",
-            value: "Deepgram",
-            model: "nova-3",
-          });
-        } else if (cLower.includes("openai") || cLower.includes("whisper")) {
-          res.push({
-            id: `${c.id}_whisper`,
-            provider: "OpenAI",
-            label: "OpenAI Whisper",
-            desc: "High-accuracy multilingual speech transcription.",
-            badge: "Accurate",
-            value: "OpenAI Whisper",
-            model: "whisper-1",
-          });
-        } else {
-          res.push({
-            id: c.id,
-            provider: c.name,
-            label: `${c.name}${c.model ? ` (${c.model})` : ""}`,
-            desc: `Saved STT provider connection`,
-            badge: "Connected",
-            value: c.name,
-            model: c.model,
+            id: `std_stt_${st.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+            provider: st.name,
+            label: `${st.name} (${st.model})`,
+            desc: `Standard STT · Model: ${st.model}`,
+            badge: st.model,
+            value: st.name,
+            model: st.model,
+            isConnected: false,
           });
         }
       });
@@ -8106,47 +8190,43 @@ function QuickSwitchModelModal({
 
     if (layerKey === "tts") {
       const res = [];
+      const seenProviders = new Set();
       groupItems.forEach((c) => {
         const cLower = (c.name || "").toLowerCase();
-        if (cLower.includes("cartesia")) {
+        const modelName = (c.model || (cLower.includes("cartesia") ? "sonic-3" : cLower.includes("telnyx") ? "telnyx/natural" : cLower.includes("eleven") ? "eleven_turbo_v2_5" : "")).trim();
+        const providerTitle = c.name || "TTS";
+        seenProviders.add(providerTitle.toLowerCase());
+        const isConnected = c.status === "connected" || (c.apiKeyMasked && c.apiKeyMasked.length > 0);
+        res.push({
+          id: c.id,
+          provider: providerTitle,
+          label: modelName ? `${providerTitle} (${modelName})` : providerTitle,
+          desc: `${providerTitle} · ${c.voiceId ? `Voice: ${c.voiceId}` : "Voice persona"}`,
+          badge: isConnected ? (modelName || "Connected") : "Needs Key",
+          value: providerTitle,
+          voiceId: c.voiceId,
+          model: modelName,
+          isConnected,
+        });
+      });
+
+      const standardTts = [
+        { name: "Cartesia", model: "sonic-3" },
+        { name: "Telnyx Natural (TTS)", model: "telnyx/natural" },
+        { name: "ElevenLabs", model: "eleven_turbo_v2_5" },
+        { name: "Deepgram Aura", model: "aura-asteria-en" },
+      ];
+      standardTts.forEach((st) => {
+        if (!seenProviders.has(st.name.toLowerCase()) && ![...seenProviders].some((p) => p.includes(st.name.toLowerCase()) || st.name.toLowerCase().includes(p))) {
           res.push({
-            id: `${c.id}_sonic`,
-            provider: "Cartesia",
-            label: "Cartesia Sonic (Ultra-Low Latency ~90ms)",
-            desc: "Instant sentence-level μ-law synthesis with sub-100ms voice output.",
-            badge: "Ultra-Fast (90ms)",
-            value: "Cartesia Sonic",
-            voiceId: c.voiceId,
-          });
-        } else if (cLower.includes("eleven")) {
-          res.push({
-            id: `${c.id}_turbo`,
-            provider: "ElevenLabs",
-            label: "ElevenLabs Turbo v2.5",
-            desc: "High fidelity lifelike speech with natural human inflection.",
-            badge: "High Fidelity",
-            value: "ElevenLabs Turbo",
-            voiceId: c.voiceId,
-          });
-        } else if (cLower.includes("deepgram")) {
-          res.push({
-            id: `${c.id}_aura`,
-            provider: "Deepgram Aura",
-            label: "Deepgram Aura",
-            desc: "Low-latency conversational voice synthesis.",
-            badge: "Low Latency",
-            value: "Deepgram Aura",
-            voiceId: c.voiceId,
-          });
-        } else {
-          res.push({
-            id: c.id,
-            provider: c.name,
-            label: `${c.name}${c.voiceId ? ` (Voice: ${c.voiceId.slice(0, 8)}…)` : ""}`,
-            desc: `Saved TTS provider connection`,
-            badge: "Connected",
-            value: c.name,
-            voiceId: c.voiceId,
+            id: `std_tts_${st.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+            provider: st.name,
+            label: `${st.name} (${st.model})`,
+            desc: `Standard TTS · Model: ${st.model}`,
+            badge: st.model,
+            value: st.name,
+            model: st.model,
+            isConnected: false,
           });
         }
       });
@@ -8163,16 +8243,20 @@ function QuickSwitchModelModal({
 
     if (layerKey === "telephony") {
       const res = [];
+      const seenProviders = new Set();
       groupItems.forEach((c) => {
         const cLower = (c.name || "").toLowerCase();
+        seenProviders.add(cLower);
+        const isConnected = c.status === "connected" || (c.apiKeyMasked && c.apiKeyMasked.length > 0);
         if (cLower.includes("telnyx")) {
           res.push({
             id: c.id,
             provider: "Telnyx",
             label: "Telnyx (SIP Trunking)",
             desc: "High-throughput SIP trunking for low-latency bidirectional telephony.",
-            badge: "SIP Trunk",
+            badge: isConnected ? "SIP Trunk" : "Needs Key",
             value: "Telnyx",
+            isConnected,
           });
         } else if (cLower.includes("twilio")) {
           res.push({
@@ -8180,8 +8264,9 @@ function QuickSwitchModelModal({
             provider: "Twilio",
             label: "Twilio (Voice & Media Streams)",
             desc: "Reliable global PSTN carrier with WebSocket bi-directional streaming.",
-            badge: "Media Stream",
+            badge: isConnected ? "Media Stream" : "Needs Key",
             value: "Twilio",
+            isConnected,
           });
         } else {
           res.push({
@@ -8189,11 +8274,35 @@ function QuickSwitchModelModal({
             provider: c.name,
             label: c.name,
             desc: "Saved telephony carrier connection",
-            badge: "Connected",
+            badge: isConnected ? "Connected" : "Needs Key",
             value: c.name,
+            isConnected,
           });
         }
       });
+
+      if (!seenProviders.has("twilio")) {
+        res.push({
+          id: "std_twilio",
+          provider: "Twilio",
+          label: "Twilio (Voice & Media Streams)",
+          desc: "Reliable global PSTN carrier with WebSocket bi-directional streaming.",
+          badge: "Media Stream",
+          value: "Twilio",
+          isConnected: false,
+        });
+      }
+      if (!seenProviders.has("telnyx")) {
+        res.push({
+          id: "std_telnyx",
+          provider: "Telnyx",
+          label: "Telnyx (SIP Trunking)",
+          desc: "High-throughput SIP trunking for low-latency bidirectional telephony.",
+          badge: "SIP Trunk",
+          value: "Telnyx",
+          isConnected: false,
+        });
+      }
       return res;
     }
 
@@ -8201,7 +8310,7 @@ function QuickSwitchModelModal({
       id: c.id,
       label: c.name,
       desc: c.model ? `Model: ${c.model}` : "Connected Provider",
-      badge: "Connected",
+      badge: c.status === "connected" ? "Connected" : "Configured",
       value: c.name,
     }));
   }, [layerKey, groupName, connections, hubData]);
@@ -8221,15 +8330,13 @@ function QuickSwitchModelModal({
       return curVoice === v || (opt.id && curVoice === opt.id.toLowerCase());
     }
     if (layerKey === "llm") {
-      // If the option has a specific model (e.g. deepseek-chat vs deepseek-reasoner, llama-3.3-70b vs llama-3.1-8b)
       if (m) {
         if (curModel) return curModel === m;
-        // Default to flagship model if model is not explicitly set
         if (curLlm.includes("deepseek")) return m === "deepseek-chat";
         if (curLlm.includes("groq")) return m === "llama-3.3-70b-versatile";
-        if (curLlm.includes("openai")) return m === "gpt-4o";
+        if (curLlm.includes("openai")) return m === "gpt-4o-mini";
         if (curLlm.includes("anthropic")) return m === "claude-3-5-sonnet-20241022";
-        if (curLlm.includes("xai")) return m === "grok-2-latest";
+        if (curLlm.includes("xai") || curLlm.includes("grok")) return m.includes("grok");
         return curLlm.includes(m);
       }
       return curLlm === v || curLlm.includes(v);
@@ -8461,12 +8568,30 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
   const hybrid = !!hubData?.externalTts;
   const xaiLike = engine === "xai" || engine === "openai";
 
+  const resolveModel = (key) => {
+    if (key === "llm") {
+      return hubData?.llmModel || hubData?.liveLabels?.llmModel || hubData?.liveLabels?.llm_model || (modular ? "gpt-4o-mini" : "");
+    }
+    if (key === "stt") {
+      return hubData?.sttModel || hubData?.liveLabels?.sttModel || hubData?.liveLabels?.stt_model || (modular ? "nova-2" : "");
+    }
+    if (key === "tts") {
+      return hubData?.ttsModel || hubData?.liveLabels?.ttsModel || hubData?.liveLabels?.tts_model || (modular || hybrid ? "sonic-3" : "");
+    }
+    if (key === "telephony") {
+      return hubData?.phoneNumber || "";
+    }
+    return "";
+  };
+
   const rows = [
     {
       key: "telephony",
       title: "Phone",
       layer: "Telephony",
       value: labels.carrier || hubData?.activeCarrier || "—",
+      model: resolveModel("telephony"),
+      isPhone: true,
       ok: !!(hubData?.activeCarrier || hubData?.phoneNumber),
       hint: "Twilio, Telnyx, or SIP",
       needPlugin: true,
@@ -8485,6 +8610,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       title: "Listen (STT)",
       layer: "Speech-to-Text",
       value: modular ? labels.stt : (xaiLike ? "Inside engine" : labels.stt),
+      model: resolveModel("stt"),
       ok: modular ? !!(hubData?.sttProvider || hubData?.sttName) : true,
       hint: modular ? "Deepgram, Whisper, …" : "Bundled — no separate plugin",
       needPlugin: true,
@@ -8494,6 +8620,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       title: "Think (LLM)",
       layer: "LLM",
       value: modular ? labels.llm : (xaiLike ? "Inside engine" : labels.llm),
+      model: resolveModel("llm"),
       ok: modular ? !!(hubData?.llmProvider || hubData?.llmName) : true,
       hint: modular ? "Groq, OpenAI, Grok chat, …" : "Bundled — no separate plugin",
       needPlugin: true,
@@ -8509,6 +8636,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
           : engine === "openai"
             ? `OpenAI (${hubData?.voiceName || "alloy"})`
             : labels.tts),
+      model: resolveModel("tts"),
       ok: modular || hybrid ? !!(hubData?.ttsProvider || hubData?.ttsName) : true,
       hint: hybrid || modular ? "Cartesia, ElevenLabs, PlayHT, Other…" : "Using engine voice — Add TTS only to clone",
       needPlugin: true,
@@ -8570,8 +8698,32 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
               <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.textInk }}>{r.title}</div>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>{r.hint}</div>
             </div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.ink, wordBreak: "break-all" }}>
-              {r.value}
+            <div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.ink, wordBreak: "break-all", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span>{r.value}</span>
+                {r.model && !String(r.value || "").toLowerCase().includes(String(r.model || "").toLowerCase()) && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      padding: "2px 8px",
+                      borderRadius: 6,
+                      background: r.isPhone ? "#F1F5F9" : "#EFF6FF",
+                      border: `1px solid ${r.isPhone ? "#CBD5E1" : "#BFDBFE"}`,
+                      color: r.isPhone ? "#334155" : "#1D4ED8",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      fontFamily: FONT_MONO,
+                      letterSpacing: "0.01em",
+                    }}
+                    title={r.isPhone ? `Line Number: ${r.model}` : `Active Model: ${r.model}`}
+                  >
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: r.isPhone ? "#64748B" : "#2563EB" }} />
+                    {r.model}
+                  </span>
+                )}
+              </div>
               {r.recommend && (
                 <span style={{ display: "block", fontSize: 11, fontWeight: 500, color: "#B45309", marginTop: 2 }}>
                   Tip: add TTS plugin + Voice ID for your clone
@@ -8673,7 +8825,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [voiceName, setVoiceName] = useState(cached?.voiceName || "84cc42cf-0831-49cc-a60c-b681dbb2180f");
   const [speakMode, setSpeakMode] = useState("clone"); // builtin | clone
   const [customVoices, setCustomVoices] = useState(cached?.customVoices || []);
-  const [cloneName, setCloneName] = useState("My voice");
+  const [cloneName, setCloneName] = useState("");
   const [pasteVoiceId, setPasteVoiceId] = useState("");
   const [cloneMsg, setCloneMsg] = useState("");
   const [cloneErr, setCloneErr] = useState("");
@@ -8901,32 +9053,48 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const linkPastedVoice = async () => {
     const vid = pasteVoiceId.trim();
     if (!vid) {
-      setCloneErr("Paste a Cartesia Voice UUID (xxxxxxxx-xxxx-…), not the API key.");
+      setCloneErr("Please paste a Voice ID or model identifier (e.g. Telnyx, Cartesia, ElevenLabs).");
       return;
     }
     if (looksLikeApiKeyNotVoiceId(vid)) {
-      setCloneErr("That is an API key. Save it under Connections → Cartesia. Here paste only the Voice UUID from Cartesia → Voices.");
+      setCloneErr("That is an API key. Save it under Connections. Here paste only the Voice ID / Model slug.");
       return;
     }
     if (!isValidCloneVoiceId(vid)) {
-      setCloneErr("Voice ID must be a Cartesia UUID (with dashes) or an ElevenLabs voice id.");
+      setCloneErr("Invalid Voice ID format. Please check your provider's voice model identifier.");
       return;
     }
     setCloning(true);
     setCloneErr("");
     try {
       const looksUuid = isCartesiaUuid(vid);
-      let provider = looksUuid ? "cartesia" : (vid.length >= 16 ? "elevenlabs" : "custom");
+      const vLow = vid.toLowerCase();
+      const lLow = (cloneName || "").toLowerCase();
+      let provider = "custom";
+      if (vLow.includes("telnyx") || lLow.includes("telnyx")) {
+        provider = "telnyx";
+      } else if (looksUuid || lLow.includes("cartesia")) {
+        provider = "cartesia";
+      } else if (vLow.includes("eleven") || lLow.includes("eleven") || vid.length >= 16) {
+        provider = "elevenlabs";
+      } else if (vLow.includes("deepgram") || lLow.includes("deepgram") || vLow.includes("aura")) {
+        provider = "deepgram";
+      } else if (vLow.includes("openai") || lLow.includes("openai")) {
+        provider = "openai";
+      }
+      const effectiveLabel = cloneName.trim() || (provider === "telnyx" ? "Telnyx Natural" : provider === "cartesia" ? "Cartesia Voice" : vid);
       const res = await api.selectVoice({
         voice_id: vid,
-        label: cloneName.trim() || vid,
+        label: effectiveLabel,
         provider,
       });
       setVoiceName(vid);
       setSpeakMode("clone");
       if (res.voices) setCustomVoices(res.voices);
-      setCloneMsg(res.message || `Clone linked (${provider}). Active voice set.`);
+      setCloneMsg(`✓ Active voice set to ${res.voice_name || effectiveLabel}`);
+      setTimeout(() => setCloneMsg(""), 3500);
       setPasteVoiceId("");
+      setCloneName("");
       try { await fetchStatus(); } catch (_) { /* ignore */ }
     } catch (err) {
       setCloneErr(err.message || String(err));
@@ -9367,8 +9535,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                     cursor: "pointer",
                   }}
                 >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>My Cartesia clone</div>
-                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4, lineHeight: 1.4 }}>Needs Cartesia key + Voice UUID</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>Custom / Cloned Voice</div>
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4, lineHeight: 1.4 }}>Telnyx · Cartesia · ElevenLabs · Custom TTS</div>
                 </button>
               </div>
 
@@ -9405,59 +9573,83 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               ) : (
                 <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, background: "#F8FAFC", display: "flex", flexDirection: "column", gap: 12 }}>
                   <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45 }}>
-                    <b style={{ color: C.textInk }}>Step A.</b> Connections → Cartesia → save API key.<br />
-                    <b style={{ color: C.textInk }}>Step B.</b> Cartesia website → Voices → copy <b>Voice ID</b> (UUID with dashes).<br />
-                    <b style={{ color: C.textInk }}>Step C.</b> Paste UUID here and Link — then it becomes the active speak voice.
+                    <b style={{ color: C.textInk }}>Step A.</b> Connections → Save your provider API key (Telnyx, Cartesia, ElevenLabs, etc.).<br />
+                    <b style={{ color: C.textInk }}>Step B.</b> Copy your provider's <b>Voice ID / Model Slug</b> (e.g. <code>Telnyx.Ultra.cc91c96c-...</code>, Cartesia UUID, ElevenLabs ID).<br />
+                    <b style={{ color: C.textInk }}>Step C.</b> Paste below & click <b>Link</b> — it becomes the active speaking voice on calls.
                   </div>
 
-                  {customVoices.filter((v) => isValidCloneVoiceId(v.voice_id)).length > 0 && (
-                    <div>
-                      <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                        Linked clones
-                      </label>
-                      <select
-                        value={isValidCloneVoiceId(voiceName) ? voiceName : ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (!v) return;
-                          setVoiceName(v);
-                          const fromList = customVoices.find((x) => x.voice_id === v);
-                          api.selectVoice({
-                            voice_id: v,
-                            label: fromList?.name || v,
-                            provider: fromList?.provider || (isCartesiaUuid(v) ? "cartesia" : "elevenlabs"),
-                          }).then(() => fetchStatus()).catch(() => {});
-                        }}
-                        style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
-                      >
-                        <option value="" disabled>Select a linked clone…</option>
-                        {customVoices.filter((v) => isValidCloneVoiceId(v.voice_id)).map((v) => (
-                          <option key={v.voice_id} value={v.voice_id}>
-                            {v.name || v.voice_id}{v.provider ? ` · ${v.provider}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+                  {(() => {
+                    const seen = new Set();
+                    const allClones = [];
+                    (customVoices || []).filter((v) => isValidCloneVoiceId(v.voice_id)).forEach((v) => {
+                      if (!seen.has(v.voice_id)) {
+                        seen.add(v.voice_id);
+                        allClones.push(v);
+                      }
+                    });
+                    (connsState || []).forEach((g) => {
+                      (g.items || []).forEach((it) => {
+                        const vid = it.voiceId || it.config?.voice_id;
+                        if (vid && isValidCloneVoiceId(vid) && !seen.has(vid)) {
+                          seen.add(vid);
+                          allClones.push({
+                            voice_id: vid,
+                            name: `${it.name} Voice (${vid.slice(0, 8)}...)`,
+                            provider: it.name.toLowerCase(),
+                          });
+                        }
+                      });
+                    });
+                    if (!allClones.length) return null;
+                    return (
+                      <div>
+                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
+                          Saved & Linked Cloned / Provider Voices
+                        </label>
+                        <select
+                          value={isValidCloneVoiceId(voiceName) ? voiceName : ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (!v) return;
+                            setVoiceName(v);
+                            const fromList = allClones.find((x) => x.voice_id === v);
+                            api.selectVoice({
+                              voice_id: v,
+                              label: fromList?.name || v,
+                              provider: fromList?.provider || (isCartesiaUuid(v) ? "cartesia" : v.toLowerCase().includes("telnyx") ? "telnyx" : "elevenlabs"),
+                            }).then(() => fetchStatus()).catch(() => {});
+                          }}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+                        >
+                          <option value="" disabled>Select a cloned voice…</option>
+                          {allClones.map((v) => (
+                            <option key={v.voice_id} value={v.voice_id}>
+                              {v.name || v.voice_id}{v.provider ? ` · ${v.provider}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })()}
 
                   <div>
                     <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                      Link new Cartesia Voice UUID
+                      Link new Voice ID or Model Slug
                     </label>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr auto", gap: 8, alignItems: "center" }}>
                       <input
                         type="text"
                         value={cloneName}
                         onChange={(e) => setCloneName(e.target.value)}
-                        placeholder="Label (e.g. My voice)"
+                        placeholder="Label (e.g. Telnyx Natural, My voice)"
                         style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
                       />
                       <input
                         type="text"
                         value={pasteVoiceId}
                         onChange={(e) => setPasteVoiceId(e.target.value)}
-                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 13, background: "#fff" }}
+                        placeholder="e.g. Telnyx.Ultra.cc91c96c-... or Cartesia UUID or ElevenLabs ID"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5, background: "#fff" }}
                       />
                       <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: pasteVoiceId.trim() ? C.ink : "#E7E5E4", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}>
                         {cloning ? "…" : "Link"}
@@ -9468,8 +9660,11 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   </div>
 
                   {isValidCloneVoiceId(voiceName) && (
-                    <div style={{ fontSize: 12.5, color: "#065F46", fontWeight: 600 }}>
-                      Active clone: {customVoices.find((v) => v.voice_id === voiceName)?.name || "My voice"} · {voiceName.slice(0, 8)}…
+                    <div style={{ marginTop: 4, padding: "8px 12px", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, fontSize: 12.5, color: "#065F46", fontWeight: 600, display: "flex", alignItems: "center", gap: 7 }}>
+                      <CheckCircle2 size={15} color="#059669" />
+                      <div>
+                        Active speaking voice: <b>{customVoices.find((v) => v.voice_id === voiceName)?.name || voiceName}</b>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -10265,6 +10460,7 @@ const LAYERS = VOICE_LAYERS;
 function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile, onNavigateView, embedded = false }) {
   const [activeTab, setActiveTab] = useState("telephony-hub");
   const [showAdd, setShowAdd] = useState(false);
+  const [addModalCategory, setAddModalCategory] = useState("LLM");
   const [dirty, setDirty] = useState(false);
 
   // ── Credentials: loaded live from backend with template fallback ──
@@ -10290,19 +10486,20 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               const matchedIds = new Set();
 
               const updatedItems = (group.items || []).map((it) => {
-                // 1. Exact name match
-                let live = bItems.find((b) => b.name === it.name);
+                // 1. Exact name match (excluding already matched items)
+                let live = bItems.find((b) => !matchedIds.has(b.id) && b.name.toLowerCase() === it.name.toLowerCase());
 
                 // 2. Normalized alias match if not exact
                 if (!live) {
                   const itNorm = it.name.toLowerCase().replace(/[^a-z0-9]/g, "");
                   live = bItems.find((b) => {
+                    if (matchedIds.has(b.id)) return false;
                     const bNorm = b.name.toLowerCase().replace(/[^a-z0-9]/g, "");
                     if (itNorm === bNorm) return true;
                     // xAI voice orchestrator aliases
-                    if (group.group === "Voice Orchestration" && itNorm.includes("xai") && bNorm.includes("xai")) return true;
-                    // xAI LLM aliases
-                    if (group.group === "LLM" && (itNorm.includes("xai") || itNorm.includes("grok")) && (bNorm.includes("xai") || bNorm.includes("grok"))) return true;
+                    if (group.group === "Voice Orchestration" && !itNorm.includes("telnyx") && (itNorm.startsWith("xai") || itNorm.includes("grok")) && (bNorm.startsWith("xai") || bNorm.includes("grok"))) return true;
+                    // xAI LLM aliases (strict: do NOT match if it is telnyx)
+                    if (group.group === "LLM" && !itNorm.includes("telnyx") && (itNorm.startsWith("xai") || itNorm.includes("grok")) && (bNorm.startsWith("xai") || bNorm.includes("grok"))) return true;
                     // LiveKit aliases
                     if (itNorm.includes("livekit") && bNorm.includes("livekit")) return true;
                     // Cartesia aliases
@@ -10334,8 +10531,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 return it;
               });
 
-              // Also preserve any custom or additional providers from backend that weren't in default template
-              const extraItems = bItems.filter((b) => b.id && !matchedIds.has(b.id)).map((b) => ({
+              // Only preserve custom or additional providers from backend that are actually connected with saved keys
+              const extraItems = bItems.filter((b) => b.id && !matchedIds.has(b.id) && b.status === "connected" && b.apiKeyMasked).map((b) => ({
                 name: b.name,
                 id: b.id,
                 status: b.status,
@@ -10382,11 +10579,12 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     setRow(rowKey, {
       phase: "editing",
       keyValue: "",
-      phoneValue: profile?.callerId || "",
+      phoneValue: it?.phone || profile?.callerId || "",
       agentIdValue: "",
-      accountSidValue: "",
+      accountSidValue: it?.accountSid || "",
       modelValue: it?.model || "",
       baseUrlValue: it?.baseUrl || "",
+      voiceIdValue: it?.voiceId || it?.config?.voice_id || "",
       errorMsg: "",
       testResult: null
     });
@@ -10423,6 +10621,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         account_sid: accountSid || undefined,
         base_url: (row.baseUrlValue || "").trim() || undefined,
         model: (row.modelValue || "").trim() || undefined,
+        voice_id: (row.voiceIdValue || "").trim() || undefined,
       });
       setRow(rowKey, { phase: "tested_ok", testResult: res.details || "Authentication verified! Ready to save." });
     } catch (err) {
@@ -10453,7 +10652,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         account_sid: accountSid || undefined,
         base_url: (row.baseUrlValue || "").trim() || undefined,
         model: (row.modelValue || "").trim() || undefined,
+        voice_id: (row.voiceIdValue || "").trim() || undefined,
       });
+      const savedVoiceId = (row.voiceIdValue || "").trim();
       setCredsState((s) =>
         s.map((g) =>
           g.group === groupName
@@ -10468,6 +10669,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                         apiKeyMasked: res.maskedKey,
                         model: (row.modelValue || "").trim() || x.model,
                         baseUrl: (row.baseUrlValue || "").trim() || x.baseUrl,
+                        voiceId: savedVoiceId || x.voiceId,
+                        config: { ...(x.config || {}), voice_id: savedVoiceId || x.voiceId },
                       }
                     : x
                 ),
@@ -10475,6 +10678,17 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             : g
         )
       );
+      if (savedVoiceId) {
+        const vObj = {
+          voice_id: savedVoiceId,
+          id: savedVoiceId,
+          name: `${itemName} Voice (${savedVoiceId.slice(0, 8)}...)`,
+          provider: itemName.toLowerCase(),
+        };
+        setCustomVoices((prev) => [vObj, ...(prev || []).filter((v) => v.voice_id !== savedVoiceId)]);
+        setVoiceName(savedVoiceId);
+        setSpeakMode("clone");
+      }
       if (row.phoneValue && setProfile) {
         setProfile((prev) => ({ ...prev, callerId: row.phoneValue }));
       }
@@ -10515,7 +10729,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 ...g,
                 items: (g.items || []).map((x) =>
                   x.name === item.name
-                    ? { ...x, status: "not_configured", apiKeyMasked: undefined, id: undefined }
+                    ? { ...x, status: "not_configured", apiKeyMasked: undefined, id: undefined, voiceId: undefined }
                     : x
                 ),
               }
@@ -10541,17 +10755,43 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   };
 
   const handleAddSuccess = (newIntegration) => {
+    const itemObj = {
+      name: newIntegration.name,
+      status: "connected",
+      apiKeyMasked: newIntegration.masked,
+      model: newIntegration.model,
+      baseUrl: newIntegration.baseUrl,
+      voiceId: newIntegration.voiceId,
+      config: { voice_id: newIntegration.voiceId },
+    };
     setCredsState((prev) => {
       const exists = prev.find((g) => g.group === newIntegration.category);
       if (exists) {
         return prev.map((g) =>
           g.group === newIntegration.category
-            ? { ...g, items: [...(g.items || []).filter((it) => it.name !== newIntegration.name), { name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }
+            ? { ...g, items: [...(g.items || []).filter((it) => it.name !== newIntegration.name), itemObj] }
             : g
         );
       }
-      return [...prev, { group: newIntegration.category, desc: "", items: [{ name: newIntegration.name, status: "connected", apiKeyMasked: newIntegration.masked }] }];
+      return [...prev, { group: newIntegration.category, desc: "", items: [itemObj] }];
     });
+    if (newIntegration.voiceId) {
+      const vObj = {
+        voice_id: newIntegration.voiceId,
+        id: newIntegration.voiceId,
+        name: `${newIntegration.name} Voice (${newIntegration.voiceId.slice(0, 8)}...)`,
+        provider: newIntegration.name.toLowerCase(),
+      };
+      setCustomVoices((prev) => [vObj, ...(prev || []).filter((v) => v.voice_id !== newIntegration.voiceId)]);
+      setVoiceName(newIntegration.voiceId);
+      setSpeakMode("clone");
+      try {
+        const cached = JSON.parse(localStorage.getItem("aivhub_telephony_hub_cache") || "{}");
+        cached.customVoices = [vObj, ...(cached.customVoices || []).filter((v) => v.voice_id !== newIntegration.voiceId)];
+        cached.voiceName = newIntegration.voiceId;
+        localStorage.setItem("aivhub_telephony_hub_cache", JSON.stringify(cached));
+      } catch (_) {}
+    }
     if (newIntegration.category === "LLM" && setCommonAi) {
       setCommonAi((prev) => ({
         ...prev,
@@ -10780,6 +11020,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                                 {String(it.name || "").toLowerCase().includes("twilio")
                                   ? "Twilio Auth Token"
+                                  : String(it.name || "").toLowerCase().includes("whatsapp")
+                                  ? "Meta WhatsApp Access Token (EAAG...)"
                                   : `${it.name} API Key / Token`}
                               </label>
                               <div style={{ position: "relative", width: "100%" }}>
@@ -10797,6 +11039,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                   }}
                                   placeholder={String(it.name || "").toLowerCase().includes("twilio")
                                     ? "Paste 32-character Auth Token from console.twilio.com"
+                                    : String(it.name || "").toLowerCase().includes("whatsapp")
+                                    ? "Paste Meta Access Token (starts with EAAG...)"
                                     : "Paste API key / token to test & connect..."}
                                   style={{ width: "100%", boxSizing: "border-box", padding: "8px 38px 8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : phase === "tested_ok" ? C.green : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none", background: "#fff" }}
                                 />
@@ -10811,18 +11055,20 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               </div>
                             </div>
 
-                            {/* Optional Phone Number & Agent ID / Twilio Account SID */}
-                            {(it.name.toLowerCase().includes("xai") || group.group === "Telephony" || group.group === "Voice Orchestration" || it.name.toLowerCase().includes("twilio")) && (
+                            {/* Optional Phone Number & Agent ID / Twilio Account SID / WhatsApp Phone ID */}
+                            {(it.name.toLowerCase().includes("xai") || group.group === "Telephony" || group.group === "Voice Orchestration" || it.name.toLowerCase().includes("twilio") || group.group === "Messaging" || it.name.toLowerCase().includes("whatsapp")) && (
                               <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 10, marginTop: 4 }}>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                   <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                    Assigned Outbound Phone Number
+                                    {String(it.name || "").toLowerCase().includes("whatsapp")
+                                      ? "WhatsApp Sender / Phone Number"
+                                      : "Assigned Outbound Phone Number"}
                                   </label>
                                   <input
                                     type="text"
                                     value={rs.phoneValue || ""}
                                     onChange={(e) => setRow(rowKey, { phoneValue: e.target.value })}
-                                    placeholder="+44 20... or +1..."
+                                    placeholder={String(it.name || "").toLowerCase().includes("whatsapp") ? "+1 555... or your registered WhatsApp number" : "+44 20... or +1..."}
                                     style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
                                   />
                                 </div>
@@ -10830,6 +11076,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                   <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                                     {String(it.name || "").toLowerCase().includes("twilio")
                                       ? "Account SID (required)"
+                                      : String(it.name || "").toLowerCase().includes("whatsapp")
+                                      ? "Phone Number ID (Required)"
                                       : String(it.name || "").toLowerCase().includes("vapi")
                                       ? "Vapi Assistant ID (Optional)"
                                       : String(it.name || "").toLowerCase().includes("retell")
@@ -10839,13 +11087,13 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                   <input
                                     type="text"
                                     value={
-                                      String(it.name || "").toLowerCase().includes("twilio")
+                                      String(it.name || "").toLowerCase().includes("twilio") || String(it.name || "").toLowerCase().includes("whatsapp")
                                         ? (rs.accountSidValue || rs.agentIdValue || "")
                                         : (rs.agentIdValue || "")
                                     }
                                     onChange={(e) => {
                                       const v = e.target.value;
-                                      if (String(it.name || "").toLowerCase().includes("twilio")) {
+                                      if (String(it.name || "").toLowerCase().includes("twilio") || String(it.name || "").toLowerCase().includes("whatsapp")) {
                                         setRow(rowKey, { accountSidValue: v, agentIdValue: v, errorMsg: "" });
                                       } else {
                                         setRow(rowKey, { agentIdValue: v });
@@ -10853,6 +11101,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                     }}
                                     placeholder={String(it.name || "").toLowerCase().includes("twilio")
                                       ? "ACxxxxxxxx… (34 characters)"
+                                      : String(it.name || "").toLowerCase().includes("whatsapp")
+                                      ? "e.g. 1238965585975808 (15 digits)"
                                       : String(it.name || "").toLowerCase().includes("vapi")
                                       ? "asst_... or UUID (optional)"
                                       : String(it.name || "").toLowerCase().includes("retell")
@@ -10875,7 +11125,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                     type="text"
                                     value={rs.modelValue || ""}
                                     onChange={(e) => setRow(rowKey, { modelValue: e.target.value })}
-                                    placeholder={group.group === "Speech-to-Text" ? "e.g. nova-2, nova-3, nova-2-phonecall" : group.group === "Text-to-Speech" ? "e.g. aura-orion-en, sonic-2" : "e.g. deepseek-chat, llama-3.3-70b-versatile"}
+                                    placeholder={group.group === "Speech-to-Text" ? "e.g. nova-2, nova-2-phonecall" : group.group === "Text-to-Speech" ? "e.g. sonic-3" : "e.g. deepseek-chat, gpt-4o-mini, grok-4.20-0309-non-reasoning"}
                                     style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
                                   />
                                 </div>
@@ -10891,6 +11141,22 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                     style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
                                   />
                                 </div>
+                              </div>
+                            )}
+
+                            {/* Cloned Voice ID for TTS / Voice layers */}
+                            {(group.group === "Text-to-Speech" || group.group === "Voice Orchestration") && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                                <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                  Cloned Voice ID (Optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={rs.voiceIdValue || ""}
+                                  onChange={(e) => setRow(rowKey, { voiceIdValue: e.target.value })}
+                                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx or ElevenLabs Voice ID"
+                                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                />
                               </div>
                             )}
 
@@ -10956,7 +11222,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 </div>
 
                 {/* Subtle add link per category */}
-                <button onClick={() => setShowAdd(true)}
+                <button onClick={() => { setAddModalCategory(group.group); setShowAdd(true); }}
                   style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, cursor: "pointer", padding: "4px 4px" }}>
                   <Plus size={12} /> Add {group.group} provider
                 </button>
@@ -10972,7 +11238,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         </div>
       )}
 
-      {showAdd && <AddIntegrationModal onClose={() => setShowAdd(false)} onAddSuccess={handleAddSuccess} />}
+      {showAdd && <AddIntegrationModal initialCategory={addModalCategory} onClose={() => setShowAdd(false)} onAddSuccess={handleAddSuccess} />}
 
       {deleteKeyConfirm && (
         <div
@@ -14239,7 +14505,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                     list={`model-suggestions-${layer.key}`}
                     value={currentModel}
                     onChange={(e) => onUpdateValue(layer.key, e.target.value)}
-                    placeholder="e.g. gpt-4o, dall-e-3, sdxl..."
+                    placeholder="e.g. gpt-4o-mini, deepseek-chat..."
                     style={{
                       width: "100%",
                       boxSizing: "border-box",
@@ -14262,12 +14528,9 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                     {layer.options.map((opt) => (
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
-                    <option value="gpt-4.5-preview" />
-                    <option value="claude-3-7-sonnet-20250219" />
+                    <option value="gpt-4o-mini" />
                     <option value="deepseek-chat" />
-                    <option value="deepseek-reasoner" />
-                    <option value="meta-llama/llama-3.3-70b-instruct" />
-                    <option value="qwen/qwen-2.5-72b-instruct" />
+                    <option value="grok-4.20-0309-non-reasoning" />
                     <option value="dall-e-3" />
                     <option value="sdxl-1.0" />
                     <option value="fal-ai/flux/schnell" />
@@ -15444,14 +15707,14 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                   }}
                 />
                 <datalist id="scheduler-provider-options">
-                  <option value="anthropic">Anthropic Claude (Sonnet 3.5 / 3.7)</option>
-                  <option value="openai">OpenAI (GPT-4o / GPT-4o-mini / o3-mini)</option>
-                  <option value="deepseek">DeepSeek (deepseek-chat / deepseek-reasoner)</option>
-                  <option value="xai">xAI (Grok-2 / Grok-beta)</option>
-                  <option value="groq">Groq LPU (Llama 3.3 70B / 800 tps)</option>
-                  <option value="gemini">Google Gemini (Gemini 2.0 Flash / Pro)</option>
-                  <option value="ollama">Ollama (Local AI Host)</option>
-                  <option value="custom">Custom Endpoint (OpenAI Compatible / vLLM)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="xai">xAI (Grok)</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="groq">Groq</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="ollama">Ollama (Local)</option>
+                  <option value="custom">Custom Endpoint</option>
                 </datalist>
               </div>
 
@@ -15496,7 +15759,7 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                   list="scheduler-model-suggestions"
                   value={aiSettings.model}
                   onChange={(e) => updateSetting("model", e.target.value)}
-                  placeholder="Type any model name (e.g. claude-3-5-sonnet, gpt-4o, deepseek-chat)..."
+                  placeholder="Type any model name (e.g. deepseek-chat, gpt-4o-mini)..."
                   style={{
                     width: "100%",
                     height: 42,
@@ -15511,25 +15774,15 @@ function SchedulerAiConfigView({ commonAi, setCommonAi, onOpenCommonModal, compa
                   }}
                 />
                 <datalist id="scheduler-model-suggestions">
-                  <option value="Claude 3.5 Sonnet" />
-                  <option value="claude-3-7-sonnet-20250219" />
                   <option value="deepseek-chat" />
-                  <option value="deepseek-reasoner" />
-                  <option value="gpt-4o" />
                   <option value="gpt-4o-mini" />
-                  <option value="xAI Grok-2" />
-                  <option value="llama-3.3-70b-versatile" />
-                  <option value="gemini-2.0-flash" />
-                  <option value="qwen/qwen-2.5-72b-instruct" />
+                  <option value="grok-4.20-0309-non-reasoning" />
                 </datalist>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
                   {[
-                    "Claude 3.5 Sonnet",
                     "deepseek-chat",
-                    "gpt-4o",
-                    "xAI Grok-2",
-                    "llama-3.3-70b-versatile",
-                    "gemini-2.0-flash"
+                    "gpt-4o-mini",
+                    "grok-4.20-0309-non-reasoning"
                   ].map((m) => (
                     <button
                       key={m}
@@ -21106,7 +21359,7 @@ function PostSchedulerPlugin({ operator, onBackToHub, onLogout, profile, setProf
         messages: historyMsgs,
         apiKey: creds.apiKey || "",
         provider: creds.provider || "openai",
-        model: creds.model || "gpt-4o",
+        model: creds.model || "gpt-4o-mini",
         baseUrl: creds.baseUrl || "",
         imageStyle: commonAi?.schedulerAi?.imageStyle || "modern_saas",
         chatOnly: !!chatOnly || view === "images"

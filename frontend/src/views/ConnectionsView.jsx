@@ -4,11 +4,11 @@ import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { TopBar } from "../components/TopBar";
 
 export function ConnectionsView({ notifications, setNotifications, connections = [
-  { group: "LLM (Reasoning & Orchestration)", desc: "Conversational intelligence and dynamic objection handling models", items: [{ name: "Anthropic Claude 3.5 Sonnet", status: "connected" }, { name: "OpenAI GPT-4o", status: "connected" }, { name: "DeepSeek-V3", status: "not_configured" }] },
-  { group: "Speech-to-Text (STT)", desc: "Low-latency streaming transcription and speaker diarization", items: [{ name: "Deepgram Nova-2 (en-GB)", status: "connected" }, { name: "Faster-Whisper (Self-Hosted)", status: "not_configured" }] },
-  { group: "Text-to-Speech (TTS)", desc: "Realistic conversational voices with British accents", items: [{ name: "ElevenLabs Turbo v2.5", status: "connected" }, { name: "Cartesia Sonic", status: "connected" }, { name: "Kokoro-82M (Self-Hosted)", status: "not_configured" }] },
-  { group: "Telephony & Carrier", desc: "Outbound PSTN dialing, SIP trunks, and caller ID verification", items: [{ name: "Sipgate UK Trunk (+44 56 0002 2627)", status: "connected" }, { name: "Twilio Voice UK (+44 7307 216767)", status: "connected" }, { name: "Telnyx Elastic SIP Trunk", status: "not_configured" }] },
-  { group: "Calendar & Discovery", desc: "Automated real-time slot checking and calendar booking links", items: [{ name: "Cal.com Cloud API", status: "connected" }, { name: "Google Calendar & Meet", status: "connected" }] },
+  { group: "LLM (Reasoning & Orchestration)", desc: "Conversational intelligence and dynamic objection handling models", items: [{ name: "OpenAI", status: "connected" }, { name: "DeepSeek", status: "connected" }, { name: "xAI (Grok)", status: "connected" }] },
+  { group: "Speech-to-Text (STT)", desc: "Low-latency streaming transcription and speaker diarization", items: [{ name: "Deepgram", status: "connected" }, { name: "Faster-Whisper (Self-Hosted)", status: "not_configured" }] },
+  { group: "Text-to-Speech (TTS)", desc: "Realistic conversational voices", items: [{ name: "Cartesia", status: "connected" }, { name: "ElevenLabs", status: "not_configured" }] },
+  { group: "Telephony & Carrier", desc: "Outbound PSTN dialing, SIP trunks, and caller ID verification", items: [{ name: "Twilio", status: "connected" }] },
+  { group: "Calendar & Discovery", desc: "Automated real-time slot checking and calendar booking links", items: [{ name: "Cal.com", status: "connected" }] },
 ], onAddConnection }) {
   const [showAdd, setShowAdd] = useState(false);
   const [group, setGroup] = useState("LLM");
@@ -102,6 +102,7 @@ export function ConnectionsView({ notifications, setNotifications, connections =
                   <option value="Text-to-Speech">Text-to-Speech (TTS)</option>
                   <option value="Voice Orchestration">Voice Orchestration</option>
                   <option value="Telephony">Telephony Carrier</option>
+                  <option value="Messaging">Messaging (WhatsApp Cloud API)</option>
                   <option value="Calendar">Calendar API</option>
                   <option value="Other">Other / Custom</option>
                 </select>
@@ -118,7 +119,7 @@ export function ConnectionsView({ notifications, setNotifications, connections =
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 5 }}>
                   Model Name / Slug (Type any model)
                 </label>
-                <input type="text" value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. nova-3, deepseek-chat, gpt-4o, llama-3.3-70b-versatile" style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12 }} />
+                <input type="text" value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. nova-2, deepseek-chat, gpt-4o-mini, grok-4.20-0309-non-reasoning" style={{ width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12 }} />
                 <div style={{ fontSize: 11, color: C.slateLight, marginTop: 3 }}>Future-proof: You can type any model released in the future.</div>
               </div>
               <div>

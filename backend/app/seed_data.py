@@ -100,9 +100,10 @@ async def seed_database():
         
         # 6. Connections template
         conns = [
+            Connection(id="c_llm_telnyx", group_name="LLM", name="Telnyx AI", status="not_configured"),
             Connection(id="c_llm1", group_name="LLM", name="DeepSeek", status="not_configured"),
             Connection(id="c_llm2", group_name="LLM", name="Groq", status="not_configured"),
-            Connection(id="c_llm3", group_name="LLM", name="OpenAI (GPT-4o)", status="not_configured"),
+            Connection(id="c_llm3", group_name="LLM", name="OpenAI", status="not_configured"),
             Connection(id="c_llm4", group_name="LLM", name="Anthropic (Claude)", status="not_configured"),
             Connection(id="c_stt1", group_name="Speech-to-Text", name="Deepgram", status="not_configured"),
             Connection(id="c_tts1", group_name="Text-to-Speech", name="Deepgram Aura", status="not_configured"),

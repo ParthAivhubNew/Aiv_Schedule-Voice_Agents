@@ -31,9 +31,10 @@ ACTIVE_STACK_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "activ
 DEFAULT_ACTIVE_STACK = {
     "engine": "livekit",
     "engine_label": "LiveKit (self-hosted)",
-    "tts": "xAI built-in (rex)",
-    "llm": "DeepSeek",
-    "llm_model": "deepseek-chat",
+    "tts": "Cartesia Sonic",
+    "tts_model": "sonic-3",
+    "llm": "OpenAI",
+    "llm_model": "gpt-4o-mini",
     "stt": "Deepgram",
     "stt_model": "nova-2",
     "carrier": "Twilio",
@@ -131,6 +132,8 @@ def _match_provider(name: str) -> str:
         return "elevenlabs"
     if "cartesia" in n:
         return "cartesia"
+    if "telnyx" in n:
+        return "telnyx"
     if "whisper" in n:
         return "whisper"
     if "openai" in n or "gpt" in n:
@@ -158,56 +161,26 @@ def looks_like_api_key(vid: str) -> bool:
 
 
 def looks_like_external_voice_id(vid: str) -> bool:
-    """True for Cartesia UUID / ElevenLabs IVC ids — not xAI builtins or API keys."""
+    """True for external voice models / clones (Telnyx, Cartesia, ElevenLabs, Deepgram, OpenAI, custom) — not xAI builtins or raw API keys."""
     v = (vid or "").strip()
-    if not v:
+    if not v or len(v) < 2:
         return False
     if looks_like_api_key(v):
         return False
     low = v.lower().replace("-uk", "").replace("_uk", "")
-    if low in XAI_BUILTIN_VOICES:
+    if low in ("ara", "eve", "rex", "leo", "sal"):
         return False
-    if low in ("rachel", "adam", "sonic"):
-        return False
-    if _UUID_RE.match(v):
-        return True
-    # ElevenLabs voice ids are typically 20+ alphanumerics (not sk_…)
-    if len(v) >= 16 and re.fullmatch(r"[A-Za-z0-9]+", v):
-        return True
-    return False
+    return True
 
 
 def _resolve_llm_model(provider: str, candidate_model: Optional[str], conn_model: Optional[str]) -> str:
-    p = (provider or "").lower()
-    m = (candidate_model or conn_model or "").strip()
-    m_lower = m.lower()
-
-    if "xai" in p or "grok" in p:
-        if not m or any(cross in m_lower for cross in ["grok-beta", "grok-2", "deepseek", "llama", "gpt", "claude", "whisper", "nova", "sonic"]):
-            return "grok-4.20-0309-non-reasoning"
-        return m
-
-    if "deepseek" in p:
-        if not m or any(cross in m_lower for cross in ["grok", "llama", "gpt", "claude", "whisper", "nova", "sonic"]):
-            return "deepseek-chat"
-        return m
-
-    if "groq" in p:
-        if not m or any(cross in m_lower for cross in ["grok", "deepseek", "gpt", "claude", "whisper", "nova", "sonic"]):
-            return "llama-3.3-70b-versatile"
-        return m
-
-    if "openai" in p:
-        if not m or any(cross in m_lower for cross in ["grok", "deepseek", "llama", "claude", "whisper", "nova", "sonic"]):
-            return "gpt-4o"
-        return m
-
-    if "anthropic" in p or "claude" in p:
-        if not m or any(cross in m_lower for cross in ["grok", "deepseek", "llama", "gpt", "whisper", "nova", "sonic"]):
-            return "claude-3-5-sonnet-20241022"
-        return m
-
-    return m or "grok-4.20-0309-non-reasoning"
+    # Strictly honor the model the user explicitly specified in their Connection
+    if conn_model and str(conn_model).strip():
+        return str(conn_model).strip()
+    # Next, honor what the user set in their active voice stack
+    if candidate_model and str(candidate_model).strip():
+        return str(candidate_model).strip()
+    return ""
 
 
 def _strip_voice(v: Any) -> str:
@@ -403,26 +376,16 @@ async def resolve_voice_plan() -> VoicePlan:
     if (not xai_key or xai_key.startswith("mock")) and llm and llm.api_key and str(llm.api_key).startswith("xai-"):
         xai_key = llm.api_key.strip()
         logger.info("Using LLM xAI key for voice S2S (Voice Orchestration key empty).")
-    if engine == "openai" and openai_key and not openai_key.startswith("xai-"):
-        pass
-    elif engine == "openai" and (not openai_key or openai_key.startswith("xai-")):
-        if settings.OPENAI_API_KEY:
-            openai_key = settings.OPENAI_API_KEY.strip()
-        else:
-            engine = "xai"
-            note = "OpenAI engine selected but no OpenAI key — falling back to xAI."
-            logger.warning(note)
-            return VoicePlan(engine=engine, voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, s2s_key=xai_key, note=note)
+    if engine == "openai" and (not openai_key or openai_key.startswith("mock")):
+        raise ValueError("OpenAI Realtime engine selected, but no OpenAI API key found in Connections.")
 
-    if engine == "modular":
-        if not (stt and stt.api_key and tts and tts.api_key):
-            if xai_key and xai_key.startswith("xai-"):
-                note = "Modular selected but STT/TTS keys missing — falling back to xAI S2S."
-                logger.warning(note)
-                return VoicePlan(engine="xai", voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, s2s_key=xai_key, note=note)
-            note = "Modular selected but STT or TTS plugin has no key."
-            logger.warning(note)
-            return VoicePlan(engine=engine, voice_name=voice_name, carrier=carrier, stt=stt, tts=tts, llm=llm, note=note)
+    if engine in ("modular", "livekit"):
+        if not (stt and stt.api_key):
+            raise ValueError(f"STT provider '{stt.provider if stt else 'Speech-to-Text'}' has no API key configured in Connections.")
+        if not (tts and tts.api_key):
+            raise ValueError(f"TTS provider '{tts.provider if tts else 'Text-to-Speech'}' has no API key configured in Connections.")
+        if not (llm and llm.api_key):
+            raise ValueError(f"LLM provider '{llm.provider if llm else 'LLM'}' has no API key configured in Connections.")
 
     if engine == "xai" and (not xai_key or xai_key.startswith("mock")):
         # Log detailed diagnostic info

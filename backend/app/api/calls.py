@@ -210,7 +210,17 @@ async def terminate_live_call(
         logger.warning(f"Could not write CallLog on end: {log_err}")
 
     mission_id = call.mission_id
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as commit_err:
+        await db.rollback()
+        logger.warning(f"[EndCall] Commit failed ({commit_err}); ensuring live call row state updated.")
+        try:
+            call.ended = True
+            call.state = "ended"
+            await db.commit()
+        except Exception:
+            pass
     await call_hub.broadcast("call_ended", {"callId": call.id, "endedBy": ended_by})
     await call_hub.broadcast("call_updated", {"callId": call.id, "ended": True, "state": "ended", "duration": call.duration})
     if mission_id:
@@ -735,146 +745,11 @@ async def dial_outbound_call(
         # 1. Determine From / Caller ID number dynamically
         from_clean = await resolve_outbound_caller_id(db, req.from_number)
 
-        # 2. Determine carrier plugin
-        carrier_choice = (req.carrier or "").strip().lower()
-        conn_res = await db.execute(
-            select(Connection).where(
-                (Connection.group_name.in_(["Telephony", "Voice Orchestration"]))
-                | (Connection.name.ilike("%twilio%"))
-                | (Connection.name.ilike("%sipgate%"))
-                | (Connection.name.ilike("%telnyx%"))
-                | (Connection.name.ilike("%vapi%"))
-                | (Connection.name.ilike("%retell%"))
-            )
+        # 2. Determine carrier plugin and credentials
+        from app.services.outbound_dial import _resolve_carrier_and_creds
+        carrier_choice, credentials, tele_conn = await _resolve_carrier_and_creds(
+            db, req.carrier, req.account_sid, req.api_key
         )
-        tele_conns = conn_res.scalars().all()
-        tele_conn = None
-        for c in tele_conns:
-            if carrier_choice and carrier_choice in (c.name or "").lower():
-                tele_conn = c
-                break
-        if not tele_conn:
-            for c in tele_conns:
-                if c.status == "connected":
-                    tele_conn = c
-                    break
-        if not tele_conn and tele_conns:
-            tele_conn = tele_conns[0]
-
-        if not carrier_choice:
-            if tele_conn:
-                n = (tele_conn.name or "").lower()
-                if "sipgate" in n:
-                    carrier_choice = "sipgate"
-                elif "telnyx" in n:
-                    carrier_choice = "telnyx"
-                elif "vapi" in n:
-                    carrier_choice = "vapi"
-                elif "retell" in n:
-                    carrier_choice = "retell"
-                elif "twilio" in n:
-                    carrier_choice = "twilio"
-                else:
-                    carrier_choice = n
-            else:
-                carrier_choice = "sipgate" if settings.SIPGATE_SIP_ID else "twilio"
-
-        # 3. Resolve credentials with smart fallback to saved DB vault
-        stored_cfg = tele_conn.config if (tele_conn and isinstance(tele_conn.config, dict)) else {}
-        try:
-            from app.services.secret_box import open_config, seal_config
-            stored_cfg = open_config(stored_cfg)
-        except Exception:
-            seal_config = None  # type: ignore
-        req_sid = (req.account_sid or "").strip()
-        req_token = (req.api_key or "").strip()
-
-        # If payload provides a valid full 34-char SID, use it; otherwise fallback to DB
-        if req_sid and req_sid.startswith("AC") and len(req_sid) == 34:
-            sid = req_sid
-        else:
-            sid = (stored_cfg.get("account_sid") or "").strip() or None
-
-        # If payload provides a valid full 32-char token, use it; otherwise fallback to DB
-        if req_token and len(req_token) == 32 and not req_token.startswith("xai-"):
-            token = req_token
-        else:
-            token = (stored_cfg.get("auth_token") or stored_cfg.get("api_key") or "").strip() or None
-
-        # If stored token was mistakenly an xAI key, ignore it
-        if token and token.startswith("xai-"):
-            token = None
-
-        # Fallback to server env settings if not provided
-        if not sid and settings.TWILIO_ACCOUNT_SID:
-            sid = settings.TWILIO_ACCOUNT_SID.strip()
-        if not token and settings.TWILIO_AUTH_TOKEN:
-            token = settings.TWILIO_AUTH_TOKEN.strip()
-
-        # Strict validation for Twilio provider
-        if "twilio" in carrier_choice:
-            if not sid or not token:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Twilio Account SID (34 characters, starts with 'AC') & Auth Token (32 characters) are required to make real phone calls. Please enter or save your complete credentials."
-                )
-            if not sid.startswith("AC") or len(sid) != 34:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Twilio Account SID is invalid ({len(sid)} characters; expected 34 chars starting with 'AC'). Your input appears truncated. Please copy the full Account SID from console.twilio.com."
-                )
-            if len(token) != 32:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Twilio Auth Token is invalid ({len(token)} characters; expected 32 characters). Your input appears truncated. Please copy the full 32-character Auth Token from console.twilio.com."
-                )
-
-        # Auto-save credentials permanently to database ONLY if valid
-        if req.account_sid and (req.api_key or req.account_sid):
-            if sid and token and len(sid) == 34 and len(token) == 32 and sid.startswith("AC"):
-                try:
-                    masked = token[:3] + "••••••••" + token[-4:]
-                    sealed = {"account_sid": sid, "api_key": token, "auth_token": token}
-                    try:
-                        from app.services.secret_box import seal_config as _seal
-                        sealed = _seal(sealed)
-                    except Exception:
-                        pass
-                    if not tele_conn:
-                        tele_conn = Connection(
-                            id=f"conn_{uuid.uuid4().hex[:6]}",
-                            name="Twilio",
-                            group_name="Telephony",
-                            status="connected",
-                            api_key_masked=masked,
-                            config=sealed
-                        )
-                        db.add(tele_conn)
-                    else:
-                        existing_cfg = dict(tele_conn.config) if isinstance(tele_conn.config, dict) else {}
-                        tele_conn.config = {**existing_cfg, **sealed}
-                        tele_conn.status = "connected"
-                        tele_conn.api_key_masked = masked
-                    await db.commit()
-                    logger.info("Persisted Twilio credentials permanently to database Connection table.")
-                except Exception as save_err:
-                    try:
-                        await db.rollback()
-                    except Exception:
-                        pass
-                    logger.warning(f"Could not persist Twilio credentials to DB: {save_err}")
-
-        credentials = {
-            "account_sid": sid,
-            "api_key": token,
-            "auth_token": token,
-            "carrier": carrier_choice,
-            "connection_id": stored_cfg.get("connection_id") or stored_cfg.get("telnyx_connection_id"),
-            "assistant_id": stored_cfg.get("assistant_id") or stored_cfg.get("model"),
-            "agent_id": stored_cfg.get("agent_id") or stored_cfg.get("model"),
-            "phone_number_id": stored_cfg.get("phone_number_id") or stored_cfg.get("phoneNumberId"),
-            "base_url": stored_cfg.get("base_url") or stored_cfg.get("baseUrl"),
-        }
 
         # 4. Resolve bridge SIP URI
         bridge_sip = req.bridge_sip_uri or f"sip:{from_clean}@{settings.XAI_SIP_FQDN};transport=tls"
