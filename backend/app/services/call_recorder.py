@@ -1,4 +1,4 @@
-﻿"""
+"""
 Call Audio Recorder Service
 Captures dual-track (inbound caller + outbound AI) audio streams in real-time.
 Synchronizes and mixes into standard 16-bit PCM WAV audio files saved under backend/recordings/{call_id}.wav.
@@ -163,9 +163,40 @@ class RecorderManager:
         return None
 
     def get_recording_path(self, call_id: str) -> Optional[str]:
+        if not call_id:
+            return None
         safe_id = "".join(c for c in call_id if c.isalnum() or c in ("-", "_"))
-        path = os.path.join(RECORDINGS_DIR, f"{safe_id}.wav")
-        return path if os.path.exists(path) else None
+        if not safe_id:
+            return None
+
+        candidates = [safe_id]
+        if safe_id.startswith("cl_"):
+            candidates.append("call_" + safe_id[3:])
+            candidates.append(safe_id[3:])
+        if safe_id.startswith("cl_lk_"):
+            candidates.append("call_" + safe_id[6:])
+            candidates.append("lk_" + safe_id[6:])
+            candidates.append(safe_id[6:])
+        if safe_id.startswith("call_"):
+            candidates.append("cl_" + safe_id[5:])
+            candidates.append(safe_id[5:])
+
+        for c in candidates:
+            path = os.path.join(RECORDINGS_DIR, f"{c}.wav")
+            if os.path.exists(path):
+                return path
+
+        # Core ID substring search in recordings dir
+        core_id = safe_id.replace("cl_lk_", "").replace("cl_", "").replace("call_", "")
+        if len(core_id) >= 6 and os.path.exists(RECORDINGS_DIR):
+            try:
+                for f in os.listdir(RECORDINGS_DIR):
+                    if f.endswith(".wav") and core_id in f:
+                        return os.path.join(RECORDINGS_DIR, f)
+            except Exception:
+                pass
+
+        return None
 
 
 recorder_manager = RecorderManager()

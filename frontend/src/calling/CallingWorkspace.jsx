@@ -3337,11 +3337,41 @@ export function CallingWorkspace({
                             controls
                             src={`/api/calls/${l.id}/recording`}
                             style={{ height: 32, flex: 1, minWidth: 200 }}
-                            onError={(e) => { e.currentTarget.style.display = "none"; }}
+                            onError={(e) => {
+                              const parent = e.currentTarget.parentElement;
+                              if (parent) {
+                                e.currentTarget.style.display = "none";
+                                const note = parent.querySelector(".rec-missing-note");
+                                if (note) note.style.display = "inline";
+                              }
+                            }}
                           />
-                          <a
-                            href={`/api/calls/${l.id}/recording/download`}
-                            download
+                          <span className="rec-missing-note" style={{ display: "none", fontSize: 11.5, color: C.slate, fontStyle: "italic" }}>
+                            Audio stream not archived for this call
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              try {
+                                const res = await fetch(`/api/calls/${l.id}/recording/download`);
+                                if (!res.ok) {
+                                  alert("No audio recording is available for this call.");
+                                  return;
+                                }
+                                const blob = await res.blob();
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `call_recording_${l.id}.wav`;
+                                document.body.appendChild(a);
+                                a.click();
+                                window.URL.revokeObjectURL(url);
+                                document.body.removeChild(a);
+                              } catch (err) {
+                                alert("Failed to download recording: " + (err.message || err));
+                              }
+                            }}
                             title="Download WAV audio recording"
                             style={{
                               display: "inline-flex",
@@ -3349,15 +3379,16 @@ export function CallingWorkspace({
                               gap: 6,
                               padding: "6px 12px",
                               borderRadius: 8,
+                              border: "none",
                               background: C.cobaltSoft,
                               color: C.cobaltDeep,
                               fontSize: 11.5,
                               fontWeight: 700,
-                              textDecoration: "none",
+                              cursor: "pointer",
                             }}
                           >
                             <Download size={13} /> Download WAV
-                          </a>
+                          </button>
                         </div>
                       )}
                     </div>
