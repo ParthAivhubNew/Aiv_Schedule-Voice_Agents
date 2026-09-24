@@ -256,31 +256,35 @@ async def lifespan(app: FastAPI):
                 )
             )
             lk_conn = r_lk.scalars().first()
+            # Only ever mark this "connected" when a real LIVEKIT_API_KEY is configured —
+            # never from the "devkey"/dev-default fallback, so the UI doesn't show a
+            # connection as active/saved when nobody actually configured one.
+            has_real_livekit_key = bool(settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_KEY != "devkey")
             if not lk_conn:
                 lk_conn = Connection(
                     id=f"c_vo_livekit_{uuid.uuid4().hex[:6]}",
                     group_name="Voice Orchestration",
                     name="LiveKit (self-hosted)",
-                    status="connected",
+                    status="connected" if has_real_livekit_key else "not_configured",
                     config=seal_config({
-                        "api_key": settings.LIVEKIT_API_KEY or "devkey",
-                        "api_secret": settings.LIVEKIT_API_SECRET or "secret1234567890abcdef1234567890abcdef",
+                        "api_key": settings.LIVEKIT_API_KEY or "",
+                        "api_secret": settings.LIVEKIT_API_SECRET or "",
                         "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
-                    }),
-                    api_key_masked=f"{(settings.LIVEKIT_API_KEY or 'devkey')[:4]}••••",
+                    }) if has_real_livekit_key else {"base_url": settings.LIVEKIT_URL or "ws://localhost:7880"},
+                    api_key_masked=f"{settings.LIVEKIT_API_KEY[:4]}••••" if has_real_livekit_key else None,
                 )
                 init_db.add(lk_conn)
                 await init_db.commit()
-                logger.info("Auto-configured LiveKit (self-hosted) connection.")
-            elif lk_conn.status != "connected":
+                logger.info("Auto-configured LiveKit (self-hosted) connection row (status=%s).", lk_conn.status)
+            elif has_real_livekit_key and lk_conn.status != "connected":
                 lk_conn.status = "connected"
                 if not lk_conn.config or not isinstance(lk_conn.config, dict):
                     lk_conn.config = seal_config({
-                        "api_key": settings.LIVEKIT_API_KEY or "devkey",
-                        "api_secret": settings.LIVEKIT_API_SECRET or "secret1234567890abcdef1234567890abcdef",
+                        "api_key": settings.LIVEKIT_API_KEY,
+                        "api_secret": settings.LIVEKIT_API_SECRET or "",
                         "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
                     })
-                lk_conn.api_key_masked = lk_conn.api_key_masked or f"{(settings.LIVEKIT_API_KEY or 'devkey')[:4]}••••"
+                lk_conn.api_key_masked = lk_conn.api_key_masked or f"{settings.LIVEKIT_API_KEY[:4]}••••"
                 await init_db.commit()
 
             # Ensure xAI Voice Agent is in Text-to-Speech
