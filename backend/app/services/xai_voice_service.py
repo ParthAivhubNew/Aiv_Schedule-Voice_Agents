@@ -379,6 +379,7 @@ async def start_bridged_voice_session(
                 plan=plan,
                 is_inbound=is_inbound,
                 carrier_sid=carrier_sid,
+                prospect_id=prospect_id,
             )
         )
     elif plan.engine == "modular" or plan.engine == "livekit":

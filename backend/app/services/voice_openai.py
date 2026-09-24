@@ -20,6 +20,8 @@ from app.services.xai_voice_service import (
     BridgedVoiceSession,
     _update_call_transcript,
     build_xai_system_instructions,
+    execute_xai_tool,
+    get_xai_tool_definitions,
 )
 from app.websockets.call_hub import call_hub
 
@@ -53,6 +55,7 @@ async def run_openai_realtime(
     plan: VoicePlan,
     is_inbound: bool = False,
     carrier_sid: Optional[str] = None,
+    prospect_id: Optional[str] = None,
 ) -> None:
     api_key = (plan.s2s_key or settings.OPENAI_API_KEY or "").strip()
     if not api_key or api_key.startswith("xai-"):
@@ -154,6 +157,8 @@ async def run_openai_realtime(
                 "input_audio_format": "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
                 "input_audio_transcription": {"model": "whisper-1"},
+                "tools": get_xai_tool_definitions(),
+                "tool_choice": "auto",
             }
             await ws.send(json.dumps({"type": "session.update", "session": session_body}))
             if not is_inbound:
@@ -201,6 +206,28 @@ async def run_openai_realtime(
                         await call_hub.broadcast("call_transcript_delta", {
                             "callId": local_id, "who": "them", "delta": caller_text,
                         })
+                elif et == "response.function_call_arguments.done":
+                    tool_call_id = event.get("call_id")
+                    tool_name = event.get("name")
+                    try:
+                        parsed_args = json.loads(event.get("arguments", "{}"))
+                    except Exception:
+                        parsed_args = {}
+                    tool_result = await execute_xai_tool(
+                        name=tool_name,
+                        args=parsed_args,
+                        call_id=local_id,
+                        prospect_id=prospect_id,
+                    )
+                    await ws.send(json.dumps({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": tool_call_id,
+                            "output": json.dumps(tool_result),
+                        },
+                    }))
+                    await ws.send(json.dumps({"type": "response.create"}))
     except Exception as err:
         logger.warning(f"[OPENAI] session ended for {call_id}: {err}")
     finally:
