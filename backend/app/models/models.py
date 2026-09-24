@@ -506,6 +506,12 @@ class ConversationTemplate(Base):
     confirmation_template = Column(Text, nullable=False)
     closing_template = Column(Text, nullable=False)
 
+    # Free-text business rules and a worked example conversation — migrated in from
+    # CompanyProfile's old "Call Script & Rules" fields so this is the one place that
+    # feeds every voice engine (xAI included), not just the modular/LiveKit pipeline.
+    custom_rules = Column(Text, nullable=True)
+    demo_script = Column(Text, nullable=True)
+
     # Flow configuration
     flow_steps = Column(JSON, default=list)  # ["greeting", "permission_check", "value_prop", ...]
     max_objection_attempts = Column(Integer, default=3)

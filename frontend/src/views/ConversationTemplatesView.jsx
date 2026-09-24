@@ -73,6 +73,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     booking_transition_template: "",
     confirmation_template: "",
     closing_template: "",
+    custom_rules: "",
+    demo_script: "",
     agent_persona: "professional, warm, and highly efficient voice specialist",
     tone_instructions: "Speak in natural, concise conversational bursts. Never use robotic monologue.",
     max_objection_attempts: 3,
@@ -131,6 +133,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         booking_transition_template: data.booking_transition_template || "",
         confirmation_template: data.confirmation_template || "",
         closing_template: data.closing_template || "",
+        custom_rules: data.custom_rules || "",
+        demo_script: data.demo_script || "",
         agent_persona: data.agent_persona || "professional, warm, and highly efficient voice specialist",
         tone_instructions: data.tone_instructions || "",
         max_objection_attempts: data.max_objection_attempts || 3,
@@ -648,6 +652,38 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                         onChange={(e) => setFormData({ ...formData, closing_template: e.target.value })}
                         style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, lineHeight: 1.4 }}
                         placeholder="e.g. Thanks for your time, {{prospect_name}}. Have a fantastic week!"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 6: Business Rules & Demo Script */}
+                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 4 }}>
+                    6. Business Rules & Demo Script
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 14 }}>
+                    Applies to every voice engine (xAI included) — not just this template's structured steps above.
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Custom Business Rules (free text)</label>
+                      <textarea
+                        rows={4}
+                        value={formData.custom_rules}
+                        onChange={(e) => setFormData({ ...formData, custom_rules: e.target.value })}
+                        style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, lineHeight: 1.4, fontFamily: FONT_BODY }}
+                        placeholder="e.g. Never discuss pricing on the first call. Always offer Tuesday/Thursday mornings first. If they mention a competitor by name, acknowledge respectfully and pivot to our differentiators."
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Demo Conversation (worked example, optional)</label>
+                      <textarea
+                        rows={6}
+                        value={formData.demo_script}
+                        onChange={(e) => setFormData({ ...formData, demo_script: e.target.value })}
+                        style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, lineHeight: 1.4, fontFamily: FONT_MONO }}
+                        placeholder={'Prospect: "Hello?"\nAI: "Hi {{prospect_name}}, this is {{caller_name}} calling from {{company_name}}..."\nProspect: "What is this regarding?"\nAI: "..."'}
                       />
                     </div>
                   </div>
