@@ -241,7 +241,7 @@ async def _synthesize_tts_frames(plan: VoicePlan, text: str) -> list[str]:
         elif use_deepgram and "cartesia" not in provider and "eleven" not in provider:
             raw = await _deepgram_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
         elif use_cartesia and "eleven" not in provider:
-            raw = await _cartesia_ulaw(tts.api_key, voice_hint, clean, tts.voice_id)
+            raw = await _cartesia_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
         else:
             raw = await _eleven_ulaw(tts.api_key, voice_hint, clean, tts.voice_id, tts.model)
     except Exception as err:
@@ -461,10 +461,13 @@ def _detect_speech_language(text: str, fallback_lang: str = "en") -> str:
     return "en"
 
 
-async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, language: str = "en") -> bytes:
+async def _cartesia_ulaw(api_key: str, voice_hint: str, text: str, voice_id: str, model: Optional[str] = None, language: str = "en") -> bytes:
     vid = _resolve_cartesia_vid(voice_hint, voice_id)
-    # sonic-3 / sonic-3.5 / sonic-turbo (sonic-2 sunsetted by Cartesia)
-    model_candidates = ("sonic-3", "sonic-3.5", "sonic-turbo", "sonic-latest")
+    # Use the model saved on the Connection if one is configured; otherwise try
+    # Cartesia's known model names in order (sonic-2 sunsetted by Cartesia).
+    fallback_candidates = ("sonic-3.6", "sonic-3", "sonic-3.5", "sonic-turbo", "sonic-latest")
+    configured = (model or "").strip()
+    model_candidates = (configured,) + tuple(m for m in fallback_candidates if m != configured) if configured else fallback_candidates
     last_err: Optional[Exception] = None
     client = _get_tts_client()
     for model_id in model_candidates:
@@ -528,6 +531,7 @@ async def _stream_cartesia_frames(
     voice_hint: str,
     text: str,
     voice_id: Optional[str],
+    model: Optional[str] = None,
     language: str = "en",
 ) -> AsyncGenerator[list[str], None]:
     """
@@ -537,12 +541,12 @@ async def _stream_cartesia_frames(
     """
     vid = _resolve_cartesia_vid(voice_hint, voice_id)
     ws = await _get_or_create_cartesia_ws(bridge, api_key)
-    
+
     if ws is not None:
         context_id = f"ctx_{uuid.uuid4().hex[:12]}"
         req = {
             "context_id": context_id,
-            "model_id": "sonic-3",
+            "model_id": (model or "").strip() or "sonic-3.6",
             "transcript": text,
             "voice": {
                 "mode": "id",
@@ -593,7 +597,7 @@ async def _stream_cartesia_frames(
 
     # Fallback to REST _cartesia_ulaw
     try:
-        raw = await _cartesia_ulaw(api_key, voice_hint, text, voice_id, language=language)
+        raw = await _cartesia_ulaw(api_key, voice_hint, text, voice_id, model, language=language)
         if raw:
             yield list(_ulaw_frames(raw))
     except Exception as rest_err:
@@ -631,7 +635,7 @@ async def _stream_tts_frames(
         if raw:
             yield list(_ulaw_frames(raw))
     elif use_cartesia and "eleven" not in provider:
-        async for frames_batch in _stream_cartesia_frames(bridge, tts.api_key, voice_hint, clean, tts.voice_id, language=lang):
+        async for frames_batch in _stream_cartesia_frames(bridge, tts.api_key, voice_hint, clean, tts.voice_id, tts.model, language=lang):
             if frames_batch:
                 yield frames_batch
     elif use_deepgram and "cartesia" not in provider and "eleven" not in provider:
