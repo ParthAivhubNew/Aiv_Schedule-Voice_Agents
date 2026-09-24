@@ -50,7 +50,7 @@ const VARIABLE_TAGS = [
   { tag: "{{today}}", desc: "Current Date Formatted" }
 ];
 
-export function ConversationTemplatesView({ notifications, setNotifications }) {
+export function ConversationTemplatesView({ notifications, setNotifications, embedded = false }) {
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
   const [activeTab, setActiveTab] = useState("editor"); // 'editor' | 'preview' | 'variables'
@@ -263,15 +263,17 @@ export function ConversationTemplatesView({ notifications, setNotifications }) {
   });
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: C.paper }}>
-      <TopBar
-        title="AI Voice Conversation Templates"
-        subtitle="Configure dynamic multi-stage prompts, value propositions, and smart objection handling for Outbound & Inbound calls."
-        notifications={notifications}
-        setNotifications={setNotifications}
-      />
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: embedded ? "100%" : "100vh", minHeight: 0, overflow: "hidden", background: C.paper }}>
+      {!embedded && (
+        <TopBar
+          title="AI Voice Conversation Templates"
+          subtitle="Configure dynamic multi-stage prompts, value propositions, and smart objection handling for Outbound & Inbound calls."
+          notifications={notifications}
+          setNotifications={setNotifications}
+        />
+      )}
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {/* Left Sidebar: Template Directory */}
         <div style={{ width: 320, minWidth: 320, borderRight: `1px solid ${C.border}`, background: "#FFFFFF", display: "flex", flexDirection: "column" }}>
           {/* Header & Filter Controls */}

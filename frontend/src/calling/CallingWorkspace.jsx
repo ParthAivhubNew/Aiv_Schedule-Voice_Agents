@@ -3581,8 +3581,9 @@ export function CallingWorkspace({
           )}
 
           {page === "templates" && (
-            <div style={{ flex: 1, height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: 1, height: "100%", minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <ConversationTemplatesView
+                embedded
                 notifications={notifications}
                 setNotifications={setNotifications}
               />

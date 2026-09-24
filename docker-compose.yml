@@ -47,12 +47,12 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aivhub}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-outreachAI_production_jwt_secret_key_change_me}
-      VOICE_ENGINE_MODE: ${VOICE_ENGINE_MODE:-simulation}
+      VOICE_ENGINE_MODE: ${VOICE_ENGINE_MODE:-live}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
       TELNYX_API_KEY: ${TELNYX_API_KEY:-}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://62.171.163.98:8000}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://outreach.aivhub.com}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       CARTESIA_API_KEY: ${CARTESIA_API_KEY:-}
