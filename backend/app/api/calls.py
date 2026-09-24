@@ -722,9 +722,6 @@ async def resolve_outbound_caller_id(db: AsyncSession, from_number: Optional[str
             if num:
                 cand = normalize_phone_number(str(num).strip())
                 if cand and len(cand) >= 7 and "79460912" not in cand:
-                    if profile and not profile.caller_id:
-                        profile.caller_id = cand
-                        await db.commit()
                     return cand
 
     # 4. Settings env
@@ -760,10 +757,7 @@ async def resolve_outbound_caller_id(db: AsyncSession, from_number: Optional[str
                     ]
                     if nums:
                         discovered = nums[0]
-                        logger.info(f"Auto-discovered Twilio phone number: {discovered}")
-                        if profile:
-                            profile.caller_id = discovered
-                            await db.commit()
+                        logger.info(f"Auto-discovered Twilio phone number: {discovered} (not persisted — used for this call only)")
                         return discovered
         except Exception as tw_err:
             logger.warning(f"Could not auto-discover Twilio number: {tw_err}")
