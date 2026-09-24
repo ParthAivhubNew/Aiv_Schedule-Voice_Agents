@@ -59,6 +59,7 @@ def set_active_stack(patch: Dict[str, Any]) -> Dict[str, str]:
     try:
         with open(ACTIVE_STACK_FILE, "w", encoding="utf-8") as f:
             json.dump(current, f, indent=2)
+        logger.info(f"[VoiceStack] Persisted active voice stack to {ACTIVE_STACK_FILE}: {current} (patch: {patch})")
     except Exception as e:
         logger.warning(f"Could not persist active voice stack to {ACTIVE_STACK_FILE}: {e}")
     return current
@@ -224,17 +225,17 @@ async def resolve_voice_plan() -> VoicePlan:
                 engine_conn = c
                 break
 
-    # 2. Resolve Carrier connection matching active stack
+    # 2. Resolve Carrier connection matching active stack with verified key
     for c in conns:
         group = (c.group_name or "").lower()
-        if "telephony" in group:
+        if "telephony" in group and _key_from(c):
             c_name = (c.name or "").lower()
             if target_carrier and target_carrier.split()[0] in c_name:
                 carrier_conn = c
                 break
     if not carrier_conn:
         for c in conns:
-            if "telephony" in (c.group_name or "").lower():
+            if "telephony" in (c.group_name or "").lower() and _key_from(c):
                 carrier_conn = c
                 break
 
@@ -243,7 +244,7 @@ async def resolve_voice_plan() -> VoicePlan:
         group = (c.group_name or "").lower()
         if "llm" in group:
             c_name = (c.name or "").lower()
-            if target_llm and target_llm.split()[0] in c_name and c.status == "connected":
+            if target_llm and target_llm.split()[0] in c_name and c.status == "connected" and _key_from(c):
                 llm_conn = c
                 break
     if not llm_conn:
@@ -254,7 +255,7 @@ async def resolve_voice_plan() -> VoicePlan:
         group = (c.group_name or "").lower()
         if any(n in group for n in ("speech-to-text", "stt")):
             c_name = (c.name or "").lower()
-            if target_stt and target_stt.split()[0] in c_name and c.status == "connected":
+            if target_stt and target_stt.split()[0] in c_name and c.status == "connected" and _key_from(c):
                 stt_conn = c
                 break
     if not stt_conn:
@@ -269,7 +270,7 @@ async def resolve_voice_plan() -> VoicePlan:
             group = (c.group_name or "").lower()
             if any(n in group for n in ("text-to-speech", "tts")):
                 c_name = (c.name or "").lower()
-                if any(k in c_name for k in target_tts.split()):
+                if any(k in c_name for k in target_tts.split()) and _key_from(c):
                     tts_conn = c
                     break
     if not tts_conn and not is_xai_builtin_tts:
@@ -279,15 +280,26 @@ async def resolve_voice_plan() -> VoicePlan:
     engine = target_engine if target_engine in ("livekit", "xai", "vapi", "retell", "openai", "modular") else _norm_engine(engine_conn.name if engine_conn else "", engine_cfg)
     
     # Determine voice name
-    voice_name = "rex"
+    voice_name = ""
     if is_xai_builtin_tts:
         match_v = re.search(r"\(([^)]+)\)", target_tts)
         if match_v:
             voice_name = match_v.group(1).strip()
-    else:
-        voice_name = engine_cfg.get("voice_name") or engine_cfg.get("voice") or settings.XAI_VOICE_NAME or "rex"
-    voice_name = _strip_voice(voice_name) or "rex"
-    carrier = (carrier_conn.name if carrier_conn else "twilio") or "twilio"
+    if not voice_name:
+        voice_name = engine_cfg.get("voice_name") or engine_cfg.get("voice") or settings.XAI_VOICE_NAME or ""
+    voice_name = _strip_voice(voice_name)
+    if not voice_name:
+        if engine == "xai":
+            raise ValueError("No voice selected for xAI Realtime. Please choose an explicit voice (e.g. Ara, Rex, Eve, Leo) in AI Config.")
+        elif engine == "openai":
+            raise ValueError("No voice selected for OpenAI Realtime. Please choose an explicit voice (e.g. Alloy, Echo, Shimmer) in AI Config.")
+
+    carrier = carrier_conn.name if carrier_conn else (
+        "Twilio" if (settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN)
+        else ("Telnyx" if getattr(settings, "TELNYX_API_KEY", None) else "")
+    )
+    if not carrier:
+        raise ValueError("No telephony carrier configured — save a Twilio/Telnyx/SIP key in Connections (Telephony) or set telephony credentials in .env")
     orch_clone = _strip_voice(engine_cfg.get("cloned_voice_id") or "")
 
     stt = None
@@ -415,6 +427,12 @@ async def resolve_voice_plan() -> VoicePlan:
                 f"TTS provider '{req_tts}' is missing an API key. Save your API key in Connections "
                 f"(Text-to-Speech -> {req_tts}) or configure the corresponding environment variable in .env."
             )
+        if tts and tts.provider in ("cartesia", "elevenlabs") and not (tts.voice_id or "").strip():
+            req_tts = target_tts or (tts_conn.name if tts_conn else tts.provider.capitalize())
+            raise ValueError(
+                f"TTS provider '{req_tts}' requires a Voice ID. Configure your Voice ID under Connections "
+                f"(Text-to-Speech -> {req_tts}) or select your voice clone in Voice AI Operator."
+            )
         if not (llm and llm.api_key):
             req_llm = target_llm or (llm_conn.name if llm_conn else "LLM")
             raise ValueError(
@@ -506,6 +524,14 @@ async def resolve_voice_plan() -> VoicePlan:
         note = "Custom Base URL voice orchestration."
     elif engine == "modular":
         note = f"Modular pipeline: {stt.provider if stt else '?'} STT -> LLM -> {tts.provider if tts else '?'} TTS."
+
+    logger.info(
+        f"[VoicePlan] Resolved live voice plan: engine={engine}, voice_name={voice_name}, carrier={carrier}, "
+        f"stt={stt.provider if stt else None} (model={stt.model if stt else None}), "
+        f"tts={tts.provider if tts else None} (model={tts.model if tts else None}, voice_id={tts.voice_id if tts else None}), "
+        f"llm={llm.provider if llm else None} (model={llm.model if llm else None}), "
+        f"external_tts={external_tts}"
+    )
 
     return VoicePlan(
         engine=engine,

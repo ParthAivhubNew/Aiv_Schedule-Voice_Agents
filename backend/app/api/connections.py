@@ -470,6 +470,69 @@ async def clear_connection_key(req: ClearKeyRequest, db: AsyncSession = Depends(
     }
 
 
+class UpdateConnectionConfigRequest(BaseModel):
+    id: Optional[str] = None
+    layer: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    voice_id: Optional[str] = None
+
+
+@router.post("/update-config")
+async def update_connection_config(req: UpdateConnectionConfigRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Update non-secret configuration (model, base_url, voice_id) on a connection
+    without needing to re-enter or re-validate the API key.
+    """
+    existing = None
+    if req.id:
+        result = await db.execute(select(Connection).where(Connection.id == req.id))
+        existing = result.scalars().first()
+
+    if not existing and req.layer and req.provider:
+        result = await db.execute(
+            select(Connection).where(
+                Connection.group_name == req.layer,
+                Connection.name == req.provider,
+            )
+        )
+        existing = result.scalars().first()
+
+    if not existing and req.provider:
+        result = await db.execute(select(Connection))
+        needle = (req.provider or "").strip().lower()
+        layer = (req.layer or "").strip().lower()
+        for c in result.scalars().all():
+            name_l = (c.name or "").lower()
+            group_ok = (not layer) or ((c.group_name or "").lower() == layer)
+            if group_ok and (name_l == needle or needle in name_l or name_l in needle):
+                existing = c
+                break
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Connection not found.")
+
+    prev = open_config(existing.config if isinstance(existing.config, dict) else {})
+    if req.model is not None:
+        prev["model"] = req.model.strip() or None
+    if req.base_url is not None:
+        prev["base_url"] = req.base_url.strip() or None
+    if req.voice_id is not None:
+        prev["voice_id"] = req.voice_id.strip() or None
+    existing.config = seal_config(prev)
+    await db.commit()
+    return {
+        "success": True,
+        "id": existing.id,
+        "provider": existing.name,
+        "layer": existing.group_name,
+        "model": prev.get("model"),
+        "base_url": prev.get("base_url"),
+        "voice_id": prev.get("voice_id"),
+    }
+
+
 @router.post("/reset-demo-data")
 async def reset_demo_data(db: AsyncSession = Depends(get_db)):
     """
@@ -540,194 +603,171 @@ def _split_voice_choice(voice_id: str, accent: Optional[str] = None) -> tuple[st
         return "rex", acc or "neutral"
     return vid, acc or "neutral"
 
+ENGINE_LABELS = {
+    "livekit": "LiveKit (self-hosted)",
+    "xai": "xAI Grok (speech-to-speech)",
+    "vapi": "Vapi Voice AI",
+    "retell": "Retell AI",
+    "openai": "OpenAI Realtime",
+    "modular": "Modular pipeline",
+}
+
 @router.get("/telephony-hub")
 async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     """
     Returns current active carrier, active engine, configured phone numbers,
-    webhook routing diagnostics, and signing secret status.
+    webhook routing diagnostics, and signing secret status based strictly on resolve_voice_plan().
     """
-    active_secret = settings.XAI_WEBHOOK_SECRET or os.getenv("XAI_WEBHOOK_SECRET")
-    engine_conn = None
-    try:
-        # 1. Fetch connections for Telephony and Voice Orchestration
-        conns_res = await db.execute(select(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
-        conns = conns_res.scalars().all()
+    from app.services.voice_plugin_plan import resolve_voice_plan
 
-        carrier_conn = next((c for c in conns if c.group_name == "Telephony"), None)
-        engine_conn = next((c for c in conns if c.group_name == "Voice Orchestration"), None)
+    is_connected = False
+    active_carrier = "Not configured"
+    active_engine = "Not configured"
+    live_engine = "not_configured"
+    live_note = ""
+    active_phone = None
+    active_key = None
+    masked_active_key = ""
+    stt_provider = None
+    tts_provider = None
+    llm_provider = None
+    stt_name = "Not configured"
+    tts_name = "Not configured"
+    llm_name = "Not configured"
+    stt_model = None
+    tts_model = None
+    llm_model = None
+    external_tts = False
+    tts_voice_id = None
+    ui_voice = "Not configured"
+
+    try:
+        plan = await resolve_voice_plan()
+        is_connected = True
+        active_carrier = plan.carrier
+        active_engine = ENGINE_LABELS.get(plan.engine, plan.engine)
+        live_engine = plan.engine
+        live_note = plan.note
+        ui_voice = plan.voice_name or "Not configured"
+        external_tts = bool(getattr(plan, "external_tts", False))
+
+        stt_provider = plan.stt.provider if plan.stt else None
+        tts_provider = plan.tts.provider if plan.tts else None
+        llm_provider = plan.llm.provider if plan.llm else None
+
+        stt_name = ((plan.stt.extra or {}).get("display_name") if plan.stt else None) or stt_provider or "Not configured"
+        if external_tts and plan.tts:
+            tts_name = ((plan.tts.extra or {}).get("display_name") if plan.tts else None) or tts_provider or "Not configured"
+            tts_voice_id = plan.tts.voice_id or None
+        else:
+            if plan.engine == "xai" or not tts_provider:
+                tts_provider = "xai"
+                tts_name = f"xAI built-in ({ui_voice})"
+                tts_model = f"xai-{ui_voice}"
+            else:
+                tts_name = ((plan.tts.extra or {}).get("display_name") if plan.tts else None) or tts_provider or "Not configured"
+            tts_voice_id = None
+
+        llm_name = ((plan.llm.extra or {}).get("display_name") if plan.llm else None) or llm_provider or "Not configured"
+        stt_model = plan.stt.model if plan.stt else None
+        if not tts_model and plan.tts:
+            tts_model = plan.tts.model
+        llm_model = plan.llm.model if plan.llm else None
+
+        # Fetch carrier connection to get carrier's own saved phone number and key
+        conns_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
+        telephony_conns = conns_res.scalars().all()
+        carrier_conn = None
+        for c in telephony_conns:
+            if (c.name or "").lower() == (plan.carrier or "").lower() or (plan.carrier or "").lower() in (c.name or "").lower():
+                carrier_conn = c
+                break
+        if not carrier_conn and telephony_conns:
+            carrier_conn = next((c for c in telephony_conns if c.config and isinstance(c.config, dict) and (c.config.get("api_key") or c.config.get("auth_token"))), None)
 
         carrier_cfg = open_config(carrier_conn.config) if (carrier_conn and carrier_conn.config) else {}
-        engine_cfg = open_config(engine_conn.config) if (engine_conn and engine_conn.config) else {}
+        active_phone = carrier_cfg.get("phoneNumber")
+        if not active_phone:
+            if (plan.carrier or "").lower().startswith("twilio"):
+                active_phone = settings.TWILIO_PHONE_NUMBER or None
+            elif (plan.carrier or "").lower().startswith("telnyx"):
+                active_phone = settings.TELNYX_PHONE_NUMBER or None
 
-        # 2. Fetch Company Profile for caller ID
-        prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
-        profile = prof_res.scalars().first()
-        active_phone = (
-            (profile.caller_id if profile and profile.caller_id else None)
-            or carrier_cfg.get("phoneNumber")
-            or engine_cfg.get("phoneNumber")
-            or settings.TWILIO_PHONE_NUMBER
-            or settings.TELNYX_PHONE_NUMBER
-            or None
-        )
-        
-        stored_key = None
-        if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
-            stored_key = config_get_secret(engine_conn.config, "api_key", "auth_token")
-            stored_secret = config_get_secret(engine_conn.config, "signing_secret", "webhook_secret")
-            if stored_secret:
-                active_secret = stored_secret
-                settings.XAI_WEBHOOK_SECRET = stored_secret
+        carrier_key = None
+        if carrier_conn and carrier_conn.config and isinstance(carrier_conn.config, dict):
+            carrier_key = config_get_secret(carrier_conn.config, "api_key", "auth_token")
+        if not carrier_key:
+            if (plan.carrier or "").lower().startswith("twilio"):
+                carrier_key = settings.TWILIO_AUTH_TOKEN
+            elif (plan.carrier or "").lower().startswith("telnyx"):
+                carrier_key = getattr(settings, "TELNYX_API_KEY", None)
 
-        active_key = settings.XAI_API_KEY or stored_key
-        masked_active_key = engine_conn.api_key_masked if (engine_conn and engine_conn.api_key_masked) else (mask_secret(active_key) if active_key else "")
+        active_key = carrier_key
+        masked_active_key = mask_secret(carrier_key) if carrier_key else (carrier_conn.api_key_masked if carrier_conn else "")
 
-        active_carrier = carrier_conn.name if carrier_conn else ("Twilio" if settings.TWILIO_ACCOUNT_SID else "Telnyx" if settings.TELNYX_API_KEY or settings.TELNYX_PHONE_NUMBER else "Not configured")
-        active_engine = engine_conn.name if engine_conn else ("xAI Realtime" if settings.XAI_API_KEY else "Not configured")
-        is_connected = bool((carrier_conn and carrier_conn.status == "connected") or settings.XAI_API_KEY or stored_key)
-    except Exception as err:
-        logger.warning(f"Error reading telephony hub status: {err}")
-        active_carrier = "Twilio" if getattr(settings, "TWILIO_ACCOUNT_SID", None) else ("Telnyx" if settings.TELNYX_PHONE_NUMBER else "Not configured")
-        active_engine = "xAI Realtime" if settings.XAI_API_KEY else "Not configured"
-        active_phone = settings.TWILIO_PHONE_NUMBER or settings.TELNYX_PHONE_NUMBER or None
-        is_connected = bool(settings.XAI_API_KEY)
-        active_key = settings.XAI_API_KEY
-        masked_active_key = mask_secret(active_key) if active_key else ""
+    except ValueError as plan_err:
+        is_connected = False
+        active_carrier = "Not configured"
+        active_engine = "Not configured"
+        live_engine = "not_configured"
+        live_note = str(plan_err)
+        active_phone = None
+        active_key = None
+        masked_active_key = ""
+        stt_provider = None
+        tts_provider = None
+        llm_provider = None
+        stt_name = "Not configured"
+        tts_name = "Not configured"
+        llm_name = "Not configured"
+        stt_model = None
+        tts_model = None
+        llm_model = None
+        external_tts = False
+        tts_voice_id = None
+        ui_voice = "Not configured"
+        logger.info(f"[TelephonyHub] Not configured: {plan_err}")
 
-    # 3. Detect public webhook URL
+    # Detect public webhook URL
     public = (getattr(settings, "PUBLIC_BASE_URL", None) or "http://127.0.0.1:8000").rstrip("/")
     default_webhook = (
         getattr(settings, "XAI_WEBHOOK_URL", None)
         or f"{public}/api/sip-webhook"
     )
 
+    active_secret = settings.XAI_WEBHOOK_SECRET or os.getenv("XAI_WEBHOOK_SECRET")
     clean_secret = active_secret if (active_secret and not active_secret.startswith("whsec_••••")) else ""
-    configured_voice = settings.XAI_VOICE_NAME
-    configured_silence = 380
-    configured_temp = 0.80
-    configured_accent = "neutral"
+
+    # Engine settings from Voice Orchestration connection if present
+    engine_conn_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+    engine_conn = engine_conn_res.scalars().first()
     if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
-        configured_voice = engine_conn.config.get("voice_name") or engine_conn.config.get("voice") or configured_voice
+        configured_voice = engine_conn.config.get("voice_name") or engine_conn.config.get("voice") or ui_voice
         configured_silence = engine_conn.config.get("silence_duration_ms", 380)
         configured_temp = engine_conn.config.get("temperature", 0.80)
         configured_accent = engine_conn.config.get("accent") or "neutral"
         stored_custom = engine_conn.config.get("custom_voices") or []
+        stored_secret = config_get_secret(engine_conn.config, "signing_secret", "webhook_secret")
+        if stored_secret:
+            clean_secret = stored_secret
     else:
+        configured_voice = ui_voice
+        configured_silence = 380
+        configured_temp = 0.80
+        configured_accent = "neutral"
         stored_custom = []
-    ui_voice = configured_voice
-    _cv = str(configured_voice or "").lower()
-    _ca = str(configured_accent or "").lower()
-    if _ca in ("british", "uk", "en-gb"):
-        if _cv == "rex":
-            ui_voice = "rex-uk"
-        elif _cv == "ara":
-            ui_voice = "ara-uk"
-        elif _cv == "eve":
-            ui_voice = "eve-uk"
-        elif _cv == "leo":
-            ui_voice = "leo-uk"
-
-    live_engine = "xai"
-    live_note = ""
-    stt_provider = None
-    tts_provider = None
-    llm_provider = None
-    stt_name = None
-    tts_name = None
-    llm_name = None
-    stt_model = None
-    tts_model = None
-    llm_model = None
-    external_tts = False
-    tts_voice_id = None
-    try:
-        from app.services.voice_plugin_plan import resolve_voice_plan
-        plan = await resolve_voice_plan()
-        live_engine = plan.engine
-        live_note = plan.note
-        stt_provider = plan.stt.provider if plan.stt else None
-        tts_provider = plan.tts.provider if plan.tts else None
-        llm_provider = plan.llm.provider if plan.llm else None
-        stt_name = ((plan.stt.extra or {}).get("display_name") if plan.stt else None) or stt_provider
-        tts_name = ((plan.tts.extra or {}).get("display_name") if plan.tts else None) or tts_provider
-        llm_name = ((plan.llm.extra or {}).get("display_name") if plan.llm else None) or llm_provider
-        stt_model = plan.stt.model if plan.stt else None
-        tts_model = plan.tts.model if plan.tts else None
-        llm_model = plan.llm.model if plan.llm else None
-        external_tts = bool(getattr(plan, "external_tts", False))
-
-        if external_tts and plan.tts:
-            tts_voice_id = plan.tts.voice_id or None
-        else:
-            if not tts_provider or is_xai_builtin_tts if 'is_xai_builtin_tts' in locals() else (not external_tts and live_engine == "xai"):
-                tts_provider = "xai"
-                tts_name = f"xAI built-in ({plan.voice_name or ui_voice or 'rex'})"
-                tts_model = f"xai-{plan.voice_name or ui_voice or 'rex'}"
-            tts_voice_id = None
-    except Exception as plan_err:
-        logger.warning(f"Could not resolve live voice plan: {plan_err}")
-
-    # Align with active stack preferences
-    from app.services.voice_plugin_plan import get_active_stack, set_active_stack
-    active_stack = get_active_stack()
-    target_engine = active_stack.get("engine") or live_engine
-    if target_engine == "livekit":
-        active_engine = "LiveKit (self-hosted)"
-        live_engine = "livekit"
-    elif target_engine == "xai":
-        active_engine = "xAI Grok (speech-to-speech)"
-        live_engine = "xai"
-    elif target_engine == "vapi":
-        active_engine = "Vapi Voice AI"
-        live_engine = "vapi"
-    elif target_engine == "retell":
-        active_engine = "Retell AI"
-        live_engine = "retell"
-    elif target_engine == "openai":
-        active_engine = "OpenAI Realtime"
-        live_engine = "openai"
-    elif target_engine == "modular":
-        active_engine = "Modular pipeline"
-        live_engine = "modular"
-
-    if active_stack.get("tts"):
-        sel_tts = active_stack["tts"]
-        if "xai built-in" in sel_tts.lower() or sel_tts.lower() in ("rex", "ara", "eve"):
-            tts_provider = "xai"
-            tts_name = sel_tts
-            tts_model = sel_tts
-            external_tts = False
-        else:
-            tts_name = sel_tts
-            tts_provider = sel_tts.split()[0].lower()
-            external_tts = True
-
-    if active_stack.get("llm"):
-        llm_name = active_stack["llm"]
-        llm_provider = active_stack["llm"].split()[0].lower()
-    if active_stack.get("llm_model"):
-        llm_model = active_stack["llm_model"]
-    if active_stack.get("stt"):
-        stt_name = active_stack["stt"]
-        stt_provider = active_stack["stt"].split()[0].lower()
-    if active_stack.get("stt_model"):
-        stt_model = active_stack["stt_model"]
-    if active_stack.get("tts_model"):
-        tts_model = active_stack["tts_model"]
-    if active_stack.get("carrier"):
-        active_carrier = active_stack["carrier"]
 
     live_labels = {
         "engine": active_engine,
-        "llm": llm_name or "DeepSeek",
-        "stt": stt_name or "Deepgram",
-        "tts": tts_name or f"xAI built-in ({ui_voice})",
+        "llm": llm_name,
+        "stt": stt_name,
+        "tts": tts_name,
         "carrier": active_carrier,
         "voice": ui_voice,
         "note": live_note,
-        "llmModel": llm_model,
-        "sttModel": stt_model,
-        "ttsModel": tts_model,
+        "llmModel": llm_model or "",
+        "sttModel": stt_model or "",
+        "ttsModel": tts_model or "",
     }
 
     custom_voices = list(stored_custom) if isinstance(stored_custom, list) else []
@@ -777,11 +817,11 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "customVoices": custom_voices,
         "silenceDurationMs": configured_silence,
         "temperature": configured_temp,
-        "status": "connected" if is_connected else "configured",
+        "status": "connected" if is_connected else "not_configured",
         "webhookUrl": default_webhook,
         "xaiFqdn": settings.XAI_SIP_FQDN,
         "codecs": ["G.711 μ-law (PCMU)", "G.711 A-law (PCMA)", "G.722"],
-        "hasApiKey": bool(active_key),
+        "hasApiKey": bool(active_key) and is_connected,
         "apiKeyMasked": masked_active_key,
         "hasSigningSecret": bool(clean_secret),
         "signingSecret": None,
@@ -913,7 +953,9 @@ async def select_active_stack_endpoint(req: SelectActiveStackRequest, db: AsyncS
     if req.tts_model or (req.model and req.tts):
         patch["tts_model"] = req.tts_model or req.model
 
+    logger.info(f"[SelectStack] User updated active voice stack: patch={patch}")
     updated = set_active_stack(patch)
+    logger.info(f"[SelectStack] Current active stack is now: {updated}")
     return {"status": "ok", "active_stack": updated}
 
 
@@ -1136,6 +1178,9 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
             target.config = seal_config(cfg)
             target.status = "connected"
             await db.commit()
+            logger.info(f"[SelectVoice] Mirrored voice_id={vid} onto TTS connection {target.name} (provider={provider})")
+
+    logger.info(f"[SelectVoice] Successfully set active voice to '{display_label}' (voice_id={vid}, provider={provider}, is_clone={is_clone})")
 
     return {
         "success": True,

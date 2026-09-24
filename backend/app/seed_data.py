@@ -109,7 +109,7 @@ async def seed_database():
             Connection(id="c_tts1", group_name="Text-to-Speech", name="Deepgram Aura", status="not_configured"),
             Connection(id="c_tts2", group_name="Text-to-Speech", name="Cartesia", status="not_configured"),
             Connection(id="c_tts3", group_name="Text-to-Speech", name="ElevenLabs", status="not_configured"),
-            Connection(id="c_cal1", group_name="Calendar", name="Cal.com (Self-Hosted)", status="connected"),
+            Connection(id="c_cal1", group_name="Calendar", name="Cal.com", status="not_configured"),
             Connection(
                 id="c_vo_livekit",
                 group_name="Voice Orchestration",

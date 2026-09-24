@@ -42,27 +42,47 @@ async def run_full_diagnostic(db: AsyncSession = Depends(get_db)) -> Dict[str, A
     # 1. Check Telephony / Carrier
     t0 = time.perf_counter()
     try:
+        from app.services.secret_box import config_get_secret, open_config
+        conn_res = await db.execute(
+            select(Connection).where(Connection.group_name == "Telephony")
+        )
+        tele_conns = conn_res.scalars().all()
+        connected_tele = [c for c in tele_conns if c.status == "connected"]
+
+        carrier_details = []
+        carrier_ready_names = []
+
+        for c in connected_tele:
+            cfg = open_config(c.config) if isinstance(c.config, dict) else {}
+            c_name = c.name or "Carrier"
+            sid = config_get_secret(cfg, "account_sid", "accountSid")
+            key = config_get_secret(cfg, "api_key", "apiKey", "auth_token", "authToken")
+            if sid or key or c.status == "connected":
+                carrier_details.append(f"{c_name} connected via saved database credentials")
+                carrier_ready_names.append(c_name)
+
+        # Fallback to environment variables if not already satisfied from DB
         tw_sid = getattr(settings, "TWILIO_ACCOUNT_SID", None) or ""
         tw_token = getattr(settings, "TWILIO_AUTH_TOKEN", None) or ""
         telnyx_key = getattr(settings, "TELNYX_API_KEY", None) or ""
 
-        carrier_status = "Not configured"
-        carrier_details = []
-        if tw_sid and tw_token:
-            carrier_details.append("Twilio SID/Auth Token configured")
-            carrier_status = "Twilio Ready"
-        if telnyx_key:
-            carrier_details.append("Telnyx API Key configured")
-            if carrier_status == "Not configured":
-                carrier_status = "Telnyx Ready"
-            else:
-                carrier_status = "Twilio & Telnyx Ready"
+        if tw_sid and tw_token and not any("twilio" in n.lower() for n in carrier_ready_names):
+            carrier_details.append("Twilio SID/Auth Token configured via environment")
+            carrier_ready_names.append("Twilio")
+        if telnyx_key and not any("telnyx" in n.lower() for n in carrier_ready_names):
+            carrier_details.append("Telnyx API Key configured via environment")
+            carrier_ready_names.append("Telnyx")
+
+        if carrier_ready_names:
+            carrier_status = f"{' & '.join(carrier_ready_names)} Ready"
+        else:
+            carrier_status = "Not configured"
 
         report["checks"]["telephony"] = {
             "name": "Carrier & Telephony",
             "status": "pass" if carrier_details else "warn",
             "summary": carrier_status,
-            "details": carrier_details or ["No carrier credentials in environment or active connections."],
+            "details": carrier_details or ["No carrier credentials in database Connections or environment."],
         }
     except Exception as e:
         report["checks"]["telephony"] = {"name": "Carrier & Telephony", "status": "fail", "summary": str(e)}

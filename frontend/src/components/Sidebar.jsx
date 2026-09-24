@@ -30,8 +30,7 @@ export const NAV_GROUPS = [
   { label: "Configuration", items: [
     { id: "company", label: "Company Profile", icon: Users },
     { id: "templates", label: "AI Templates", icon: Sparkles },
-    { id: "connections", label: "Connections", icon: Plug },
-    { id: "provider", label: "AI Providers", icon: Settings2 },
+    { id: "provider", label: "AI Providers & Connections", icon: Settings2 },
   ]},
   { label: "Insights", items: [
     { id: "analytics", label: "Analytics", icon: BarChart3 },

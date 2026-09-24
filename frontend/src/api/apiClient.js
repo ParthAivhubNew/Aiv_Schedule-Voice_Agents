@@ -182,6 +182,7 @@ export const api = {
   testConnection: (payload) => apiRequest('/connections/test', { method: 'POST', body: payload, timeoutMs: 15000 }),
   testAndSaveConnection: (payload) => apiRequest('/connections/test-and-save', { method: 'POST', body: payload, timeoutMs: 20000 }),
   clearConnectionKey: (payload) => apiRequest('/connections/clear-key', { method: 'POST', body: payload, timeoutMs: 12000 }),
+  updateConnectionConfig: (payload) => apiRequest('/connections/update-config', { method: 'POST', body: payload }),
   resetDemoData: () => apiRequest('/connections/reset-demo-data', { method: 'POST' }),
   getTelephonyHub: () => apiRequest('/connections/telephony-hub'),
   provisionTelephonyHub: (payload) => apiRequest('/connections/telephony-hub/provision', { method: 'POST', body: payload }),

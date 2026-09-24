@@ -391,6 +391,29 @@ async def lifespan(app: FastAPI):
         )
     except Exception:
         pass
+
+    try:
+        from app.services.voice_plugin_plan import get_active_stack, resolve_voice_plan
+        active_stack = get_active_stack()
+        logger.info(f"[Startup Voice Stack] Loaded active_voice_stack.json: {active_stack}")
+        try:
+            plan = await resolve_voice_plan()
+            logger.info(
+                f"[Startup Voice Plan] Live voice plan ready:\n"
+                f"  - Engine: {plan.engine}\n"
+                f"  - Voice Name: {plan.voice_name}\n"
+                f"  - Carrier: {plan.carrier}\n"
+                f"  - STT: {plan.stt.provider if plan.stt else 'None'} (model={plan.stt.model if plan.stt else 'None'})\n"
+                f"  - TTS: {plan.tts.provider if plan.tts else 'None'} (model={plan.tts.model if plan.tts else 'None'}, voice_id={plan.tts.voice_id if plan.tts else 'None'})\n"
+                f"  - LLM: {plan.llm.provider if plan.llm else 'None'} (model={plan.llm.model if plan.llm else 'None'})\n"
+                f"  - External TTS: {plan.external_tts}\n"
+                f"  - Note: {plan.note}"
+            )
+        except Exception as plan_res_err:
+            logger.warning(f"[Startup Voice Plan] Live voice plan not fully configured yet: {plan_res_err}")
+    except Exception as stack_log_err:
+        logger.warning(f"[Startup Voice Plan] Could not inspect active voice stack at startup: {stack_log_err}")
+
     yield
     logger.info("Shutting down AIVHub Voice Agent API...")
 
