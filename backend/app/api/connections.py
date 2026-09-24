@@ -333,11 +333,13 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     if "telnyx" in (req.provider or "").lower():
         settings.TELNYX_API_KEY = clean_key
         os.environ["TELNYX_API_KEY"] = clean_key
+        # AI-capability siblings only — never auto-configure the Telephony/carrier
+        # slot from an AI key save. Using Telnyx as a phone carrier is a separate,
+        # explicit choice made directly on its own Telephony card.
         telnyx_peers = [
             ("LLM", "Telnyx AI", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
             ("Speech-to-Text", "Telnyx Whisper", "openai/whisper-large-v3"),
             ("Text-to-Speech", "Telnyx Natural", "telnyx/natural"),
-            ("Telephony", "Telnyx", ""),
         ]
         for p_group, p_name, p_def_model in telnyx_peers:
             p_res = await db.execute(select(Connection).where(Connection.group_name == p_group, Connection.name.ilike(f"%{p_name}%")))
