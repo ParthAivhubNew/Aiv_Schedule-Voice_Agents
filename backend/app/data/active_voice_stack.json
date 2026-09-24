@@ -1,0 +1,11 @@
+{
+  "engine": "livekit",
+  "engine_label": "LiveKit (self-hosted)",
+  "tts": "Telnyx Natural (TTS)",
+  "tts_model": "telnyx/natural",
+  "llm": "Telnyx AI",
+  "llm_model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+  "stt": "Telnyx Whisper",
+  "stt_model": "openai/whisper-large-v3",
+  "carrier": "Twilio"
+}

@@ -1,0 +1,376 @@
+// G.711 Mu-Law Audio Decoder & Web Audio Streaming Player
+// Plays real-time phone audio chunks from Twilio/xAI in the browser
+
+// Precomputed G.711 Mu-Law decoding lookup table (256 entries for ultra-fast decoding)
+const MULAW_LOOKUP = new Float32Array(256);
+for (let i = 0; i < 256; i++) {
+  let muLawByte = ~i;
+  const sign = muLawByte & 0x80;
+  const exponent = (muLawByte >> 4) & 0x07;
+  const mantissa = muLawByte & 0x0f;
+  let sample = ((mantissa << 3) + 132) << exponent;
+  sample -= 132;
+  MULAW_LOOKUP[i] = (sign !== 0 ? -sample : sample) / 32768.0;
+}
+
+function decodeMuLawBase64(base64Str) {
+  const binary = atob(base64Str);
+  const len = binary.length;
+  const float32 = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    float32[i] = MULAW_LOOKUP[binary.charCodeAt(i)];
+  }
+  return float32;
+}
+
+function linearToMuLaw(sample) {
+  const BIAS = 0x84;
+  const CLIP = 32635;
+  let pcm = Math.floor(sample * 32767);
+  let sign = (pcm >> 8) & 0x80;
+  if (sign !== 0) pcm = -pcm;
+  if (pcm > CLIP) pcm = CLIP;
+  pcm = pcm + BIAS;
+  let exponent = 7;
+  for (let expMask = 0x4000; (pcm & expMask) === 0 && exponent > 0; expMask >>= 1) {
+    exponent--;
+  }
+  let mantissa = (pcm >> (exponent + 3)) & 0x0f;
+  let byte = ~(sign | (exponent << 4) | mantissa);
+  return byte & 0xff;
+}
+
+function resampleToAudioContext(pcm8k, targetSampleRate) {
+  if (!targetSampleRate || targetSampleRate === 8000) return pcm8k;
+  const ratio = 8000 / targetSampleRate;
+  const outLength = Math.round(pcm8k.length / ratio);
+  const out = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const srcIndex = i * ratio;
+    const i0 = Math.floor(srcIndex);
+    const i1 = Math.min(i0 + 1, pcm8k.length - 1);
+    const frac = srcIndex - i0;
+    out[i] = pcm8k[i0] * (1 - frac) + pcm8k[i1] * frac;
+  }
+  return out;
+}
+
+function downsampleTo8k(inputData, inputSampleRate) {
+  if (!inputSampleRate || inputSampleRate === 8000) return inputData;
+  const ratio = inputSampleRate / 8000;
+  const outLength = Math.round(inputData.length / ratio);
+  const out = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const srcIndex = Math.floor(i * ratio);
+    out[i] = inputData[Math.min(srcIndex, inputData.length - 1)];
+  }
+  return out;
+}
+
+export class AudioStreamPlayer {
+  constructor(callId, onStatusChange, onAudioLevel) {
+    this.callId = callId;
+    this.onStatusChange = onStatusChange;
+    this.onAudioLevel = onAudioLevel;
+    this.audioCtx = null;
+    this.masterGain = null;
+    this.socket = null;
+    this.isPlaying = false;
+    this.isMicActive = false;
+    this.mediaStream = null;
+    this.scriptProcessor = null;
+    this.silentGainNode = null;
+    this.micSampleBuffer = [];
+
+    // Separate playback timelines for each track so inbound (caller) and outbound (AI)
+    // mix concurrently in real time without chopping or delaying each other.
+    this.trackTimelines = {
+      inbound: 0,
+      outbound: 0
+    };
+
+    // Throttle audio level updates to protect React render loop (max 10fps)
+    this.lastLevelTime = 0;
+  }
+
+  startListening() {
+    if (this.isPlaying) return;
+
+    try {
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      this.audioCtx = new AudioCtxClass({ latencyHint: 'interactive' });
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+      this.masterGain = this.audioCtx.createGain();
+      this.masterGain.gain.value = 1.0;
+
+      // 1. Vocal Warmth: Low-shelf filter at 260Hz (+2.0dB) injects natural chest body and resonance
+      this.warmthFilter = this.audioCtx.createBiquadFilter();
+      this.warmthFilter.type = 'lowshelf';
+      this.warmthFilter.frequency.value = 260;
+      this.warmthFilter.gain.value = 2.0;
+
+      // 2. Vocal Intelligibility & Clarity: Peaking filter at 2900Hz (+2.5dB, Q: 1.2) clarifies consonants and natural diction
+      this.presenceFilter = this.audioCtx.createBiquadFilter();
+      this.presenceFilter.type = 'peaking';
+      this.presenceFilter.frequency.value = 2900;
+      this.presenceFilter.Q.value = 1.2;
+      this.presenceFilter.gain.value = 2.5;
+
+      // 3. Smooth anti-aliasing filter at 4000Hz (removes digital ringing without muffling speech)
+      this.filterNode = this.audioCtx.createBiquadFilter();
+      this.filterNode.type = 'lowpass';
+      this.filterNode.frequency.value = 4000;
+
+      // 4. Dynamics compressor: smooths audio peaks, prevents clipping and delivers broadcast-grade vocal consistency
+      this.compressor = this.audioCtx.createDynamicsCompressor();
+      this.compressor.threshold.value = -14;
+      this.compressor.knee.value = 12;
+      this.compressor.ratio.value = 3.5;
+      this.compressor.attack.value = 0.003;
+      this.compressor.release.value = 0.050;
+
+      this.masterGain.connect(this.warmthFilter);
+      this.warmthFilter.connect(this.presenceFilter);
+      this.presenceFilter.connect(this.filterNode);
+      this.filterNode.connect(this.compressor);
+      this.compressor.connect(this.audioCtx.destination);
+    } catch (err) {
+      console.error('[AudioPlayer] AudioContext error:', err);
+      return;
+    }
+
+    // Reset track timelines
+    this.trackTimelines = {
+      inbound: 0,
+      outbound: 0
+    };
+
+    const host = window.location.host;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${host}/ws/listen/${this.callId}`;
+
+    console.log(`[AudioPlayer] Connecting to live audio at ${wsUrl}`);
+    this.socket = new WebSocket(wsUrl);
+
+    this.socket.onopen = () => {
+      console.log(`[AudioPlayer] Connected to live audio stream for ${this.callId}`);
+      this.isPlaying = true;
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+      if (this.onStatusChange) this.onStatusChange({ listening: true, connected: true });
+    };
+
+    this.socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'audio_chunk' && data.payload) {
+          this.playAudioChunk(data.payload, data.track || 'inbound');
+        }
+      } catch (err) {
+        console.warn('[AudioPlayer] Error parsing audio packet:', err);
+      }
+    };
+
+    this.socket.onclose = () => {
+      console.log(`[AudioPlayer] Stream closed for ${this.callId}`);
+      this.stopListening();
+    };
+
+    this.socket.onerror = (err) => {
+      console.error('[AudioPlayer] WebSocket error:', err);
+      this.stopListening();
+    };
+  }
+
+  playAudioChunk(base64Payload, track = 'inbound') {
+    if (!this.audioCtx || this.audioCtx.state === 'closed') return;
+
+    try {
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+
+      const pcm8k = decodeMuLawBase64(base64Payload);
+      if (pcm8k.length === 0) return;
+
+      // Throttle RMS calculation to 10fps to keep JS main thread & React 60fps smooth
+      const nowMs = Date.now();
+      if (this.onAudioLevel && (nowMs - this.lastLevelTime > 100)) {
+        this.lastLevelTime = nowMs;
+        let sum = 0;
+        for (let i = 0; i < pcm8k.length; i++) {
+          sum += pcm8k[i] * pcm8k[i];
+        }
+        const rms = Math.sqrt(sum / pcm8k.length);
+        this.onAudioLevel(Math.min(1.0, rms * 5), track);
+      }
+
+      // Resample 8kHz telephony audio directly to native AudioContext hardware sample rate (e.g. 44.1kHz or 48kHz).
+      // This eliminates browser resampler mismatches and guarantees 100% natural human pitch and 1.0x real-time speed.
+      const targetRate = this.audioCtx.sampleRate || 48000;
+      const resampled = resampleToAudioContext(pcm8k, targetRate);
+      const buffer = this.audioCtx.createBuffer(1, resampled.length, targetRate);
+      buffer.copyToChannel(resampled, 0);
+
+      const source = this.audioCtx.createBufferSource();
+      source.buffer = buffer;
+      if (this.masterGain) {
+        source.connect(this.masterGain);
+      } else {
+        source.connect(this.audioCtx.destination);
+      }
+
+      // Smooth continuous scheduling with a short jitter buffer (stops crackle / gaps)
+      const now = this.audioCtx.currentTime;
+      const trackKey = track === 'outbound' ? 'outbound' : 'inbound';
+      let trackStart = this.trackTimelines[trackKey] || 0;
+      const JITTER = 0.18;
+
+      if (trackStart < now + 0.02) {
+        trackStart = now + JITTER;
+      } else if (trackStart > now + 0.40) {
+        trackStart = now + JITTER;
+      }
+
+      source.start(trackStart);
+      this.trackTimelines[trackKey] = trackStart + buffer.duration;
+    } catch (e) {
+      console.warn('[AudioPlayer] Playback error:', e);
+    }
+  }
+
+  stopListening() {
+    this.isPlaying = false;
+    this.stopMicrophone();
+
+    if (this.socket) {
+      try { this.socket.close(); } catch (_) {}
+      this.socket = null;
+    }
+    if (this.masterGain) {
+      try { this.masterGain.disconnect(); } catch (_) {}
+      this.masterGain = null;
+    }
+    if (this.warmthFilter) {
+      try { this.warmthFilter.disconnect(); } catch (_) {}
+      this.warmthFilter = null;
+    }
+    if (this.presenceFilter) {
+      try { this.presenceFilter.disconnect(); } catch (_) {}
+      this.presenceFilter = null;
+    }
+    if (this.filterNode) {
+      try { this.filterNode.disconnect(); } catch (_) {}
+      this.filterNode = null;
+    }
+    if (this.compressor) {
+      try { this.compressor.disconnect(); } catch (_) {}
+      this.compressor = null;
+    }
+    if (this.audioCtx) {
+      try { this.audioCtx.close(); } catch (_) {}
+      this.audioCtx = null;
+    }
+    this.trackTimelines = { inbound: 0, outbound: 0 };
+    if (this.onStatusChange) {
+      this.onStatusChange({ listening: false, connected: false });
+    }
+  }
+
+  async startMicrophone() {
+    if (this.isMicActive) return true;
+
+    try {
+      if (!this.audioCtx) {
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        this.audioCtx = new AudioCtxClass();
+      }
+      if (this.audioCtx.state === 'suspended') {
+        await this.audioCtx.resume();
+      }
+
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      });
+
+      const micSource = this.audioCtx.createMediaStreamSource(this.mediaStream);
+      // Process chunks: 2048 buffer size
+      this.scriptProcessor = this.audioCtx.createScriptProcessor(2048, 1, 1);
+
+      // Connect through a zero-gain node to destination so onaudioprocess fires continuously
+      // without echoing the operator's voice back into their own headphones
+      this.silentGainNode = this.audioCtx.createGain();
+      this.silentGainNode.gain.value = 0.0;
+
+      micSource.connect(this.scriptProcessor);
+      this.scriptProcessor.connect(this.silentGainNode);
+      this.silentGainNode.connect(this.audioCtx.destination);
+
+      this.micSampleBuffer = [];
+
+      this.scriptProcessor.onaudioprocess = (e) => {
+        if (!this.isMicActive || !this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+        const rawMic = e.inputBuffer.getChannelData(0);
+        const inputRate = this.audioCtx.sampleRate;
+
+        // Downsample microphone capture from native rate (e.g. 48kHz) to standard 8000Hz telephony
+        const downsampled8k = downsampleTo8k(rawMic, inputRate);
+        for (let i = 0; i < downsampled8k.length; i++) {
+          this.micSampleBuffer.push(downsampled8k[i]);
+        }
+
+        // Frame into 160-sample (20ms at 8kHz) chunks required by Twilio PSTN media streams
+        const FRAME_SIZE = 160;
+        while (this.micSampleBuffer.length >= FRAME_SIZE) {
+          const frame = this.micSampleBuffer.splice(0, FRAME_SIZE);
+          const muLawBytes = new Uint8Array(FRAME_SIZE);
+          for (let j = 0; j < FRAME_SIZE; j++) {
+            muLawBytes[j] = linearToMuLaw(frame[j]);
+          }
+          let binaryStr = '';
+          for (let k = 0; k < FRAME_SIZE; k++) {
+            binaryStr += String.fromCharCode(muLawBytes[k]);
+          }
+          const base64Mic = btoa(binaryStr);
+          this.socket.send(JSON.stringify({
+            type: 'takeover_audio',
+            callId: this.callId,
+            payload: base64Mic
+          }));
+        }
+      };
+
+      this.isMicActive = true;
+      console.log('[AudioPlayer] Operator microphone live (8kHz 20ms framed)');
+      return true;
+    } catch (micErr) {
+      console.error('[AudioPlayer] Mic access error:', micErr);
+      return false;
+    }
+  }
+
+  stopMicrophone() {
+    this.isMicActive = false;
+    this.micSampleBuffer = [];
+    if (this.scriptProcessor) {
+      try { this.scriptProcessor.disconnect(); } catch (_) {}
+      this.scriptProcessor = null;
+    }
+    if (this.silentGainNode) {
+      try { this.silentGainNode.disconnect(); } catch (_) {}
+      this.silentGainNode = null;
+    }
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((track) => track.stop());
+      this.mediaStream = null;
+    }
+  }
+}

@@ -1,0 +1,542 @@
+from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, ForeignKey, Float, UniqueConstraint
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from app.database import Base
+
+try:
+    from pgvector.sqlalchemy import Vector
+except (ImportError, Exception):
+    from sqlalchemy import JSON
+    def Vector(dim):
+        return JSON
+
+class Organization(Base):
+    __tablename__ = "organizations"
+    
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True, nullable=False)
+    status = Column(String, default="active")  # active, inactive, suspended
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    operators = relationship("Operator", back_populates="organization")
+
+class Operator(Base):
+    __tablename__ = "operators"
+    
+    id = Column(String, primary_key=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    username = Column(String, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    role = Column(String, default="Operator")
+    email = Column(String, nullable=True)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    organization = relationship("Organization", back_populates="operators")
+    
+    __table_args__ = (
+        UniqueConstraint("org_id", "username", name="uq_operator_org_username"),
+    )
+
+class CompanyProfile(Base):
+    __tablename__ = "company_profile"
+    
+    id = Column(String, primary_key=True, default="default")
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    name = Column(String, default="AIVHub")
+    # How TTS should say the company name (optional). Empty → auto from name.
+    spoken_name = Column(String, nullable=True)
+    pitch = Column(Text, default="AI-powered business intelligence dashboards for mid-market operations teams")
+    industry = Column(String, default="Business intelligence / data consulting")
+    website = Column(String, default="https://aivhub.io")
+    social = Column(String, default="linkedin.com/company/aivhub")
+    caller_name = Column(String, default="Sam")
+    caller_id = Column(String, nullable=True, default=None)
+    tone = Column(String, default="Professional, concise, friendly")
+    disclosure = Column(Text, default="This call may be recorded for quality and training purposes.")
+    legal_name = Column(String, default="AIVHub Ltd")
+    ico_ref = Column(String, default="ZA774219")
+    dpo_contact = Column(String, default="privacy@aivhub.io")
+    dnc_notes = Column(Text, default="Opt-outs logged immediately and excluded from all future missions.")
+    timezone = Column(String, default="Europe/London")
+    lunch_start = Column(String, default="12:00")
+    lunch_end = Column(String, default="13:00")
+    call_hours_policy = Column(String, default="respectful")
+    weekday_start = Column(String, default="09:00")
+    weekday_end = Column(String, default="17:30")
+    # Outbound conversational script & custom prompt rules (editable from UI Call Script & Rules)
+    call_opener = Column(Text, nullable=True)
+    call_hook = Column(Text, nullable=True)
+    closing_ask = Column(Text, nullable=True)
+    custom_rules = Column(Text, nullable=True)
+    demo_script = Column(Text, nullable=True)
+    calendar_mode = Column(String, default="internal")  # internal | calcom
+    default_outbound_template_id = Column(String, nullable=True)
+    default_inbound_template_id = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class KnowledgeSource(Base):
+    __tablename__ = "knowledge_sources"
+    
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    type = Column(String, nullable=False)  # "Website URL", "Document upload", "Manual text", etc.
+    value = Column(Text, nullable=False)
+    status = Column(String, default="pending")  # pending, crawling, indexed, error
+    synced = Column(String, default="Just now")
+    chunk_count = Column(Integer, default=0)
+    last_error = Column(Text, nullable=True)
+    crawled_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    chunks = relationship("KnowledgeChunk", back_populates="source", cascade="all, delete-orphan")
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+    
+    id = Column(String, primary_key=True, index=True)
+    source_id = Column(String, ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    url = Column(String, nullable=True)
+    title = Column(String, default="")
+    content = Column(Text, nullable=False)
+    chunk_index = Column(Integer, default=0)
+    embedding = Column(Vector(384), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    source = relationship("KnowledgeSource", back_populates="chunks")
+
+
+class Service(Base):
+    __tablename__ = "services"
+    
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    ideal = Column(String, nullable=False)
+    desc = Column(Text, nullable=False)
+
+class FAQ(Base):
+    __tablename__ = "faqs"
+    
+    id = Column(String, primary_key=True, index=True)
+    question = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+
+class Connection(Base):
+    __tablename__ = "connections"
+    
+    id = Column(String, primary_key=True, index=True)
+    group_name = Column(String, nullable=False)  # "LLM", "Speech-to-Text", etc.
+    name = Column(String, nullable=False)
+    status = Column(String, default="not_configured")  # "connected", "not_configured", "error"
+    api_key_masked = Column(String, nullable=True)
+    config = Column(JSON, default=dict)
+
+class ContactRegistry(Base):
+    __tablename__ = "contact_registry"
+    
+    id = Column(String, primary_key=True, index=True)
+    canonical_name = Column(String, index=True, nullable=False)
+    aliases = Column(JSON, default=list)
+    phones = Column(JSON, default=list)
+    websites = Column(JSON, default=list)
+    region = Column(String, nullable=True)
+    sector = Column(String, nullable=True)
+    people = Column(JSON, default=list)
+    do_not_call = Column(Boolean, default=False)
+    last_outcome = Column(String, nullable=True)
+    last_contact_at = Column(String, nullable=True)
+    requested_follow_up = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Mission(Base):
+    __tablename__ = "missions"
+    
+    id = Column(String, primary_key=True, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    title = Column(String, nullable=False)
+    sector = Column(String, default="General")
+    region = Column(String, default="UK-wide")
+    status = Column(String, default="active")  # active, completed, needs_attention, paused
+    contacted = Column(Integer, default=0)
+    total = Column(Integer, default=0)
+    meetings_booked = Column(Integer, default=0)
+    created = Column(String, default="Today")
+    source = Column(String, default="discover")  # discover, manual
+    concurrency = Column(Integer, default=5)
+    queue_estimate = Column(JSON, nullable=True)
+    call_window = Column(String, default="09:00–17:30")
+    timezone = Column(String, default="Europe/London")
+    lunch_start = Column(String, default="12:00")
+    lunch_end = Column(String, default="13:00")
+    no_answer_fallbacks = Column(JSON, default=lambda: ["whatsapp", "sms", "email"])
+    default_channel = Column(String, default="voice")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    prospects = relationship("Prospect", back_populates="mission", cascade="all, delete-orphan")
+
+class Prospect(Base):
+    __tablename__ = "prospects"
+    
+    id = Column(String, primary_key=True, index=True)
+    mission_id = Column(String, ForeignKey("missions.id", ondelete="CASCADE"), nullable=True)
+    registry_id = Column(String, ForeignKey("contact_registry.id", ondelete="SET NULL"), nullable=True)
+    name = Column(String, nullable=False)
+    sector = Column(String, default="General")
+    region = Column(String, default="UK-wide")
+    status = Column(String, default="queued")  # queued, calling, contacted, meeting_booked, retry, human_review, rejected, cold
+    fit = Column(Integer, default=80)
+    last_contact = Column(String, default="—")
+    contact_person = Column(String, default="—")
+    phone = Column(String, default="")
+    site = Column(String, default="")
+    channel = Column(String, default="voice")
+    fallback_channel = Column(String, nullable=True)
+    note = Column(Text, default="")
+    time_status = Column(String, default="waiting")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    mission = relationship("Mission", back_populates="prospects")
+
+class LiveCall(Base):
+    __tablename__ = "live_calls"
+    
+    id = Column(String, primary_key=True, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    carrier_sid = Column(String, nullable=True, index=True)  # Twilio CallSid for status callback matching
+    carrier = Column(String, nullable=True)  # telephony provider used at dial time (twilio/telnyx/sipgate/…) for hangup
+    mission_id = Column(String, nullable=True)
+    prospect_id = Column(String, nullable=True)
+    prospect = Column(String, nullable=False)
+    mission = Column(String, nullable=False)
+    state = Column(String, default="negotiating")  # pitching, negotiating, human_review, ended
+    channel = Column(String, default="voice")
+    duration = Column(String, default="00:00")
+    flag = Column(String, nullable=True)
+    taken = Column(Boolean, default=False)
+    listening = Column(Boolean, default=False)
+    confirming_end = Column(Boolean, default=False)
+    ended = Column(Boolean, default=False)
+    booked = Column(Boolean, default=False)
+    transcript = Column(JSON, default=list)
+    prospect_timezone = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class CallLog(Base):
+    __tablename__ = "call_logs"
+    
+    id = Column(String, primary_key=True, index=True)
+    registry_id = Column(String, nullable=True)
+    canonical_name = Column(String, nullable=False)
+    listed_as = Column(String, nullable=False)
+    person_canonical = Column(String, default="")
+    person_listed_as = Column(String, default="")
+    channel = Column(String, default="voice")
+    mission = Column(String, default="")
+    started_at = Column(String, nullable=False)
+    ended_at = Column(String, nullable=False)
+    duration = Column(String, default="0 min")
+    outcome = Column(String, default="contacted")  # meeting_booked, rejected, callback_requested, no_answer, human_review
+    requested_follow_up = Column(JSON, nullable=True)
+    words_locked = Column(Boolean, default=True)
+    transcript = Column(JSON, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Meeting(Base):
+    __tablename__ = "meetings"
+    
+    id = Column(String, primary_key=True, index=True)
+    prospect = Column(String, nullable=False)
+    mission = Column(String, nullable=False)
+    date = Column(String, nullable=False)
+    time = Column(String, nullable=False)
+    host_timezone = Column(String, default="Europe/London")
+    prospect_timezone = Column(String, nullable=True)
+    prospect_date = Column(String, nullable=True)
+    prospect_time = Column(String, nullable=True)
+    starts_at_utc = Column(DateTime, nullable=True)
+    duration = Column(String, default="15 min")
+    status = Column(String, default="upcoming")  # upcoming, needs_outcome, converted, not_fit
+    fit = Column(Integer, default=85)
+    channel = Column(String, default="voice")
+    format = Column(String, default="video")  # video, phone, in_person
+    platform = Column(String, default="Google Meet")
+    video_link = Column(String, nullable=True)
+    dial_in = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    host = Column(String, default="Jitendra S.")
+    host_email = Column(String, default="admin@aivhub.io")
+    attendee = Column(String, default="")
+    attendee_email = Column(String, nullable=True)
+    calcom_booking_id = Column(String, nullable=True)
+    event_type_slug = Column(String, default="15-min-discovery")
+    cancellation_reason = Column(Text, nullable=True)
+    prep = Column(Text, default="")
+    outcome = Column(String, nullable=True)
+    call_transcript = Column(JSON, default=list)
+    meeting_transcript = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class MeetingEventType(Base):
+    __tablename__ = "meeting_event_types"
+    
+    id = Column(String, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True, nullable=False)
+    length = Column(Integer, default=15)  # minutes
+    description = Column(Text, default="")
+    location_type = Column(String, default="google_meet")  # google_meet, cal_video, zoom, phone, in_person
+    location_value = Column(String, nullable=True)
+    calcom_event_type_id = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    color = Column(String, default="#10B981")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class CalcomSetting(Base):
+    __tablename__ = "calcom_settings"
+    
+    id = Column(String, primary_key=True, default="default")
+    host_email = Column(String, default="admin@aivhub.io")
+    host_name = Column(String, default="Jitendra S.")
+    api_key = Column(String, nullable=True)
+    base_url = Column(String, default="https://api.cal.com/v2")
+    default_event_type_slug = Column(String, default="15-min-discovery")
+    default_duration = Column(Integer, default=15)
+    default_platform = Column(String, default="google_meet")
+    timezone = Column(String, default="Europe/London")
+    working_hours_start = Column(String, default="09:00")
+    working_hours_end = Column(String, default="17:30")
+    working_days = Column(JSON, default=lambda: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+    working_hours_by_day = Column(JSON, nullable=True)
+    slot_step_minutes = Column(Integer, default=15)
+    flex_minutes = Column(Integer, default=0)
+    buffer_before = Column(Integer, default=5)
+    buffer_after = Column(Integer, default=5)
+    auto_email_attendee = Column(Boolean, default=True)
+    auto_email_host = Column(Boolean, default=True)
+    prospect_timezone_override = Column(String, nullable=True)
+    # Per-business meeting types, notify channels, and call booking rules (JSON)
+    booking_policy = Column(JSON, nullable=True)
+    # Bring-your-own invite email HTML ({{tokens}}). Empty = built-in template.
+    invite_html_attendee = Column(Text, nullable=True)
+    invite_html_host = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ScheduleItem(Base):
+    __tablename__ = "schedule_items"
+    
+    id = Column(String, primary_key=True, index=True)
+    day = Column(String, nullable=False)
+    time = Column(String, nullable=False)
+    prospect = Column(String, nullable=False)
+    mission = Column(String, nullable=False)
+    window = Column(String, default="09:00–17:30")
+    status = Column(String, default="queued")  # queued, retry, completed
+    honored = Column(Boolean, default=False)
+    deferred = Column(Boolean, default=False)
+    honored_quote = Column(Text, nullable=True)
+    kind = Column(String, default="phone")  # phone, video, in_person, whatsapp
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    video_link = Column(String, nullable=True)
+    platform = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    whatsapp_to = Column(String, nullable=True)
+    notify_whatsapp = Column(Boolean, default=False)
+    meeting_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    
+    id = Column(String, primary_key=True, index=True)
+    text = Column(Text, nullable=False)
+    time = Column(String, default="Just now")
+    unread = Column(Boolean, default=True)
+    type = Column(String, default="info")  # success, alert, info
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+# Post Scheduler Models
+class SocialSchedule(Base):
+    __tablename__ = "social_schedules"
+    
+    id = Column(String, primary_key=True, index=True)
+    weekday = Column(String, nullable=False)
+    time = Column(String, default="10:00")
+    theme = Column(String, nullable=False)
+    focus = Column(Text, default="")
+    channels = Column(JSON, default=lambda: ["linkedin", "facebook", "x"])
+
+class SocialTopic(Base):
+    __tablename__ = "social_topics"
+    
+    id = Column(String, primary_key=True, index=True)
+    schedule_id = Column(String, nullable=True)
+    title = Column(String, nullable=False)
+    angle = Column(Text, default="")
+    hook = Column(Text, default="")
+    source_type = Column(String, default="Knowledge Base")
+    source_name = Column(String, default="Company Profile")
+    keywords = Column(JSON, default=list)
+    image_url = Column(Text, nullable=True)
+    image_prompt = Column(Text, nullable=True)
+
+class SocialPost(Base):
+    __tablename__ = "social_posts"
+    
+    id = Column(String, primary_key=True, index=True)
+    topic_id = Column(String, nullable=True)
+    schedule_id = Column(String, nullable=True)
+    title = Column(String, nullable=False)
+    copy = Column(Text, nullable=False)
+    channels = Column(JSON, default=lambda: ["linkedin", "x"])
+    status = Column(String, default="draft")  # draft, awaiting_approval, approved, scheduled, published
+    slot_date_ms = Column(Float, nullable=True)
+    time = Column(String, default="10:00")
+    theme = Column(String, default="General")
+    tone = Column(String, default="Professional")
+    image_url = Column(Text, nullable=True)
+    image_prompt = Column(Text, nullable=True)
+    hook = Column(Text, nullable=True)
+    linkedin_copy = Column(Text, nullable=True)
+    x_copy = Column(Text, nullable=True)
+    facebook_copy = Column(Text, nullable=True)
+    instagram_copy = Column(Text, nullable=True)
+    threads_copy = Column(Text, nullable=True)
+    hashtags = Column(JSON, default=list)
+    cta = Column(Text, nullable=True)
+    first_comment = Column(Text, nullable=True)
+    alt_text = Column(Text, nullable=True)
+    adapt_per_channel = Column(Boolean, default=False)
+    publish_results = Column(JSON, default=list)
+    published_at = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialAccount(Base):
+    __tablename__ = "social_accounts"
+
+    id = Column(String, primary_key=True, index=True)
+    platform = Column(String, nullable=False, index=True)  # linkedin, x, facebook, instagram, threads
+    label = Column(String, default="")
+    handle = Column(String, default="")
+    account_id = Column(String, default="")  # person/org/page/ig/user id
+    access_token = Column(Text, default="")
+    refresh_token = Column(Text, default="")
+    token_secret = Column(Text, default="")  # X OAuth 1.0a
+    extra = Column(JSON, default=dict)  # apiKey, apiSecret, pageId, authorType
+    is_default = Column(Boolean, default=True)
+    status = Column(String, default="disconnected")  # connected, error, disconnected
+    last_error = Column(Text, default="")
+    last_tested_at = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialOAuthApp(Base):
+    """One-time AIVHub developer-app credentials so operators can click Connect."""
+    __tablename__ = "social_oauth_apps"
+
+    platform = Column(String, primary_key=True)
+    client_id = Column(String, default="")
+    client_secret = Column(Text, default="")
+    redirect_uri = Column(String, default="")
+    config_id = Column(String, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SocialOAuthState(Base):
+    __tablename__ = "social_oauth_states"
+
+    id = Column(String, primary_key=True)
+    platform = Column(String, nullable=False)
+    code_verifier = Column(String, default="")
+    frontend_url = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialEmail(Base):
+    __tablename__ = "social_emails"
+    
+    id = Column(String, primary_key=True, index=True)
+    post_id = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    from_addr = Column(String, default="scheduler@aivhub.io")
+    to_addr = Column(String, default="admin@aivhub.io")
+    date = Column(String, default="Today")
+    status = Column(String, default="unread")  # unread, read, acted
+    post_data = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ProcessLog(Base):
+    __tablename__ = "process_logs"
+    
+    id = Column(String, primary_key=True, index=True)
+    subsystem = Column(String, index=True, nullable=False)  # telephony, voice, crawler_rag, calendar, scheduler, system, auth
+    level = Column(String, default="INFO", index=True)       # INFO, SUCCESS, WARN, ERROR
+    process_name = Column(String, nullable=False)           # specific task or event name
+    message = Column(Text, nullable=False)                  # human readable summary
+    details = Column(JSON, default=dict)                    # full structured payload, headers, metadata
+    duration_ms = Column(Float, nullable=True)              # execution latency in milliseconds
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ConversationTemplate(Base):
+    """
+    Dynamic conversation templates - replaces hardcoded scripts.
+    Supports Outbound prospecting & Inbound reception with full customization.
+    """
+    __tablename__ = "conversation_templates"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, default="org_default", index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    call_direction = Column(String, nullable=False, default="outbound")  # "outbound" | "inbound"
+    mission_type = Column(String, default="demo")  # "demo", "discovery", "reception", "followup"
+
+    # Template sections (Supports dynamic contextual variables like {{prospect.name}}, {{company.name}}, {{today}})
+    greeting_template = Column(Text, nullable=False)
+    permission_check_template = Column(Text, nullable=True)
+    value_prop_template = Column(Text, nullable=False)
+    objection_responses = Column(JSON, default=dict)  # {"not_interested": "...", "no_time": "...", ...}
+    booking_transition_template = Column(Text, nullable=False)
+    confirmation_template = Column(Text, nullable=False)
+    closing_template = Column(Text, nullable=False)
+
+    # Flow configuration
+    flow_steps = Column(JSON, default=list)  # ["greeting", "permission_check", "value_prop", ...]
+    max_objection_attempts = Column(Integer, default=3)
+
+    # Persona & instructions
+    agent_persona = Column(String, default="professional and friendly")
+    tone_instructions = Column(Text, nullable=True)
+
+    # State & Analytics
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
+    times_used = Column(Integer, default=0)
+    success_rate = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ConversationVariable(Base):
+    """
+    Reusable custom variables for template interpolation.
+    """
+    __tablename__ = "conversation_variables"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, default="org_default", index=True)
+    key = Column(String, nullable=False)  # "time_savings", "pain_point", etc.
+    value = Column(Text, nullable=False)
+    category = Column(String, default="custom")  # "company", "product", "mission", "custom"
+    description = Column(String, nullable=True)
+    times_referenced = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
