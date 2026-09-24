@@ -5966,6 +5966,20 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Every call window, callback, and meeting time is shown in this zone. Change it any time.</div>
               </div>
               <div style={{ marginBottom: 14 }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Active Calendar Engine</div>
+                <select
+                  value={profile.calendar_mode || profile.calendarMode || "internal"}
+                  onChange={(e) => update("calendar_mode", e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+                >
+                  <option value="internal">Internal Database Calendar (PostgreSQL Meetings View)</option>
+                  <option value="calcom">Cal.com Cloud Calendar & Event Types</option>
+                </select>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                  Switch at any time. When using Internal mode, booked appointments appear directly in your local Meetings tab. When Cal.com is selected, slots and bookings synchronize via Cal.com.
+                </div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>When we may call — a policy, not an accident</div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.5, marginBottom: 10 }}>
                   UK PECR for B2B live calls: <strong>08:00–21:00 weekdays</strong>, <strong>09:00–18:00 weekends</strong>. Calling a shorter office day is legal. It is not the legal maximum.
