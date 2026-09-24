@@ -7,6 +7,7 @@ Provides:
 """
 
 from datetime import datetime
+import logging
 from typing import Any, Dict, List, Optional
 import uuid
 
@@ -20,9 +21,11 @@ from app.models.models import ConversationTemplate, ConversationVariable
 from app.services.conversation_engine import (
     BASE_INBOUND_TEMPLATE_ID,
     BASE_OUTBOUND_TEMPLATE_ID,
+    context_resolver,
     template_engine,
 )
 
+logger = logging.getLogger("conversation_templates_api")
 router = APIRouter(prefix="/conversation-templates", tags=["Conversation Templates"])
 
 
@@ -192,7 +195,9 @@ async def preview_template(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Renders a live prompt preview for the template with provided or realistic test context.
+    Renders a live prompt preview using the SAME context resolution and booking policy
+    a real call uses — your actual Company Profile and Booking & Call Rules, with only
+    the prospect identity swapped for a sample lead so there's something to render.
     """
     await template_engine.ensure_default_templates(db)
     res = await db.execute(select(ConversationTemplate).where(ConversationTemplate.id == template_id))
@@ -203,45 +208,34 @@ async def preview_template(
     sample = sample_data or {}
     direction = t.call_direction or "outbound"
 
-    mock_context = {
-        "direction": direction,
-        "prospect": {
-            "name": sample.get("prospect_name") or "Sarah Jenkins",
-            "company": sample.get("prospect_company") or "Apex Retail Group",
-            "email": sample.get("prospect_email") or "sarah@apexretail.com",
-            "phone": sample.get("prospect_phone") or "+447307216767",
-            "timezone": sample.get("prospect_timezone") or "Europe/London",
-            "timezone_short": "BST",
-            "industry_phrase": "retail and operations teams",
-        },
-        "mission": {
-            "name": "Q1 Executive Demo",
-            "context_hook": "your inquiry regarding AI voice automation",
-            "value_prop": "automate 80% of inbound scheduling and qualify leads",
-            "pain_point": "manual call handling",
-            "category": "voice AI automation",
-            "specific_benefit": "24/7 instant meeting bookings",
-        },
-        "company": {
-            "name": "AIVHub",
-            "agent_name": "Sam",
-            "industry": "Enterprise Voice AI",
-            "pitch": "Intelligent Conversational Voice Agents",
-            "timezone": "Europe/London",
-            "services_summary": "automated appointment scheduling and workflow intelligence",
-        },
-        "temporal_context": {
-            "today": datetime.utcnow().strftime("%A, %B %d, %Y"),
-            "today_iso": datetime.utcnow().strftime("%Y-%m-%d"),
-            "tomorrow": (datetime.utcnow()).strftime("%A, %B %d"),
-            "timezone": "Europe/London",
-        },
-        "variables": {
-            "time_savings": "5+ hours per week",
-        }
-    }
+    if direction == "inbound":
+        context = await context_resolver.resolve_inbound(
+            db, caller_phone=sample.get("prospect_phone") or "+447307216767"
+        )
+    else:
+        context = await context_resolver.resolve_outbound(
+            db,
+            override_name=sample.get("prospect_name") or "Sarah Jenkins",
+            override_company=sample.get("prospect_company") or "Apex Retail Group",
+            override_email=sample.get("prospect_email") or "sarah@apexretail.com",
+            override_phone=sample.get("prospect_phone") or "+447307216767",
+        )
 
-    rendered = template_engine.render_system_prompt(t, mock_context)
+    try:
+        from app.services.calendar_service import calendar_service
+        from app.services.booking_policy import (
+            normalize_booking_policy,
+            voice_booking_instructions,
+            voice_hangup_instructions,
+        )
+        setting = await calendar_service.get_or_create_settings(db)
+        policy = normalize_booking_policy(getattr(setting, "booking_policy", None))
+        context["policy_booking_instructions"] = voice_booking_instructions(policy)
+        context["policy_hangup_instructions"] = voice_hangup_instructions(policy)
+    except Exception as policy_err:
+        logger.debug(f"Preview: booking policy unavailable ({policy_err})")
+
+    rendered = template_engine.render_system_prompt(t, context)
     return {
         "success": True,
         "template_id": template_id,
