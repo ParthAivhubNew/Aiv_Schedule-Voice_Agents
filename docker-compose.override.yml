@@ -1,0 +1,8 @@
+# Server-local: keep Postgres/Redis off the public IP (reach them via SSH tunnel).
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:5432:5432"
+  redis:
+    ports: !override
+      - "127.0.0.1:6379:6379"

@@ -359,6 +359,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
                     config=seal_config(p_cfg)
                 ))
 
+    await db.commit()
+
     if req.resolved_voice_id:
         try:
             from app.services.voice_clone import upsert_voice_list
