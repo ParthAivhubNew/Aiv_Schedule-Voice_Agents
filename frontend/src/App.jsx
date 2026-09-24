@@ -5972,7 +5972,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                   onChange={(e) => update("calendar_mode", e.target.value)}
                   style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
                 >
-                  <option value="internal">Internal Database Calendar (PostgreSQL Meetings View)</option>
+                  <option value="internal">Internal Database Calendar</option>
                   <option value="calcom">Cal.com Cloud Calendar & Event Types</option>
                 </select>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
@@ -8833,6 +8833,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   });
   const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || cached?.phoneNumber || "");
   const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [diagScore, setDiagScore] = useState(null);
 
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -8925,6 +8927,41 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   useEffect(() => {
     fetchStatus();
   }, []);
+
+  const handleRunDiagnostics = async () => {
+    try {
+      setDiagRunning(true);
+      const res = await api.runVoiceAndBookingDiagnostics();
+      setDiagScore(res);
+      if (typeof setNotifications === "function") {
+        setNotifications((ns) => [
+          {
+            id: "n_" + Date.now(),
+            text: `5-Point Diagnostics Score: ${res?.overall_score || (res?.all_passed ? "5/5 PASS" : "Results Ready")}`,
+            time: "just now",
+            unread: true,
+            type: res?.all_passed ? "success" : "warning",
+          },
+          ...(ns || []),
+        ]);
+      }
+    } catch (err) {
+      if (typeof setNotifications === "function") {
+        setNotifications((ns) => [
+          {
+            id: "n_" + Date.now(),
+            text: `Diagnostics check failed: ${err.message || err}`,
+            time: "just now",
+            unread: true,
+            type: "error",
+          },
+          ...(ns || []),
+        ]);
+      }
+    } finally {
+      setDiagRunning(false);
+    }
+  };
 
   const notifyAdminXaiClone = (force) => {
     if (typeof setNotifications !== "function") return;
@@ -9281,6 +9318,30 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             >
               <Headphones size={14} /> Test Call in Web (LiveKit)
             </button>
+            <button
+              type="button"
+              onClick={handleRunDiagnostics}
+              disabled={diagRunning}
+              style={{
+                background: C.ink,
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 16px",
+                color: "#fff",
+                fontFamily: FONT_BODY,
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: diagRunning ? "wait" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                boxShadow: "0 2px 8px rgba(15,23,42,0.18)",
+              }}
+              title="Run 5-point universal diagnostic health check across Telephony, STT, LLM, TTS, and Calendar"
+            >
+              <Activity size={14} className={diagRunning ? "animate-spin" : ""} />
+              {diagRunning ? "Testing Stack..." : "5-Point Diagnostics"}
+            </button>
           </div>
         </div>
 
@@ -9335,6 +9396,38 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             </div>
           );
         })()}
+
+        {/* 5-Point Diagnostic Scorecard Banner */}
+        {diagScore && (
+          <div style={{ padding: "14px 16px", borderRadius: 10, background: diagScore.all_passed ? "#F0FDF4" : "#FFFBEB", border: `1px solid ${diagScore.all_passed ? "#BBF7D0" : "#FDE68A"}`, marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Activity size={16} color={diagScore.all_passed ? "#16A34A" : "#D97706"} />
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>5-Point Universal Diagnostics</span>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: diagScore.all_passed ? "#DCFCE7" : "#FEF3C7", color: diagScore.all_passed ? "#15803D" : "#B45309" }}>
+                  SCORE: {diagScore.overall_score || (diagScore.all_passed ? "5/5 PASS" : "ATTENTION")}
+                </span>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8, marginTop: 6 }}>
+              {[
+                { label: "1. Telephony", data: diagScore.telephony },
+                { label: "2. STT Stream", data: diagScore.stt },
+                { label: "3. LLM Logic", data: diagScore.llm_orchestration },
+                { label: "4. TTS Audio", data: diagScore.tts },
+                { label: "5. Calendar", data: diagScore.calendar_engine },
+              ].map((item, idx) => (
+                <div key={idx} style={{ padding: "8px 10px", borderRadius: 7, background: "#fff", border: `1px solid ${item.data?.status === "pass" ? "#BBF7D0" : "#FDE68A"}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: C.ink }}>{item.label}</span>
+                    {item.data?.status === "pass" ? <CheckCircle2 size={13} color="#16A34A" /> : <AlertTriangle size={13} color="#D97706" />}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: C.slate, marginTop: 2 }}>{item.data?.details || "OK"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Live Ping Result Banner */}
         {pingResult && (

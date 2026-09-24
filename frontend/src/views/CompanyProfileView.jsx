@@ -121,7 +121,7 @@ export function CompanyProfileView({
                   onChange={(e) => handleChange("calendar_mode", e.target.value)}
                   style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13 }}
                 >
-                  <option value="internal">Internal Database Calendar (PostgreSQL Meetings View)</option>
+                  <option value="internal">Internal Database Calendar</option>
                   <option value="calcom">Cal.com Cloud Calendar & Event Types</option>
                 </select>
                 <span style={{ fontSize: 11, color: C.slate, marginTop: 4, display: "block" }}>

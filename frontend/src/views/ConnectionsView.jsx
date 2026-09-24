@@ -32,7 +32,7 @@ export function ConnectionsView({
     { group: "Speech-to-Text (STT)", desc: "Low-latency streaming transcription and speaker diarization", items: [{ name: "Deepgram", status: "connected" }, { name: "Faster-Whisper (Self-Hosted)", status: "not_configured" }] },
     { group: "Text-to-Speech (TTS)", desc: "Realistic conversational voices", items: [{ name: "Cartesia", status: "connected" }, { name: "ElevenLabs", status: "not_configured" }] },
     { group: "Telephony & Carrier", desc: "Outbound PSTN dialing, SIP trunks, and caller ID verification", items: [{ name: "Twilio", status: "connected" }] },
-    { group: "Calendar & Discovery", desc: "Automated real-time slot checking and calendar booking links", items: [{ name: "Cal.com & PostgreSQL Internal", status: "connected" }] },
+    { group: "Calendar & Discovery", desc: "Automated real-time slot checking and calendar booking links", items: [{ name: "Cal.com & Internal Database Calendar", status: "connected" }] },
   ],
   onAddConnection
 }) {
