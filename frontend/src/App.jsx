@@ -6582,40 +6582,9 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
 
           {tab === "script" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* Single Place: Demo Conversation Blueprint (Few-Shot Pattern) */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-                <SectionIntro
-                  icon={HelpCircle}
-                  title="Demo Conversation Blueprint (Ideal Flow & Feelings)"
-                  desc="The AI mimics this exact sample dialogue for conversational rhythm, natural contractions, brevity, warmth, and emotion."
-                />
-                <Field
-                  label="Ideal Sample Conversation Script"
-                  value={profile.demoScript || ""}
-                  onChange={(v) => update("demoScript", v)}
-                  placeholder={'Prospect: "Hello?"\nAI: "Hi John, Parth here from A.I.V. Hub! Did I catch you in the middle of something?"\nProspect: "A little bit, what is this regarding?"\nAI: "Totally get it, won\'t keep you! We help businesses automate their Power BI reports. Just curious, how are you currently tracking your KPIs?"\nProspect: "We use Excel sheets mostly."\nAI: "Makes total sense! Would you be open to a quick 15-minute walkthrough sometime this week to see how we automate that?"'}
-                  hint="Provide a 3 to 4-turn sample conversation showing how the prospect speaks and how the AI rep responds with warmth, brevity, natural feelings, and contractions. The AI mimics this exact conversational style and rhythm."
-                  textarea
-                />
-              </div>
-
-              {/* Custom Prompt Rules & Directives */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-                <SectionIntro
-                  icon={Sliders}
-                  title="Custom Voice Rules & Objection Handling"
-                  desc="Direct prompt instructions injected straight into the AI voice engine. Guide the AI's behavior, interruptions, and objection rebuttals."
-                />
-                <Field
-                  label="Agent Behavioral Rules & Objection Handling"
-                  value={profile.customRules || ""}
-                  onChange={(v) => update("customRules", v)}
-                  placeholder={"• If interrupted with 'hello' or 'are you there', do NOT restart the greeting or re-introduce yourself; simply say 'Yes, I'm right here!' and continue naturally.\n• Keep responses to 1–2 short sentences maximum so dialogue flows like a real conversation.\n• If they say they are too busy right now, politely offer to ring back at a better time.\n• If asked if this is AI, answer honestly, warmly, and briefly."}
-                  hint="Any business-specific rules or objection scripts. The AI follows these directives strictly on every call."
-                  textarea
-                />
-              </div>
-
+              {/* Demo Conversation Blueprint & Custom Voice Rules moved to AI Templates
+                  ("Business Rules & Demo Script" section) — one place to edit them now,
+                  and they apply to every voice engine, not just this profile. */}
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
                 <SectionIntro
                   icon={Sliders}
