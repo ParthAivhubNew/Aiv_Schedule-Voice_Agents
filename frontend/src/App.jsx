@@ -128,7 +128,6 @@ import { EDITION_EVENT, getSchedulerEdition, setSchedulerEdition } from "./sched
 import { humanizeAiReply } from "./scheduler/chatClean";
 import { CallingWorkspace } from "./calling/CallingWorkspace";
 import { CALLING_EDITION_EVENT, getCallingEdition, setCallingEdition } from "./calling/callingEdition";
-import { BookingPolicyEditor } from "./components/BookingPolicyEditor";
 import { LiveKitBrowserCallModal } from "./components/LiveKitBrowserCallModal";
 import { ConversationTemplatesView } from "./views/ConversationTemplatesView";
 import { ConnectionsView } from "./views/ConnectionsView";
@@ -5533,7 +5532,6 @@ const PROFILE_TABS = [
   { id: "identity", label: "Identity", icon: Users },
   { id: "knowledge", label: "Knowledge Sources", icon: BookOpen },
   { id: "services", label: "Services", icon: Package },
-  { id: "script", label: "Call Script & Rules", icon: HelpCircle },
   { id: "compliance", label: "Compliance", icon: ShieldCheck },
 ];
 
@@ -5555,19 +5553,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
   const [testResults, setTestResults] = useState(null);
   const [testingQuery, setTestingQuery] = useState(false);
   const [resyncingId, setResyncingId] = useState(null);
-  const [bookingPolicy, setBookingPolicy] = useState(null);
-  const [calSettingsBase, setCalSettingsBase] = useState(null);
   const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    api.getCalcomSettings()
-      .then((s) => {
-        if (!s) return;
-        setCalSettingsBase(s);
-        setBookingPolicy(s.booking_policy || {});
-      })
-      .catch(() => {});
-  }, []);
 
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
@@ -5612,7 +5598,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
     };
     window.addEventListener("aivhub_save_company", onExternalSave);
     return () => window.removeEventListener("aivhub_save_company", onExternalSave);
-  }, [profile, sources, services, faq, bookingPolicy, voiceName]);
+  }, [profile, sources, services, faq, voiceName]);
 
   const update = (k, v) => {
     markDirty();
@@ -5621,11 +5607,6 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
       try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
       return next;
     });
-  };
-
-  const setBookingPolicyDirty = (next) => {
-    markDirty();
-    setBookingPolicy(next);
   };
 
   const save = async (showToast = true) => {
@@ -5642,16 +5623,6 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
       await api.updateProfile(profile);
       await api.saveServices(services);
       await api.saveFaqs(faq);
-      if (calSettingsBase && bookingPolicy != null) {
-        try {
-          const payload = { ...calSettingsBase, booking_policy: bookingPolicy || {} };
-          const savedCal = await api.saveCalcomSettings(payload);
-          setCalSettingsBase(savedCal || payload);
-          setBookingPolicy((savedCal || payload).booking_policy || bookingPolicy);
-        } catch (calErr) {
-          console.warn("Call rules save warning:", calErr);
-        }
-      }
       if (voiceName) {
         try {
           await api.selectVoice({
@@ -6455,6 +6426,26 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                   </div>
                 </div>
               )}
+
+              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
+                <SectionIntro icon={HelpCircle} title="Common questions & approved answers" desc="When a prospect asks something the AI hasn't heard before, it falls back to these — write answers the way you'd want a new hire to say them." />
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {faq.map((f) => (
+                    <div key={f.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input value={f.q} onChange={(e) => updateFaq(f.id, "q", e.target.value)} placeholder="Question a prospect might ask" style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", fontWeight: 600 }} />
+                        <button onClick={() => removeFaq(f.id)} style={{ background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} color={C.slateLight} /></button>
+                      </div>
+                      <textarea value={f.a} onChange={(e) => updateFaq(f.id, "a", e.target.value)} placeholder="Approved answer" style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", minHeight: 50, resize: "none" }} />
+                    </div>
+                  ))}
+                </div>
+                <button onClick={addFaq} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center", marginTop: 12 }}>
+                  <PlusCircle size={13} /> Add a question
+                </button>
+              </div>
+
+              {renderSaveBtn("Save knowledge & FAQs")}
             </div>
           )}
 
@@ -6577,45 +6568,6 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
                 </button>
                 {renderSaveBtn("Save services")}
               </div>
-            </div>
-          )}
-
-          {tab === "script" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* Demo Conversation Blueprint & Custom Voice Rules moved to AI Templates
-                  ("Business Rules & Demo Script" section) — one place to edit them now,
-                  and they apply to every voice engine, not just this profile. */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-                <SectionIntro
-                  icon={Sliders}
-                  title="Call rules (booking)"
-                  desc="How the voice agent books meetings on live calls — built-in steps plus your free-text rules. Saved with the button below."
-                />
-                <BookingPolicyEditor
-                  bookingPolicy={bookingPolicy}
-                  onChange={setBookingPolicyDirty}
-                />
-              </div>
-
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-                <SectionIntro icon={HelpCircle} title="Common questions & approved answers" desc="When a prospect asks something the AI hasn't heard before, it falls back to these — write answers the way you'd want a new hire to say them." />
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {faq.map((f) => (
-                    <div key={f.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <input value={f.q} onChange={(e) => updateFaq(f.id, "q", e.target.value)} placeholder="Question a prospect might ask" style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", fontWeight: 600 }} />
-                        <button onClick={() => removeFaq(f.id)} style={{ background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} color={C.slateLight} /></button>
-                      </div>
-                      <textarea value={f.a} onChange={(e) => updateFaq(f.id, "a", e.target.value)} placeholder="Approved answer" style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", minHeight: 50, resize: "none" }} />
-                    </div>
-                  ))}
-                </div>
-                <button onClick={addFaq} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center", marginTop: 12 }}>
-                    <PlusCircle size={13} /> Add a question
-                  </button>
-              </div>
-
-              {renderSaveBtn("Save call rules")}
             </div>
           )}
 

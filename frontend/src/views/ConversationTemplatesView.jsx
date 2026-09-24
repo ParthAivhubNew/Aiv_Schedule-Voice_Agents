@@ -26,6 +26,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { TopBar } from "../components/TopBar";
+import { BookingPolicyEditor } from "../components/BookingPolicyEditor";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 
@@ -100,6 +101,13 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
   const [newVarVal, setNewVarVal] = useState("");
   const [newVarDesc, setNewVarDesc] = useState("");
 
+  // Booking & Call Rules (shared across every engine — one CalcomSetting row, not per-template)
+  const [bookingPolicy, setBookingPolicy] = useState(null);
+  const [calSettingsBase, setCalSettingsBase] = useState(null);
+  const [bookingDirty, setBookingDirty] = useState(false);
+  const [bookingSaving, setBookingSaving] = useState(false);
+  const [bookingSaveStatus, setBookingSaveStatus] = useState(null);
+
   const loadTemplates = useCallback(async () => {
     try {
       setLoading(true);
@@ -158,7 +166,38 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
   useEffect(() => {
     loadTemplates();
     loadVariables();
+    api.getCalcomSettings()
+      .then((s) => {
+        if (!s) return;
+        setCalSettingsBase(s);
+        setBookingPolicy(s.booking_policy || {});
+      })
+      .catch(() => {});
   }, [loadTemplates, loadVariables]);
+
+  const setBookingPolicyDirty = (next) => {
+    setBookingDirty(true);
+    setBookingPolicy(next);
+  };
+
+  const handleSaveBookingPolicy = async () => {
+    if (!calSettingsBase || bookingPolicy == null) return;
+    setBookingSaving(true);
+    setBookingSaveStatus(null);
+    try {
+      const payload = { ...calSettingsBase, booking_policy: bookingPolicy || {} };
+      const savedCal = await api.saveCalcomSettings(payload);
+      setCalSettingsBase(savedCal || payload);
+      setBookingPolicy((savedCal || payload).booking_policy || bookingPolicy);
+      setBookingDirty(false);
+      setBookingSaveStatus({ type: "success", text: "Booking & call rules saved — used on every engine." });
+    } catch (err) {
+      console.error("Failed to save booking policy:", err);
+      setBookingSaveStatus({ type: "error", text: "Failed to save. Please try again." });
+    } finally {
+      setBookingSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (selectedTemplateId) {
@@ -450,6 +489,23 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   }}
                 >
                   Variables & Tags
+                </button>
+                <button
+                  onClick={() => setActiveTab("booking")}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: activeTab === "booking" ? "#fff" : "transparent",
+                    color: activeTab === "booking" ? C.ink : C.slate,
+                    fontFamily: FONT_BODY,
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    boxShadow: activeTab === "booking" ? "0 1px 3px rgba(0,0,0,0.06)" : "none"
+                  }}
+                >
+                  Booking & Call Rules
                 </button>
               </div>
 
@@ -890,6 +946,51 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       ))
                     )}
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tab 4: Booking & Call Rules — one shared policy, applies to xAI, OpenAI Realtime and Modular/LiveKit alike */}
+          {activeTab === "booking" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+              <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
+                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
+                      Booking & Call Rules
+                    </div>
+                    {bookingSaveStatus && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: bookingSaveStatus.type === "success" ? "#16A34A" : "#DC2626" }}>
+                        {bookingSaveStatus.type === "success" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                        {bookingSaveStatus.text}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16 }}>
+                    How the voice agent books meetings on live calls — built-in steps plus your free-text rules. Shared across every voice engine (not per-template), so it saves separately below.
+                  </div>
+                  <BookingPolicyEditor bookingPolicy={bookingPolicy} onChange={setBookingPolicyDirty} />
+                  <button
+                    onClick={handleSaveBookingPolicy}
+                    disabled={bookingSaving || !bookingDirty}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "8px 18px",
+                      borderRadius: 8,
+                      background: bookingDirty ? C.cobalt : C.paperSoft,
+                      color: bookingDirty ? "#fff" : C.slate,
+                      border: "none",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: bookingDirty ? "pointer" : "default",
+                      boxShadow: bookingDirty ? "0 2px 6px rgba(75,115,255,0.25)" : "none"
+                    }}
+                  >
+                    <Save size={14} /> {bookingSaving ? "Saving..." : "Save booking & call rules"}
+                  </button>
                 </div>
               </div>
             </div>
