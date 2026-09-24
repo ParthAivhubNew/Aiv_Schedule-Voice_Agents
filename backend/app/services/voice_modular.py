@@ -1213,7 +1213,35 @@ async def run_modular_pipeline(
 
     if not greeting:
         greeting = await _greeting_line(is_inbound, prospect_name)
-    greeting_frames = await _speak(bridge, plan, greeting, pace=False) or []
+
+    await log_process_event(
+        subsystem="voice", process_name="greeting_tts_start", level="INFO",
+        message=f"[DIAG] Starting greeting TTS synthesis for {local_id} (provider={plan.tts.provider if plan.tts else None})",
+        details={"callId": local_id, "ttsProvider": plan.tts.provider if plan.tts else None},
+    )
+    try:
+        greeting_frames = await asyncio.wait_for(_speak(bridge, plan, greeting, pace=False), timeout=15.0) or []
+        await log_process_event(
+            subsystem="voice", process_name="greeting_tts_done", level="INFO",
+            message=f"[DIAG] Greeting TTS finished for {local_id}: {len(greeting_frames)} frames produced",
+            details={"callId": local_id, "frameCount": len(greeting_frames)},
+        )
+    except asyncio.TimeoutError:
+        greeting_frames = []
+        logger.error(f"[MODULAR] Greeting TTS synthesis TIMED OUT after 15s for {local_id} — proceeding without audio")
+        await log_process_event(
+            subsystem="voice", process_name="greeting_tts_timeout", level="ERROR",
+            message=f"[DIAG] Greeting TTS synthesis TIMED OUT after 15s for {local_id} (provider={plan.tts.provider if plan.tts else None}) — this confirms a hang, not a clean failure",
+            details={"callId": local_id, "ttsProvider": plan.tts.provider if plan.tts else None},
+        )
+    except Exception as greet_err:
+        greeting_frames = []
+        logger.error(f"[MODULAR] Greeting TTS synthesis raised for {local_id}: {greet_err}")
+        await log_process_event(
+            subsystem="voice", process_name="greeting_tts_error", level="ERROR",
+            message=f"[DIAG] Greeting TTS synthesis raised for {local_id}: {greet_err}",
+            details={"callId": local_id, "error": str(greet_err)},
+        )
     if not bridge.ready.is_set():
         bridge.ready.set()
     asyncio.create_task(_greeting_window(len(greeting_frames)))
