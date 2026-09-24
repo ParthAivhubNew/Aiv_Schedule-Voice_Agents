@@ -19,7 +19,6 @@ from sqlalchemy.future import select
 from app.models.models import (
     CompanyProfile,
     ConversationTemplate,
-    ConversationVariable,
     Mission,
     Prospect,
 )

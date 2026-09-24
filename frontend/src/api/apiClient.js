@@ -290,8 +290,6 @@ export const api = {
   updateConversationTemplate: (id, payload) => apiRequest(`/conversation-templates/${id}`, { method: 'PUT', body: payload }),
   deleteConversationTemplate: (id) => apiRequest(`/conversation-templates/${id}`, { method: 'DELETE' }),
   previewConversationTemplate: (id, sampleData) => apiRequest(`/conversation-templates/${id}/preview`, { method: 'POST', body: sampleData || {} }),
-  getConversationVariables: () => apiRequest('/conversation-templates/variables/list'),
-  createConversationVariable: (payload) => apiRequest('/conversation-templates/variables/', { method: 'POST', body: payload }),
 
   // 5-Point Universal Diagnostics
   runVoiceAndBookingDiagnostics: () => apiRequest('/diagnostics/test-voice-and-booking', { method: 'POST' })
