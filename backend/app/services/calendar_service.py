@@ -623,7 +623,7 @@ class CalendarService:
 
     def _calcom_api_key(self, setting) -> str:
         from app.services.secret_box import open_secret
-        return open_secret(getattr(setting, "api_key", None) or "") or (self.default_api_key or "")
+        return open_secret(getattr(setting, "api_key", None) or "")
 
     def _calcom_base(self, setting) -> str:
         """Base URL for the Cal.com REST API (cloud v2 by default).

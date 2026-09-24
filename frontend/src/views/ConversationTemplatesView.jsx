@@ -23,7 +23,8 @@ import {
   Tag,
   CheckCircle2,
   ChevronRight,
-  AlertCircle
+  AlertCircle,
+  X
 } from "lucide-react";
 import { TopBar } from "../components/TopBar";
 import { BookingPolicyEditor } from "../components/BookingPolicyEditor";
@@ -51,7 +52,15 @@ const VARIABLE_TAGS = [
   { tag: "{{today}}", desc: "Current Date Formatted" }
 ];
 
-export function ConversationTemplatesView({ notifications, setNotifications, embedded = false }) {
+const SAMPLE_PREVIEW_DATA = {
+  prospect_name: "Sarah Jenkins",
+  prospect_company: "Apex Retail Group",
+  prospect_email: "sarah@apexretail.com",
+  prospect_phone: "+447307216767",
+  prospect_timezone: "Europe/London",
+};
+
+export function ConversationTemplatesView({ notifications, setNotifications, embedded = false, onDirtyChange }) {
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
   const [activeTab, setActiveTab] = useState("editor"); // 'editor' | 'preview' | 'variables'
@@ -60,6 +69,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
   const [saving, setSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
   const [copiedTag, setCopiedTag] = useState(null);
+  const [formDirty, setFormDirty] = useState(false);
+  const [deleteModalTarget, setDeleteModalTarget] = useState(null);
 
   // Template Form State
   const [formData, setFormData] = useState({
@@ -83,15 +94,12 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     is_default: false
   });
 
-  // Live Preview State — fixed sample lead; the preview otherwise renders your real
-  // company profile and real booking policy, so this is just placeholder prospect data.
-  const previewData = {
-    prospect_name: "Sarah Jenkins",
-    prospect_company: "Apex Retail Group",
-    prospect_email: "sarah@apexretail.com",
-    prospect_phone: "+447307216767",
-    prospect_timezone: "Europe/London",
+  const updateFormData = (patchOrFn) => {
+    setFormDirty(true);
+    setFormData((prev) => (typeof patchOrFn === "function" ? patchOrFn(prev) : { ...prev, ...patchOrFn }));
   };
+
+  // Live Preview State
   const [previewScenario, setPreviewScenario] = useState("full");
   const [renderedPreview, setRenderedPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -103,14 +111,24 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
   const [bookingSaving, setBookingSaving] = useState(false);
   const [bookingSaveStatus, setBookingSaveStatus] = useState(null);
 
-  const loadTemplates = useCallback(async () => {
+  useEffect(() => {
+    if (typeof onDirtyChange === "function") {
+      onDirtyChange(formDirty || bookingDirty);
+    }
+  }, [formDirty, bookingDirty, onDirtyChange]);
+
+  const loadTemplates = useCallback(async (preferredSelectId) => {
     try {
       setLoading(true);
       const data = await api.getConversationTemplates();
       if (Array.isArray(data)) {
         setTemplates(data);
-        if (data.length > 0 && !selectedTemplateId) {
-          setSelectedTemplateId(data[0].id);
+        if (preferredSelectId) {
+          setSelectedTemplateId(preferredSelectId);
+        } else if (data.length > 0) {
+          setSelectedTemplateId((curr) => (curr && data.some((t) => t.id === curr) ? curr : data[0].id));
+        } else {
+          setSelectedTemplateId(null);
         }
       }
     } catch (err) {
@@ -118,7 +136,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     } finally {
       setLoading(false);
     }
-  }, [selectedTemplateId]);
+  }, []);
 
   const loadTemplateDetail = useCallback(async (id) => {
     if (!id) return;
@@ -144,6 +162,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         is_active: data.is_active ?? true,
         is_default: data.is_default ?? false
       });
+      setFormDirty(false);
     } catch (err) {
       console.error("Failed to load template detail:", err);
     }
@@ -196,6 +215,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
       if (selectedTemplateId) {
         await api.updateConversationTemplate(selectedTemplateId, formData);
         setStatusMsg({ type: "success", text: "Template saved successfully!" });
+        setFormDirty(false);
       }
       await loadTemplates();
       setTimeout(() => setStatusMsg(null), 3000);
@@ -218,8 +238,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         is_default: false
       });
       if (res.template_id) {
-        await loadTemplates();
-        setSelectedTemplateId(res.template_id);
+        setFormDirty(false);
+        await loadTemplates(res.template_id);
         setStatusMsg({ type: "success", text: "Created new template!" });
         setTimeout(() => setStatusMsg(null), 3000);
       }
@@ -230,15 +250,47 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     }
   };
 
+  const requestDelete = (templateIdToDelete) => {
+    const targetId = templateIdToDelete || selectedTemplateId;
+    if (!targetId) return;
+    const target = templates.find((t) => t.id === targetId);
+    if (target?.is_default) {
+      setStatusMsg({ type: "error", text: "Default base templates cannot be deleted." });
+      return;
+    }
+    setDeleteModalTarget(target || { id: targetId, name: "this template" });
+  };
+
+  const confirmDeleteModal = async () => {
+    if (!deleteModalTarget) return;
+    const targetId = deleteModalTarget.id;
+    try {
+      setSaving(true);
+      await api.deleteConversationTemplate(targetId);
+      setStatusMsg({ type: "success", text: `Template "${deleteModalTarget.name}" deleted.` });
+      const remaining = templates.filter((t) => t.id !== targetId);
+      const nextSelected = remaining.length > 0 ? remaining[0].id : null;
+      setDeleteModalTarget(null);
+      setFormDirty(false);
+      await loadTemplates(nextSelected);
+      setTimeout(() => setStatusMsg(null), 3000);
+    } catch (err) {
+      setStatusMsg({ type: "error", text: `Failed to delete template: ${err.message || err}` });
+      setDeleteModalTarget(null);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const runPreview = useCallback(async () => {
     if (!selectedTemplateId) return;
     try {
       setPreviewLoading(true);
-      let payload = { ...previewData };
+      let payload = { ...SAMPLE_PREVIEW_DATA };
       if (previewScenario === "partial") {
-        payload = { prospect_name: previewData.prospect_name, prospect_phone: previewData.prospect_phone };
+        payload = { prospect_name: SAMPLE_PREVIEW_DATA.prospect_name, prospect_phone: SAMPLE_PREVIEW_DATA.prospect_phone };
       } else if (previewScenario === "direct") {
-        payload = { prospect_phone: previewData.prospect_phone };
+        payload = { prospect_phone: SAMPLE_PREVIEW_DATA.prospect_phone };
       } else if (previewScenario === "inbound") {
         payload = {};
       }
@@ -249,7 +301,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     } finally {
       setPreviewLoading(false);
     }
-  }, [selectedTemplateId, previewData, previewScenario]);
+  }, [selectedTemplateId, previewScenario]);
 
   useEffect(() => {
     if (activeTab === "preview" && selectedTemplateId) {
@@ -269,8 +321,11 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     return true;
   });
 
+  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
+  const isDefaultTemplate = selectedTemplate?.is_default === true || selectedTemplateId === "base_outbound_template" || selectedTemplateId === "base_inbound_template";
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: embedded ? "100%" : "100vh", minHeight: 0, overflow: "hidden", background: C.paper }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: embedded ? "100%" : "100vh", minHeight: 0, overflow: "hidden", background: embedded ? "transparent" : C.paper, borderRadius: embedded ? 16 : 0 }}>
       {!embedded && (
         <TopBar
           title="AI Voice Conversation Templates"
@@ -358,13 +413,39 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: isSelected ? C.cobalt : C.ink }}>
+                      <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: isSelected ? C.cobalt : C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginRight: 6 }}>
                         {t.name}
                       </span>
-                      {t.is_default && (
-                        <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#EEF2FF", color: C.cobalt }}>
+                      {t.is_default ? (
+                        <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#EEF2FF", color: C.cobalt, flexShrink: 0 }}>
                           DEFAULT
                         </span>
+                      ) : (
+                        <button
+                          type="button"
+                          title="Delete template"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            requestDelete(t.id);
+                          }}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "#DC2626",
+                            cursor: "pointer",
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            opacity: 0.6,
+                            flexShrink: 0,
+                            transition: "all 0.15s ease",
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.6")}
+                        >
+                          <Trash2 size={13} />
+                        </button>
                       )}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
@@ -482,6 +563,32 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {!isDefaultTemplate && selectedTemplateId && (
+                <button
+                  type="button"
+                  onClick={() => requestDelete(selectedTemplateId)}
+                  disabled={saving}
+                  title="Delete this template"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    background: "#FEF2F2",
+                    color: "#DC2626",
+                    border: "1px solid #FECACA",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#FEE2E2")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "#FEF2F2")}
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
+              )}
               <button
                 onClick={handleSave}
                 disabled={saving || !selectedTemplateId}
@@ -520,7 +627,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <input
                         type="text"
                         value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        onChange={(e) => updateFormData({ name: e.target.value })}
                         style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}
                       />
                     </div>
@@ -528,7 +635,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Call Direction</label>
                       <select
                         value={formData.call_direction}
-                        onChange={(e) => setFormData({ ...formData, call_direction: e.target.value })}
+                        onChange={(e) => updateFormData({ call_direction: e.target.value })}
                         style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff" }}
                       >
                         <option value="outbound">Outbound (Proactive Prospecting)</option>
@@ -549,7 +656,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   <textarea
                     rows={3}
                     value={formData.greeting_template}
-                    onChange={(e) => setFormData({ ...formData, greeting_template: e.target.value })}
+                    onChange={(e) => updateFormData({ greeting_template: e.target.value })}
                     style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, lineHeight: 1.5 }}
                     placeholder="e.g. Hi {{prospect_name}}, this is {{caller_name}} with {{company_name}}..."
                   />
@@ -566,7 +673,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   <textarea
                     rows={2}
                     value={formData.permission_check_template}
-                    onChange={(e) => setFormData({ ...formData, permission_check_template: e.target.value })}
+                    onChange={(e) => updateFormData({ permission_check_template: e.target.value })}
                     style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, lineHeight: 1.5 }}
                     placeholder="e.g. Did I catch you at a bad time? I only need 2 minutes to explain why I called."
                   />
@@ -583,7 +690,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   <textarea
                     rows={3}
                     value={formData.value_prop_template}
-                    onChange={(e) => setFormData({ ...formData, value_prop_template: e.target.value })}
+                    onChange={(e) => updateFormData({ value_prop_template: e.target.value })}
                     style={{ width: "100%", padding: 12, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, lineHeight: 1.5 }}
                     placeholder="e.g. We help {{industry_phrase}} automate 80% of repetitive booking and qualify leads 24/7..."
                   />
@@ -607,7 +714,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                         min={1}
                         max={5}
                         value={formData.max_objection_attempts}
-                        onChange={(e) => setFormData({ ...formData, max_objection_attempts: parseInt(e.target.value) || 3 })}
+                        onChange={(e) => updateFormData({ max_objection_attempts: parseInt(e.target.value) || 3 })}
                         style={{ width: 50, padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "center" }}
                       />
                     </div>
@@ -624,13 +731,13 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                         <textarea
                           rows={2}
                           value={formData.objection_responses[obj.key] ?? obj.defaultText}
-                          onChange={(e) => setFormData({
-                            ...formData,
+                          onChange={(e) => updateFormData((prev) => ({
+                            ...prev,
                             objection_responses: {
-                              ...formData.objection_responses,
+                              ...prev.objection_responses,
                               [obj.key]: e.target.value
                             }
-                          })}
+                          }))}
                           style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", lineHeight: 1.4 }}
                         />
                       </div>
@@ -649,7 +756,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <textarea
                         rows={2}
                         value={formData.booking_transition_template}
-                        onChange={(e) => setFormData({ ...formData, booking_transition_template: e.target.value })}
+                        onChange={(e) => updateFormData({ booking_transition_template: e.target.value })}
                         style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, lineHeight: 1.4 }}
                         placeholder="e.g. Let's get 15 minutes on the calendar this week. Would Tuesday or Thursday work better for you?"
                       />
@@ -659,7 +766,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <textarea
                         rows={2}
                         value={formData.confirmation_template}
-                        onChange={(e) => setFormData({ ...formData, confirmation_template: e.target.value })}
+                        onChange={(e) => updateFormData({ confirmation_template: e.target.value })}
                         style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, lineHeight: 1.4 }}
                         placeholder="e.g. Perfect! I have you booked for {{meeting_time}} {{timezone}}. I'll send an invite to {{prospect_email}}."
                       />
@@ -669,7 +776,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <textarea
                         rows={2}
                         value={formData.closing_template}
-                        onChange={(e) => setFormData({ ...formData, closing_template: e.target.value })}
+                        onChange={(e) => updateFormData({ closing_template: e.target.value })}
                         style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, lineHeight: 1.4 }}
                         placeholder="e.g. Thanks for your time, {{prospect_name}}. Have a fantastic week!"
                       />
@@ -691,7 +798,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <textarea
                         rows={4}
                         value={formData.custom_rules}
-                        onChange={(e) => setFormData({ ...formData, custom_rules: e.target.value })}
+                        onChange={(e) => updateFormData({ custom_rules: e.target.value })}
                         style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, lineHeight: 1.4, fontFamily: FONT_BODY }}
                         placeholder="e.g. Never discuss pricing on the first call. Always offer Tuesday/Thursday mornings first. If they mention a competitor by name, acknowledge respectfully and pivot to our differentiators."
                       />
@@ -701,7 +808,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <textarea
                         rows={6}
                         value={formData.demo_script}
-                        onChange={(e) => setFormData({ ...formData, demo_script: e.target.value })}
+                        onChange={(e) => updateFormData({ demo_script: e.target.value })}
                         style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, lineHeight: 1.4, fontFamily: FONT_MONO }}
                         placeholder={'Prospect: "Hello?"\nAI: "Hi {{prospect_name}}, this is {{caller_name}} calling from {{company_name}}..."\nProspect: "What is this regarding?"\nAI: "..."'}
                       />
@@ -874,6 +981,109 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
           )}
         </div>
       </div>
+
+      {deleteModalTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !saving && setDeleteModalTarget(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10000,
+            background: "rgba(15, 23, 42, 0.55)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 440,
+              background: "#fff",
+              borderRadius: 14,
+              border: `1px solid ${C.border}`,
+              boxShadow: "0 24px 60px rgba(15,23,42,0.28)",
+              padding: "22px 24px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  background: C.redSoft,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}>
+                  <Trash2 size={18} color={C.red} />
+                </div>
+                <h3 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.textInk }}>
+                  Delete Template?
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !saving && setDeleteModalTarget(null)}
+                style={{ background: "none", border: "none", cursor: saving ? "wait" : "pointer", color: C.slate, padding: 4 }}
+                aria-label="Close"
+                disabled={saving}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p style={{ margin: "0 0 18px", fontSize: 13.5, lineHeight: 1.5, color: C.slate }}>
+              Are you sure you want to permanently delete <b style={{ color: C.textInk }}>{deleteModalTarget.name}</b>? Any calls configured to use this template will revert to default flows.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setDeleteModalTarget(null)}
+                disabled={saving}
+                style={{
+                  background: "#fff",
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  padding: "9px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: saving ? "wait" : "pointer",
+                  color: C.textInk,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteModal}
+                disabled={saving}
+                style={{
+                  background: C.red,
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "9px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: saving ? "wait" : "pointer",
+                  color: "#fff",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                {saving ? "Deleting…" : "Delete Template"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -855,6 +855,7 @@ export function CallingWorkspace({
   const [schedule, setSchedule] = useState([]);
   const [scheduleFocus, setScheduleFocus] = useState(""); // "list" opens booked list inside Schedule
   const [companyDirty, setCompanyDirty] = useState(false);
+  const [templatesDirty, setTemplatesDirty] = useState(false);
   const [unsavedLeaveTarget, setUnsavedLeaveTarget] = useState(null);
   const [listeningId, setListeningId] = useState(null);
   const [takenId, setTakenId] = useState(null);
@@ -1083,7 +1084,11 @@ export function CallingWorkspace({
   const goPage = (next) => {
     if (!next || next === page) return;
     if (page === "company" && companyDirty && next !== "company") {
-      setUnsavedLeaveTarget({ type: "page", next });
+      setUnsavedLeaveTarget({ type: "page", next, source: "company" });
+      return;
+    }
+    if (page === "templates" && templatesDirty && next !== "templates") {
+      setUnsavedLeaveTarget({ type: "page", next, source: "templates" });
       return;
     }
     setPage(next);
@@ -1092,6 +1097,7 @@ export function CallingWorkspace({
   const handleLeaveConfirm = () => {
     const t = unsavedLeaveTarget;
     setCompanyDirty(false);
+    setTemplatesDirty(false);
     setUnsavedLeaveTarget(null);
     if (!t) return;
     if (t.type === "page") setPage(t.next);
@@ -2363,7 +2369,7 @@ export function CallingWorkspace({
           }}>{toast}</div>
         ) : null}
 
-        <div style={{ flex: 1, minHeight: 0, overflow: page === "list" ? "hidden" : "auto", padding: "18px 28px 28px", display: page === "list" ? "flex" : undefined, flexDirection: page === "list" ? "column" : undefined }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates") ? "hidden" : "auto", padding: "18px 28px 28px", display: (page === "list" || page === "templates") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates") ? "column" : undefined }}>
           {page === "list" && (
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 380px", gap: 16, flex: 1, minHeight: 0 }}>
               <div
@@ -3581,11 +3587,12 @@ export function CallingWorkspace({
           )}
 
           {page === "templates" && (
-            <div style={{ flex: 1, height: "100%", minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div style={{ ...card(), padding: 0, overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <ConversationTemplatesView
                 embedded
                 notifications={notifications}
                 setNotifications={setNotifications}
+                onDirtyChange={setTemplatesDirty}
               />
             </div>
           )}
@@ -3643,7 +3650,7 @@ export function CallingWorkspace({
                   Unsaved changes
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#475569", marginTop: 6, lineHeight: 1.5 }}>
-                  You have unsaved changes in Company profile. If you leave now without saving, your recent edits will be lost.
+                  You have unsaved changes in {unsavedLeaveTarget?.source === "templates" ? "AI Templates" : "Company profile"}. If you leave now without saving, your recent edits will be lost.
                 </div>
               </div>
               <button

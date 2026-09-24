@@ -130,7 +130,6 @@ import { CallingWorkspace } from "./calling/CallingWorkspace";
 import { CALLING_EDITION_EVENT, getCallingEdition, setCallingEdition } from "./calling/callingEdition";
 import { LiveKitBrowserCallModal } from "./components/LiveKitBrowserCallModal";
 import { ConversationTemplatesView } from "./views/ConversationTemplatesView";
-import { ConnectionsView } from "./views/ConnectionsView";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -1248,6 +1247,35 @@ function LivePulse() {
       ))}
     </div>
   );
+}
+
+function CallTimer({ initialDuration = "00:00", active = true, style }) {
+  const [seconds, setSeconds] = useState(() => {
+    if (!initialDuration || typeof initialDuration !== "string" || !initialDuration.includes(":")) return 0;
+    const parts = initialDuration.split(":").map((n) => parseInt(n, 10) || 0);
+    return (parts[0] || 0) * 60 + (parts[1] || 0);
+  });
+
+  useEffect(() => {
+    if (initialDuration && typeof initialDuration === "string" && initialDuration.includes(":")) {
+      const parts = initialDuration.split(":").map((n) => parseInt(n, 10) || 0);
+      setSeconds((parts[0] || 0) * 60 + (parts[1] || 0));
+    }
+  }, [initialDuration]);
+
+  useEffect(() => {
+    if (!active) return;
+    const interval = setInterval(() => {
+      setSeconds((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [active]);
+
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  const formatted = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+
+  return <span style={style}>{formatted}</span>;
 }
 
 function FitScore({ value }) {
@@ -2585,7 +2613,7 @@ function BatchTaskWizardModal({ isOpen, onClose, onCreateTask, onLaunchLiveBatch
       timezone: "Europe/London",
       callWindow: `${windowTimes.start}–${windowTimes.end} (Local Time)`,
       noAnswerFallbacks: voicemailAction === "drop_and_message" ? ["whatsapp", "sms", "email"] : ["retry"],
-      prospects: generateBatchProspects(totalRows, "Logistics"),
+      prospects: parsedContacts && parsedContacts.length ? parsedContacts : [],
     };
     onCreateTask(created);
     onClose();
@@ -3344,14 +3372,6 @@ function MissionsView({ onOpenMission, onNewMission, notifications, setNotificat
           ))}
         </div>
       </div>
-
-      {dossierContact && (
-        <CompanyDossierModal
-          contact={dossierContact}
-          onClose={() => setDossierContact(null)}
-          onWatchLive={onWatchLive}
-        />
-      )}
     </>
   );
 }
@@ -3435,18 +3455,36 @@ function MissionDetail({ mission, onBack, companyName, onWatchLive, liveCalls = 
               {mission.understood} of {mission.fileRows || mission.total} rows understood and queued — open any company below to see what happened and how.
             </div>
           )}
-          {(liveCount || 0) > 0 && (
-            <div style={{ marginTop: 10, background: C.cobaltSoft, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk, lineHeight: 1.45, maxWidth: 560 }}>
-              {liveCount} conversation{liveCount === 1 ? "" : "s"} live now. This page is the roster. Open <strong>Live Activity</strong> to listen, take over, or end a call.
-            </div>
-          )}
+          <div style={{ minHeight: (liveCount || 0) > 0 ? 44 : 0, marginTop: (liveCount || 0) > 0 ? 10 : 0, transition: "min-height 0.2s ease" }}>
+            {(liveCount || 0) > 0 && (
+              <div style={{ background: C.cobaltSoft, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk, lineHeight: 1.45, maxWidth: 560 }}>
+                {liveCount} conversation{liveCount === 1 ? "" : "s"} live now. This page is the roster. Open <strong>Live Activity</strong> to listen, take over, or end a call.
+              </div>
+            )}
+          </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {typeof onWatchLive === "function" && liveCount > 0 && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 36 }}>
+            {typeof onWatchLive === "function" && (
               <button
                 onClick={() => onWatchLive({ missionTitle: mission && mission.title, missionId: mission && mission.id })}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  background: C.ink,
+                  color: "#fff",
+                  border: "none",
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: (liveCount || 0) > 0 ? "pointer" : "default",
+                  opacity: (liveCount || 0) > 0 ? 1 : 0,
+                  pointerEvents: (liveCount || 0) > 0 ? "auto" : "none",
+                  visibility: (liveCount || 0) > 0 ? "visible" : "hidden",
+                  transition: "opacity 0.2s ease, visibility 0.2s ease",
+                }}
               >
                 <Radio size={13} /> Watch {liveCount} Live Call{liveCount === 1 ? "" : "s"}
               </button>
@@ -3679,7 +3717,7 @@ function StatRow({ label, value, accent }) {
 
 /* ---------------------------------- live calls ---------------------------------- */
 
-function LiveCallsView({ notifications, setNotifications, companyName, callerId, calls, onConfirmBooking, onTakenToggle, onListenToggle, onAskEnd, onCancelEnd, onConfirmEnd, focus, onClearFocus, onBackToTasks, onRefreshLiveCalls, directDialPrefill }) {
+const LiveCallsView = React.memo(function LiveCallsView({ notifications, setNotifications, companyName, callerId, calls, onConfirmBooking, onTakenToggle, onListenToggle, onAskEnd, onCancelEnd, onConfirmEnd, focus, onClearFocus, onBackToTasks, onRefreshLiveCalls, directDialPrefill, onOptimisticCall }) {
   const toggleTaken = onTakenToggle;
   const toggleListen = onListenToggle;
   const askEnd = onAskEnd;
@@ -3769,8 +3807,9 @@ function LiveCallsView({ notifications, setNotifications, companyName, callerId,
           setNotifications={setNotifications}
           defaultFromNumber={callerId || ""}
           prefillData={directDialPrefill}
-          onCallCreated={() => {
+          onCallCreated={(res, payload) => {
             if (onClearFocus) onClearFocus();
+            if (onOptimisticCall) onOptimisticCall(res, payload);
             if (onRefreshLiveCalls) onRefreshLiveCalls();
           }}
         />
@@ -3853,7 +3892,7 @@ function LiveCallsView({ notifications, setNotifications, companyName, callerId,
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {isMessage ? <ChannelTag channel={c.channel} small /> : <LivePulse />}
-                  <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.slate }}>{c.duration}</span>
+                  <CallTimer initialDuration={c.duration} active={!c.ended && c.state !== "ended"} style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.slate }} />
                 </div>
               </div>
 
@@ -3969,7 +4008,7 @@ function LiveCallsView({ notifications, setNotifications, companyName, callerId,
       </div>
     </>
   );
-}
+});
 
 function ActionBtn({ icon: Icon, label, onClick, active, danger, activeColor, activeBg }) {
   const fg = active ? (activeColor || C.red) : danger ? C.red : C.textInk;
@@ -7357,7 +7396,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
       const res = await api.dialOutbound(payload);
       setDialResult(res);
       if (onCallCreated) {
-        try { onCallCreated(res); } catch (_) {}
+        try { onCallCreated(res, payload); } catch (_) {}
       }
       setNotifications((ns) => [
         {
@@ -8529,7 +8568,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       value: labels.carrier || hubData?.activeCarrier || "—",
       model: resolveModel("telephony"),
       isPhone: true,
-      ok: !!(hubData?.activeCarrier || hubData?.phoneNumber),
+      ok: hubData?.status === "connected" && !!hubData?.phoneNumber,
       hint: "Twilio, Telnyx, or SIP",
       needPlugin: true,
     },
@@ -8538,7 +8577,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       title: "Call engine",
       layer: "Voice Orchestration",
       value: labels.engine,
-      ok: !!engine,
+      ok: hubData?.status === "connected" && !!engine,
       hint: "xAI · Modular · OpenAI",
       needPlugin: true,
     },
@@ -8548,7 +8587,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       layer: "Speech-to-Text",
       value: modular ? labels.stt : (xaiLike ? "Inside engine" : labels.stt),
       model: resolveModel("stt"),
-      ok: modular ? !!(hubData?.sttProvider || hubData?.sttName) : true,
+      ok: modular ? !!(hubData?.sttProvider || hubData?.sttName) : hubData?.status === "connected",
       hint: modular ? "Deepgram, Whisper, …" : "Bundled — no separate plugin",
       needPlugin: true,
     },
@@ -8558,7 +8597,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       layer: "LLM",
       value: modular ? labels.llm : (xaiLike ? "Inside engine" : labels.llm),
       model: resolveModel("llm"),
-      ok: modular ? !!(hubData?.llmProvider || hubData?.llmName) : true,
+      ok: modular ? !!(hubData?.llmProvider || hubData?.llmName) : hubData?.status === "connected",
       hint: modular ? "Groq, OpenAI, Grok chat, …" : "Bundled — no separate plugin",
       needPlugin: true,
     },
@@ -8574,7 +8613,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
             ? `OpenAI (${hubData?.voiceName || "alloy"})`
             : labels.tts),
       model: resolveModel("tts"),
-      ok: modular || hybrid ? !!(hubData?.ttsProvider || hubData?.ttsName) : true,
+      ok: modular || hybrid ? !!(hubData?.ttsProvider || hubData?.ttsName) : hubData?.status === "connected",
       hint: hybrid || modular ? "Cartesia, ElevenLabs, PlayHT, Other…" : "Using engine voice — Add TTS only to clone",
       needPlugin: true,
       recommend: engine === "xai" && !hybrid,
@@ -8588,9 +8627,9 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
         : (hybrid
           ? (hubData?.ttsVoiceId || hubData?.voiceName || "—")
           : (hubData?.voiceName || "—")),
-      ok: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
+      ok: hubData?.status === "connected" && (looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
         ? false
-        : !!(hubData?.voiceName && String(hubData.voiceName).length > 1 && (!hybrid || isValidCloneVoiceId(hubData.voiceName))),
+        : !!(hubData?.voiceName && String(hubData.voiceName).length > 1 && (!hybrid || isValidCloneVoiceId(hubData.voiceName)))),
       hint: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
         ? "Paste Cartesia Voice UUID on Line setup"
         : (hybrid ? "Must be Cartesia UUID with dashes" : "Saved engine persona (ara / rex / …)"),
@@ -8752,7 +8791,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [engineChoice, setEngineChoice] = useState(() => {
     return cached?.liveEngine || "livekit";
   });
-  const [phoneNumber, setPhoneNumber] = useState(profile?.callerId || cached?.phoneNumber || "");
+  const [phoneNumber, setPhoneNumber] = useState(hubData?.phoneNumber || "");
   const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
   const [diagRunning, setDiagRunning] = useState(false);
   const [diagScore, setDiagScore] = useState(null);
@@ -8813,11 +8852,9 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         try {
           localStorage.setItem("aivhub_telephony_hub_cache", JSON.stringify(data));
         } catch (_) {}
-        if (data.phoneNumber) {
-          setPhoneNumber(data.phoneNumber);
-          if (setProfile) {
-            setProfile((prev) => ({ ...prev, callerId: data.phoneNumber }));
-          }
+        setPhoneNumber(data.phoneNumber || "");
+        if (data.phoneNumber && setProfile) {
+          setProfile((prev) => ({ ...prev, callerId: data.phoneNumber }));
         }
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
         if (data.voiceName) {
@@ -8848,6 +8885,12 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   useEffect(() => {
     fetchStatus();
   }, []);
+
+  useEffect(() => {
+    if (hubData?.phoneNumber !== undefined) {
+      setPhoneNumber(hubData.phoneNumber || "");
+    }
+  }, [hubData?.phoneNumber]);
 
   const handleRunDiagnostics = async () => {
     try {
@@ -9184,9 +9227,15 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Active Voice & Telephony Trunk</span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 12, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46", fontSize: 11, fontWeight: 600 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10B981" }} /> Live Call Ready
-                </span>
+                {hubData?.status === "connected" ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 12, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46", fontSize: 11, fontWeight: 600 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10B981" }} /> Live Call Ready
+                  </span>
+                ) : (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 12, background: "#FEF3C7", border: "1px solid #FDE68A", color: "#92400E", fontSize: 11, fontWeight: 600 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#F59E0B" }} /> Not Configured
+                  </span>
+                )}
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 2 }}>
                 {hubData.liveNote || "Live line status for the next call."}
@@ -9289,7 +9338,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           {engineChoice === "livekit" && (
             <div>
               <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>WebRTC Connection</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.teal, marginTop: 4, fontWeight: 600 }}>Browser-based (no SIP)</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: hubData?.status === "connected" ? C.teal : C.slate, marginTop: 4, fontWeight: 600 }}>Browser-based (no SIP)</div>
             </div>
           )}
         </div>
@@ -10097,6 +10146,15 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           </div>
         </div>
       )}
+
+      {/* LiveKit WebRTC In-Browser Voice Call Modal */}
+      <LiveKitBrowserCallModal
+        isOpen={liveKitModalOpen}
+        onClose={() => setLiveKitModalOpen(false)}
+        prospectName="Line Setup Test User"
+        prospectPhone={phoneNumber || hubData?.phoneNumber || "Browser WebRTC"}
+        companyName={profile?.name || "AIVHub"}
+      />
     </div>
   );
 }
@@ -10476,15 +10534,6 @@ function LeadRadarView({ notifications, setNotifications, onLaunchMission }) {
           )}
         </div>
       )}
-
-      {/* LiveKit WebRTC In-Browser Voice Call Modal */}
-      <LiveKitBrowserCallModal
-        isOpen={liveKitModalOpen}
-        onClose={() => setLiveKitModalOpen(false)}
-        prospectName="Line Setup Test User"
-        prospectPhone={phoneNumber || hubData.phoneNumber || "Browser WebRTC"}
-        companyName={profile?.name || "AIVHub"}
-      />
     </div>
   );
 }
@@ -10674,6 +10723,68 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const handleSave = async (groupName, itemName, rowKey) => {
     const row = rowState[rowKey] || {};
     const key = (row.keyValue || "").trim();
+    const item = (credsState.find((g) => g.group === groupName)?.items || []).find((x) => x.name === itemName);
+    const isAlreadyConnected = item?.status === "connected";
+
+    // If key is not entered and connection is already connected, perform lightweight config update
+    if (!key && isAlreadyConnected) {
+      setRow(rowKey, { phase: "saving" });
+      try {
+        const savedVoiceId = (row.voiceIdValue || "").trim();
+        const savedModel = (row.modelValue || "").trim();
+        const savedBaseUrl = (row.baseUrlValue || "").trim();
+        await api.updateConnectionConfig({
+          id: item.id || undefined,
+          layer: groupName,
+          provider: itemName,
+          model: savedModel,
+          base_url: savedBaseUrl,
+          voice_id: savedVoiceId,
+        });
+        setCredsState((s) =>
+          s.map((g) =>
+            g.group === groupName
+              ? {
+                  ...g,
+                  items: (g.items || []).map((x) =>
+                    x.name === itemName
+                      ? {
+                          ...x,
+                          model: savedModel || x.model,
+                          baseUrl: savedBaseUrl || x.baseUrl,
+                          voiceId: savedVoiceId || x.voiceId,
+                          config: { ...(x.config || {}), voice_id: savedVoiceId || x.voiceId, model: savedModel || (x.config || {}).model },
+                        }
+                      : x
+                  ),
+                }
+              : g
+          )
+        );
+        if (savedVoiceId) {
+          const vObj = {
+            voice_id: savedVoiceId,
+            id: savedVoiceId,
+            name: `${itemName} Voice (${savedVoiceId.slice(0, 8)}...)`,
+            provider: itemName.toLowerCase(),
+          };
+          setCustomVoices((prev) => [vObj, ...(prev || []).filter((v) => v.voice_id !== savedVoiceId)]);
+          setVoiceName(savedVoiceId);
+          setSpeakMode("clone");
+        }
+        handleCancel(rowKey);
+        setNotifications((ns) => [
+          { id: "n_" + Date.now(), text: `✓ Updated configuration for ${itemName}`, time: "just now", unread: true, type: "success" },
+          ...ns,
+        ]);
+        flash();
+        return;
+      } catch (err) {
+        setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Failed to update configuration." });
+        return;
+      }
+    }
+
     const isTwilio = String(itemName || "").toLowerCase().includes("twilio");
     const isWhatsApp = String(itemName || "").toLowerCase().includes("whatsapp");
     const sidCandidate = (row.accountSidValue || row.agentIdValue || "").trim();
@@ -11211,23 +11322,43 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               </div>
                             )}
 
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
                               {phase !== "tested_ok" ? (
-                                <button
-                                  onClick={() => handleTest(group.group, it.name, rowKey)}
-                                  disabled={phase === "testing"}
-                                  style={{ background: C.cobalt, color: "#fff", border: "none", borderRadius: 7, padding: "8px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "testing" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                                >
-                                  {phase === "testing" ? (
-                                    <>
-                                      <RefreshCw size={13} className="animate-spin" /> Testing live connection...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <ShieldCheck size={13} /> Test Connection
-                                    </>
+                                <>
+                                  <button
+                                    onClick={() => handleTest(group.group, it.name, rowKey)}
+                                    disabled={phase === "testing"}
+                                    style={{ background: C.cobalt, color: "#fff", border: "none", borderRadius: 7, padding: "8px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "testing" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                                  >
+                                    {phase === "testing" ? (
+                                      <>
+                                        <RefreshCw size={13} className="animate-spin" /> Testing live connection...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ShieldCheck size={13} /> Test Connection
+                                      </>
+                                    )}
+                                  </button>
+                                  {isConnected && (
+                                    <button
+                                      onClick={() => handleSave(group.group, it.name, rowKey)}
+                                      disabled={phase === "saving"}
+                                      title="Update model, base URL, or voice ID without re-testing your secret API key"
+                                      style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "saving" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                                    >
+                                      {phase === "saving" ? (
+                                        <>
+                                          <RefreshCw size={13} className="animate-spin" /> Updating…
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Save size={13} /> Save Settings (Keep Key)
+                                        </>
+                                      )}
+                                    </button>
                                   )}
-                                </button>
+                                </>
                               ) : (
                                 <button
                                   onClick={() => handleSave(group.group, it.name, rowKey)}
@@ -11300,7 +11431,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             onClick={(e) => e.stopPropagation()}
             style={{
               width: "100%",
-              maxWidth: 420,
+              maxWidth: 440,
               background: "#fff",
               borderRadius: 14,
               border: `1px solid ${C.border}`,
@@ -11323,7 +11454,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                   <Trash2 size={18} color={C.red} />
                 </div>
                 <h3 id="delete-key-confirm-title" style={{ margin: 0, fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.textInk }}>
-                  Delete API key?
+                  Delete {deleteKeyConfirm.item?.name} Key?
                 </h3>
               </div>
               <button
@@ -11337,7 +11468,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               </button>
             </div>
             <p style={{ margin: "0 0 18px", fontSize: 13.5, lineHeight: 1.5, color: C.slate }}>
-              Remove the saved key for <b style={{ color: C.textInk }}>{deleteKeyConfirm.item?.name}</b>? You can paste a new key later. Live calls using this provider will stop working until a key is saved again.
+              Permanently remove the saved credentials for <b style={{ color: C.textInk }}>{deleteKeyConfirm.item?.name}</b> in <b>{deleteKeyConfirm.groupName}</b>? This action is irreversible. Live calls relying on {deleteKeyConfirm.item?.name} will fail until a valid key is provided again.
             </p>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
               <button
@@ -23881,7 +24012,7 @@ function SchSolid({ children, onClick }) {
 
 /* ---------------------------------- app shell ---------------------------------- */
 
-function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, faq, setFaq, commonAi, setCommonAi, onOpenCommonAi, returnPlugin, onReturnToPlugin, onUseSimple }) {
+function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile, knowledgeSources, setKnowledgeSources, services, setServices, faq, setFaq, commonAi, setCommonAi, onOpenCommonAi, returnPlugin, onReturnToPlugin, onUseSimple, liveCalls: propLiveCalls, setLiveCalls: propSetLiveCalls, refreshLiveCalls: propRefreshLiveCalls }) {
   const [view, setView] = useState(() => {
     try {
       const hash = window.location.hash.replace(/^#\/?/, "");
@@ -23957,7 +24088,52 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     });
     setView("live");
   };
-  const [liveCalls, setLiveCalls] = useState(INITIAL_LIVE_CALLS.map((c) => ({ ...c, taken: false, listening: false, confirmingEnd: false, ended: false, booked: false })));
+  const [localLiveCalls, setLocalLiveCalls] = useState(() => INITIAL_LIVE_CALLS.map((c) => ({ ...c, taken: false, listening: false, confirmingEnd: false, ended: false, booked: false })));
+  const liveCalls = propLiveCalls !== undefined ? propLiveCalls : localLiveCalls;
+  const setLiveCalls = propSetLiveCalls || setLocalLiveCalls;
+
+  const localRefreshLiveCalls = async () => {
+    try {
+      const lc = await api.getLiveCalls();
+      if (!Array.isArray(lc)) return;
+      setLiveCalls(lc);
+    } catch (_) {}
+  };
+  const refreshLiveCalls = propRefreshLiveCalls || localRefreshLiveCalls;
+
+  const handleOptimisticCall = (res, payload) => {
+    if (!res) return;
+    const cid = res.call_id || res.id || `call_${Date.now()}`;
+    const carrierSid = res.carrier_call_id || res.carrierSid || null;
+    const optimistic = {
+      id: cid,
+      call_sid: carrierSid || cid,
+      carrier_sid: carrierSid,
+      carrierSid: carrierSid,
+      carrier: res.carrier || (payload && payload.carrier) || "Twilio",
+      mission_id: (payload && payload.mission_id) || "m_outbound",
+      prospect_id: null,
+      prospect: (payload && payload.prospect_name) || `Prospect (${((payload && payload.to_number) || "").slice(-4)})`,
+      phone: (payload && payload.to_number) || "",
+      mission: (payload && payload.mission_title) || "Direct Outbound Outreach",
+      state: "calling",
+      channel: "voice",
+      duration: "00:00",
+      listening: false,
+      taken: false,
+      confirming_end: false,
+      ended: false,
+      booked: false,
+      _isOptimistic: true,
+      _createdAt: Date.now(),
+      transcript: [
+        `AI: [Outbound call initiated via ${(res.carrier || (payload && payload.carrier) || "carrier").toUpperCase()} to ${(payload && payload.to_number) || ""}]`,
+        `System: Ringing ${(payload && payload.to_number) || ""}...`
+      ]
+    };
+    setLiveCalls((prev) => [optimistic, ...(prev || []).filter((c) => (c.id !== cid && (!carrierSid || c.carrier_sid !== carrierSid)))]);
+  };
+
   const activeAudioPlayerRef = useRef(null);
   const [listeningCallId, setListeningCallId] = useState(null);
   const [takenCallId, setTakenCallId] = useState(null);
@@ -24005,34 +24181,31 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     try { localStorage.setItem("aivhub_call_log", JSON.stringify(callLog)); } catch (_) {}
   }, [callLog]);
 
-  const refreshLiveCalls = async () => {
-    try {
-      const lc = await api.getLiveCalls();
-      if (!Array.isArray(lc)) return;
-      setLiveCalls(lc);
-      setMissions((ms) =>
-        ms.map((m) => {
-          const rows = m.prospects || [];
-          if (!rows.length) return m;
-          let changed = false;
-          const prospects = rows.map((p) => {
-            const call = lc.find((c) => prospectMatchesCall(p, c, m.id));
-            if (liveCallActive(call)) {
-              if (p.status !== "calling") changed = true;
-              return { ...p, status: "calling" };
-            }
-            if (p.status === "calling") {
-              changed = true;
-              return { ...p, status: call && call.booked ? "meeting_booked" : "ended", time: "just now" };
-            }
-            return p;
-          });
-          if (!changed) return m;
-          return { ...m, prospects, ...tallyMission(prospects) };
-        })
-      );
-    } catch (_) {}
-  };
+  // Sync missions prospect status when liveCalls changes
+  useEffect(() => {
+    if (!Array.isArray(liveCalls)) return;
+    setMissions((ms) =>
+      ms.map((m) => {
+        const rows = m.prospects || [];
+        if (!rows.length) return m;
+        let changed = false;
+        const prospects = rows.map((p) => {
+          const call = liveCalls.find((c) => prospectMatchesCall(p, c, m.id));
+          if (liveCallActive(call)) {
+            if (p.status !== "calling") changed = true;
+            return { ...p, status: "calling" };
+          }
+          if (p.status === "calling") {
+            changed = true;
+            return { ...p, status: call && call.booked ? "meeting_booked" : "ended", time: "just now" };
+          }
+          return p;
+        });
+        if (!changed) return m;
+        return { ...m, prospects, ...tallyMission(prospects) };
+      })
+    );
+  }, [liveCalls]);
 
   const refreshWorkspaceLogs = async () => {
     try {
@@ -24060,67 +24233,11 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
     }
   }, [view]);
 
-  // Real-time WebSocket connection to Call Hub + auto polling fallback
+  // Listen for global log refresh events triggered by backend / WS
   useEffect(() => {
-    let ws = null;
-    const seenInboundCallIds = new Set();
-    try {
-      ws = new WebSocketClient(
-        null,
-        (msg) => {
-          if (msg && msg.type) {
-            refreshLiveCalls();
-            if (msg.type === "call_created" || msg.type === "call_started") {
-              const data = msg.data || {};
-              const callId = data.id || data.callId || data.carrierSid || "";
-              // call_created + call_started (and remounted listeners) used to fire 2–4 identical bells
-              if (callId) {
-                if (seenInboundCallIds.has(callId)) return;
-                seenInboundCallIds.add(callId);
-              }
-              const callerLabel = data.prospect || data.caller || "Incoming caller";
-              const text = `Inbound call received: ${callerLabel}. AI is conversing live now.`;
-              setNotifications((ns) => prependNotification(ns, text, "alert", { targetView: "live" }));
-            }
-            if (["call_ended", "booking_confirmed", "call_updated"].includes(msg.type)) {
-              refreshWorkspaceLogs();
-            }
-          }
-        },
-        () => console.log("[LiveCalls] WebSocket linked to CallHub"),
-        () => console.log("[LiveCalls] WebSocket disconnected")
-      );
-    } catch (e) {
-      console.warn("WebSocketClient init:", e);
-    }
-
-    const interval = setInterval(() => {
-      refreshLiveCalls();
-    }, 2500);
-
-    const ticker = setInterval(() => {
-      setLiveCalls((prev) =>
-        prev.map((c) => {
-          if (c.ended || c.state === "ended" || c.state === "failed" || c.state === "canceled") return c;
-          const currentDur = c.duration || "00:00";
-          if (!currentDur.includes(":")) return c;
-          const [mm, ss] = currentDur.split(":").map((n) => parseInt(n, 10) || 0);
-          const totalSecs = mm * 60 + ss + 1;
-          const nextMin = Math.floor(totalSecs / 60);
-          const nextSec = totalSecs % 60;
-          return {
-            ...c,
-            duration: `${String(nextMin).padStart(2, "0")}:${String(nextSec).padStart(2, "0")}`
-          };
-        })
-      );
-    }, 1000);
-
-    return () => {
-      if (ws) ws.close();
-      clearInterval(interval);
-      clearInterval(ticker);
-    };
+    const handleLogRefresh = () => refreshWorkspaceLogs();
+    window.addEventListener("aivhub_refresh_logs", handleLogRefresh);
+    return () => window.removeEventListener("aivhub_refresh_logs", handleLogRefresh);
   }, []);
 
   // Load backend data on mount
@@ -24803,7 +24920,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#10B981", display: "inline-block", boxShadow: "0 0 8px #10B981" }} />
               <span style={{ fontWeight: 700, fontSize: 13.5, color: "#fff" }}>
-                📞 Live Call in Progress ({activeCalls.length}): {activeCalls[0].prospect} ({activeCalls[0].duration || "00:01"})
+                📞 Live Call in Progress ({activeCalls.length}): {activeCalls[0].prospect} (<CallTimer initialDuration={activeCalls[0].duration || "00:01"} active={true} />)
               </span>
               <span style={{ fontSize: 12, color: "#C7D2FE" }}>
                 AI is actively speaking with caller.
@@ -24900,6 +25017,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
             onBackToTasks={goBack}
             onRefreshLiveCalls={refreshLiveCalls}
             directDialPrefill={directDialPrefill}
+            onOptimisticCall={handleOptimisticCall}
           />
         )}
         {view === "calllog" && (
@@ -24932,8 +25050,7 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
         )}
         {view === "company" && <CompanyProfileView profile={profile} setProfile={setProfile} notifications={notifications} setNotifications={setNotifications} sources={knowledgeSources} setSources={setKnowledgeSources} services={services} setServices={setServices} faq={faq} setFaq={setFaq} />}
         {view === "templates" && <ConversationTemplatesView notifications={notifications} setNotifications={setNotifications} />}
-        {view === "connections" && <ConnectionsView notifications={notifications} setNotifications={setNotifications} />}
-        {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} profile={profile} setProfile={setProfile} onNavigateView={setView} />}
+        {(view === "provider" || view === "connections") && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} profile={profile} setProfile={setProfile} onNavigateView={setView} />}
         {view === "analytics" && (
           <SafeErrorBoundary label="Analytics" onReset={() => setView("analytics")}>
             <AnalyticsView notifications={notifications} setNotifications={setNotifications} />
@@ -25011,7 +25128,7 @@ function UniversalCallNotificationBanner({ activeCalls, currentPlugin, onJumpToV
               fontWeight: 700,
             }}
           >
-            ⏱ {duration}
+            ⏱ <CallTimer initialDuration={duration} active={true} />
           </span>
         </div>
         <button
@@ -25298,7 +25415,7 @@ export default function App() {
     }
   });
 
-  const [globalLiveCalls, setGlobalLiveCalls] = useState([]);
+  const [liveCalls, setLiveCalls] = useState([]);
   const [dismissedCallIds, setDismissedCallIds] = useState([]);
   const prevLiveCallIdsRef = useRef(new Set());
 
@@ -25353,11 +25470,28 @@ export default function App() {
     } catch (_) {}
   };
 
-  const refreshGlobalLiveCalls = async () => {
+  const refreshLiveCalls = async () => {
     try {
       const lc = await api.getLiveCalls();
       if (Array.isArray(lc)) {
-        setGlobalLiveCalls(lc);
+        setLiveCalls((prev) => {
+          // Reconcile with optimistic calls
+          const backendIds = new Set(lc.map((c) => c.id || c.call_sid).filter(Boolean));
+          const backendCarrierSids = new Set(lc.map((c) => c.carrier_sid || c.carrierSid || c.carrier_call_id).filter(Boolean));
+
+          const remainingOptimistic = (prev || []).filter((p) => {
+            if (!p._isOptimistic) return false;
+            const pid = p.id || p.call_sid;
+            const pCarrierSid = p.carrier_sid || p.carrierSid || p.carrier_call_id;
+            if (pid && backendIds.has(pid)) return false;
+            if (pCarrierSid && backendCarrierSids.has(pCarrierSid)) return false;
+            if (Date.now() - (p._createdAt || 0) > 30000) return false;
+            return true;
+          });
+
+          return [...remainingOptimistic, ...lc];
+        });
+
         const active = lc.filter((c) => !c.ended && c.state !== "ended" && c.state !== "failed" && c.state !== "canceled");
         active.forEach((c) => {
           const cid = c.id || c.call_sid;
@@ -25370,7 +25504,7 @@ export default function App() {
     } catch (_) {}
   };
 
-  // Global real-time listener for incoming/live calls across ALL plugins
+  // Global real-time WebSocket listener + poll fallback across ALL plugins
   useEffect(() => {
     let ws = null;
     try {
@@ -25378,49 +25512,41 @@ export default function App() {
         null,
         (msg) => {
           if (msg && msg.type) {
-            refreshGlobalLiveCalls();
+            refreshLiveCalls();
+            if (msg.type === "call_created" || msg.type === "call_started") {
+              const data = msg.data || {};
+              const callId = data.id || data.callId || data.carrierSid || "";
+              if (callId && !prevLiveCallIdsRef.current.has(callId)) {
+                prevLiveCallIdsRef.current.add(callId);
+                triggerCallNotification(data);
+              }
+            }
+            if (["call_ended", "booking_confirmed", "call_updated"].includes(msg.type)) {
+              window.dispatchEvent(new CustomEvent("aivhub_refresh_logs"));
+            }
           }
         },
-        () => console.log("[RootLiveCalls] WS connected"),
-        () => console.log("[RootLiveCalls] WS closed")
+        () => console.log("[LiveCalls] WebSocket linked to CallHub"),
+        () => console.log("[LiveCalls] WebSocket disconnected")
       );
     } catch (_) {}
 
-    refreshGlobalLiveCalls();
+    refreshLiveCalls();
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        refreshGlobalLiveCalls();
+        refreshLiveCalls();
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onVisibilityChange);
 
-    // Fallback sync every 20s (WebSocket provides instant real-time events)
-    const interval = setInterval(refreshGlobalLiveCalls, 20000);
-
-    const ticker = setInterval(() => {
-      setGlobalLiveCalls((prev) =>
-        prev.map((c) => {
-          if (c.ended || c.state === "ended" || c.state === "failed" || c.state === "canceled") return c;
-          const currentDur = c.duration || "00:00";
-          if (!currentDur.includes(":")) return c;
-          const [mm, ss] = currentDur.split(":").map((n) => parseInt(n, 10) || 0);
-          const totalSecs = mm * 60 + ss + 1;
-          const nextMin = Math.floor(totalSecs / 60);
-          const nextSec = totalSecs % 60;
-          return {
-            ...c,
-            duration: `${String(nextMin).padStart(2, "0")}:${String(nextSec).padStart(2, "0")}`
-          };
-        })
-      );
-    }, 1000);
+    // Fallback sync every 3s
+    const interval = setInterval(refreshLiveCalls, 3000);
 
     return () => {
       if (ws) ws.close();
       clearInterval(interval);
-      clearInterval(ticker);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onVisibilityChange);
     };
@@ -25718,17 +25844,18 @@ export default function App() {
   return (
     <>
       {!plugin && (
-        <PluginHub
-          operator={operator}
-          onPick={handlePickPlugin}
-          onLogout={handleLogout}
-          commonAi={commonAi}
-          onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); }}
-          onOpenTeamUsers={() => setShowTeamModal(true)}
-          onOpenProfileSettings={() => setShowProfileModal(true)}
-          onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
-
-        />
+        <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
+          <PluginHub
+            operator={operator}
+            onPick={handlePickPlugin}
+            onLogout={handleLogout}
+            commonAi={commonAi}
+            onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); }}
+            onOpenTeamUsers={() => setShowTeamModal(true)}
+            onOpenProfileSettings={() => setShowProfileModal(true)}
+            onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
+          />
+        </SafeErrorBoundary>
       )}
 
       {visitedPlugins.map((p) => (
@@ -25742,79 +25869,92 @@ export default function App() {
           }}
         >
           {p === "leadgen" && (
-            <LeadGenerationPlugin
-              operator={operator}
-              onBackToHub={handleBackToHub}
-              onLogout={handleLogout}
-              profile={profile}
-              commonAi={commonAi}
-            />
+            <SafeErrorBoundary label="Lead Generation" onReset={handleBackToHub}>
+              <LeadGenerationPlugin
+                operator={operator}
+                onBackToHub={handleBackToHub}
+                onLogout={handleLogout}
+                profile={profile}
+                commonAi={commonAi}
+              />
+            </SafeErrorBoundary>
           )}
 
           {p === "scheduler" && (
-            <SchedulerEditionRoot
-              operator={operator}
-              onBackToHub={handleBackToHub}
-              onLogout={handleLogout}
-              profile={profile}
-              setProfile={setProfile}
-              knowledgeSources={knowledgeSources}
-              setKnowledgeSources={setKnowledgeSources}
-              services={services}
-              setServices={setServices}
-              commonAi={commonAi}
-              setCommonAi={setCommonAi}
-              onOpenCommonAi={() => { setCommonAiTab("scheduler"); setCommonAiScope("scheduler"); setShowCommonAiModal(true); }}
-            />
+            <SafeErrorBoundary label="Post Scheduler" onReset={handleBackToHub}>
+              <SchedulerEditionRoot
+                operator={operator}
+                onBackToHub={handleBackToHub}
+                onLogout={handleLogout}
+                profile={profile}
+                setProfile={setProfile}
+                knowledgeSources={knowledgeSources}
+                setKnowledgeSources={setKnowledgeSources}
+                services={services}
+                setServices={setServices}
+                commonAi={commonAi}
+                setCommonAi={setCommonAi}
+                onOpenCommonAi={() => { setCommonAiTab("scheduler"); setCommonAiScope("scheduler"); setShowCommonAiModal(true); }}
+              />
+            </SafeErrorBoundary>
           )}
 
           {p === "emailoutreach" && (
-            <EmailOutreachPlugin
-              operator={operator}
-              onBackToHub={handleBackToHub}
-              onLogout={handleLogout}
-              profile={profile}
-              commonAi={commonAi}
-            />
+            <SafeErrorBoundary label="Email Outreach" onReset={handleBackToHub}>
+              <EmailOutreachPlugin
+                operator={operator}
+                onBackToHub={handleBackToHub}
+                onLogout={handleLogout}
+                profile={profile}
+                commonAi={commonAi}
+              />
+            </SafeErrorBoundary>
           )}
 
           {p === "voice" && (
-            <CallingEditionRoot
-              operator={operator}
-              onBackToHub={handleBackToHub}
-              onLogout={handleLogout}
-              profile={profile}
-              setProfile={setProfile}
-              knowledgeSources={knowledgeSources}
-              setKnowledgeSources={setKnowledgeSources}
-              services={services}
-              setServices={setServices}
-              faq={faq}
-              setFaq={setFaq}
-              commonAi={commonAi}
-              setCommonAi={setCommonAi}
-              onOpenCommonAi={() => { setCommonAiTab("voice"); setCommonAiScope("voice"); setShowCommonAiModal(true); }}
-              returnPlugin={returnPlugin}
-              onReturnToPlugin={handleReturnToPlugin}
-            />
+            <SafeErrorBoundary label="Voice Assistant" onReset={handleBackToHub}>
+              <CallingEditionRoot
+                operator={operator}
+                onBackToHub={handleBackToHub}
+                onLogout={handleLogout}
+                profile={profile}
+                setProfile={setProfile}
+                knowledgeSources={knowledgeSources}
+                setKnowledgeSources={setKnowledgeSources}
+                services={services}
+                setServices={setServices}
+                faq={faq}
+                setFaq={setFaq}
+                commonAi={commonAi}
+                setCommonAi={setCommonAi}
+                onOpenCommonAi={() => { setCommonAiTab("voice"); setCommonAiScope("voice"); setShowCommonAiModal(true); }}
+                returnPlugin={returnPlugin}
+                onReturnToPlugin={handleReturnToPlugin}
+                liveCalls={liveCalls}
+                setLiveCalls={setLiveCalls}
+                refreshLiveCalls={refreshLiveCalls}
+              />
+            </SafeErrorBoundary>
           )}
 
           {p === "calcom" && (
-            <CalcomSchedulerPlugin
-              operator={operator}
-              onBackToHub={handleBackToHub}
-              onLogout={handleLogout}
-              profile={profile}
-              commonAi={commonAi}
-              onOpenCommonAi={() => { setCalcomInitialTab("settings"); setShowCalcomAdminModal(true); }}
-            />
+            <SafeErrorBoundary label="Cal.com Scheduler" onReset={handleBackToHub}>
+              <CalcomSchedulerPlugin
+                operator={operator}
+                onBackToHub={handleBackToHub}
+                onLogout={handleLogout}
+                profile={profile}
+                commonAi={commonAi}
+                onOpenCommonAi={() => { setCalcomInitialTab("settings"); setShowCalcomAdminModal(true); }}
+              />
+            </SafeErrorBoundary>
           )}
         </div>
       ))}
 
       {/* Universal Floating Incoming Call Banner across ALL Plugins */}
       <UniversalCallNotificationBanner
-        activeCalls={globalLiveCalls.filter(
+        activeCalls={liveCalls.filter(
           (c) => !c.ended && c.state !== "ended" && c.state !== "failed" && c.state !== "canceled" && !dismissedCallIds.includes(c.id || c.call_sid)
         )}
         currentPlugin={plugin}

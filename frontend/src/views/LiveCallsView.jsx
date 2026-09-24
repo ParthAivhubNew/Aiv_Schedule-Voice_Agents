@@ -128,6 +128,7 @@ export function LiveCallsView({ notifications, setNotifications, calls = [], onT
                   </span>
                 </div>
               </div>
+            );
           })}
         </div>
 
