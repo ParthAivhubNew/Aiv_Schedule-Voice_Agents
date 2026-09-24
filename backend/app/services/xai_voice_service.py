@@ -662,20 +662,31 @@ async def build_xai_system_instructions(
                 prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
                 services_res = await db.execute(select(Service))
                 faqs_res = await db.execute(select(FAQ))
+                # Also fetch the active AI Templates entry so its custom_rules/demo_script/
+                # objection_responses feed this engine too, not just Company Profile's
+                # older Call Script & Rules fields — CompanyProfile still wins if both are set.
+                active_template = None
+                try:
+                    from app.services.conversation_engine import template_engine
+                    active_template = await template_engine.get_active_template(db, direction="outbound")
+                except Exception as tpl_cache_err:
+                    logger.debug(f"AI Templates fetch for xAI prompt skipped: {tpl_cache_err}")
                 _knowledge_cache = {
                     "profile": prof_res.scalars().first(),
                     "services": services_res.scalars().all(),
                     "faqs": faqs_res.scalars().all(),
+                    "template": active_template,
                     "last_fetched": current_time
                 }
         except Exception as cache_err:
             logger.warning(f"Error fetching knowledge cache: {cache_err}")
             if "_knowledge_cache" not in globals():
-                _knowledge_cache = {"profile": None, "services": [], "faqs": [], "last_fetched": current_time}
+                _knowledge_cache = {"profile": None, "services": [], "faqs": [], "template": None, "last_fetched": current_time}
 
     profile = _knowledge_cache.get("profile")
     services = _knowledge_cache.get("services") or []
     faqs = _knowledge_cache.get("faqs") or []
+    active_template = _knowledge_cache.get("template")
 
     company_name = (profile.name or "").strip() if profile else ""
     if not company_name:
@@ -740,11 +751,24 @@ async def build_xai_system_instructions(
         else "Open to a quick 15-minute walkthrough sometime this week?"
     )
 
+    # Fall back to AI Templates' custom_rules when Company Profile's own field is empty,
+    # so a business only has to configure one or the other, not both.
+    effective_custom_rules = custom_rules or ((getattr(active_template, "custom_rules", None) or "").strip() if active_template else "")
     custom_rules_block = (
-        f"""USER PROMPT RULES & OBJECTION HANDLING (MANDATORY — CONFIGURED IN CALL SCRIPT & RULES):\n{custom_rules}\n"""
-        if custom_rules
+        f"""USER PROMPT RULES & OBJECTION HANDLING (MANDATORY — CONFIGURED IN CALL SCRIPT & RULES):\n{effective_custom_rules}\n"""
+        if effective_custom_rules
         else ""
     )
+
+    # Structured objection matrix from AI Templates — additive, supplements whatever
+    # free-text objection guidance is already in custom_rules above.
+    template_objections = getattr(active_template, "objection_responses", None) if active_template else None
+    if isinstance(template_objections, dict) and template_objections:
+        obj_lines = [f"- If they say '{k.replace('_', ' ')}': \"{v}\"" for k, v in template_objections.items() if v]
+        if obj_lines:
+            custom_rules_block += (
+                "\n\nADDITIONAL OBJECTION RESPONSES (FROM AI TEMPLATES):\n" + "\n".join(obj_lines) + "\n"
+            )
 
     catalog_lines = []
     for s in services[:5]:
@@ -804,6 +828,8 @@ async def build_xai_system_instructions(
     )
 
     demo_script = (getattr(profile, "demo_script", None) or "").strip() if profile else ""
+    if not demo_script and active_template:
+        demo_script = (getattr(active_template, "demo_script", None) or "").strip()
     if not demo_script:
         demo_script = (
             f'Prospect: "Hello?"\n'
