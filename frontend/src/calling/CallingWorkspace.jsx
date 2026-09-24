@@ -2238,7 +2238,7 @@ export function CallingWorkspace({
     schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
     templates: ["AI Templates", "Configure greeting, pitch, objection handling, and booking flow per call type."],
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
-    company: ["Company profile", "Identity, knowledge, services, Call Script & Rules. Same record classic uses on calls."],
+    company: ["Company profile", "Identity, knowledge & FAQs, services, compliance. Same record classic uses on calls."],
   };
 
   return (
