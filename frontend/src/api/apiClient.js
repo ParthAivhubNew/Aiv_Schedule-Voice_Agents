@@ -256,8 +256,9 @@ export const api = {
   cancelCalcomBooking: (bookingId, reason = 'Cancelled by user') => apiRequest(`/calcom/bookings/${bookingId}/cancel`, { method: 'POST', body: { reason } }),
   getCalcomIcsUrl: (bookingId) => `/api/calcom/bookings/${bookingId}/ics`,
   getCalcomSettings: () => apiRequest('/calcom/settings'),
-  saveCalcomSettings: (payload) => apiRequest('/calcom/settings', { method: 'POST', body: payload }),
+  saveCalcomSettings: (payload) => apiRequest('/calcom/settings', { method: 'POST', body: payload, timeoutMs: 30000 }),
   testCalcomConnection: () => apiRequest('/calcom/test-connection', { method: 'POST' }),
+  syncCalcomEventTypes: () => apiRequest('/calcom/sync-event-types', { method: 'POST', timeoutMs: 30000 }),
   getCalcomAccounts: () => apiRequest('/calcom/accounts'),
   saveCalcomAccount: (payload) => apiRequest('/calcom/accounts', { method: 'POST', body: payload }),
   deleteCalcomAccount: (id) => apiRequest(`/calcom/accounts/${id}`, { method: 'DELETE' }),
@@ -277,8 +278,22 @@ export const api = {
     cancelBooking: (bookingId, reason = 'Cancelled by user') => apiRequest(`/calcom/bookings/${bookingId}/cancel`, { method: 'POST', body: { reason } }),
     getIcsUrl: (bookingId) => `/api/calcom/bookings/${bookingId}/ics`,
     getSettings: () => apiRequest('/calcom/settings'),
-    saveSettings: (payload) => apiRequest('/calcom/settings', { method: 'POST', body: payload }),
-    testConnection: () => apiRequest('/calcom/test-connection', { method: 'POST' })
-  }
+    saveSettings: (payload) => apiRequest('/calcom/settings', { method: 'POST', body: payload, timeoutMs: 30000 }),
+    testConnection: () => apiRequest('/calcom/test-connection', { method: 'POST' }),
+    syncEventTypes: () => apiRequest('/calcom/sync-event-types', { method: 'POST', timeoutMs: 30000 })
+  },
+
+  // Conversation Templates & Dynamic Prompts
+  getConversationTemplates: (direction) => apiRequest(`/conversation-templates/${direction ? `?call_direction=${encodeURIComponent(direction)}` : ''}`),
+  getConversationTemplate: (id) => apiRequest(`/conversation-templates/${id}`),
+  createConversationTemplate: (payload) => apiRequest('/conversation-templates/', { method: 'POST', body: payload }),
+  updateConversationTemplate: (id, payload) => apiRequest(`/conversation-templates/${id}`, { method: 'PUT', body: payload }),
+  deleteConversationTemplate: (id) => apiRequest(`/conversation-templates/${id}`, { method: 'DELETE' }),
+  previewConversationTemplate: (id, sampleData) => apiRequest(`/conversation-templates/${id}/preview`, { method: 'POST', body: sampleData || {} }),
+  getConversationVariables: () => apiRequest('/conversation-templates/variables/list'),
+  createConversationVariable: (payload) => apiRequest('/conversation-templates/variables/', { method: 'POST', body: payload }),
+
+  // 5-Point Universal Diagnostics
+  runVoiceAndBookingDiagnostics: () => apiRequest('/diagnostics/test-voice-and-booking', { method: 'POST' })
 };
 

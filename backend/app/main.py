@@ -30,6 +30,8 @@ from app.api.livekit_router import router as livekit_router
 from app.api.vapi_router import router as vapi_router
 from app.api.retell_router import router as retell_router
 from app.api.custom_voice_router import router as custom_voice_router
+from app.api.conversation_templates import router as conversation_templates_router
+from app.api.diagnostics import router as diagnostics_router
 from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
@@ -140,6 +142,9 @@ async def lifespan(app: FastAPI):
             ("closing_ask", "TEXT"),
             ("custom_rules", "TEXT"),
             ("demo_script", "TEXT"),
+            ("calendar_mode", "VARCHAR DEFAULT 'internal'"),
+            ("default_outbound_template_id", "VARCHAR"),
+            ("default_inbound_template_id", "VARCHAR"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS {col} {col_type};"))
@@ -177,6 +182,7 @@ async def lifespan(app: FastAPI):
 
         for col, col_type in [
             ("prospect_timezone", "VARCHAR"),
+            ("carrier", "VARCHAR"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE live_calls ADD COLUMN IF NOT EXISTS {col} {col_type};"))
@@ -428,6 +434,10 @@ app.include_router(retell_router, prefix=settings.API_PREFIX)
 app.include_router(retell_router)  # Direct /retell compatibility
 app.include_router(custom_voice_router, prefix=settings.API_PREFIX)
 app.include_router(custom_voice_router)  # Direct /custom-voice compatibility
+app.include_router(conversation_templates_router, prefix=settings.API_PREFIX)
+app.include_router(conversation_templates_router)  # Direct /conversation-templates compatibility
+app.include_router(diagnostics_router, prefix=settings.API_PREFIX)
+app.include_router(diagnostics_router)  # Direct /diagnostics compatibility
 app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
 
 # Universal Direct Fallback Webhooks for Twilio Inbound Voice

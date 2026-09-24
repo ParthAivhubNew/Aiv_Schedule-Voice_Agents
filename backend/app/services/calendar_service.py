@@ -36,6 +36,25 @@ from app.services.timezone_service import (
 
 logger = logging.getLogger("calendar_service")
 
+# Cal.com cloud API. v1 was decommissioned (HTTP 410) — all cloud calls use v2 with
+# an explicit `cal-api-version` header. Cloud keys look like `cal_live_…`.
+CALCOM_CLOUD_V2 = "https://api.cal.com/v2"
+CALCOM_V_ME = "2024-08-13"
+CALCOM_V_EVENT_TYPES = "2024-06-14"
+CALCOM_V_SLOTS = "2024-09-04"
+CALCOM_V_BOOKINGS = "2024-08-13"
+
+
+def _slug_length(slug: str) -> int:
+    m = re.match(r"\s*(\d{1,3})", str(slug or ""))
+    return int(m.group(1)) if m else 15
+
+
+def _slug_title(slug: str) -> str:
+    words = [w for w in re.split(r"[-_]+", str(slug or "").strip()) if w]
+    return " ".join(w.capitalize() if not w.isdigit() else w for w in words) or "Meeting"
+
+
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
@@ -548,7 +567,7 @@ class CalendarService:
                 host_email="admin@aivhub.io",
                 host_name="Jitendra S.",
                 api_key=self.default_api_key or None,
-                base_url=self.default_base_url or "https://api.cal.com/v1",
+                base_url=self.default_base_url or CALCOM_CLOUD_V2,
                 default_event_type_slug="15-min-discovery",
                 default_duration=15,
                 default_platform="google_meet",
@@ -606,46 +625,261 @@ class CalendarService:
         from app.services.secret_box import open_secret
         return open_secret(getattr(setting, "api_key", None) or "") or (self.default_api_key or "")
 
+    def _calcom_base(self, setting) -> str:
+        """Base URL for the Cal.com REST API (cloud v2 by default).
+
+        A genuine self-hosted URL is kept verbatim, but cloud values — including
+        legacy `…/v1` defaults and the retired `http://calcom:3000/api/v1`
+        container host — are mapped to the v2 cloud API, since v1 is dead.
+        """
+        base = str(getattr(setting, "base_url", "") or "").strip() or self.default_base_url or CALCOM_CLOUD_V2
+        low = base.lower().rstrip("/")
+        if "api.cal.com" in low or "calcom:3000" in low:
+            return CALCOM_CLOUD_V2
+        return low
+
+    def _calcom_headers(self, api_key: str, version: str, json_body: bool = False) -> Dict[str, str]:
+        headers = {"Authorization": f"Bearer {api_key}", "cal-api-version": version}
+        if json_body:
+            headers["Content-Type"] = "application/json"
+        return headers
+
+    async def _resolve_calcom_event_type_id(
+        self,
+        client: httpx.AsyncClient,
+        setting,
+        event_type_slug: str,
+        et_row: Optional[MeetingEventType] = None,
+        api_key: Optional[str] = None,
+        create_if_missing: bool = True,
+    ) -> Optional[int]:
+        """Numeric Cal.com eventTypeId for a local slug (required by v2 /slots and /bookings).
+
+        Order: remembered id on the local row → match the remote slug → create it on
+        Cal.com. Auto-creation is what lets a brand-new (blank) Cal.com account work
+        with zero manual setup; the id is remembered on the row afterwards.
+        """
+        stored = str(getattr(et_row, "calcom_event_type_id", "") or "").strip()
+        if stored.isdigit():
+            return int(stored)
+        key = api_key or self._calcom_api_key(setting)
+        if not key:
+            return None
+        base = self._calcom_base(setting)
+        try:
+            resp = await client.get(
+                f"{base}/event-types",
+                headers=self._calcom_headers(key, CALCOM_V_EVENT_TYPES),
+            )
+            if resp.status_code in (401, 403):
+                logger.warning("Cal.com rejected the API key while listing event types.")
+                return None
+            if resp.status_code == 200:
+                payload = resp.json() or {}
+                items = payload.get("data") or payload.get("event_types") or []
+                if isinstance(items, dict):
+                    items = items.get("event_types") or []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    if str(item.get("slug") or "") == event_type_slug and item.get("id") is not None:
+                        found = int(item["id"])
+                        if et_row is not None:
+                            et_row.calcom_event_type_id = str(found)
+                        return found
+        except Exception as err:
+            logger.debug(f"Cal.com event-type lookup failed for '{event_type_slug}': {err}")
+            return None
+
+        if not create_if_missing:
+            return None
+
+        # Blank (or partial) Cal.com account — provision the event type remotely.
+        try:
+            body: Dict[str, Any] = {
+                "title": (getattr(et_row, "title", None) or _slug_title(event_type_slug)),
+                "slug": event_type_slug,
+                "lengthInMinutes": int(getattr(et_row, "length", None) or _slug_length(event_type_slug) or 15),
+            }
+            description = (getattr(et_row, "description", None) or "").strip()
+            if description:
+                body["description"] = description[:500]
+            created = await client.post(
+                f"{base}/event-types",
+                headers=self._calcom_headers(key, CALCOM_V_EVENT_TYPES, json_body=True),
+                json=body,
+            )
+            data = (created.json() or {}).get("data") or {}
+            if created.status_code in (200, 201) and data.get("id") is not None:
+                new_id = int(data["id"])
+                if et_row is not None:
+                    et_row.calcom_event_type_id = str(new_id)
+                logger.info(f"Auto-created Cal.com event type '{event_type_slug}' (id {new_id}).")
+                return new_id
+            logger.warning(
+                f"Cal.com could not auto-create event type '{event_type_slug}': "
+                f"{created.status_code} {created.text[:200]}"
+            )
+        except Exception as err:
+            logger.warning(f"Cal.com auto-create event type failed for '{event_type_slug}': {err}")
+        return None
+
+    async def sync_calcom_event_types(self, db: AsyncSession, auto_create: bool = True) -> Dict[str, Any]:
+        """Reconcile local meeting types with the connected Cal.com account.
+
+        - Imports Cal.com event types missing locally (matched by slug, remote id remembered).
+        - With auto_create, provisions the built-in meeting types on a blank account,
+          so a brand-new Cal.com user needs zero manual setup.
+        """
+        setting = await self.get_or_create_settings(db)
+        key = self._calcom_api_key(setting)
+        empty = {"remote": 0, "imported": 0, "linked": 0, "created": 0}
+        if not (setting.api_key and key):
+            return {"success": False, "error": "No Cal.com API key saved yet.", **empty}
+
+        base = self._calcom_base(setting)
+        imported = linked = created = 0
+        remote: List[Dict[str, Any]] = []
+
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            try:
+                res = await client.get(f"{base}/event-types", headers=self._calcom_headers(key, CALCOM_V_EVENT_TYPES))
+                if res.status_code != 200:
+                    return {"success": False, "error": f"Cal.com returned {res.status_code}: {res.text[:160]}", **empty}
+                remote = (res.json() or {}).get("data") or []
+                if isinstance(remote, dict):
+                    remote = remote.get("event_types") or []
+            except Exception as err:
+                return {"success": False, "error": f"Cal.com connection error: {str(err)[:160]}", **empty}
+
+            rows = (await db.execute(select(MeetingEventType))).scalars().all()
+            by_slug = {str(r.slug or ""): r for r in rows}
+            remote_slugs = {str(i.get("slug") or "") for i in remote if isinstance(i, dict)}
+
+            for item in remote:
+                if not isinstance(item, dict):
+                    continue
+                slug = str(item.get("slug") or "").strip()
+                rid = item.get("id")
+                if not slug or rid is None:
+                    continue
+                row = by_slug.get(slug)
+                if row:
+                    if str(row.calcom_event_type_id or "") != str(rid):
+                        row.calcom_event_type_id = str(rid)
+                        linked += 1
+                else:
+                    row = MeetingEventType(
+                        id=f"et_cal_{rid}",
+                        title=item.get("title") or _slug_title(slug),
+                        slug=slug,
+                        length=int(item.get("lengthInMinutes") or _slug_length(slug) or 15),
+                        description=item.get("description") or "",
+                        location_type="google_meet",
+                        calcom_event_type_id=str(rid),
+                        color="#10B981",
+                        is_active=True,
+                    )
+                    db.add(row)
+                    by_slug[slug] = row
+                    imported += 1
+
+            if auto_create:
+                for item in DEFAULT_EVENT_TYPES:
+                    slug = item["slug"]
+                    row = by_slug.get(slug)
+                    if row is None:
+                        row = MeetingEventType(
+                            id=item["id"],
+                            title=item["title"],
+                            slug=slug,
+                            length=item["length"],
+                            description=item["description"],
+                            location_type=item["location_type"],
+                            color=item["color"],
+                            is_active=True,
+                        )
+                        db.add(row)
+                        by_slug[slug] = row
+                    if str(row.calcom_event_type_id or "").strip().isdigit() or slug in remote_slugs:
+                        continue
+                    try:
+                        cres = await client.post(
+                            f"{base}/event-types",
+                            headers=self._calcom_headers(key, CALCOM_V_EVENT_TYPES, json_body=True),
+                            json={
+                                "title": item["title"],
+                                "slug": slug,
+                                "lengthInMinutes": item["length"],
+                                "description": (item["description"] or "")[:500],
+                            },
+                        )
+                        cdata = (cres.json() or {}).get("data") or {}
+                        if cres.status_code in (200, 201) and cdata.get("id") is not None:
+                            row.calcom_event_type_id = str(cdata["id"])
+                            remote_slugs.add(slug)
+                            created += 1
+                        else:
+                            logger.warning(f"Cal.com create for '{slug}' failed: {cres.status_code} {cres.text[:160]}")
+                    except Exception as cerr:
+                        logger.warning(f"Cal.com create for '{slug}' errored: {cerr}")
+
+        await db.commit()
+        rows = (await db.execute(select(MeetingEventType).order_by(MeetingEventType.length.asc()))).scalars().all()
+        return {
+            "success": True,
+            "remote": len(remote),
+            "imported": imported,
+            "linked": linked,
+            "created": created,
+            "eventTypes": [
+                {
+                    "id": r.id,
+                    "title": r.title,
+                    "slug": r.slug,
+                    "length": r.length,
+                    "calcomEventTypeId": r.calcom_event_type_id,
+                }
+                for r in rows
+            ],
+            "message": (
+                f"Cal.com sync complete: {len(remote)} event type(s) on the account — "
+                f"{linked} linked, {imported} imported locally, {created} newly created on Cal.com."
+            ),
+        }
+
     async def check_calcom_status(self, db: Optional[AsyncSession] = None) -> Dict[str, Any]:
-        """Checks Cal.com connectivity using DB settings or default config."""
-        api_key = self.default_api_key
-        base_url = self.default_base_url
+        """Checks Cal.com connectivity using DB settings or default config (cloud v2)."""
+        api_key = self.default_api_key or ""
+        base_url = str(self.default_base_url or CALCOM_CLOUD_V2).rstrip("/")
+        account: Dict[str, Any] = {}
 
         if db:
             try:
                 setting = await self.get_or_create_settings(db)
                 if setting.api_key:
                     api_key = self._calcom_api_key(setting)
-                if setting.base_url:
-                    base_url = setting.base_url.rstrip("/")
+                if getattr(setting, "base_url", None):
+                    base_url = self._calcom_base(setting)
             except Exception as err:
                 logger.debug(f"Could not load settings from DB for status check: {err}")
+        if "api.cal.com" in base_url.lower():
+            base_url = CALCOM_CLOUD_V2
 
-        # 1. Test direct reachability of base_url
-        reachable = False
         api_valid = False
-        message = "AIVHub Managed Cal.com Engine: Pre-configured & Ready"
-        
-        try:
-            async with httpx.AsyncClient(timeout=3.5) as client:
-                res = await client.get(f"{base_url}/health")
-                if res.status_code < 400:
-                    reachable = True
-        except Exception:
-            pass
+        message = "Native calendar engine active — add a Cal.com API key to sync with your Cal.com calendar."
 
-        # 2. If API Key provided, test Cal.com v1 / v2 endpoints
         if api_key:
             try:
-                headers = {"Authorization": f"Bearer {api_key}"}
-                async with httpx.AsyncClient(timeout=4.0) as client:
-                    # Cal.com v1 /event-types or /users/me
-                    res = await client.get(f"{base_url}/event-types", headers=headers, params={"apiKey": api_key})
-                    if res.status_code in [200, 201]:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    res = await client.get(f"{base_url}/me", headers=self._calcom_headers(api_key, CALCOM_V_ME))
+                    if res.status_code == 200:
+                        payload = res.json() or {}
+                        account = payload.get("data") or payload or {}
                         api_valid = True
-                        reachable = True
-                        message = "Cal.com Cloud/Self-Hosted API Connected"
-                    elif res.status_code == 401:
+                        who = account.get("username") or account.get("email") or "account"
+                        message = f"Cal.com API v2 connected as {who}"
+                    elif res.status_code in (401, 403):
                         message = "Cal.com API key is invalid or unauthorized"
                     else:
                         message = f"Cal.com returned status {res.status_code}"
@@ -653,13 +887,19 @@ class CalendarService:
                 message = f"Cal.com connection error: {str(e)[:100]}"
 
         return {
-            "connected": True, "managed": True,
+            "connected": True,
+            "managed": True,
             "api_valid": api_valid,
-            "reachable": reachable,
-            "type": "calcom_api" if api_valid else ("calcom_instance" if reachable else "native_engine"),
+            "reachable": api_valid,
+            "type": "calcom_api" if api_valid else "native_engine",
             "url": base_url,
             "has_api_key": bool(api_key),
-            "message": message
+            "account": {
+                "username": account.get("username"),
+                "email": account.get("email"),
+                "timeZone": account.get("timeZone"),
+            } if account else {},
+            "message": message,
         }
 
     async def get_event_types(self, db: AsyncSession) -> List[Dict[str, Any]]:
@@ -742,15 +982,27 @@ class CalendarService:
         setting = await self.get_or_create_settings(db)
         if setting.api_key:
             try:
-                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}", "Content-Type": "application/json"}
+                api_key = self._calcom_api_key(setting)
+                base = self._calcom_base(setting)
                 payload = {
                     "title": ev.title,
                     "slug": ev.slug,
-                    "length": ev.length,
-                    "description": ev.description
+                    "lengthInMinutes": ev.length,
+                    "description": ev.description or "",
                 }
-                async with httpx.AsyncClient(timeout=4.0) as client:
-                    await client.post(f"{setting.base_url.rstrip('/')}/event-types", json=payload, headers=headers)
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    remote_id = str(getattr(ev, "calcom_event_type_id", "") or "").strip()
+                    if not remote_id.isdigit():
+                        remote_id = str(
+                            await self._resolve_calcom_event_type_id(client, setting, ev.slug, ev, api_key)
+                            or ""
+                        )
+                    elif ev.slug:
+                        await client.patch(
+                            f"{base}/event-types/{remote_id}",
+                            headers=self._calcom_headers(api_key, CALCOM_V_EVENT_TYPES, json_body=True),
+                            json=payload,
+                        )
             except Exception as e:
                 logger.debug(f"Optional Cal.com sync for event type skipped: {e}")
 
@@ -813,31 +1065,58 @@ class CalendarService:
         # Cal.com if connected — parse ISO times properly. Sparse/garbled days fall back to native.
         if setting.api_key:
             try:
-                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}"}
-                params = {
-                    "startTime": f"{date_str}T00:00:00Z",
-                    "endTime": f"{date_str}T23:59:59Z",
-                    "apiKey": self._calcom_api_key(setting)
-                }
-                async with httpx.AsyncClient(timeout=4.0) as client:
-                    resp = await client.get(f"{setting.base_url.rstrip('/')}/slots", headers=headers, params=params)
-                    if resp.status_code == 200:
-                        payload = resp.json() if resp.content else {}
-                        cal_slots = payload.get("slots") or payload.get("data") or payload
-                        if isinstance(cal_slots, dict) and "slots" in cal_slots:
-                            cal_slots = cal_slots.get("slots")
-                        day_slots = []
-                        if isinstance(cal_slots, dict):
-                            day_slots = cal_slots.get(date_str) or cal_slots.get(date_str.replace("-", "/")) or []
-                        elif isinstance(cal_slots, list):
-                            day_slots = cal_slots
-                        parsed = []
-                        for s in day_slots or []:
-                            hhmm = _cal_slot_hhmm(s)
-                            if not hhmm:
-                                continue
-                            parsed.append({"time": hhmm, "iso": s.get("time") if isinstance(s, dict) else s, "available": True})
-                        cal_open = parsed
+                api_key = self._calcom_api_key(setting)
+                base = self._calcom_base(setting)
+                et_res = await db.execute(select(MeetingEventType).where(MeetingEventType.slug == event_type_slug))
+                et_row = et_res.scalars().first()
+                async with httpx.AsyncClient(timeout=6.0) as client:
+                    event_type_id = await self._resolve_calcom_event_type_id(
+                        client, setting, event_type_slug, et_row, api_key
+                    )
+                    if not event_type_id:
+                        logger.info(
+                            f"Cal.com connected but no event type matches '{event_type_slug}' — using native slots."
+                        )
+                    else:
+                        if et_row is not None and str(et_row.calcom_event_type_id or "") != str(event_type_id):
+                            et_row.calcom_event_type_id = str(event_type_id)
+                            try:
+                                await db.commit()
+                            except Exception:
+                                try:
+                                    await db.rollback()
+                                except Exception:
+                                    pass
+                        params = {
+                            "eventTypeId": event_type_id,
+                            # UTC window must cover the host-local day, and timeZone makes
+                            # Cal.com return wall-clock times in that zone (not UTC).
+                            "start": to_utc(date_str, "00:00", host_tz).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "end": to_utc(date_str, "23:59", host_tz).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "timeZone": host_tz,
+                        }
+                        resp = await client.get(
+                            f"{base}/slots",
+                            headers=self._calcom_headers(api_key, CALCOM_V_SLOTS),
+                            params=params,
+                        )
+                        if resp.status_code == 200:
+                            payload = resp.json() if resp.content else {}
+                            cal_slots = payload.get("slots") or payload.get("data") or payload
+                            if isinstance(cal_slots, dict) and "slots" in cal_slots:
+                                cal_slots = cal_slots.get("slots")
+                            day_slots = []
+                            if isinstance(cal_slots, dict):
+                                day_slots = cal_slots.get(date_str) or cal_slots.get(date_str.replace("-", "/")) or []
+                            elif isinstance(cal_slots, list):
+                                day_slots = cal_slots
+                            parsed = []
+                            for s in day_slots or []:
+                                hhmm = _cal_slot_hhmm(s)
+                                if not hhmm:
+                                    continue
+                                parsed.append({"time": hhmm, "iso": s.get("start") or s.get("time") if isinstance(s, dict) else s, "available": True})
+                            cal_open = parsed
             except Exception as e:
                 logger.debug(f"Cal.com slot fetch failed, using native schedule generator: {e}")
 
@@ -1127,30 +1406,52 @@ class CalendarService:
         # 1. Attempt Cal.com REST API Sync if API Key configured
         if setting.api_key:
             try:
-                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}", "Content-Type": "application/json"}
+                api_key = self._calcom_api_key(setting)
+                base = self._calcom_base(setting)
                 start_iso = to_utc(date_str, time_str, host_tz).strftime("%Y-%m-%dT%H:%M:%SZ")
-                payload = {
-                    "eventTypeId": 1,
-                    "start": start_iso,
-                    "responses": {
-                        "name": prospect_name,
-                        "email": attendee_email,
-                        "notes": notes
-                    },
-                    "metadata": {
-                        "source": "aivhub_platform",
-                        "host_email": resolved_host_email,
-                        "mission": mission_name
-                    }
-                }
-                async with httpx.AsyncClient(timeout=6.0) as client:
-                    resp = await client.post(f"{setting.base_url.rstrip('/')}/bookings", json=payload, headers=headers)
-                    if resp.status_code in [200, 201]:
-                        cal_data = resp.json()
-                        calcom_booking_id = str(cal_data.get("id", ""))
-                        if cal_data.get("videoCallUrl"):
-                            calcom_video = cal_data.get("videoCallUrl")
-                        provider = "cal.com"
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    event_type_id = await self._resolve_calcom_event_type_id(
+                        client, setting, event_type_slug, ev, api_key
+                    )
+                    if not event_type_id:
+                        logger.warning(
+                            f"Cal.com sync skipped: no event type matches '{event_type_slug}' on the connected account. "
+                            "Booking stays on the native calendar engine."
+                        )
+                    else:
+                        payload = {
+                            "eventTypeId": event_type_id,
+                            "start": start_iso,
+                            "attendee": {
+                                "name": prospect_name,
+                                "email": attendee_email,
+                                "timeZone": p_tz,
+                                "language": "en",
+                            },
+                            "metadata": {
+                                "source": "aivhub_platform",
+                                "host_email": resolved_host_email,
+                                "mission": mission_name
+                            }
+                        }
+                        resp = await client.post(
+                            f"{base}/bookings",
+                            headers=self._calcom_headers(api_key, CALCOM_V_BOOKINGS, json_body=True),
+                            json=payload,
+                        )
+                        if resp.status_code in [200, 201]:
+                            data = (resp.json() or {}).get("data") or {}
+                            calcom_booking_id = str(data.get("uid") or data.get("id") or "")
+                            video = data.get("meetingUrl") or data.get("videoCallUrl")
+                            if not video and isinstance(data.get("location"), str) and data["location"].startswith("http"):
+                                video = data["location"]
+                            if video:
+                                calcom_video = video
+                            provider = "cal.com"
+                        else:
+                            logger.warning(
+                                f"Cal.com booking rejected ({resp.status_code}): {resp.text[:200]}"
+                            )
             except Exception as e:
                 logger.warning(f"Cal.com booking creation fallback: {e}")
 
@@ -1289,12 +1590,12 @@ class CalendarService:
         # Cancel on Cal.com if API key and booking id present
         if setting.api_key and meeting.calcom_booking_id and not meeting.calcom_booking_id.startswith("cal_"):
             try:
-                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}"}
-                async with httpx.AsyncClient(timeout=4.0) as client:
-                    await client.delete(
-                        f"{setting.base_url.rstrip('/')}/bookings/{meeting.calcom_booking_id}",
-                        headers=headers,
-                        params={"cancellationReason": reason}
+                api_key = self._calcom_api_key(setting)
+                async with httpx.AsyncClient(timeout=6.0) as client:
+                    await client.post(
+                        f"{self._calcom_base(setting)}/bookings/{meeting.calcom_booking_id}/cancel",
+                        headers=self._calcom_headers(api_key, CALCOM_V_BOOKINGS, json_body=True),
+                        json={"cancellationReason": reason or "Cancelled by host"},
                     )
             except Exception as e:
                 logger.debug(f"Cal.com cancellation API error: {e}")
@@ -1388,13 +1689,13 @@ class CalendarService:
         # If Cal.com API key is configured and calcom booking exists
         if setting.api_key and meeting.calcom_booking_id and not meeting.calcom_booking_id.startswith("cal_"):
             try:
-                headers = {"Authorization": f"Bearer {self._calcom_api_key(setting)}", "Content-Type": "application/json"}
+                api_key = self._calcom_api_key(setting)
                 start_iso = to_utc(new_date, new_time_n, host_tz).strftime("%Y-%m-%dT%H:%M:%SZ")
-                async with httpx.AsyncClient(timeout=4.0) as client:
-                    await client.patch(
-                        f"{setting.base_url.rstrip('/')}/bookings/{meeting.calcom_booking_id}",
-                        headers=headers,
-                        json={"start": start_iso, "reschedulingReason": reason}
+                async with httpx.AsyncClient(timeout=6.0) as client:
+                    await client.post(
+                        f"{self._calcom_base(setting)}/bookings/{meeting.calcom_booking_id}/reschedule",
+                        headers=self._calcom_headers(api_key, CALCOM_V_BOOKINGS, json_body=True),
+                        json={"start": start_iso, "reschedulingReason": reason or "Rescheduled"},
                     )
             except Exception as e:
                 logger.debug(f"Cal.com reschedule API fallback: {e}")

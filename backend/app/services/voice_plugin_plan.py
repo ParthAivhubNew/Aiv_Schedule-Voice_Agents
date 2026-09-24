@@ -421,6 +421,36 @@ async def resolve_voice_plan() -> VoicePlan:
                 f"LLM provider '{req_llm}' is missing an API key. Save your API key in Connections "
                 f"(LLM -> {req_llm}) or configure the corresponding environment variable in .env."
             )
+        # The modular runtime drives STT through one of three transports. Any plugin it can
+        # actually run is accepted as-is — no silent engine substitution — and anything it
+        # cannot run fails loudly here instead of placing a deaf call.
+        stt_label = " ".join([
+            str(getattr(stt, "provider", "") or ""),
+            str(((stt.extra or {}) if getattr(stt, "extra", None) else {}).get("display_name") or ""),
+        ]).lower()
+        stt_key_plain = (stt.api_key or "").strip()
+        runs_deepgram = "deepgram" in stt_label
+        runs_telnyx = (
+            "telnyx" in stt_label
+            or stt_key_plain.startswith("KEY")
+            or bool(getattr(settings, "TELNYX_API_KEY", None))
+        )
+        # OpenAI-compatible Whisper REST (OpenAI, Groq, or a custom base URL) — driven by
+        # voice_modular._whisper_rest_transcribe.
+        runs_whisper_rest = bool(
+            "whisper" in stt_label
+            or "openai" in stt_label
+            or "groq" in stt_label
+            or (getattr(stt, "base_url", "") or "").strip()
+        )
+        if not (runs_deepgram or runs_telnyx or runs_whisper_rest):
+            stt_display = getattr(stt, "provider", None) or "Speech-to-Text"
+            raise ValueError(
+                f"STT plugin '{stt_display}' has no runtime transport in the "
+                f"{'LiveKit' if engine == 'livekit' else 'Modular'} pipeline. Supported: Deepgram (streaming), "
+                f"Telnyx Whisper, or an OpenAI-compatible Whisper endpoint (OpenAI / Groq / custom base URL). "
+                f"Pick one of those in Connections (Speech-to-Text)."
+            )
 
     if engine == "xai" and (not xai_key or xai_key.startswith("mock")):
         # Log detailed diagnostic info

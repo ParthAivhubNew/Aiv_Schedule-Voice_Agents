@@ -342,18 +342,9 @@ async def _call_anthropic(
         return {"success": False, "error": str(e), "reply": f"⚠️ Anthropic connection failed: {e}"}
 
 
-async def _call_openai_compatible(
-    messages: List[Dict[str, str]],
-    api_key: str,
-    provider: str,
-    model: Optional[str],
-    base_url: Optional[str],
-    temperature: float,
-    max_tokens: int
-) -> Dict[str, Any]:
-    prov = provider.lower()
-    
-    # Determine base endpoint and model
+def _resolve_endpoint_and_model(prov: str, model: Optional[str], base_url: Optional[str]) -> tuple[str, str]:
+    """Maps a provider name (+ optional explicit base_url/model) to an OpenAI-compatible chat endpoint + model slug."""
+    prov = (prov or "").lower()
     if base_url:
         endpoint = base_url.rstrip("/")
         if "generativelanguage.googleapis.com" in endpoint and not endpoint.endswith("/openai"):
@@ -385,6 +376,20 @@ async def _call_openai_compatible(
     else:
         endpoint = "https://api.openai.com/v1/chat/completions"
         target_model = model or "gpt-4o-mini"
+    return endpoint, target_model
+
+
+async def _call_openai_compatible(
+    messages: List[Dict[str, str]],
+    api_key: str,
+    provider: str,
+    model: Optional[str],
+    base_url: Optional[str],
+    temperature: float,
+    max_tokens: int
+) -> Dict[str, Any]:
+    prov = provider.lower()
+    endpoint, target_model = _resolve_endpoint_and_model(prov, model, base_url)
 
     headers = {
         "Content-Type": "application/json"
@@ -426,6 +431,163 @@ async def _call_openai_compatible(
             "error": str(e),
             "reply": f"⚠️ Could not reach AI endpoint ({endpoint}): {e}"
         }
+
+
+def _convert_openai_tools_to_anthropic(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Converts OpenAI-formatted tool schemas into Anthropic input_schema format."""
+    anthropic_tools = []
+    for t in tools:
+        fn = t.get("function") if t.get("type") == "function" else t
+        if not fn or not isinstance(fn, dict):
+            continue
+        anthropic_tools.append({
+            "name": fn.get("name", ""),
+            "description": fn.get("description", ""),
+            "input_schema": fn.get("parameters", {"type": "object", "properties": {}})
+        })
+    return anthropic_tools
+
+
+async def call_open_chat_llm_with_tools(
+    messages: List[Dict[str, str]],
+    tools: List[Dict[str, Any]],
+    system_prompt: Optional[str] = None,
+    api_key: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    temperature: float = 0.3,
+    max_tokens: int = 300,
+    tool_choice: str = "auto",
+    db: Optional[AsyncSession] = None
+) -> Dict[str, Any]:
+    """
+    Non-streaming OpenAI-compatible & Anthropic chat completion WITH function/tool-calling support.
+    Returns {"success", "reply", "tool_calls", "model", "provider"}.
+    Anthropic returns normalized OpenAI-shaped tool_calls so callers get consistent objects.
+    """
+    creds = await resolve_llm_credentials(db=db, api_key=api_key, provider=provider, model=model, base_url=base_url)
+    resolved_provider = (creds.get("provider") or "openai").lower()
+    resolved_key = creds.get("api_key") or ""
+    resolved_base_url = creds.get("base_url")
+    resolved_model = creds.get("model")
+
+    if not resolved_key:
+        return {"success": False, "error": "Missing API key", "tool_calls": [], "reply": ""}
+
+    if "anthropic" in resolved_provider or "claude" in resolved_provider:
+        system_text = (system_prompt or "").strip()
+        chat_history = []
+        for m in messages:
+            role = m.get("role") or "user"
+            content = m.get("content") or ""
+            if not content.strip():
+                continue
+            if role == "system":
+                system_text += ("\n\n" if system_text else "") + content
+            else:
+                if role in ["ai", "assistant", "bot"]:
+                    role = "assistant"
+                elif role not in ["assistant", "user"]:
+                    role = "user"
+                chat_history.append({"role": role, "content": content})
+
+        anthropic_tools = _convert_openai_tools_to_anthropic(tools)
+        headers = {
+            "x-api-key": resolved_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+        target_model = resolved_model or "claude-3-5-sonnet-20241022"
+        payload = {
+            "model": target_model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": chat_history,
+            "tools": anthropic_tools,
+        }
+        if system_text:
+            payload["system"] = system_text
+
+        try:
+            client = _get_llm_client()
+            res = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
+            if res.status_code != 200:
+                err_text = res.text[:300]
+                logger.error(f"[TOOLS] Anthropic API error status {res.status_code}: {err_text}")
+                return {"success": False, "error": f"Anthropic error ({res.status_code}): {err_text}", "tool_calls": [], "reply": ""}
+            data = res.json()
+            content_blocks = data.get("content", [])
+            text_parts = []
+            tool_calls = []
+            for block in content_blocks:
+                btype = block.get("type")
+                if btype == "text":
+                    text_parts.append(block.get("text", ""))
+                elif btype == "tool_use":
+                    tool_calls.append({
+                        "id": block.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name", ""),
+                            "arguments": json.dumps(block.get("input") or {})
+                        }
+                    })
+            return {
+                "success": True,
+                "reply": "".join(text_parts).strip(),
+                "tool_calls": tool_calls,
+                "model": data.get("model", target_model),
+                "provider": "anthropic"
+            }
+        except Exception as e:
+            logger.error(f"[TOOLS] Anthropic tool-call request failed: {e}")
+            return {"success": False, "error": str(e), "tool_calls": [], "reply": ""}
+
+    formatted_messages = []
+    if system_prompt:
+        formatted_messages.append({"role": "system", "content": system_prompt})
+    for m in messages:
+        role = m.get("role") or "user"
+        if role in ["ai", "assistant", "bot"]:
+            role = "assistant"
+        elif role not in ["system", "assistant", "user"]:
+            role = "user"
+        content = m.get("content") or ""
+        if content.strip():
+            formatted_messages.append({"role": role, "content": content})
+
+    endpoint, target_model = _resolve_endpoint_and_model(resolved_provider, resolved_model, resolved_base_url)
+
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {resolved_key}"}
+    payload = {
+        "model": target_model,
+        "messages": formatted_messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "tools": tools,
+        "tool_choice": tool_choice,
+    }
+
+    try:
+        client = _get_llm_client()
+        res = await client.post(endpoint, headers=headers, json=payload)
+        if res.status_code != 200:
+            err_text = res.text[:300]
+            logger.error(f"[TOOLS] LLM API error ({endpoint}) status {res.status_code}: {err_text}")
+            return {"success": False, "error": f"API returned status {res.status_code}: {err_text}", "tool_calls": [], "reply": ""}
+        data = res.json()
+        message = data.get("choices", [{}])[0].get("message", {}) or {}
+        return {
+            "success": True,
+            "reply": message.get("content") or "",
+            "tool_calls": message.get("tool_calls") or [],
+            "model": data.get("model", target_model),
+            "provider": resolved_provider,
+        }
+    except Exception as e:
+        logger.error(f"[TOOLS] LLM tool-call request to {endpoint} failed: {e}")
+        return {"success": False, "error": str(e), "tool_calls": [], "reply": ""}
 
 
 async def stream_open_chat_llm(
@@ -613,37 +775,7 @@ async def _stream_openai_compatible(
     max_tokens: int
 ) -> AsyncGenerator[str, None]:
     prov = provider.lower()
-    if base_url:
-        endpoint = base_url.rstrip("/")
-        if "generativelanguage.googleapis.com" in endpoint and not endpoint.endswith("/openai"):
-            endpoint += "/openai"
-        if not endpoint.endswith("/chat/completions"):
-            endpoint += "/chat/completions"
-        target_model = model or "gpt-4o-mini"
-    elif "deepseek" in prov:
-        endpoint = "https://api.deepseek.com/chat/completions"
-        target_model = model or "deepseek-chat"
-    elif "groq" in prov:
-        endpoint = "https://api.groq.com/openai/v1/chat/completions"
-        target_model = model or "llama-3.3-70b-versatile"
-    elif "telnyx" in prov:
-        endpoint = "https://api.telnyx.com/v2/ai/chat/completions"
-        target_model = model or "meta-llama/Meta-Llama-3.1-70B-Instruct"
-    elif ("xai" in prov or "grok" in prov) and "telnyx" not in prov:
-        endpoint = "https://api.x.ai/v1/chat/completions"
-        target_model = model or "grok-4.20-0309-non-reasoning"
-    elif "gemini" in prov or "google" in prov:
-        endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        target_model = model or "gemini-1.5-flash"
-    elif "openrouter" in prov:
-        endpoint = "https://openrouter.ai/api/v1/chat/completions"
-        target_model = model or "meta-llama/llama-3.3-70b-instruct"
-    elif "ollama" in prov:
-        endpoint = "http://localhost:11434/v1/chat/completions"
-        target_model = model or "llama3.2"
-    else:
-        endpoint = "https://api.openai.com/v1/chat/completions"
-        target_model = model or "gpt-4o-mini"
+    endpoint, target_model = _resolve_endpoint_and_model(prov, model, base_url)
 
     headers = {"Content-Type": "application/json"}
     if api_key:

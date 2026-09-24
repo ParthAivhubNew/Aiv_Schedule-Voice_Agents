@@ -130,6 +130,8 @@ import { CallingWorkspace } from "./calling/CallingWorkspace";
 import { CALLING_EDITION_EVENT, getCallingEdition, setCallingEdition } from "./calling/callingEdition";
 import { BookingPolicyEditor } from "./components/BookingPolicyEditor";
 import { LiveKitBrowserCallModal } from "./components/LiveKitBrowserCallModal";
+import { ConversationTemplatesView } from "./views/ConversationTemplatesView";
+import { ConnectionsView } from "./views/ConnectionsView";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -7182,7 +7184,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
               <input
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder={providerChoice.includes("Cal.com") ? "http://calcom:3000/api/v1" : "https://api.your-custom-llm.com/v1"}
+                placeholder={providerChoice.includes("Cal.com") ? "https://api.cal.com/v2" : "https://api.your-custom-llm.com/v1"}
                 style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
               />
             </div>
@@ -24892,6 +24894,8 @@ function VoiceOperatorApp({ operator, onBackToHub, onLogout, profile, setProfile
           />
         )}
         {view === "company" && <CompanyProfileView profile={profile} setProfile={setProfile} notifications={notifications} setNotifications={setNotifications} sources={knowledgeSources} setSources={setKnowledgeSources} services={services} setServices={setServices} faq={faq} setFaq={setFaq} />}
+        {view === "templates" && <ConversationTemplatesView notifications={notifications} setNotifications={setNotifications} />}
+        {view === "connections" && <ConnectionsView notifications={notifications} setNotifications={setNotifications} />}
         {view === "provider" && <ProviderConfigView notifications={notifications} setNotifications={setNotifications} commonAi={commonAi} setCommonAi={setCommonAi} profile={profile} setProfile={setProfile} onNavigateView={setView} />}
         {view === "analytics" && (
           <SafeErrorBoundary label="Analytics" onReset={() => setView("analytics")}>

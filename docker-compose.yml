@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. PostgreSQL Database with pgvector extension (Multi-DB: aivhub + calcom)
+  # 1. PostgreSQL Database with pgvector extension
   postgres:
     image: pgvector/pgvector:pg16
     container_name: aivhub_postgres
@@ -34,27 +34,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # 3. Self-Hosted Cal.com Engine (Open Source AGPLv3)
-  calcom:
-    image: calcom/cal.com:latest
-    container_name: aivhub_calcom
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/calcom
-      DATABASE_DIRECT_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/calcom
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-aivhub_calcom_jwt_secret_token_2026_xyz}
-      CALENDSO_ENCRYPTION_KEY: ${CALENDSO_ENCRYPTION_KEY:-aivhub_calcom_encryption_key_32b_x}
-      NEXT_PUBLIC_WEBAPP_URL: ${CALCOM_WEBAPP_URL:-https://3000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai}
-      NEXTAUTH_URL: ${CALCOM_WEBAPP_URL:-https://3000-01m1bx2zfn0zxjnf9833v44pnv.cloudspaces.litng.ai}
-      NEXT_PUBLIC_LICENSE_CONSENT: "agree"
-      NODE_ENV: production
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "3000:3000"
-
-  # 4. FastAPI Backend
+  # 3. FastAPI Backend
   backend:
     build:
       context: ./backend
@@ -66,10 +46,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aivhub}
       REDIS_URL: redis://redis:6379/0
-      SECRET_KEY: ${SECRET_KEY:-aivhub_production_jwt_secret_key_change_me}
-      CALCOM_BASE_URL: http://calcom:3000/api/v1
-      CALCOM_API_KEY: ${CALCOM_API_KEY:-}
-      CALCOM_EVENT_TYPE_ID: ${CALCOM_EVENT_TYPE_ID:-}
+      SECRET_KEY: ${SECRET_KEY:-outreachAI_production_jwt_secret_key_change_me}
       VOICE_ENGINE_MODE: ${VOICE_ENGINE_MODE:-simulation}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
@@ -86,6 +63,8 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret1234567890abcdef1234567890abcdef}
       SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+      # Cal.com is optional - users can connect via UI settings (Cloud or self-hosted)
+      # CALCOM_BASE_URL and CALCOM_API_KEY are configured through the admin panel
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,7 +78,7 @@ services:
         max-size: "500k"
         max-file: "1"
 
-  # 5. React Frontend (Served via Nginx on port 8080)
+  # 4. React Frontend (Served via Nginx on port 8080)
   frontend:
     build:
       context: ./frontend
@@ -116,7 +95,7 @@ services:
         max-size: "500k"
         max-file: "1"
 
-  # 6. LiveKit WebRTC SFU Server (Self-Hosted)
+  # 5. LiveKit WebRTC SFU Server (Self-Hosted)
   livekit:
     image: livekit/livekit-server:latest
     container_name: aivhub_livekit
@@ -134,7 +113,7 @@ services:
         max-size: "500k"
         max-file: "1"
 
-  # 7. SearXNG Local Meta-Search Engine (100% Open, Unlimited & Keyless)
+  # 6. SearXNG Local Meta-Search Engine (100% Open, Unlimited & Keyless)
   searxng:
     image: searxng/searxng:latest
     container_name: aivhub_searxng

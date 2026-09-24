@@ -14,6 +14,7 @@ import {
   LogOut,
   ChevronLeft,
   Lock,
+  Sparkles,
 } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, timezoneLabel, initialsFromName } from "../tokens";
 
@@ -28,6 +29,7 @@ export const NAV_GROUPS = [
   ]},
   { label: "Configuration", items: [
     { id: "company", label: "Company Profile", icon: Users },
+    { id: "templates", label: "AI Templates", icon: Sparkles },
     { id: "connections", label: "Connections", icon: Plug },
     { id: "provider", label: "AI Providers", icon: Settings2 },
   ]},

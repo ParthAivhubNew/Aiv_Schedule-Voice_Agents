@@ -265,12 +265,36 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
         buffer_before: workingSchedule.bufferBefore,
         buffer_after: workingSchedule.bufferAfter
       };
-      await api.saveCalcomSettings(payload);
-      setSaveMessage("Settings saved successfully!");
-      setTimeout(() => setSaveMessage(""), 3500);
+      const res = await api.saveCalcomSettings(payload);
+      const sync = res?.sync;
+      if (sync?.success) {
+        setSaveMessage(sync.message || "Settings saved. Cal.com event types synced!");
+      } else {
+        setSaveMessage("Settings saved successfully!");
+      }
+      setTimeout(() => setSaveMessage(""), 6000);
       await loadData();
     } catch (err) {
       setSaveMessage("Error saving settings.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSyncEventTypes = async () => {
+    setLoading(true);
+    setSaveMessage("");
+    try {
+      const res = await api.syncCalcomEventTypes();
+      if (res?.success) {
+        setSaveMessage(res.message || "Event types synced with Cal.com.");
+      } else {
+        setSaveMessage(`Error: ${res?.error || "Cal.com sync failed."}`);
+      }
+      setTimeout(() => setSaveMessage(""), 8000);
+      await loadData();
+    } catch (err) {
+      setSaveMessage(`Error: ${err?.message || "Cal.com sync failed."}`);
     } finally {
       setLoading(false);
     }
@@ -2527,7 +2551,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                           type="text"
                           value={calBaseUrl}
                           onChange={(e) => setCalBaseUrl(e.target.value)}
-                          placeholder="http://calcom:3000/api/v1"
+                          placeholder="https://api.cal.com/v2 (self-hosted: http://your-host/api/v1)"
                           style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 6, border: "1px solid #CBD5E1", fontSize: 12, fontFamily: FONT_MONO }}
                         />
                       </div>
@@ -2537,6 +2561,22 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <button
+                  onClick={handleSyncEventTypes}
+                  disabled={loading}
+                  style={{
+                    background: "#EFF6FF",
+                    color: "#1D4ED8",
+                    border: "1px solid #BFDBFE",
+                    padding: "10px 18px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer"
+                  }}
+                >
+                  Sync Cal.com Event Types
+                </button>
                 <button
                   onClick={() => handleSaveSettings({
                     ...settings,

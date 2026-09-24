@@ -3,21 +3,21 @@ from typing import Optional
 import os
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Outreach by Aivhub"
+    PROJECT_NAME: str = "OutreachAI"
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
     
-    # Database configuration (Defaults to SQLite for instant local dev, PostgreSQL for Docker)
+    # Database configuration (PostgreSQL required - no SQLite support)
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", 
-        "sqlite+aiosqlite:///./aivhub.db"
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/aivhub"
     )
     
     # Redis configuration
     REDIS_URL: Optional[str] = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     
     # Security
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "aivhub-secret-key-change-in-production-2026")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "outreachAI-secret-key-change-in-production-2026")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
@@ -52,8 +52,8 @@ class Settings(BaseSettings):
     # Open Web Search & Enrichment (Local self-hosted SearXNG instance)
     SEARXNG_URL: Optional[str] = os.getenv("SEARXNG_URL", "http://localhost:8888")
     
-    # Calendar & Cal.com (Self-Hosted or Cloud)
-    CALCOM_BASE_URL: str = os.getenv("CALCOM_BASE_URL", "http://calcom:3000/api/v1")
+    # Calendar & Cal.com Cloud API v2 (v1 decommissioned; self-hosted URL can be set per-tenant from the admin UI)
+    CALCOM_BASE_URL: str = os.getenv("CALCOM_BASE_URL", "https://api.cal.com/v2")
     CALCOM_API_KEY: Optional[str] = os.getenv("CALCOM_API_KEY", None)
     CALCOM_EVENT_TYPE_ID: Optional[str] = os.getenv("CALCOM_EVENT_TYPE_ID", None)
     

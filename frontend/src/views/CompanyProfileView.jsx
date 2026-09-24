@@ -115,6 +115,20 @@ export function CompanyProfileView({
                 </div>
               </div>
               <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Active Calendar Engine</label>
+                <select
+                  value={localProfile.calendar_mode || localProfile.calendarMode || "internal"}
+                  onChange={(e) => handleChange("calendar_mode", e.target.value)}
+                  style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13 }}
+                >
+                  <option value="internal">Internal Database Calendar (PostgreSQL Meetings View)</option>
+                  <option value="calcom">Cal.com Cloud Calendar & Event Types</option>
+                </select>
+                <span style={{ fontSize: 11, color: C.slate, marginTop: 4, display: "block" }}>
+                  Switch at any time. When using Internal mode, booked appointments appear directly in your local Meetings tab. When Cal.com is selected, slots and bookings synchronize via Cal.com.
+                </span>
+              </div>
+              <div>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Tone of Voice</label>
                 <input type="text" value={localProfile.tone || ""} onChange={(e) => handleChange("tone", e.target.value)} style={{ width: "100%", height: 42, padding: "0 14px", borderRadius: 8, border: `1px solid ${C.border}` }} />
               </div>

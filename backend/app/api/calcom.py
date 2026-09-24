@@ -190,10 +190,24 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
 async def update_settings(payload: SettingsPayload, db: AsyncSession = Depends(get_db)):
     data = payload.dict(exclude_unset=True)
     st = await calendar_service.save_settings(db, data)
-    return {
+    response: Dict[str, Any] = {
         "success": True,
         "settings": _settings_public(st),
     }
+    # A freshly saved key on a blank Cal.com account should just start working:
+    # auto-sync links/provisions the meeting types so bookings can go to Cal.com.
+    if getattr(st, "api_key", None):
+        try:
+            response["sync"] = await calendar_service.sync_calcom_event_types(db, auto_create=True)
+        except Exception as sync_err:
+            response["sync"] = {"success": False, "error": str(sync_err)[:200]}
+    return response
+
+
+@router.post("/sync-event-types")
+async def sync_event_types(auto_create: bool = True, db: AsyncSession = Depends(get_db)):
+    """Reconcile local meeting types with the connected Cal.com account (cloud v2)."""
+    return await calendar_service.sync_calcom_event_types(db, auto_create=auto_create)
 
 @router.post("/test-connection")
 async def test_calcom_connection(db: AsyncSession = Depends(get_db)):

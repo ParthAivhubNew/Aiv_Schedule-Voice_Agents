@@ -18,7 +18,9 @@ from sqlalchemy.future import select
 
 from app.database import AsyncSessionLocal
 from app.models.models import CompanyProfile, LiveCall
-from app.services.llm_gateway import call_open_chat_llm, stream_open_chat_llm
+from app.services.llm_gateway import call_open_chat_llm, stream_open_chat_llm, call_open_chat_llm_with_tools
+from app.services.booking_tools import generate_smart_booking_tools, execute_smart_booking_tool
+from app.services.process_logger import log_process_event
 from app.services.voice_plugin_plan import VoicePlan, looks_like_external_voice_id
 from app.services.xai_voice_service import (
     BridgedVoiceSession,
@@ -272,7 +274,8 @@ async def _play_frames(bridge: BridgedVoiceSession, frames: list[str], on_frame_
     return played
 
 
-async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: bool = True) -> None:
+async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: bool = True) -> list[str]:
+    """Synthesizes and dispatches a line. Returns the µ-law frames (20 ms each) it produced."""
     frames = await _synthesize_tts_frames(plan, text)
     if frames and not (getattr(bridge, "_barge", None) and bridge._barge.is_set()):
         if pace and bridge._live and bridge._released:
@@ -280,6 +283,7 @@ async def _speak(bridge: BridgedVoiceSession, plan: VoicePlan, text: str, pace: 
         else:
             for b64 in frames:
                 await bridge.emit_ai_audio(b64)
+    return frames or []
 
 
 def _is_phantom_noise(text: str) -> bool:
@@ -761,6 +765,46 @@ async def _telnyx_whisper_transcribe(raw_mulaw_frames: bytes, api_key: str, mode
 
 
 
+def _mulaw_frames_to_wav16k(raw_mulaw_frames: bytes) -> bytes:
+    """Wrap 8 kHz µ-law carrier frames as a 16 kHz mono 16-bit WAV (Whisper-friendly)."""
+    import io, wave, audioop
+    lin_pcm = audioop.ulaw2lin(raw_mulaw_frames, 2)
+    resampled_pcm, _ = audioop.ratecv(lin_pcm, 2, 1, 8000, 16000, None)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(resampled_pcm)
+    return buf.getvalue()
+
+
+async def _whisper_rest_transcribe(raw_mulaw_frames: bytes, api_key: str, model: str, base_url: str) -> str:
+    """Transcribes a carrier audio chunk through any OpenAI-compatible Whisper endpoint.
+
+    Works for OpenAI (whisper-1 / gpt-4o-transcribe), Groq (whisper-large-v3-turbo) and
+    custom base URLs — so an operator's own Whisper key is a first-class STT plugin.
+    """
+    if not raw_mulaw_frames or len(raw_mulaw_frames) < 1600:
+        return ""
+    url = (base_url or "https://api.openai.com/v1").rstrip("/")
+    if not url.endswith("/audio/transcriptions"):
+        url += "/audio/transcriptions"
+    try:
+        wav_bytes = _mulaw_frames_to_wav16k(raw_mulaw_frames)
+        headers = {"Authorization": f"Bearer {api_key}"}
+        files = {"file": ("audio.wav", wav_bytes, "audio/wav")}
+        data = {"model": model or "whisper-1", "response_format": "json"}
+        client = _get_tts_client()
+        res = await client.post(url, headers=headers, data=data, files=files, timeout=15.0)
+        if res.status_code == 200:
+            return str((res.json() or {}).get("text") or "").strip()
+        logger.warning(f"[WHISPER-STT] {url} error {res.status_code}: {res.text[:200]}")
+    except Exception as e:
+        logger.warning(f"[WHISPER-STT] Transcription error: {e}")
+    return ""
+
+
 async def _greeting_line(is_inbound: bool, prospect_name: Optional[str]) -> str:
     company = "your company"
     rep = "our team"
@@ -798,6 +842,83 @@ def _is_backchannel(text: str) -> bool:
     return cleaned in ("mhm", "uhhuh", "uh-huh", "mm", "mmm")
 
 
+_BOOKING_INTENT_RE = re.compile(
+    r"\b(book|schedule|meeting|appointment|available|availability|calendar|slot|reschedul\w*|"
+    r"tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"morning|afternoon|evening|\d{1,2}\s?(am|pm)|\d{1,2}:\d{2})\b",
+    re.IGNORECASE,
+)
+
+
+async def _maybe_execute_booking_tool(
+    call_ctx: dict,
+    history: list,
+    system: str,
+    plan: VoicePlan,
+    local_id: str,
+    latest_utterance: str,
+) -> None:
+    """
+    Lightweight pre-pass: only when the caller's utterance plausibly concerns scheduling,
+    give the LLM one non-streaming turn WITH booking tool schemas so it can call
+    check_availability/book_appointment. Any tool result is folded back into `history` as
+    a system note so the normal streaming reply (which runs right after this) speaks the
+    outcome naturally. No-op — zero added latency — on ordinary conversational turns.
+    """
+    if not call_ctx or not plan.llm or not _BOOKING_INTENT_RE.search(latest_utterance or ""):
+        return
+
+    llm = plan.llm
+    try:
+        tools = generate_smart_booking_tools(call_ctx)
+        result = await call_open_chat_llm_with_tools(
+            messages=history[-12:],
+            tools=tools,
+            system_prompt=system,
+            api_key=llm.api_key,
+            provider=llm.provider,
+            model=llm.model,
+            base_url=llm.base_url,
+            temperature=0.3,
+            max_tokens=300,
+        )
+    except Exception as e:
+        logger.warning(f"[MODULAR] Booking tool pre-pass failed: {e}")
+        return
+
+    tool_calls = result.get("tool_calls") or []
+    if not tool_calls:
+        return
+
+    call = tool_calls[0]
+    fn = call.get("function") or {}
+    name = fn.get("name") or ""
+    try:
+        args = json.loads(fn.get("arguments") or "{}")
+    except Exception:
+        args = {}
+
+    try:
+        async with AsyncSessionLocal() as tool_db:
+            tool_result = await execute_smart_booking_tool(tool_db, name, args, call_ctx)
+    except Exception as e:
+        logger.warning(f"[MODULAR] Booking tool execution failed ({name}): {e}")
+        tool_result = {"success": False, "error": str(e)}
+
+    logger.info(f"[MODULAR] Booking tool '{name}' executed for call {local_id}: {tool_result}")
+    asyncio.create_task(call_hub.broadcast("call_tool_executed", {"callId": local_id, "tool": name, "result": tool_result}))
+
+    history.append({
+        "role": "system",
+        "content": (
+            f"[Tool result — {name}]: {json.dumps(tool_result)}. "
+            "Use this information to respond to the caller naturally and conversationally "
+            "(e.g. read out the actual available times, or confirm the booking you just made). "
+            "Never mention tools, functions, or JSON."
+        ),
+    })
+
+
 async def run_modular_pipeline(
     bridge: BridgedVoiceSession,
     call_id: str,
@@ -822,7 +943,46 @@ async def run_modular_pipeline(
     except Exception as err:
         logger.warning(f"[MODULAR] LiveCall link failed: {err}")
 
-    system = await build_xai_system_instructions(caller_number, prospect_name, hold_opening=False)
+    system = ""
+    greeting = ""
+    call_ctx: dict = {}
+    try:
+        from app.services.conversation_engine import context_resolver, template_engine, ConversationTemplateEngine
+        from app.services.calendar_service import calendar_service
+        from app.services.booking_policy import (
+            normalize_booking_policy,
+            voice_booking_instructions,
+            voice_hangup_instructions,
+        )
+        async with AsyncSessionLocal() as conv_db:
+            if is_inbound:
+                call_ctx = await context_resolver.resolve_inbound(conv_db, caller_number)
+            else:
+                call_ctx = await context_resolver.resolve_outbound(
+                    conv_db,
+                    override_phone=caller_number,
+                    override_name=prospect_name
+                )
+            try:
+                setting = await calendar_service.get_or_create_settings(conv_db)
+                policy = normalize_booking_policy(getattr(setting, "booking_policy", None))
+                call_ctx["booking_policy"] = policy
+                call_ctx["policy_booking_instructions"] = voice_booking_instructions(policy)
+                call_ctx["policy_hangup_instructions"] = voice_hangup_instructions(policy)
+            except Exception as pol_err:
+                logger.warning(f"[MODULAR] Booking policy load notice: {pol_err}")
+
+            active_tpl = await template_engine.get_active_template(
+                conv_db,
+                direction="inbound" if is_inbound else "outbound"
+            )
+            system = template_engine.render_system_prompt(active_tpl, call_ctx)
+            if active_tpl.greeting_template:
+                greeting = ConversationTemplateEngine._safe_substitute(active_tpl.greeting_template, call_ctx)
+    except Exception as tpl_err:
+        logger.warning(f"[MODULAR] Dynamic template resolution notice: {tpl_err}")
+        system = await build_xai_system_instructions(caller_number, prospect_name, hold_opening=False)
+
     history = []
 
     # Resolve STT credentials: Check for Deepgram or Telnyx Whisper
@@ -848,9 +1008,89 @@ async def run_modular_pipeline(
     elif plan.llm and ("telnyx" in (plan.llm.provider or "").lower() or (plan.llm.api_key and plan.llm.api_key.startswith("KEY"))):
         telnyx_stt_key = plan.llm.api_key.strip()
 
-    if not dg_key and not telnyx_stt_key:
-        logger.error(f"[MODULAR] No API key found for STT plugin '{stt_provider}' — greeting only")
+    # OpenAI-compatible Whisper REST (OpenAI / Groq / custom base URL) as a first-class plugin
+    whisper_stt_key = ""
+    whisper_base = ""
+    whisper_model = ""
+    if not dg_key and not telnyx_stt_key and stt_key:
+        display = str(((stt.extra or {}) if getattr(stt, "extra", None) else {}).get("display_name") or "")
+        label = f"{stt_provider} {display} {stt_model}".lower()
+        configured_base = (getattr(stt, "base_url", "") or "").strip()
+        if configured_base and ("whisper" in label or "openai" in label or "groq" in label):
+            whisper_stt_key, whisper_base = stt_key, configured_base
+        elif "groq" in label:
+            whisper_stt_key, whisper_base = stt_key, "https://api.groq.com/openai/v1"
+        elif "whisper" in label or "openai" in label:
+            whisper_stt_key, whisper_base = stt_key, "https://api.openai.com/v1"
+        if whisper_stt_key:
+            whisper_model = stt_model or (
+                "whisper-large-v3-turbo" if "groq" in (whisper_base or "").lower() else "whisper-1"
+            )
+            logger.info(
+                f"[MODULAR] STT transport: OpenAI-compatible Whisper REST at {whisper_base} "
+                f"(model {whisper_model})"
+            )
+
+    if not dg_key and not telnyx_stt_key and not whisper_stt_key:
+        # Never run a deaf call: the agent would greet and then hear nothing while the
+        # prospect talks into silence. Abort loudly, release the carrier leg, tell the operator.
+        logger.error(f"[MODULAR] No STT key for plugin '{stt_provider}' — aborting call {local_id} (no deaf calls)")
+        try:
+            await _update_call_transcript(
+                local_id,
+                f"System: Call aborted — STT plugin '{stt_provider}' has no usable API key "
+                f"(supported: Deepgram, Telnyx Whisper, or OpenAI-compatible Whisper). "
+                f"Configure it in Connections, then retry.",
+            )
+            await log_process_event(
+                subsystem="voice",
+                process_name="modular_stt_missing",
+                message=f"Modular engine aborted call {local_id}: no usable STT key for '{stt_provider}'.",
+                level="ERROR",
+                details={"callId": local_id, "sttProvider": stt_provider, "engine": plan.engine},
+            )
+            async with AsyncSessionLocal() as abort_db:
+                from app.models.models import Notification
+                abort_db.add(Notification(
+                    id=f"n_{uuid.uuid4().hex[:6]}",
+                    text=(
+                        f"❌ Call aborted — speech-to-text plugin '{stt_provider}' has no usable API key. "
+                        f"Add a Deepgram, Telnyx Whisper, or OpenAI-compatible Whisper key in Connections."
+                    ),
+                    type="alert",
+                ))
+                await abort_db.commit()
+            await call_hub.broadcast("notification_created", {
+                "text": f"Call aborted: STT plugin '{stt_provider}' missing a usable API key.",
+                "type": "alert",
+            })
+        except Exception as abort_log_err:
+            logger.warning(f"[MODULAR] abort logging failed for {local_id}: {abort_log_err}")
+        try:
+            await bridge.close()
+            from app.services.xai_voice_service import _finalize_call
+            from datetime import datetime as _dt
+            async with AsyncSessionLocal() as fin_db:
+                row = (await fin_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
+                if row is not None and not row.ended:
+                    started = row.created_at or _dt.utcnow()
+                    secs = max(1, int((_dt.utcnow() - started).total_seconds()))
+                    await _finalize_call(local_id, f"{secs // 60:02d}:{secs % 60:02d}", list(row.transcript or []))
+        except Exception as abort_err:
+            logger.warning(f"[MODULAR] abort teardown failed for {local_id}: {abort_err}")
         return
+
+    # Report the working structure that is actually live on this call (also visible in the UI).
+    stt_transport = (
+        "Deepgram streaming (nova-2)"
+        if dg_key
+        else ("Telnyx Whisper REST" if telnyx_stt_key else f"Whisper REST ({whisper_base}, {whisper_model})")
+    )
+    logger.info(f"[MODULAR] {local_id} STT transport live: {stt_transport}")
+    try:
+        await _update_call_transcript(local_id, f"System: STT transport live — {stt_transport}")
+    except Exception:
+        pass
 
     # Fast Energy VAD state for chunking (ultra-low 180ms silence endpointing)
     speech_buffer = bytearray()
@@ -869,7 +1109,22 @@ async def run_modular_pipeline(
             silence_nudge_count = 0
             await handle_final(txt)
 
+    async def _process_whisper_speech_chunk(audio_chunk: bytes):
+        nonlocal last_activity_time, silence_nudge_count
+        txt = await _whisper_rest_transcribe(audio_chunk, whisper_stt_key, whisper_model, whisper_base)
+        if txt and not bridge.closed.is_set():
+            logger.info(f"[WHISPER-STT] Caller said: '{txt}'")
+            last_activity_time = time.perf_counter()
+            silence_nudge_count = 0
+            await handle_final(txt)
+
     # Dynamic caller audio router based on active STT plugin
+    # Frames that arrive before the Deepgram socket is live are buffered (and flushed on
+    # connect) instead of being dropped — otherwise the prospect's first words are lost
+    # while the greeting is still playing.
+    pre_stt_frames: list[bytes] = []
+    PRE_STT_MAX_FRAMES = 150  # ~3s of 20ms frames
+
     async def on_caller(b64: str):
         nonlocal speech_buffer, in_speech, silence_frames_count, speech_frames_count
         try:
@@ -877,10 +1132,23 @@ async def run_modular_pipeline(
             if not raw:
                 return
             # If Deepgram WebSocket is active for Deepgram plugin
-            if getattr(bridge, "_dg_ws", None):
-                await bridge._dg_ws.send(raw)
-            # If Telnyx STT plugin is active
-            elif telnyx_stt_key:
+            dg_ws = getattr(bridge, "_dg_ws", None)
+            if dg_ws is not None:
+                if pre_stt_frames:
+                    for pending in pre_stt_frames:
+                        try:
+                            await dg_ws.send(pending)
+                        except Exception:
+                            break
+                    pre_stt_frames.clear()
+                await dg_ws.send(raw)
+            elif dg_key:
+                # Deepgram selected but still connecting — keep the audio for the flush above.
+                pre_stt_frames.append(raw)
+                if len(pre_stt_frames) > PRE_STT_MAX_FRAMES:
+                    pre_stt_frames.pop(0)
+            # Chunked REST STT plugins (Telnyx Whisper / OpenAI-compatible Whisper)
+            elif telnyx_stt_key or whisper_stt_key:
                 pcm = audioop.ulaw2lin(raw, 2)
                 rms = audioop.rms(pcm, 2)
                 if rms > 300:
@@ -900,7 +1168,10 @@ async def run_modular_pipeline(
                                 in_speech = False
                                 silence_frames_count = 0
                                 speech_frames_count = 0
-                                asyncio.create_task(_process_telnyx_speech_chunk(chunk))
+                                if telnyx_stt_key:
+                                    asyncio.create_task(_process_telnyx_speech_chunk(chunk))
+                                else:
+                                    asyncio.create_task(_process_whisper_speech_chunk(chunk))
                             else:
                                 speech_buffer = bytearray()
                                 in_speech = False
@@ -912,10 +1183,40 @@ async def run_modular_pipeline(
     bridge.on_caller_audio = on_caller
     speaking_task: Optional[asyncio.Task] = None
 
-    greeting = await _greeting_line(is_inbound, prospect_name)
-    await _speak(bridge, plan, greeting, pace=False)
+    # Opening-greeting window: the greeting is never cut short, and anything the caller says
+    # while the background STT/LLM/TTS connections settle is captured and answered right after.
+    greeting_active = True
+    pending_during_greeting: list[str] = []
+
+    async def _greeting_window(planned_frames: int):
+        nonlocal greeting_active
+        deadline = time.perf_counter() + 15.0
+        while not (bridge._live and bridge._released) and not bridge.closed.is_set():
+            if time.perf_counter() > deadline:
+                logger.warning(f"[MODULAR] greeting window: carrier stream never attached for {local_id}")
+                break
+            await asyncio.sleep(0.05)
+        # µ-law frames are 20 ms each; add a small tail so the last word isn't clipped.
+        await asyncio.sleep(max(0.6, planned_frames * 0.02 + 0.35))
+        greeting_active = False
+        if pending_during_greeting and not bridge.closed.is_set():
+            merged = " ".join(pending_during_greeting).strip()
+            pending_during_greeting.clear()
+            if merged:
+                logger.info(
+                    f"[MODULAR] Greeting finished — answering what the caller said during it: '{merged[:140]}'"
+                )
+                try:
+                    await handle_final(merged)
+                except Exception as gw_err:
+                    logger.warning(f"[MODULAR] greeting-window answer failed for {local_id}: {gw_err}")
+
+    if not greeting:
+        greeting = await _greeting_line(is_inbound, prospect_name)
+    greeting_frames = await _speak(bridge, plan, greeting, pace=False) or []
     if not bridge.ready.is_set():
         bridge.ready.set()
+    asyncio.create_task(_greeting_window(len(greeting_frames)))
     await _update_call_transcript(local_id, f"AI: {greeting}")
     history.append({"role": "assistant", "content": greeting})
     try:
@@ -1005,6 +1306,15 @@ async def run_modular_pipeline(
             # Rule: Adaptive Interruption Handling (1-word backchannels)
             if is_speaking and _is_backchannel(text):
                 logger.info(f"[MODULAR] Backchannel acknowledged ({text}) while speaking — continuing playback without interruption.")
+                return
+
+            # Opening greeting: never cut it short. Capture what the caller said and answer it
+            # the moment the greeting finishes (queue is drained by _greeting_window).
+            if is_speaking and greeting_active:
+                pending_during_greeting.append(text)
+                logger.info(f"[MODULAR] Captured during greeting ({text}) — will answer right after it ends.")
+                asyncio.create_task(_update_call_transcript(local_id, f"Prospect: {text}"))
+                asyncio.create_task(call_hub.broadcast("call_transcript_delta", {"callId": local_id, "who": "them", "delta": text}))
                 return
 
             # True interruption: caller spoke genuine words
@@ -1273,6 +1583,8 @@ async def run_modular_pipeline(
 
             last_activity_time = time.perf_counter()
 
+        await _maybe_execute_booking_tool(call_ctx, history, system, plan, local_id, text)
+
         speaking_task = asyncio.create_task(run_streaming_turn())
         bridge._speaking_task = speaking_task
 
@@ -1481,3 +1793,16 @@ async def run_modular_pipeline(
         bridge._dg_ws = None
         bridge.on_caller_audio = None
         logger.info(f"[MODULAR] Pipeline finished for {call_id}")
+        # Engine stopped (error, STT close, or caller drop): if the row is still open,
+        # finalize it and release the carrier leg so the prospect's phone drops with ours.
+        try:
+            from datetime import datetime as _dt
+            from app.services.xai_voice_service import _finalize_call
+            async with AsyncSessionLocal() as fin_db:
+                row = (await fin_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
+                if row is not None and not row.ended:
+                    started = row.created_at or _dt.utcnow()
+                    secs = max(1, int((_dt.utcnow() - started).total_seconds()))
+                    await _finalize_call(local_id, f"{secs // 60:02d}:{secs % 60:02d}", list(row.transcript or []))
+        except Exception as fin_err:
+            logger.warning(f"[MODULAR] finalize on pipeline end failed for {call_id}: {fin_err}")

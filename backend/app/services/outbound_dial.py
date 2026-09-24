@@ -285,6 +285,7 @@ async def place_outbound_call(
         prospect=prospect_label,
         mission=mission_label,
         state="calling",
+        carrier=carrier_choice,
         channel="voice",
         duration="00:01",
         listening=False,

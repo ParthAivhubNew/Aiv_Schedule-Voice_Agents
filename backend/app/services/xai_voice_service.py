@@ -172,6 +172,19 @@ async def notify_prospect_answered(call_id: str) -> bool:
             if sess:
                 break
     if sess and not sess.is_inbound:
+        # Start-gap telemetry: if the greeting wasn't buffered yet, the caller hears the
+        # remaining handshake as silence. Logged so real calls show whether it happens.
+        age_ms = int((time.time() - getattr(sess, "created_at", time.time())) * 1000)
+        if sess.ready.is_set():
+            logger.info(
+                f"[XAI-BRIDGE] answered with greeting ready for {call_id} "
+                f"(buffered={len(sess._buf)} frames, session age {age_ms}ms)"
+            )
+        else:
+            logger.warning(
+                f"[XAI-BRIDGE] answered BEFORE first audio for {call_id} "
+                f"(session age {age_ms}ms) — caller hears the handshake gap"
+            )
         await sess.release_to_caller()
     dispatch = rec.get("dispatch") if rec else None
     if dispatch:
@@ -198,6 +211,7 @@ class BridgedVoiceSession:
         self._dg_ws = None
         self._cartesia_ws = None
         self._speaking_task = None
+        self.created_at = time.time()
 
     async def close(self) -> None:
         """Stops the voice session and cancels any background speech or STT connections."""
@@ -2472,6 +2486,34 @@ async def _finalize_call(call_id: str, duration_str: str, transcript: List[str])
                             existing_log.outcome = outcome
                     apply_names_to_log(existing_log, names)
                 await db.commit()
+
+        # Our voice engine ended on its own (xAI session closed / crashed / agent wrap-up):
+        # release the carrier leg and streams NOW so the prospect's phone drops at the same
+        # moment our side does. Without this the PSTN leg stays up and they hear dead air.
+        try:
+            from app.api.calls import close_call_streams, hangup_carrier_for_call
+            if call_obj is not None:
+                await close_call_streams(call_obj, call_id, (call_obj.carrier_sid or "").strip() or None)
+                async with AsyncSessionLocal() as teardown_db:
+                    hung = await hangup_carrier_for_call(call_obj, teardown_db)
+                await log_process_event(
+                    subsystem="telephony",
+                    process_name="engine_end_carrier_hangup",
+                    message=(
+                        f"Voice engine ended for {call_id}; carrier leg released."
+                        if hung
+                        else f"Voice engine ended for {call_id}; carrier hangup did NOT confirm — prospect leg may stay up."
+                    ),
+                    level="INFO" if hung else "ERROR",
+                    details={
+                        "callId": call_id,
+                        "hungUp": hung,
+                        "carrier": getattr(call_obj, "carrier", None),
+                        "carrierSid": call_obj.carrier_sid,
+                    },
+                )
+        except Exception as end_err:
+            logger.warning(f"[Finalize] Carrier release after engine end failed for {call_id}: {end_err}")
 
         await call_hub.broadcast("call_ended", {
             "callId": call_id,

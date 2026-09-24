@@ -391,17 +391,22 @@ async def _validate_retell(client: httpx.AsyncClient, api_key: str, base_url: Op
 
 
 async def _validate_calcom(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
-    target_url = (base_url or "http://calcom:3000/api/v1").rstrip("/")
-    headers = {"Authorization": f"Bearer {api_key}"}
+    """Cal.com cloud keys use API v2 (v1 was decommissioned — HTTP 410)."""
+    base = (base_url or "https://api.cal.com/v2").rstrip("/")
+    low = base.lower()
+    if "api.cal.com" in low or "calcom:3000" in low:
+        base = "https://api.cal.com/v2"
+    headers = {"Authorization": f"Bearer {api_key}", "cal-api-version": "2024-08-13"}
     try:
-        res = await client.get(f"{target_url}/event-types", headers=headers)
+        res = await client.get(f"{base}/me", headers=headers)
         if res.status_code in [200, 201]:
-            return {"valid": True, "provider": "Cal.com", "details": "Cal.com API key verified (Event types accessible)."}
-    except Exception:
-        pass
-    res2 = await client.get("https://api.cal.com/v1/event-types", headers=headers)
-    if res2.status_code in [200, 201]:
-        return {"valid": True, "provider": "Cal.com Cloud", "details": "Cal.com Cloud API key verified."}
+            data = (res.json() or {}).get("data") or {}
+            who = data.get("username") or data.get("email") or "account"
+            return {"valid": True, "provider": "Cal.com", "details": f"Cal.com API v2 connected as {who}."}
+        if res.status_code in [401, 403]:
+            return {"valid": False, "error": "Cal.com API key is invalid or unauthorized."}
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
     return {"valid": False, "error": "Cal.com authentication failed (Invalid API key)."}
 
 

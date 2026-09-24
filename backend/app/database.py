@@ -2,36 +2,22 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import declarative_base
 from app.config import settings
 
-from pathlib import Path
-import os
-import logging
-
-logger = logging.getLogger(__name__)
-
-# Adjust sqlite database URL if needed
+# PostgreSQL-only configuration - no SQLite fallback
 db_url = settings.DATABASE_URL
-if db_url.startswith("sqlite"):
-    backend_dir = Path(__file__).resolve().parent.parent
-    db_file = (backend_dir / "aivhub.db").as_posix()
-    db_url = f"sqlite+aiosqlite:///{db_file}"
-elif db_url.startswith("postgres://"):
+
+# Validate that PostgreSQL is configured
+if not db_url or "sqlite" in db_url.lower():
+    raise ValueError(
+        "PostgreSQL DATABASE_URL is required. SQLite is not supported.\n"
+        "Please set DATABASE_URL in your .env file to a PostgreSQL connection string.\n"
+        "Example: postgresql+asyncpg://postgres:password@postgres:5432/aivhub"
+    )
+
+# Normalize PostgreSQL URL format
+if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
-elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
+elif db_url.startswith("postgresql://") and "asyncpg" not in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-
-# If postgres hostname cannot be resolved (e.g. running locally on Windows outside Docker), fallback to SQLite
-if ("asyncpg" in db_url or "postgres" in db_url) and not (Path("/.dockerenv").exists() or os.getenv("DOCKER_CONTAINER")):
-    try:
-        import socket
-        parsed_host = db_url.split("@")[-1].split(":")[0].split("/")[0]
-        if parsed_host and parsed_host not in ("localhost", "127.0.0.1"):
-            socket.gethostbyname(parsed_host)
-    except Exception:
-        backend_dir = Path(__file__).resolve().parent.parent
-        db_file = (backend_dir / "aivhub.db").as_posix()
-        db_url = f"sqlite+aiosqlite:///{db_file}"
-
-logger.info(f"Database engine initialized using: {db_url.split('@')[-1] if '@' in db_url else db_url}")
 
 engine = create_async_engine(
     db_url,

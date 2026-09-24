@@ -126,7 +126,7 @@ class MediaStreamHub:
                 stream_sid = s_sid
                 break
 
-        if not stream_sid and self.stream_to_call:
+        if not stream_sid and len(self.stream_to_call) == 1:
             stream_sid = next(iter(self.stream_to_call.keys()))
 
         if protocol != "telnyx" and not stream_sid:
@@ -148,14 +148,14 @@ class MediaStreamHub:
         except Exception as e:
             logger.warning(f"[AudioHub] Error injecting operator audio to Twilio: {e}")
 
-        # Broadcast outbound track (AI / Operator voice) to listening supervisor(s)
+        # Broadcast outbound track (AI / Operator voice) to listening supervisor(s) asynchronously without blocking audio loop
         try:
-            await self.broadcast_to_listeners(canonical, {
+            asyncio.create_task(self.broadcast_to_listeners(canonical, {
                 "type": "audio_chunk",
                 "callId": canonical,
                 "track": "outbound",
                 "payload": base64_payload,
-            })
+            }))
         except Exception as b_err:
             logger.debug(f"[AudioHub] Supervisor outbound broadcast error: {b_err}")
 
@@ -179,7 +179,7 @@ class MediaStreamHub:
             if c_id == canonical or c_id == call_id or self.resolve_canonical(c_id) == canonical:
                 stream_sid = s_sid
                 break
-        if not stream_sid and self.stream_to_call:
+        if not stream_sid and len(self.stream_to_call) == 1:
             stream_sid = next(iter(self.stream_to_call.keys()))
         if not stream_sid:
             return False
@@ -207,7 +207,7 @@ class MediaStreamHub:
             if c_id == canonical or c_id == call_id or self.resolve_canonical(c_id) == canonical:
                 stream_sid = s_sid
                 break
-        if not stream_sid and self.stream_to_call:
+        if not stream_sid and len(self.stream_to_call) == 1:
             stream_sid = next(iter(self.stream_to_call.keys()))
         if not stream_sid:
             return False
@@ -346,12 +346,15 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                     except Exception:
                         pass
 
-                    await media_stream_hub.broadcast_to_listeners(chunk_call_id, {
-                        "type": "audio_chunk",
-                        "callId": chunk_call_id,
-                        "track": track,
-                        "payload": payload,
-                    })
+                    try:
+                        asyncio.create_task(media_stream_hub.broadcast_to_listeners(chunk_call_id, {
+                            "type": "audio_chunk",
+                            "callId": chunk_call_id,
+                            "track": track,
+                            "payload": payload,
+                        }))
+                    except Exception:
+                        pass
 
             elif event_type == "mark":
                 mark_info = data.get("mark", {})
@@ -407,15 +410,18 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
 
 
 async def _hangup_if_call_still_live(call_id: Optional[str], call_sid: Optional[str] = None) -> None:
-    """If LiveCall still open when media WS dies, complete the Twilio leg so MicroSIP drops."""
+    """Media WS died — force the carrier leg down so the prospect's phone is released.
+
+    Runs even when the LiveCall row is already marked `ended`: that flag means our
+    side finished, not that the PSTN leg is closed. Repeated calls are safe — a
+    carrier hangup on an already-finished call confirms as success.
+    """
     if not call_id and not call_sid:
         return
     from sqlalchemy.future import select
     from app.database import AsyncSessionLocal
     from app.models.models import LiveCall
-    from app.services.outbound_dial import _resolve_carrier_and_creds
-    from app.services.telephony_provider import carrier_registry
-    import re
+    from app.api.calls import hangup_carrier_for_call
 
     async with AsyncSessionLocal() as db:
         call = None
@@ -429,29 +435,18 @@ async def _hangup_if_call_still_live(call_id: Optional[str], call_sid: Optional[
                 call = res.scalars().first()
             if call:
                 break
-        if not call or call.ended:
-            return
-        sid = call.carrier_sid or call_sid
-        if not sid:
-            for line in call.transcript or []:
-                m = re.search(r"\b(CA[0-9a-fA-F]{32})\b", str(line))
-                if m:
-                    sid = m.group(1)
-                    break
-        if not sid:
-            logger.warning(f"[TwilioStream] live call {call.id} has no carrier SID — cannot auto-hangup")
+        if not call:
             return
         try:
-            carrier_choice, credentials, _ = await _resolve_carrier_and_creds(db, "twilio", None, None)
-            adapter = carrier_registry.get_adapter(carrier_choice or "twilio")
-            hung = await adapter.hangup_call(sid, credentials=credentials)
-            logger.info(f"[TwilioStream] auto-hangup {sid} for {call.id} → hungUp={hung}")
+            hung = await hangup_carrier_for_call(call, db)
+            logger.info(f"[MediaStream] stream-teardown hangup for {call.id} → hungUp={hung}")
             if hung:
                 call.ended = True
-                call.state = "ended"
+                if (call.state or "").lower() not in ("failed", "canceled", "cancelled"):
+                    call.state = "ended"
                 await db.commit()
         except Exception as err:
-            logger.warning(f"[TwilioStream] auto-hangup error: {err}")
+            logger.warning(f"[MediaStream] stream-teardown hangup error for {call.id}: {err}")
 
 
 @router.websocket("/ws/listen/{call_id}")

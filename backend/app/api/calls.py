@@ -25,6 +25,7 @@ import asyncio
 import json
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
+import re
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
 logger = logging.getLogger("calls_api")
@@ -82,73 +83,95 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
         })
     return out_calls
 
-async def terminate_live_call(
-    call_id: str,
-    db: AsyncSession,
-    *,
-    ended_by: str = "supervisor",
-) -> Dict[str, Any]:
-    """Hang up carrier + close xAI + mark LiveCall ended + CallLog. Used by End Call API and agent end_call tool."""
-    import re
-
-    res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
-    call = res.scalars().first()
-    if not call:
-        res2 = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == call_id))
-        call = res2.scalars().first()
-    if not call:
-        return {"ok": False, "error": "Call not found"}
-    if call.ended:
-        return {"ok": True, "callId": call.id, "alreadyEnded": True}
-
-    carrier_sid = (call.carrier_sid or "").strip() or None
-    if not carrier_sid:
+async def resolve_carrier_sid(call: LiveCall, call_id: Optional[str] = None) -> Optional[str]:
+    """Carrier-side call id for a LiveCall: stored SID, transcript capture, or the call id itself."""
+    sid = (call.carrier_sid or "").strip() or None
+    if not sid:
         for line in call.transcript or []:
             m = re.search(r"\b(CA[0-9a-fA-F]{32})\b", str(line))
             if m:
-                carrier_sid = m.group(1)
-                call.carrier_sid = carrier_sid
+                sid = m.group(1)
+                call.carrier_sid = sid
                 break
-    if not carrier_sid and re.match(r"^CA[0-9a-fA-F]{32}$", call_id or ""):
-        carrier_sid = call_id
+    if not sid and re.match(r"^CA[0-9a-fA-F]{32}$", (call_id or call.id or "")):
+        sid = call_id or call.id
+    return sid
 
+
+def _carrier_for_hangup(call: LiveCall, sid: Optional[str], configured: Optional[str]) -> str:
+    """Which adapter must hang this specific call up.
+
+    A carrier recorded at dial time wins; then SID shape (Twilio CA… ids); only then
+    the configured active provider — so a Telnyx/Sipgate call is never hung up by
+    the Twilio adapter (which silently fails and leaves the prospect connected).
+    """
+    recorded = (getattr(call, "carrier", None) or "").strip().lower()
+    if recorded:
+        return recorded
+    if re.match(r"^CA[0-9a-fA-F]{32}$", (sid or "").strip()):
+        return "twilio"
+    return (configured or "twilio").strip().lower() or "twilio"
+
+
+async def hangup_carrier_for_call(call: LiveCall, db: Optional[AsyncSession] = None) -> bool:
+    """Force the PSTN leg down for a LiveCall — regardless of the `ended` flag.
+
+    Idempotent and safe to call repeatedly: an already-finished call comes back as
+    success (Twilio 404 is treated as done). Every "our side ended" path must run
+    this so the prospect's phone drops at the same moment.
+    """
+    sid = await resolve_carrier_sid(call)
+    if not sid:
+        logger.warning(f"[Teardown] Call {call.id} has no carrier SID — cannot hang up the PSTN leg")
+        return False
+
+    configured = None
+    credentials: Dict[str, Any] = {}
+    try:
+        from app.services.outbound_dial import _resolve_carrier_and_creds
+        if db is not None:
+            configured, credentials, _ = await _resolve_carrier_and_creds(db, None, None, None)
+    except Exception as cred_err:
+        logger.debug(f"[Teardown] Carrier resolution fallback: {cred_err}")
+
+    carrier = _carrier_for_hangup(call, sid, configured)
     hung = False
-    if carrier_sid:
-        try:
-            from app.services.outbound_dial import _resolve_carrier_and_creds
-            carrier_choice, credentials, _ = await _resolve_carrier_and_creds(db, "twilio", None, None)
-            adapter = carrier_registry.get_adapter(carrier_choice or "twilio")
-            hung = await adapter.hangup_call(carrier_sid, credentials=credentials)
-            if not hung:
-                try:
-                    hung = await adapter.hangup_call(carrier_sid, credentials=credentials)
-                except Exception:
-                    pass
-            await log_process_event(
-                subsystem="telephony",
-                process_name="carrier_hangup_dispatched",
-                message=(
-                    f"Terminated carrier call {carrier_sid} on {carrier_choice} ({ended_by})."
-                    if hung
-                    else f"Hangup returned false for {carrier_sid} — MicroSIP may stay connected."
-                ),
-                level="INFO" if hung else "WARN",
-                details={"callId": call.id, "carrierSid": carrier_sid, "hungUp": hung, "endedBy": ended_by},
-            )
-        except Exception as e:
-            logger.warning(f"[EndCall] Carrier hangup error for {carrier_sid}: {e}")
-    else:
-        logger.warning(f"[EndCall] No carrier SID on {call.id} — cannot hang Twilio")
+    try:
+        adapter = carrier_registry.get_adapter(carrier)
+        for attempt in (1, 2):
+            try:
+                hung = await adapter.hangup_call(sid, credentials=credentials)
+            except Exception as hang_err:
+                logger.warning(f"[Teardown] hangup attempt {attempt} for {sid} on {carrier} failed: {hang_err}")
+                hung = False
+            if hung:
+                break
+        await log_process_event(
+            subsystem="telephony",
+            process_name="carrier_hangup_dispatched",
+            message=(
+                f"Hung up carrier leg {sid} on {carrier} (call {call.id})."
+                if hung
+                else f"Hangup FAILED for {sid} on {carrier} — prospect leg may stay up."
+            ),
+            level="INFO" if hung else "ERROR",
+            details={"callId": call.id, "carrierSid": sid, "carrier": carrier, "hungUp": hung},
+        )
+    except Exception as e:
+        logger.warning(f"[Teardown] Carrier hangup error for {sid} on {carrier}: {e}")
+    return hung
 
-    call.ended = True
-    call.state = "ended"
-    call.confirming_end = False
+
+async def close_call_streams(call: LiveCall, call_id: Optional[str] = None, carrier_sid: Optional[str] = None) -> None:
+    """Close every live audio path: carrier media WS, xAI realtime WS, bridged voice session."""
+    ids = [call.id, call_id, carrier_sid, (call.carrier_sid or "").strip() or None]
+    ids = [i for i in ids if i]
 
     try:
         from app.websockets.media_stream import media_stream_hub
         for key in list(media_stream_hub.twilio_streams.keys()):
             canonical = media_stream_hub.resolve_canonical(key)
-            if key in (call.id, carrier_sid, call_id) or canonical in (call.id, carrier_sid):
+            if key in ids or canonical in ids:
                 ws = media_stream_hub.twilio_streams.pop(key, None)
                 if ws:
                     try:
@@ -156,13 +179,15 @@ async def terminate_live_call(
                     except Exception:
                         pass
     except Exception as stream_err:
-        logger.debug(f"[EndCall] media stream close: {stream_err}")
+        logger.debug(f"[Teardown] media stream close: {stream_err}")
 
     try:
         from app.services.xai_voice_service import active_xai_sessions
-        ws = active_xai_sessions.pop(call_id, None) or active_xai_sessions.pop(call.id, None)
-        if carrier_sid:
-            ws = ws or active_xai_sessions.pop(carrier_sid, None)
+        ws = None
+        for lookup in ids:
+            ws = active_xai_sessions.pop(lookup, None)
+            if ws:
+                break
         if ws:
             try:
                 await ws.send(json.dumps({"type": "response.cancel"}))
@@ -175,17 +200,51 @@ async def terminate_live_call(
     except Exception:
         pass
 
-    # Terminate bridged voice session (modular/LiveKit and xAI pipelines)
     try:
         from app.services.xai_voice_service import get_bridged_session, bridged_sessions
-        for lookup_id in (call_id, call.id, carrier_sid):
-            if lookup_id:
-                b_sess = get_bridged_session(lookup_id)
-                if b_sess:
-                    await b_sess.close()
-                bridged_sessions.pop(str(lookup_id), None)
+        for lookup in ids:
+            b_sess = get_bridged_session(lookup)
+            if b_sess:
+                await b_sess.close()
+            bridged_sessions.pop(str(lookup), None)
     except Exception as b_err:
-        logger.debug(f"[EndCall] Error closing bridged session: {b_err}")
+        logger.debug(f"[Teardown] Error closing bridged session: {b_err}")
+
+
+async def terminate_live_call(
+    call_id: str,
+    db: AsyncSession,
+    *,
+    ended_by: str = "supervisor",
+) -> Dict[str, Any]:
+    """Hang up carrier + close xAI + mark LiveCall ended + CallLog. Used by End Call API and agent end_call tool."""
+    res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
+    call = res.scalars().first()
+    if not call:
+        res2 = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == call_id))
+        call = res2.scalars().first()
+    if not call:
+        return {"ok": False, "error": "Call not found"}
+
+    carrier_sid = await resolve_carrier_sid(call, call_id)
+
+    # Teardown runs even when the row is already marked ended: the DB flag says our
+    # side is finished, not that the PSTN leg is down. Without this, a call that the
+    # voice engine ended on its own leaves the prospect connected to dead air.
+    hung = await hangup_carrier_for_call(call, db)
+    await close_call_streams(call, call_id, carrier_sid)
+
+    if call.ended:
+        try:
+            await db.commit()
+        except Exception:
+            pass
+        await call_hub.broadcast("call_ended", {"callId": call.id, "endedBy": ended_by})
+        return {"ok": True, "callId": call.id, "alreadyEnded": True, "hungUp": hung}
+
+    call.ended = True
+    call.state = "ended"
+    call.confirming_end = False
 
     if call.created_at:
         secs = max(1, int((datetime.utcnow() - call.created_at).total_seconds()))
@@ -194,7 +253,7 @@ async def terminate_live_call(
     who = "agent after wrap-up" if ended_by == "agent" else "supervisor"
     call.transcript = (call.transcript or []) + [
         f"System: Call ended by {who}."
-        + ("" if hung or not carrier_sid else " (Twilio hangup may have failed — hang up MicroSIP manually.)")
+        + ("" if hung or not carrier_sid else " (Carrier hangup failed — the line may stay up briefly.)")
     ]
 
     try:
@@ -768,6 +827,7 @@ async def dial_outbound_call(
             prospect=prospect_label,
             mission=mission_label,
             state="calling",
+            carrier=carrier_choice,
             channel="voice",
             duration="00:01",
             listening=False,
@@ -1360,6 +1420,7 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         prospect=prospect_label,
         mission=matched_mission_title,
         state="pitching",
+        carrier="twilio",
         channel="voice",
         duration="00:00",
         listening=False,

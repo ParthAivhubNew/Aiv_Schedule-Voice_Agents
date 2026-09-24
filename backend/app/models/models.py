@@ -72,6 +72,9 @@ class CompanyProfile(Base):
     closing_ask = Column(Text, nullable=True)
     custom_rules = Column(Text, nullable=True)
     demo_script = Column(Text, nullable=True)
+    calendar_mode = Column(String, default="internal")  # internal | calcom
+    default_outbound_template_id = Column(String, nullable=True)
+    default_inbound_template_id = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class KnowledgeSource(Base):
@@ -203,6 +206,7 @@ class LiveCall(Base):
     id = Column(String, primary_key=True, index=True)
     org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     carrier_sid = Column(String, nullable=True, index=True)  # Twilio CallSid for status callback matching
+    carrier = Column(String, nullable=True)  # telephony provider used at dial time (twilio/telnyx/sipgate/…) for hangup
     mission_id = Column(String, nullable=True)
     prospect_id = Column(String, nullable=True)
     prospect = Column(String, nullable=False)
@@ -297,7 +301,7 @@ class CalcomSetting(Base):
     host_email = Column(String, default="admin@aivhub.io")
     host_name = Column(String, default="Jitendra S.")
     api_key = Column(String, nullable=True)
-    base_url = Column(String, default="https://api.cal.com/v1")
+    base_url = Column(String, default="https://api.cal.com/v2")
     default_event_type_slug = Column(String, default="15-min-discovery")
     default_duration = Column(Integer, default=15)
     default_platform = Column(String, default="google_meet")
@@ -477,4 +481,62 @@ class ProcessLog(Base):
     details = Column(JSON, default=dict)                    # full structured payload, headers, metadata
     duration_ms = Column(Float, nullable=True)              # execution latency in milliseconds
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ConversationTemplate(Base):
+    """
+    Dynamic conversation templates - replaces hardcoded scripts.
+    Supports Outbound prospecting & Inbound reception with full customization.
+    """
+    __tablename__ = "conversation_templates"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, default="org_default", index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    call_direction = Column(String, nullable=False, default="outbound")  # "outbound" | "inbound"
+    mission_type = Column(String, default="demo")  # "demo", "discovery", "reception", "followup"
+
+    # Template sections (Supports dynamic contextual variables like {{prospect.name}}, {{company.name}}, {{today}})
+    greeting_template = Column(Text, nullable=False)
+    permission_check_template = Column(Text, nullable=True)
+    value_prop_template = Column(Text, nullable=False)
+    objection_responses = Column(JSON, default=dict)  # {"not_interested": "...", "no_time": "...", ...}
+    booking_transition_template = Column(Text, nullable=False)
+    confirmation_template = Column(Text, nullable=False)
+    closing_template = Column(Text, nullable=False)
+
+    # Flow configuration
+    flow_steps = Column(JSON, default=list)  # ["greeting", "permission_check", "value_prop", ...]
+    max_objection_attempts = Column(Integer, default=3)
+
+    # Persona & instructions
+    agent_persona = Column(String, default="professional and friendly")
+    tone_instructions = Column(Text, nullable=True)
+
+    # State & Analytics
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
+    times_used = Column(Integer, default=0)
+    success_rate = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ConversationVariable(Base):
+    """
+    Reusable custom variables for template interpolation.
+    """
+    __tablename__ = "conversation_variables"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, default="org_default", index=True)
+    key = Column(String, nullable=False)  # "time_savings", "pain_point", etc.
+    value = Column(Text, nullable=False)
+    category = Column(String, default="custom")  # "company", "product", "mission", "custom"
+    description = Column(String, nullable=True)
+    times_referenced = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 

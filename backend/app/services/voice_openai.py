@@ -207,3 +207,15 @@ async def run_openai_realtime(
         bridge.ws = None
         logger.info(f"[OPENAI] session closed for {call_id}")
         _ = greeting_audio_started
+        # Engine stopped: if the row is still open, finalize it and release the carrier
+        # leg so the prospect's phone drops at the same moment as ours.
+        try:
+            from app.services.xai_voice_service import _finalize_call
+            async with AsyncSessionLocal() as fin_db:
+                row = (await fin_db.execute(select(LiveCall).where(LiveCall.id == local_id))).scalars().first()
+                if row is not None and not row.ended:
+                    started = row.created_at or datetime.utcnow()
+                    secs = max(1, int((datetime.utcnow() - started).total_seconds()))
+                    await _finalize_call(local_id, f"{secs // 60:02d}:{secs % 60:02d}", list(row.transcript or []))
+        except Exception as fin_err:
+            logger.warning(f"[OPENAI] finalize on session end failed for {call_id}: {fin_err}")

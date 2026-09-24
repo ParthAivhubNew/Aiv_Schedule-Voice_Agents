@@ -47,12 +47,14 @@ import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDispl
 import { setCallingEdition } from "./callingEdition";
 import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
+import { ConversationTemplatesView } from "../views/ConversationTemplatesView";
 
 const PAGES = [
   { id: "list", label: "List", icon: List },
   { id: "live", label: "Live", icon: Radio },
   { id: "logs", label: "Call history", icon: FileText },
   { id: "schedule", label: "Schedule", icon: PhoneCall },
+  { id: "templates", label: "AI Templates", icon: Sparkles },
   { id: "ai", label: "AI config", icon: Plug },
   { id: "company", label: "Company", icon: Users },
 ];
@@ -3574,6 +3576,15 @@ export function CallingWorkspace({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {page === "templates" && (
+            <div style={{ flex: 1, height: "100%", overflow: "hidden" }}>
+              <ConversationTemplatesView
+                notifications={notifications}
+                setNotifications={setNotifications}
+              />
             </div>
           )}
         </div>

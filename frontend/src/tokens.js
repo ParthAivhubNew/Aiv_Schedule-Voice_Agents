@@ -231,6 +231,8 @@ export function callingPageFromTarget(targetView) {
     provider: "ai",
     ai: "ai",
     company: "company",
+    templates: "templates",
+    conversation_templates: "templates",
     tasks: "list",
     list: "list",
     plugins: "plugins",
