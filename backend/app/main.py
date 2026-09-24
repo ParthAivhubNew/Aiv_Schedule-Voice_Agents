@@ -114,6 +114,20 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     pass
 
+        # Safe migration for conversation_templates: business rules + demo script
+        # (migrated in from CompanyProfile's old Call Script & Rules fields)
+        for col, col_type in [
+            ("custom_rules", "TEXT"),
+            ("demo_script", "TEXT"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE conversation_templates ADD COLUMN IF NOT EXISTS {col} {col_type};"))
+            except Exception:
+                try:
+                    await conn.execute(text(f"ALTER TABLE conversation_templates ADD COLUMN {col} {col_type};"))
+                except Exception:
+                    pass
+
         # Safe migration for meetings table Cal.com columns
         for col, col_type in [
             ("host_email", "VARCHAR DEFAULT 'admin@aivhub.io'"),

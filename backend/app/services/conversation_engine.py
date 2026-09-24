@@ -587,6 +587,19 @@ CORE RULES:
         if policy_hangup:
             prompt += f"\n\nWRAP-UP & HANG-UP RULES:\n{policy_hangup}"
 
+        custom_rules = (getattr(template, "custom_rules", None) or "").strip()
+        if custom_rules:
+            rendered_rules = ConversationTemplateEngine._safe_substitute(custom_rules, context)
+            prompt += f"\n\nMASTER BUSINESS RULES & OBJECTION HANDLING (MANDATORY):\n{rendered_rules}"
+
+        demo_script = (getattr(template, "demo_script", None) or "").strip()
+        if demo_script:
+            rendered_demo = ConversationTemplateEngine._safe_substitute(demo_script, context)
+            prompt += (
+                "\n\nDEMO CONVERSATION BLUEPRINT (IDEAL FLOW & TONE):\n"
+                f"Mimic the natural cadence, warmth, brevity, and emotional tone of this sample dialogue:\n{rendered_demo}"
+            )
+
         return prompt.strip()
 
 

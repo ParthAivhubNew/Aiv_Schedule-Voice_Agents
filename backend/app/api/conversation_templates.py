@@ -38,6 +38,8 @@ class TemplatePayload(BaseModel):
     booking_transition_template: str
     confirmation_template: str
     closing_template: str
+    custom_rules: Optional[str] = ""
+    demo_script: Optional[str] = ""
     flow_steps: Optional[List[str]] = []
     max_objection_attempts: int = 3
     agent_persona: str = "professional and friendly"
@@ -107,6 +109,8 @@ async def get_template(template_id: str, db: AsyncSession = Depends(get_db)):
         "booking_transition_template": t.booking_transition_template,
         "confirmation_template": t.confirmation_template,
         "closing_template": t.closing_template,
+        "custom_rules": t.custom_rules or "",
+        "demo_script": t.demo_script or "",
         "flow_steps": t.flow_steps or [],
         "max_objection_attempts": t.max_objection_attempts,
         "agent_persona": t.agent_persona,
@@ -136,6 +140,8 @@ async def create_template(payload: TemplatePayload, db: AsyncSession = Depends(g
         booking_transition_template=payload.booking_transition_template,
         confirmation_template=payload.confirmation_template,
         closing_template=payload.closing_template,
+        custom_rules=payload.custom_rules,
+        demo_script=payload.demo_script,
         flow_steps=payload.flow_steps or [],
         max_objection_attempts=payload.max_objection_attempts,
         agent_persona=payload.agent_persona,
