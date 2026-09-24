@@ -326,8 +326,11 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         )
         db.add(conn)
 
-    # If saving a Telnyx API Key, automatically sync and activate all standard Telnyx plugins
-    if "telnyx" in (req.provider or "").lower() or clean_key.startswith("KEY"):
+    # If saving a Telnyx API Key, automatically sync and activate all standard Telnyx plugins.
+    # Gate strictly on the provider actually being saved — never on the pasted key's shape
+    # (a Telnyx-shaped "KEY..." value accidentally pasted into a different provider's field,
+    # e.g. Twilio, must not silently overwrite every Telnyx connection too).
+    if "telnyx" in (req.provider or "").lower():
         settings.TELNYX_API_KEY = clean_key
         os.environ["TELNYX_API_KEY"] = clean_key
         telnyx_peers = [
