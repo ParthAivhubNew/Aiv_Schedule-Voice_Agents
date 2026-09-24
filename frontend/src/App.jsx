@@ -9411,20 +9411,25 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8, marginTop: 6 }}>
               {[
-                { label: "1. Telephony", data: diagScore.telephony },
-                { label: "2. STT Stream", data: diagScore.stt },
-                { label: "3. LLM Logic", data: diagScore.llm_orchestration },
-                { label: "4. TTS Audio", data: diagScore.tts },
-                { label: "5. Calendar", data: diagScore.calendar_engine },
-              ].map((item, idx) => (
-                <div key={idx} style={{ padding: "8px 10px", borderRadius: 7, background: "#fff", border: `1px solid ${item.data?.status === "pass" ? "#BBF7D0" : "#FDE68A"}` }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: C.ink }}>{item.label}</span>
-                    {item.data?.status === "pass" ? <CheckCircle2 size={13} color="#16A34A" /> : <AlertTriangle size={13} color="#D97706" />}
+                { label: "1. Telephony", data: diagScore.checks?.telephony || diagScore.telephony },
+                { label: "2. Voice Stack", data: diagScore.checks?.voice_stack || diagScore.voice_stack || diagScore.stt },
+                { label: "3. Calendar Mode", data: diagScore.checks?.calendar_config || diagScore.calendar_config },
+                { label: "4. Slot Engine", data: diagScore.checks?.slot_availability || diagScore.slot_availability },
+                { label: "5. Test Booking", data: diagScore.checks?.test_booking_roundtrip || diagScore.test_booking_roundtrip },
+              ].map((item, idx) => {
+                const passed = item.data?.status === "pass";
+                const isWarn = item.data?.status === "warn";
+                const summary = item.data?.summary || (Array.isArray(item.data?.details) ? item.data.details[0] : item.data?.details) || (passed ? "Ready" : "Not configured");
+                return (
+                  <div key={idx} style={{ padding: "8px 10px", borderRadius: 7, background: "#fff", border: `1px solid ${passed ? "#BBF7D0" : isWarn ? "#FDE68A" : "#FCA5A5"}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: C.ink }}>{item.label}</span>
+                      {passed ? <CheckCircle2 size={13} color="#16A34A" /> : isWarn ? <AlertTriangle size={13} color="#D97706" /> : <AlertTriangle size={13} color="#DC2626" />}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: C.slate, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={summary}>{summary}</div>
                   </div>
-                  <div style={{ fontSize: 10.5, color: C.slate, marginTop: 2 }}>{item.data?.details || "OK"}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

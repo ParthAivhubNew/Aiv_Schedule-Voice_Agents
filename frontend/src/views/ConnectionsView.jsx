@@ -150,15 +150,16 @@ export function ConnectionsView({
           {diagnosticResult ? (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginTop: 10 }}>
               {[
-                { key: "telephony", label: "1. Telephony Carrier", icon: PhoneCall, data: diagnosticResult.telephony },
-                { key: "stt", label: "2. STT Streaming", icon: Radio, data: diagnosticResult.stt },
-                { key: "llm_orchestration", label: "3. LLM Orchestrator", icon: Cpu, data: diagnosticResult.llm_orchestration },
-                { key: "tts", label: "4. TTS Synthesizer", icon: Activity, data: diagnosticResult.tts },
-                { key: "calendar_engine", label: "5. Calendar Engine", icon: CalendarCheck, data: diagnosticResult.calendar_engine },
+                { key: "telephony", label: "1. Telephony Carrier", icon: PhoneCall, data: diagnosticResult.checks?.telephony || diagnosticResult.telephony, latency: diagnosticResult.latency_ms?.telephony },
+                { key: "voice_stack", label: "2. AI Voice Plugins", icon: Cpu, data: diagnosticResult.checks?.voice_stack || diagnosticResult.voice_stack || diagnosticResult.stt, latency: diagnosticResult.latency_ms?.voice_stack },
+                { key: "calendar_config", label: "3. Calendar Mode", icon: CalendarCheck, data: diagnosticResult.checks?.calendar_config || diagnosticResult.calendar_config, latency: diagnosticResult.latency_ms?.calendar_config },
+                { key: "slot_availability", label: "4. Slot Availability", icon: Radio, data: diagnosticResult.checks?.slot_availability || diagnosticResult.slot_availability, latency: diagnosticResult.latency_ms?.slot_availability },
+                { key: "test_booking_roundtrip", label: "5. Test Booking", icon: Activity, data: diagnosticResult.checks?.test_booking_roundtrip || diagnosticResult.test_booking_roundtrip, latency: diagnosticResult.latency_ms?.test_booking_roundtrip },
               ].map((layer) => {
                 const passed = layer.data?.status === "pass";
                 const isWarning = layer.data?.status === "warn";
                 const Icon = layer.icon;
+                const summary = layer.data?.summary || (Array.isArray(layer.data?.details) ? layer.data.details[0] : layer.data?.details) || (passed ? "Ready" : "Not configured");
                 return (
                   <div
                     key={layer.key}
@@ -180,12 +181,12 @@ export function ConnectionsView({
                         <AlertCircle size={15} color={isWarning ? "#D97706" : "#DC2626"} />
                       )}
                     </div>
-                    <div style={{ fontSize: 11, color: C.slate, marginBottom: 4 }}>
-                      {layer.data?.details || "Status ok"}
+                    <div style={{ fontSize: 11, color: C.slate, marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={summary}>
+                      {summary}
                     </div>
-                    {layer.data?.latency_ms != null && (
+                    {layer.latency != null && (
                       <div style={{ fontSize: 10, fontFamily: FONT_MONO, color: C.cobalt }}>
-                        Latency: {layer.data.latency_ms} ms
+                        Latency: {layer.latency} ms
                       </div>
                     )}
                   </div>

@@ -188,6 +188,11 @@ async def run_full_diagnostic(db: AsyncSession = Depends(get_db)) -> Dict[str, A
 
     # Determine overall status
     statuses = [c.get("status") for c in report["checks"].values()]
+    passed_count = sum(1 for c in report["checks"].values() if c.get("status") == "pass")
+    total_checks = len(report["checks"])
+    report["all_passed"] = (passed_count == total_checks and total_checks > 0)
+    report["overall_score"] = f"{passed_count}/{total_checks} PASS" if report["all_passed"] else f"{passed_count}/{total_checks} ATTENTION"
+
     if "fail" in statuses:
         report["overall_status"] = "unhealthy"
     elif "warn" in statuses:
