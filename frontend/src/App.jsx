@@ -10697,7 +10697,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
     setRow(rowKey, {
       phase: "editing",
       keyValue: "",
-      phoneValue: it?.phone || profile?.callerId || "",
+      phoneValue: it?.phone || "",
       agentIdValue: "",
       accountSidValue: it?.accountSid || "",
       modelValue: it?.model || "",
