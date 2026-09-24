@@ -83,14 +83,15 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     is_default: false
   });
 
-  // Live Preview State
-  const [previewData, setPreviewData] = useState({
+  // Live Preview State — fixed sample lead; the preview otherwise renders your real
+  // company profile and real booking policy, so this is just placeholder prospect data.
+  const previewData = {
     prospect_name: "Sarah Jenkins",
     prospect_company: "Apex Retail Group",
     prospect_email: "sarah@apexretail.com",
     prospect_phone: "+447307216767",
     prospect_timezone: "Europe/London",
-  });
+  };
   const [previewScenario, setPreviewScenario] = useState("full");
   const [renderedPreview, setRenderedPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -796,38 +797,6 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       </div>
                     ))}
                   </div>
-
-                  {previewScenario === "full" && (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-                      <div>
-                        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Prospect Name</label>
-                        <input
-                          type="text"
-                          value={previewData.prospect_name}
-                          onChange={(e) => setPreviewData({ ...previewData, prospect_name: e.target.value })}
-                          style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Company</label>
-                        <input
-                          type="text"
-                          value={previewData.prospect_company}
-                          onChange={(e) => setPreviewData({ ...previewData, prospect_company: e.target.value })}
-                          style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Email</label>
-                        <input
-                          type="text"
-                          value={previewData.prospect_email}
-                          onChange={(e) => setPreviewData({ ...previewData, prospect_email: e.target.value })}
-                          style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Rendered Prompt Box */}
