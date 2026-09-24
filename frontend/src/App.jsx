@@ -10581,6 +10581,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const [credsState, setCredsState] = useState(CONNECTIONS);
   const [rowState, setRowState] = useState({});
   const [liveHub, setLiveHub] = useState(null);
+  const [customVoices, setCustomVoices] = useState([]);
+  const [voiceName, setVoiceName] = useState("");
+  const [speakMode, setSpeakMode] = useState("builtin"); // "builtin" or "clone"
   const [deleteKeyConfirm, setDeleteKeyConfirm] = useState(null); // { groupName, item, rowKey, deleting }
   const liveLabels = liveHub ? liveStackLabels(liveHub) : null;
 
@@ -10668,6 +10671,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         const hub = await api.getTelephonyHub();
         if (hub) {
           setLiveHub(hub);
+          if (Array.isArray(hub.customVoices)) setCustomVoices(hub.customVoices);
           if (setCommonAi) {
             setCommonAi((prev) => ({
               ...prev,
