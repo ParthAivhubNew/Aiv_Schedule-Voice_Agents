@@ -96,12 +96,6 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
   const [renderedPreview, setRenderedPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  // Custom Variables List
-  const [customVariables, setCustomVariables] = useState([]);
-  const [newVarKey, setNewVarKey] = useState("");
-  const [newVarVal, setNewVarVal] = useState("");
-  const [newVarDesc, setNewVarDesc] = useState("");
-
   // Booking & Call Rules (shared across every engine — one CalcomSetting row, not per-template)
   const [bookingPolicy, setBookingPolicy] = useState(null);
   const [calSettingsBase, setCalSettingsBase] = useState(null);
@@ -155,18 +149,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     }
   }, []);
 
-  const loadVariables = useCallback(async () => {
-    try {
-      const vars = await api.getConversationVariables();
-      if (Array.isArray(vars)) setCustomVariables(vars);
-    } catch (err) {
-      console.error("Failed to load variables:", err);
-    }
-  }, []);
-
   useEffect(() => {
     loadTemplates();
-    loadVariables();
     api.getCalcomSettings()
       .then((s) => {
         if (!s) return;
@@ -174,7 +158,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         setBookingPolicy(s.booking_policy || {});
       })
       .catch(() => {});
-  }, [loadTemplates, loadVariables]);
+  }, [loadTemplates]);
 
   const setBookingPolicyDirty = (next) => {
     setBookingDirty(true);
@@ -243,27 +227,6 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
       setStatusMsg({ type: "error", text: `Failed to create template: ${err.message || err}` });
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleAddVariable = async (e) => {
-    e.preventDefault();
-    if (!newVarKey.trim() || !newVarVal.trim()) return;
-    try {
-      await api.createConversationVariable({
-        key: newVarKey.trim(),
-        value: newVarVal.trim(),
-        description: newVarDesc.trim(),
-        category: "custom"
-      });
-      setNewVarKey("");
-      setNewVarVal("");
-      setNewVarDesc("");
-      loadVariables();
-      setStatusMsg({ type: "success", text: "Variable added!" });
-      setTimeout(() => setStatusMsg(null), 2500);
-    } catch (err) {
-      setStatusMsg({ type: "error", text: "Failed to add variable" });
     }
   };
 
@@ -489,7 +452,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     boxShadow: activeTab === "variables" ? "0 1px 3px rgba(0,0,0,0.06)" : "none"
                   }}
                 >
-                  Variables & Tags
+                  Tags
                 </button>
                 <button
                   onClick={() => setActiveTab("booking")}
@@ -859,61 +822,6 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                         </span>
                       </div>
                     ))}
-                  </div>
-                </div>
-
-                {/* Custom Reusable Variables */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>
-                    Custom Reusable Variables
-                  </div>
-                  <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16 }}>
-                    Define dynamic organization-wide values referenced across all prompt templates via <code>{"{{variable_key}}"}</code>.
-                  </div>
-
-                  <form onSubmit={handleAddVariable} style={{ display: "flex", gap: 10, marginBottom: 18 }}>
-                    <input
-                      type="text"
-                      placeholder="Key (e.g. time_savings)"
-                      value={newVarKey}
-                      onChange={(e) => setNewVarKey(e.target.value)}
-                      style={{ flex: 1, padding: "8px 12px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5 }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Value (e.g. 5+ hours per week)"
-                      value={newVarVal}
-                      onChange={(e) => setNewVarVal(e.target.value)}
-                      style={{ flex: 2, padding: "8px 12px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5 }}
-                    />
-                    <button
-                      type="submit"
-                      style={{ padding: "8px 16px", borderRadius: 7, background: C.cobalt, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      Add Variable
-                    </button>
-                  </form>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {customVariables.length === 0 ? (
-                      <div style={{ fontSize: 12, color: C.slate, textAlign: "center", padding: 14 }}>No custom variables added yet.</div>
-                    ) : (
-                      customVariables.map((cv) => (
-                        <div key={cv.id || cv.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 8, background: C.paperSoft, border: `1px solid ${C.border}` }}>
-                          <div>
-                            <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, fontWeight: 700, color: C.ink }}>{`{{${cv.key}}}`}</span>
-                            <span style={{ margin: "0 8px", color: C.slate }}>→</span>
-                            <span style={{ fontSize: 12.5, color: C.textInk }}>{cv.value}</span>
-                          </div>
-                          <button
-                            onClick={() => copyToClipboard(`{{${cv.key}}}`)}
-                            style={{ border: "none", background: "none", cursor: "pointer", color: C.slate }}
-                          >
-                            <Copy size={13} />
-                          </button>
-                        </div>
-                      ))
-                    )}
                   </div>
                 </div>
               </div>

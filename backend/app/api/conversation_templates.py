@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.database import get_db
-from app.models.models import ConversationTemplate, ConversationVariable
+from app.models.models import ConversationTemplate
 from app.services.conversation_engine import (
     BASE_INBOUND_TEMPLATE_ID,
     BASE_OUTBOUND_TEMPLATE_ID,
@@ -49,13 +49,6 @@ class TemplatePayload(BaseModel):
     tone_instructions: Optional[str] = ""
     is_active: bool = True
     is_default: bool = False
-
-
-class VariablePayload(BaseModel):
-    key: str
-    value: str
-    category: str = "custom"
-    description: Optional[str] = ""
 
 
 @router.get("/")
@@ -243,38 +236,3 @@ async def preview_template(
         "direction": direction,
         "rendered_prompt": rendered
     }
-
-
-# --------------------------------------------------------------------------- #
-# Variables Endpoints
-# --------------------------------------------------------------------------- #
-@router.get("/variables/list")
-async def list_variables(db: AsyncSession = Depends(get_db)):
-    """List all custom conversation variables."""
-    res = await db.execute(select(ConversationVariable).order_by(ConversationVariable.key.asc()))
-    vars_list = res.scalars().all()
-    return [{
-        "id": v.id,
-        "key": v.key,
-        "value": v.value,
-        "category": v.category,
-        "description": v.description,
-        "times_referenced": v.times_referenced
-    } for v in vars_list]
-
-
-@router.post("/variables/")
-async def create_variable(payload: VariablePayload, db: AsyncSession = Depends(get_db)):
-    """Create a new reusable conversation variable."""
-    v_id = f"var_{uuid.uuid4().hex[:8]}"
-    var = ConversationVariable(
-        id=v_id,
-        org_id="org_default",
-        key=payload.key.strip().lower().replace(" ", "_"),
-        value=payload.value.strip(),
-        category=payload.category,
-        description=payload.description
-    )
-    db.add(var)
-    await db.commit()
-    return {"success": True, "variable_id": v_id, "message": "Variable saved successfully"}
