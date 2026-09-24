@@ -16,6 +16,7 @@ import websockets
 
 from sqlalchemy.future import select
 
+from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.models import CompanyProfile, LiveCall
 from app.services.llm_gateway import call_open_chat_llm, stream_open_chat_llm, call_open_chat_llm_with_tools
