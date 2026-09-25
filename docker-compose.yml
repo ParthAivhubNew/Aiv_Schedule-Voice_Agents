@@ -43,7 +43,10 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend:/app
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     environment:
+      TZ: ${TZ:-}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aivhub}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-outreachAI_production_jwt_secret_key_change_me}
