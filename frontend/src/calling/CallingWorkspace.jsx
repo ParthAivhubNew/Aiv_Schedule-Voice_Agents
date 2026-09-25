@@ -2658,15 +2658,7 @@ export function CallingWorkspace({
                       <input
                         value={direct.phone}
                         onChange={(e) => {
-                          const val = e.target.value;
-                          setDirect((d) => ({ ...d, phone: val }));
-                          if (val.startsWith("+")) {
-                            const match = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length).find((c) => val.startsWith(c.code));
-                            if (match && match.code !== countryCode) {
-                              setCountryCode(match.code);
-                              try { localStorage.setItem("aivhub_dial_country_code", match.code); } catch (_) {}
-                            }
-                          }
+                          setDirect((d) => ({ ...d, phone: e.target.value }));
                         }}
                         placeholder="Phone"
                         style={{
