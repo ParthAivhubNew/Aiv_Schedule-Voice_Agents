@@ -59,7 +59,71 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
         }
     ))
 
-    # 1. Signature Verification
+    # 1. Parse the payload first — we need to inspect its shape to know which
+    # signature scheme applies before verifying anything (Telnyx's own Ed25519
+    # for our Assistant-dial flow vs. Svix for genuine xAI-native events).
+    try:
+        data = json.loads(raw_body) if raw_body else {}
+    except Exception as err:
+        logger.error(f"Malformed JSON in webhook body: {err}")
+        return JSONResponse(status_code=400, content={"error": "Malformed JSON payload"})
+
+    # 2. Is this a Telnyx Call Control event tagged for our own outbound-to-Assistant
+    # dial flow (telnyx_assistant_dial.py)? These carry Telnyx's own Ed25519
+    # signature, not Svix — verified and handled completely independently of the
+    # xAI path below, BEFORE any xAI-specific parsing (which mis-parses this
+    # envelope shape and would otherwise wrongly fall through to bridging it
+    # into xAI).
+    std_envelope = data.get("data") if isinstance(data.get("data"), dict) else {}
+    std_event_type = std_envelope.get("event_type") or ""
+    std_payload = std_envelope.get("payload") if isinstance(std_envelope.get("payload"), dict) else {}
+    std_client_state_raw = std_payload.get("client_state") or ""
+    decoded_state = ""
+    is_tagged_assistant_call = False
+    if std_client_state_raw:
+        try:
+            from app.services.telnyx_assistant_dial import TELNYX_ASSISTANT_DIAL_MARKER
+            decoded_state = base64.b64decode(std_client_state_raw).decode("utf-8", errors="ignore")
+            is_tagged_assistant_call = decoded_state.startswith(f"{TELNYX_ASSISTANT_DIAL_MARKER}:")
+        except Exception:
+            is_tagged_assistant_call = False
+
+    if is_tagged_assistant_call:
+        from app.services.telnyx_signature import verify_telnyx_ed25519_signature
+        from app.services.telnyx_assistant_sync import resolve_telnyx_public_key, _resolve_telnyx_api_key
+        from app.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as key_db:
+            telnyx_pub_key = await resolve_telnyx_public_key(key_db)
+        if not verify_telnyx_ed25519_signature(raw_body, headers_dict, public_key=telnyx_pub_key):
+            logger.error("[SIP-WEBHOOK] Rejected Telnyx Assistant-dial event — invalid signature.")
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+        assistant_id = decoded_state.split(":", 1)[1]
+        if std_event_type == "call.answered":
+            call_control_id = std_payload.get("call_control_id")
+            if call_control_id:
+                async with AsyncSessionLocal() as assist_db:
+                    assist_api_key = await _resolve_telnyx_api_key(assist_db)
+                if assist_api_key:
+                    import httpx as _httpx
+                    async with _httpx.AsyncClient(timeout=8.0) as _client:
+                        start_res = await _client.post(
+                            f"https://api.telnyx.com/v2/calls/{call_control_id}/actions/ai_assistant_start",
+                            json={"assistant": {"id": assistant_id}},
+                            headers={"Authorization": f"Bearer {assist_api_key}", "Content-Type": "application/json"},
+                        )
+                    logger.info(f"[SIP-WEBHOOK] ai_assistant_start for {call_control_id} -> HTTP {start_res.status_code}: {start_res.text[:200]}")
+                    return {"status": "assistant_started", "call_control_id": call_control_id}
+                logger.error("[SIP-WEBHOOK] Cannot start assistant on answered call — no Telnyx API key configured.")
+        # Any other event (call.initiated, call.hangup, etc.) on a tagged call —
+        # acknowledge quietly, never let it fall through to the xAI path below.
+        return {"status": "ignored", "event": std_event_type}
+
+    # 3. Everything else is presumed genuine xAI-native traffic. This REQUIRES a
+    # real Svix signature — fails CLOSED (rejects) if no secret is configured,
+    # so this public endpoint can't be triggered by arbitrary unauthenticated
+    # requests (previously it silently accepted anything when no secret was set).
     active_secret = settings.XAI_WEBHOOK_SECRET
     if not active_secret:
         try:
@@ -78,6 +142,17 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
             logger.warning(f"Could not load signing_secret from database: {lookup_err}")
 
     logger.info(f"[SIP-WEBHOOK] Signature verification: secret configured={bool(active_secret)}")
+
+    if not active_secret:
+        logger.error("[SIP-WEBHOOK] REJECTED — no XAI_WEBHOOK_SECRET configured, cannot verify xAI-native traffic.")
+        await log_process_event(
+            subsystem="telephony",
+            process_name="webhook_signature_rejected",
+            message="Incoming SIP webhook REJECTED — no signing secret configured to verify against.",
+            level="ERROR",
+            details={"headers": safe_headers},
+        )
+        raise HTTPException(status_code=401, detail="Webhook signing secret not configured")
 
     is_valid = verify_xai_webhook_signature(
         payload_bytes=raw_body,
@@ -105,58 +180,6 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     logger.info("[SIP-WEBHOOK] Signature verification PASSED ✓")
-
-    # 2. Parse Event Payload
-    try:
-        data = json.loads(raw_body) if raw_body else {}
-    except Exception as err:
-        logger.error(f"Malformed JSON in webhook body: {err}")
-        return JSONResponse(status_code=400, content={"error": "Malformed JSON payload"})
-
-    # Intercept plain Telnyx Call Control events for our own outbound-to-Assistant dial
-    # flow (telnyx_assistant_dial.py) BEFORE any of the xAI-specific parsing below, which
-    # mis-parses a standard Telnyx envelope (it only recognizes xAI's own event shape and
-    # would otherwise silently fall through to the default "realtime.call.incoming" branch
-    # and try to bridge this call into xAI instead).
-    try:
-        from app.services.telnyx_assistant_dial import TELNYX_ASSISTANT_DIAL_MARKER
-        std_envelope = data.get("data") if isinstance(data.get("data"), dict) else {}
-        std_event_type = std_envelope.get("event_type") or ""
-        std_payload = std_envelope.get("payload") if isinstance(std_envelope.get("payload"), dict) else {}
-        std_client_state_raw = std_payload.get("client_state") or ""
-        if std_event_type == "call.answered" and std_client_state_raw:
-            decoded_state = base64.b64decode(std_client_state_raw).decode("utf-8", errors="ignore")
-            if decoded_state.startswith(f"{TELNYX_ASSISTANT_DIAL_MARKER}:"):
-                assistant_id = decoded_state.split(":", 1)[1]
-                call_control_id = std_payload.get("call_control_id")
-                if call_control_id:
-                    from app.services.telnyx_assistant_sync import _resolve_telnyx_api_key
-                    from app.database import AsyncSessionLocal
-                    async with AsyncSessionLocal() as assist_db:
-                        assist_api_key = await _resolve_telnyx_api_key(assist_db)
-                    if assist_api_key:
-                        import httpx as _httpx
-                        async with _httpx.AsyncClient(timeout=8.0) as _client:
-                            start_res = await _client.post(
-                                f"https://api.telnyx.com/v2/calls/{call_control_id}/actions/ai_assistant_start",
-                                json={"assistant": {"id": assistant_id}},
-                                headers={"Authorization": f"Bearer {assist_api_key}", "Content-Type": "application/json"},
-                            )
-                        logger.info(f"[SIP-WEBHOOK] ai_assistant_start for {call_control_id} -> HTTP {start_res.status_code}: {start_res.text[:200]}")
-                        return {"status": "assistant_started", "call_control_id": call_control_id}
-                    logger.error("[SIP-WEBHOOK] Cannot start assistant on answered call — no Telnyx API key configured.")
-        elif std_event_type and std_client_state_raw:
-            # Any OTHER event (call.initiated, call.hangup, etc.) on a call we tagged for
-            # the assistant flow — acknowledge quietly, don't let it fall through into the
-            # xAI-specific dispatch below (call.answered is already handled above).
-            try:
-                decoded_state = base64.b64decode(std_client_state_raw).decode("utf-8", errors="ignore")
-                if decoded_state.startswith(f"{TELNYX_ASSISTANT_DIAL_MARKER}:"):
-                    return {"status": "ignored", "event": std_event_type}
-            except Exception:
-                pass
-    except Exception as assist_err:
-        logger.warning(f"[SIP-WEBHOOK] Assistant-dial interception check failed (non-fatal, falling through to xAI path): {assist_err}")
 
     # xAI provides event payload where inner data dictionary holds the actual SIP call_id:
     # {"object":"event","id":"evt_...","type":"realtime.call.incoming","data":{"call_id":"<uuid>","sip_headers":[...]}}
