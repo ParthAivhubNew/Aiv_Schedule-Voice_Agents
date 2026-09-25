@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     # Telnyx AI Assistant (Telnyx-hosted STT/LLM/TTS) webhook integration.
     # Account-level Ed25519 public key from Mission Control -> Account Settings -> Keys & Credentials.
     TELNYX_ASSISTANT_PUBLIC_KEY: Optional[str] = os.getenv("TELNYX_ASSISTANT_PUBLIC_KEY", None)
+    # ID of the Telnyx-hosted assistant whose `instructions` get synced from our active
+    # conversation template. Leave unset to disable the sync (no assistant to push to).
+    TELNYX_ASSISTANT_ID: Optional[str] = os.getenv("TELNYX_ASSISTANT_ID", None)
 
     # Sipgate Telephony Configuration
     SIPGATE_SIP_ID: Optional[str] = os.getenv("SIPGATE_SIP_ID", "4032431t0")
