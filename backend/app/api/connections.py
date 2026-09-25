@@ -34,6 +34,11 @@ class TestKeyRequest(BaseModel):
     voice_id: Optional[str] = None
     voiceId: Optional[str] = None
 
+
+class TelnyxAssistantSettingsRequest(BaseModel):
+    assistant_id: Optional[str] = None
+    public_key: Optional[str] = None
+
     @property
     def resolved_api_key(self) -> str:
         return (self.api_key or self.apiKey or "").strip()
@@ -531,6 +536,54 @@ async def update_connection_config(req: UpdateConnectionConfigRequest, db: Async
         "base_url": prev.get("base_url"),
         "voice_id": prev.get("voice_id"),
     }
+
+
+TELNYX_ASSISTANT_SETTINGS_ID = "c_telnyx_assistant_settings"
+
+
+@router.get("/telnyx-assistant-settings")
+async def get_telnyx_assistant_settings(db: AsyncSession = Depends(get_db)):
+    """
+    Reads the Telnyx AI Assistant's assistant_id + account public key, saved
+    from the UI. Falls back to TELNYX_ASSISTANT_ID / TELNYX_ASSISTANT_PUBLIC_KEY
+    env vars if nothing is saved yet, matching the same DB-first-then-env
+    resolution order used everywhere else in this file.
+    """
+    res = await db.execute(select(Connection).where(Connection.id == TELNYX_ASSISTANT_SETTINGS_ID))
+    row = res.scalars().first()
+    cfg = row.config if (row and isinstance(row.config, dict)) else {}
+    return {
+        "assistantId": cfg.get("assistant_id") or getattr(settings, "TELNYX_ASSISTANT_ID", None) or "",
+        "publicKey": cfg.get("public_key") or getattr(settings, "TELNYX_ASSISTANT_PUBLIC_KEY", None) or "",
+        "savedInDatabase": bool(row),
+    }
+
+
+@router.post("/telnyx-assistant-settings")
+async def save_telnyx_assistant_settings(req: TelnyxAssistantSettingsRequest, db: AsyncSession = Depends(get_db)):
+    """Saves the Telnyx AI Assistant's assistant_id + account public key from the UI."""
+    res = await db.execute(select(Connection).where(Connection.id == TELNYX_ASSISTANT_SETTINGS_ID))
+    row = res.scalars().first()
+    cfg = dict(row.config) if (row and isinstance(row.config, dict)) else {}
+
+    if req.assistant_id is not None:
+        cfg["assistant_id"] = req.assistant_id.strip() or None
+    if req.public_key is not None:
+        cfg["public_key"] = req.public_key.strip() or None
+
+    if row:
+        row.config = cfg
+        row.status = "connected" if cfg.get("assistant_id") else "not_configured"
+    else:
+        db.add(Connection(
+            id=TELNYX_ASSISTANT_SETTINGS_ID,
+            group_name="Voice Orchestration",
+            name="Telnyx AI Assistant Settings",
+            status="connected" if cfg.get("assistant_id") else "not_configured",
+            config=cfg,
+        ))
+    await db.commit()
+    return {"success": True, "assistantId": cfg.get("assistant_id") or "", "publicKey": cfg.get("public_key") or ""}
 
 
 @router.post("/reset-demo-data")

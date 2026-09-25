@@ -23,7 +23,10 @@ _CALL_END_KEYWORDS = ("ended", "completed", "hangup", "insight", "summary")
 async def _read_and_verify(request: Request) -> Tuple[bytes, bool]:
     raw_body = await request.body()
     headers = dict(request.headers)
-    is_valid = verify_telnyx_ed25519_signature(raw_body, headers)
+    from app.services.telnyx_assistant_sync import resolve_telnyx_public_key
+    async with AsyncSessionLocal() as key_db:
+        public_key = await resolve_telnyx_public_key(key_db)
+    is_valid = verify_telnyx_ed25519_signature(raw_body, headers, public_key=public_key)
     return raw_body, is_valid
 
 

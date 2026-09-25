@@ -13,6 +13,7 @@ from app.services.process_logger import log_process_event
 logger = logging.getLogger("telnyx_assistant_sync")
 
 TELNYX_ASSISTANTS_URL = "https://api.telnyx.com/v2/ai/assistants"
+TELNYX_ASSISTANT_SETTINGS_ID = "c_telnyx_assistant_settings"
 
 
 async def _resolve_telnyx_api_key(db: AsyncSession) -> Optional[str]:
@@ -25,6 +26,26 @@ async def _resolve_telnyx_api_key(db: AsyncSession) -> Optional[str]:
             if key:
                 return key
     return (getattr(settings, "TELNYX_API_KEY", None) or "").strip() or None
+
+
+async def _get_assistant_settings_row(db: AsyncSession) -> dict:
+    res = await db.execute(select(Connection).where(Connection.id == TELNYX_ASSISTANT_SETTINGS_ID))
+    row = res.scalars().first()
+    return row.config if (row and isinstance(row.config, dict)) else {}
+
+
+async def resolve_telnyx_assistant_id(db: AsyncSession) -> Optional[str]:
+    """UI-saved value first (Connections -> Telnyx AI Assistant Settings), env var fallback."""
+    cfg = await _get_assistant_settings_row(db)
+    saved = (cfg.get("assistant_id") or "").strip() if cfg.get("assistant_id") else ""
+    return saved or (getattr(settings, "TELNYX_ASSISTANT_ID", None) or "").strip() or None
+
+
+async def resolve_telnyx_public_key(db: AsyncSession) -> Optional[str]:
+    """UI-saved value first (Connections -> Telnyx AI Assistant Settings), env var fallback."""
+    cfg = await _get_assistant_settings_row(db)
+    saved = (cfg.get("public_key") or "").strip() if cfg.get("public_key") else ""
+    return saved or (getattr(settings, "TELNYX_ASSISTANT_PUBLIC_KEY", None) or "").strip() or None
 
 
 async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
@@ -56,14 +77,14 @@ async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
     logged and returned as {"synced": False, "reason": ...} rather than breaking the
     template save/activate flow that calls this.
     """
-    assistant_id = (getattr(settings, "TELNYX_ASSISTANT_ID", None) or "").strip()
-    if not assistant_id:
-        return {"synced": False, "reason": "No TELNYX_ASSISTANT_ID configured — sync skipped."}
-
     from app.database import AsyncSessionLocal
 
     try:
         async with AsyncSessionLocal() as db:
+            assistant_id = await resolve_telnyx_assistant_id(db)
+            if not assistant_id:
+                return {"synced": False, "reason": "No Telnyx Assistant ID saved in Connections or .env — sync skipped."}
+
             api_key = await _resolve_telnyx_api_key(db)
             if not api_key:
                 return {"synced": False, "reason": "No Telnyx API key saved in Connections or .env — sync skipped."}

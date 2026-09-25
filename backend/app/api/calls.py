@@ -1533,7 +1533,9 @@ async def telnyx_inbound_voice(request: Request, db: AsyncSession = Depends(get_
     raw_body = await request.body()
     if raw_body:
         from app.services.telnyx_signature import verify_telnyx_ed25519_signature
-        if not verify_telnyx_ed25519_signature(raw_body, dict(request.headers)):
+        from app.services.telnyx_assistant_sync import resolve_telnyx_public_key
+        public_key = await resolve_telnyx_public_key(db)
+        if not verify_telnyx_ed25519_signature(raw_body, dict(request.headers), public_key=public_key):
             logger.error("[Telnyx Inbound] Rejected webhook — invalid signature.")
             return JSONResponse(status_code=401, content={"error": "Invalid webhook signature"})
 

@@ -8747,6 +8747,87 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
   );
 }
 
+function TelnyxAssistantSettingsCard() {
+  const [assistantId, setAssistantId] = useState("");
+  const [publicKey, setPublicKey] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getTelnyxAssistantSettings()
+      .then((res) => {
+        if (cancelled || !res) return;
+        setAssistantId(res.assistantId || "");
+        setPublicKey(res.publicKey || "");
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSavedMsg("");
+    try {
+      await api.saveTelnyxAssistantSettings({ assistant_id: assistantId.trim(), public_key: publicKey.trim() });
+      setSavedMsg("Saved");
+      setTimeout(() => setSavedMsg(""), 2500);
+    } catch (e) {
+      setSavedMsg("Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle = { width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 };
+
+  return (
+    <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 }}>
+      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.textInk }}>Telnyx AI Assistant Settings</div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 3, marginBottom: 12 }}>
+        Connects a Telnyx-hosted AI Assistant to this software (booking tools, call logging, and your active conversation template's prompt sync). Not needed unless you're using Telnyx's own voice stack.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div>
+          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Assistant ID</label>
+          <input
+            value={assistantId}
+            onChange={(e) => setAssistantId(e.target.value)}
+            placeholder="e.g. 18bc015c-1545-484e-ad84-50b8a02fec06"
+            disabled={!loaded}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Account Public Key</label>
+          <input
+            value={publicKey}
+            onChange={(e) => setPublicKey(e.target.value)}
+            placeholder="From Telnyx: Account Settings -> Keys & Credentials"
+            disabled={!loaded}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!loaded || saving}
+            style={{ background: C.ink, border: "none", borderRadius: 8, padding: "8px 16px", color: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: saving ? "wait" : "pointer" }}
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+          {savedMsg && (
+            <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: savedMsg === "Saved" ? C.green : C.red, fontWeight: 600 }}>{savedMsg}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProfile, onOpenCredentials }) {
   const getCachedHub = () => {
     try {
@@ -11043,6 +11124,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 </div>
               )}
             </div>
+
+            <TelnyxAssistantSettingsCard />
+
             {credsState.map((group) => (
               <div key={group.group}>
                 <div style={{ marginBottom: 8 }}>
