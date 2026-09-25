@@ -268,9 +268,19 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             detail=validation.get("error", f"Authentication failed for {req.provider}.")
         )
     
-    # 2. If it's a retest of an existing key in DB, preserve config and just ensure status is connected
+    # 2. If it's a retest of an existing key in DB, preserve config but still apply any
+    # non-secret field changes (phone, voice_id, model) submitted alongside the retest —
+    # otherwise "keep key" saves silently drop these with no error shown to the user.
     if is_retest_existing and existing:
         existing.status = "connected"
+        retest_cfg = open_config(existing.config if isinstance(existing.config, dict) else {})
+        if req.phone:
+            retest_cfg["phone"] = req.phone.strip()
+        if req.resolved_voice_id:
+            retest_cfg["voice_id"] = req.resolved_voice_id
+        if req.model:
+            retest_cfg["model"] = req.model.strip()
+        existing.config = seal_config(retest_cfg)
         await db.commit()
         return {
             "success": True,
@@ -279,6 +289,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             "layer": req.layer,
             "status": "connected",
             "maskedKey": existing.api_key_masked or "••••••••",
+            "phone": retest_cfg.get("phone"),
+            "voice_id": retest_cfg.get("voice_id"),
             "details": validation.get("details", "Verified & Active")
         }
 
@@ -482,6 +494,7 @@ class UpdateConnectionConfigRequest(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
     voice_id: Optional[str] = None
+    phone: Optional[str] = None
 
 
 @router.post("/update-config")
@@ -525,6 +538,8 @@ async def update_connection_config(req: UpdateConnectionConfigRequest, db: Async
         prev["base_url"] = req.base_url.strip() or None
     if req.voice_id is not None:
         prev["voice_id"] = req.voice_id.strip() or None
+    if req.phone is not None:
+        prev["phone"] = req.phone.strip() or None
     existing.config = seal_config(prev)
     await db.commit()
     return {
@@ -534,6 +549,7 @@ async def update_connection_config(req: UpdateConnectionConfigRequest, db: Async
         "layer": existing.group_name,
         "model": prev.get("model"),
         "base_url": prev.get("base_url"),
+        "phone": prev.get("phone"),
         "voice_id": prev.get("voice_id"),
     }
 
