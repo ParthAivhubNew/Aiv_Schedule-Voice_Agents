@@ -88,7 +88,7 @@ async def resolve_llm_credentials(
                         "provider": c_prov,
                         "api_key": k,
                         "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
-                        "model": mod or cfg.get("model") or c.model or "gpt-4o-mini"
+                        "model": mod or cfg.get("model") or "gpt-4o-mini"
                     }
 
             # 3. Next check any connection with a non-empty key
@@ -103,7 +103,7 @@ async def resolve_llm_credentials(
                         "provider": c_prov,
                         "api_key": k,
                         "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
-                        "model": mod or cfg.get("model") or c.model or "gpt-4o-mini"
+                        "model": mod or cfg.get("model") or "gpt-4o-mini"
                     }
         except Exception as e:
             logger.warning(f"Failed to query DB for LLM connections: {e}")
