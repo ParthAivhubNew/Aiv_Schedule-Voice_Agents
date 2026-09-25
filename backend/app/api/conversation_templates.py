@@ -7,6 +7,7 @@ Provides:
 """
 
 from datetime import datetime
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 import uuid
@@ -147,6 +148,9 @@ async def create_template(payload: TemplatePayload, db: AsyncSession = Depends(g
     )
     db.add(template)
     await db.commit()
+    if template.is_active:
+        from app.services.telnyx_assistant_sync import sync_active_prompt_to_telnyx
+        asyncio.create_task(sync_active_prompt_to_telnyx(direction=template.call_direction))
     return {"success": True, "template_id": t_id, "message": "Template created successfully"}
 
 
@@ -162,6 +166,9 @@ async def update_template(template_id: str, payload: TemplatePayload, db: AsyncS
         setattr(t, k, v)
     t.updated_at = datetime.utcnow()
     await db.commit()
+    if t.is_active:
+        from app.services.telnyx_assistant_sync import sync_active_prompt_to_telnyx
+        asyncio.create_task(sync_active_prompt_to_telnyx(direction=t.call_direction))
     return {"success": True, "template_id": template_id, "message": "Template updated successfully"}
 
 
