@@ -93,6 +93,11 @@ def persist_image_url(image_url: Optional[str], public_base: Optional[str] = Non
     if raw.startswith("http://") or raw.startswith("https://"):
         return raw
     if not raw.startswith("data:"):
+        # Already a locally-hosted relative path (e.g. "/api/scheduler/media/x.jpg") -
+        # Graph APIs fetch the image themselves, so it must be an absolute URL.
+        if raw.startswith("/"):
+            base = (public_base or public_base_from_request()).rstrip("/")
+            return f"{base}{raw}"
         return raw
     try:
         header, b64 = raw.split(",", 1)
