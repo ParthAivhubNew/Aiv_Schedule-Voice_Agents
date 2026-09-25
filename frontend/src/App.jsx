@@ -8753,6 +8753,9 @@ function TelnyxAssistantSettingsCard() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
+  const [dialTo, setDialTo] = useState("");
+  const [dialing, setDialing] = useState(false);
+  const [dialMsg, setDialMsg] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -8778,6 +8781,21 @@ function TelnyxAssistantSettingsCard() {
       setSavedMsg("Failed to save");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDial = async () => {
+    const to = dialTo.trim();
+    if (!to) return;
+    setDialing(true);
+    setDialMsg("");
+    try {
+      const res = await api.dialViaTelnyxAssistant({ to });
+      setDialMsg(res?.success ? `Calling ${res.to || to}...` : (res?.error || "Call failed."));
+    } catch (e) {
+      setDialMsg(e?.message || "Call failed.");
+    } finally {
+      setDialing(false);
     }
   };
 
@@ -8821,6 +8839,30 @@ function TelnyxAssistantSettingsCard() {
           </button>
           {savedMsg && (
             <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: savedMsg === "Saved" ? C.green : C.red, fontWeight: 600 }}>{savedMsg}</span>
+          )}
+        </div>
+
+        <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 6, paddingTop: 12 }}>
+          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Call via Telnyx Assistant</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={dialTo}
+              onChange={(e) => setDialTo(e.target.value)}
+              placeholder="+1 555... destination number"
+              disabled={dialing}
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <button
+              type="button"
+              onClick={handleDial}
+              disabled={dialing || !dialTo.trim()}
+              style={{ background: C.cobalt || C.ink, border: "none", borderRadius: 8, padding: "0 16px", color: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: dialing ? "wait" : "pointer", whiteSpace: "nowrap" }}
+            >
+              {dialing ? "Calling..." : "Call"}
+            </button>
+          </div>
+          {dialMsg && (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: dialMsg.startsWith("Calling") ? C.green : C.red, fontWeight: 600, marginTop: 6 }}>{dialMsg}</div>
           )}
         </div>
       </div>

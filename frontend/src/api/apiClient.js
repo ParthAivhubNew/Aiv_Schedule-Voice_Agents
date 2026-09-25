@@ -185,6 +185,7 @@ export const api = {
   updateConnectionConfig: (payload) => apiRequest('/connections/update-config', { method: 'POST', body: payload }),
   getTelnyxAssistantSettings: () => apiRequest('/connections/telnyx-assistant-settings'),
   saveTelnyxAssistantSettings: (payload) => apiRequest('/connections/telnyx-assistant-settings', { method: 'POST', body: payload }),
+  dialViaTelnyxAssistant: (payload) => apiRequest('/telnyx-assistant/dial', { method: 'POST', body: payload, timeoutMs: 15000 }),
   resetDemoData: () => apiRequest('/connections/reset-demo-data', { method: 'POST' }),
   getTelephonyHub: () => apiRequest('/connections/telephony-hub'),
   provisionTelephonyHub: (payload) => apiRequest('/connections/telephony-hub/provision', { method: 'POST', body: payload }),

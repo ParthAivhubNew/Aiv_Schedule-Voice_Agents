@@ -5,10 +5,12 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Tuple
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, get_db
 from app.models.models import CallLog
 from app.services.telnyx_signature import verify_telnyx_ed25519_signature
 from app.services.process_logger import log_process_event
@@ -28,6 +30,23 @@ async def _read_and_verify(request: Request) -> Tuple[bytes, bool]:
         public_key = await resolve_telnyx_public_key(key_db)
     is_valid = verify_telnyx_ed25519_signature(raw_body, headers, public_key=public_key)
     return raw_body, is_valid
+
+
+class DialViaAssistantRequest(BaseModel):
+    to: str
+
+
+@router.post("/dial")
+async def dial_via_assistant_endpoint(req: DialViaAssistantRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Triggers a real outbound call from our software that connects the callee to
+    our configured Telnyx AI Assistant, using our saved Telnyx number as caller ID.
+    """
+    from app.services.telnyx_assistant_dial import dial_via_telnyx_assistant
+    result = await dial_via_telnyx_assistant(db, req.to)
+    if not result.get("success"):
+        return JSONResponse(status_code=400, content=result)
+    return result
 
 
 @router.post("/tool/{tool_name}")
