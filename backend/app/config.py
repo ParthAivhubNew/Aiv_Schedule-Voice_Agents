@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     
     # Telnyx Telephony Configuration
     TELNYX_API_KEY: Optional[str] = os.getenv("TELNYX_API_KEY", None)
-    TELNYX_PHONE_NUMBER: Optional[str] = os.getenv("TELNYX_PHONE_NUMBER", "+19096866918")
+    TELNYX_PHONE_NUMBER: Optional[str] = os.getenv("TELNYX_PHONE_NUMBER", None)
 
     # Telnyx AI Assistant (Telnyx-hosted STT/LLM/TTS) webhook integration.
     # Account-level Ed25519 public key from Mission Control -> Account Settings -> Keys & Credentials.
