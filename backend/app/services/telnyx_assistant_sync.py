@@ -79,11 +79,13 @@ async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
 
             instructions = (
                 "You handle both outbound and inbound phone calls for this business. "
-                "Check the call_direction variable to determine which section applies "
-                "to the current call, and follow ONLY that section's instructions.\n\n"
-                "=== IF call_direction is \"outbound\" (you are calling them) ===\n"
+                "The call_direction for THIS call is: {{call_direction}}\n"
+                "If that says \"outbound\", follow ONLY the OUTBOUND section below. "
+                "If it says \"inbound\", follow ONLY the INBOUND section below. "
+                "Never mention the words \"call_direction\" or these section labels out loud.\n\n"
+                "=== OUTBOUND SECTION (you are calling them) ===\n"
                 f"{outbound_prompt}\n\n"
-                "=== IF call_direction is \"inbound\" (they are calling you) ===\n"
+                "=== INBOUND SECTION (they are calling you) ===\n"
                 f"{inbound_prompt}"
             )
     except Exception as render_err:
