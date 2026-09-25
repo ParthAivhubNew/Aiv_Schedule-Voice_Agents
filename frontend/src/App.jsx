@@ -10814,6 +10814,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         const savedVoiceId = (row.voiceIdValue || "").trim();
         const savedModel = (row.modelValue || "").trim();
         const savedBaseUrl = (row.baseUrlValue || "").trim();
+        const savedPhone = (row.phoneValue || "").trim();
         await api.updateConnectionConfig({
           id: item.id || undefined,
           layer: groupName,
@@ -10821,6 +10822,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
           model: savedModel,
           base_url: savedBaseUrl,
           voice_id: savedVoiceId,
+          phone: savedPhone,
         });
         setCredsState((s) =>
           s.map((g) =>
@@ -10884,6 +10886,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         base_url: (row.baseUrlValue || "").trim() || undefined,
         model: (row.modelValue || "").trim() || undefined,
         voice_id: (row.voiceIdValue || "").trim() || undefined,
+        phone: (row.phoneValue || "").trim() || undefined,
       });
       const savedVoiceId = (row.voiceIdValue || "").trim();
       setCredsState((s) =>
