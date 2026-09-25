@@ -34,11 +34,6 @@ class TestKeyRequest(BaseModel):
     voice_id: Optional[str] = None
     voiceId: Optional[str] = None
 
-
-class TelnyxAssistantSettingsRequest(BaseModel):
-    assistant_id: Optional[str] = None
-    public_key: Optional[str] = None
-
     @property
     def resolved_api_key(self) -> str:
         return (self.api_key or self.apiKey or "").strip()
@@ -62,6 +57,11 @@ class TelnyxAssistantSettingsRequest(BaseModel):
     @property
     def resolved_connection_id(self) -> Optional[str]:
         return (self.connection_id or self.connectionId or "").strip() or None
+
+
+class TelnyxAssistantSettingsRequest(BaseModel):
+    assistant_id: Optional[str] = None
+    public_key: Optional[str] = None
 
 @router.get("", response_model=list[dict])
 async def list_connections(db: AsyncSession = Depends(get_db)):
@@ -730,16 +730,20 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         # Fetch carrier connection to get carrier's own saved phone number and key
         conns_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
         telephony_conns = conns_res.scalars().all()
+        def _has_real_key(c):
+            return bool(c.config and isinstance(c.config, dict) and (c.config.get("api_key") or c.config.get("auth_token")))
+
         carrier_conn = None
         for c in telephony_conns:
-            if (c.name or "").lower() == (plan.carrier or "").lower() or (plan.carrier or "").lower() in (c.name or "").lower():
+            name_matches = (c.name or "").lower() == (plan.carrier or "").lower() or (plan.carrier or "").lower() in (c.name or "").lower()
+            if name_matches and _has_real_key(c):
                 carrier_conn = c
                 break
         if not carrier_conn and telephony_conns:
-            carrier_conn = next((c for c in telephony_conns if c.config and isinstance(c.config, dict) and (c.config.get("api_key") or c.config.get("auth_token"))), None)
+            carrier_conn = next((c for c in telephony_conns if _has_real_key(c)), None)
 
         carrier_cfg = open_config(carrier_conn.config) if (carrier_conn and carrier_conn.config) else {}
-        active_phone = carrier_cfg.get("phoneNumber")
+        active_phone = carrier_cfg.get("phone") or carrier_cfg.get("phoneNumber")
         if not active_phone:
             if (plan.carrier or "").lower().startswith("twilio"):
                 active_phone = settings.TWILIO_PHONE_NUMBER or None
