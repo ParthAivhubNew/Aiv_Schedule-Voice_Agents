@@ -863,6 +863,15 @@ export function CallingWorkspace({
   const [voiceName, setVoiceName] = useState("ara-uk");
   const [customVoices, setCustomVoices] = useState([]);
   const [direct, setDirect] = useState({ phone: "", name: "" });
+  const [callVia, setCallVia] = useState("engine");
+  const [telnyxAssistantConfigured, setTelnyxAssistantConfigured] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api.getTelnyxAssistantSettings()
+      .then((res) => { if (!cancelled) setTelnyxAssistantConfigured(!!(res && res.assistantId)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
   const [liveKitTarget, setLiveKitTarget] = useState({ name: "Browser Caller", phone: "Browser WebRTC", company: "" });
   const [logQuery, setLogQuery] = useState("");
@@ -1694,15 +1703,20 @@ export function CallingWorkspace({
       ...(prev || []).filter((c) => c.id !== optimisticId),
     ]);
     try {
-      await api.dialOutbound({
-        to_number: phone,
-        from_number: (profile && profile.callerId) || undefined,
-        prospect_name: (r.contact || r.name || "").trim() || undefined,
-        mission_title: (r.contact || r.company || r.name)
-          ? `Direct — ${r.contact || r.company || r.name}`
-          : "Direct Client Outreach",
-        ...savedTwilioCreds(),
-      });
+      if (callVia === "assistant") {
+        const res = await api.dialViaTelnyxAssistant({ to: phone });
+        if (!res || res.success === false) throw new Error(res?.error || "Telnyx Assistant dial failed");
+      } else {
+        await api.dialOutbound({
+          to_number: phone,
+          from_number: (profile && profile.callerId) || undefined,
+          prospect_name: (r.contact || r.name || "").trim() || undefined,
+          mission_title: (r.contact || r.company || r.name)
+            ? `Direct — ${r.contact || r.company || r.name}`
+            : "Direct Client Outreach",
+          ...savedTwilioCreds(),
+        });
+      }
       pushNote(`Outbound to ${phone}`, "success");
       await refreshLive();
     } catch (e) {
@@ -2104,13 +2118,18 @@ export function CallingWorkspace({
       ...(prev || []).filter((c) => c.id !== optimisticId),
     ]);
     try {
-      await api.dialOutbound({
-        to_number: phone,
-        from_number: (profile && profile.callerId) || undefined,
-        prospect_name: direct.name.trim() || undefined,
-        mission_title: direct.name.trim() ? `Direct — ${direct.name.trim()}` : "Direct Client Outreach",
-        ...savedTwilioCreds(),
-      });
+      if (callVia === "assistant") {
+        const res = await api.dialViaTelnyxAssistant({ to: phone });
+        if (!res || res.success === false) throw new Error(res?.error || "Telnyx Assistant dial failed");
+      } else {
+        await api.dialOutbound({
+          to_number: phone,
+          from_number: (profile && profile.callerId) || undefined,
+          prospect_name: direct.name.trim() || undefined,
+          mission_title: direct.name.trim() ? `Direct — ${direct.name.trim()}` : "Direct Client Outreach",
+          ...savedTwilioCreds(),
+        });
+      }
       pushNote(`Outbound to ${phone}`, "success");
       await refreshLive();
     } catch (e) {
@@ -2407,7 +2426,22 @@ export function CallingWorkspace({
                   </div>
                 )}
                 <div style={{ ...card(), marginBottom: 12, flexShrink: 0 }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>Call anyone</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>Call anyone</div>
+                    {telnyxAssistantConfigured && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>Call using:</span>
+                        <select
+                          value={callVia}
+                          onChange={(e) => setCallVia(e.target.value)}
+                          style={{ height: 30, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", padding: "0 8px", fontSize: 12, fontWeight: 600, fontFamily: FONT_BODY, cursor: "pointer" }}
+                        >
+                          <option value="engine">Our AI Engine</option>
+                          <option value="assistant">Telnyx Assistant</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     <div style={{
                       display: "flex",
