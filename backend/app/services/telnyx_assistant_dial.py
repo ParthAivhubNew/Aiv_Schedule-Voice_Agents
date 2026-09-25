@@ -32,7 +32,11 @@ async def _resolve_telnyx_from_number(db: AsyncSession) -> Optional[str]:
     for c in res.scalars().all():
         if "telnyx" in (c.name or "").lower():
             cfg = open_config(c.config if isinstance(c.config, dict) else {})
-            phone = (cfg.get("phone") or "").strip()
+            # Two save paths use two different keys for this same field: the
+            # generic Connections card flow writes "phone", the Line-setup
+            # provisioning flow writes "phoneNumber" — check both, same as
+            # get_telephony_hub_status() already does.
+            phone = (cfg.get("phone") or cfg.get("phoneNumber") or "").strip()
             if phone:
                 return phone
     return (getattr(settings, "TELNYX_PHONE_NUMBER", None) or "").strip() or None
