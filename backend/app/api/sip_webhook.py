@@ -114,10 +114,48 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
                             headers={"Authorization": f"Bearer {assist_api_key}", "Content-Type": "application/json"},
                         )
                     logger.info(f"[SIP-WEBHOOK] ai_assistant_start for {call_control_id} -> HTTP {start_res.status_code}: {start_res.text[:200]}")
+                    if start_res.status_code in (200, 201):
+                        try:
+                            from app.models.models import LiveCall
+                            from sqlalchemy.future import select as _select
+                            async with AsyncSessionLocal() as live_db:
+                                res = await live_db.execute(_select(LiveCall).where(LiveCall.carrier_sid == call_control_id))
+                                rec = res.scalars().first()
+                                if rec:
+                                    rec.state = "pitching"
+                                    rec.transcript = (rec.transcript or []) + ["System: Assistant connected."]
+                                    await live_db.commit()
+                                    try:
+                                        from app.websockets.call_hub import call_hub
+                                        await call_hub.broadcast("call_updated", {"callId": rec.id, "state": "pitching"})
+                                    except Exception:
+                                        pass
+                        except Exception as upd_err:
+                            logger.warning(f"[SIP-WEBHOOK] Could not update LiveCall state for {call_control_id}: {upd_err}")
                     return {"status": "assistant_started", "call_control_id": call_control_id}
                 logger.error("[SIP-WEBHOOK] Cannot start assistant on answered call — no Telnyx API key configured.")
-        # Any other event (call.initiated, call.hangup, etc.) on a tagged call —
-        # acknowledge quietly, never let it fall through to the xAI path below.
+        elif std_event_type == "call.hangup":
+            call_control_id = std_payload.get("call_control_id")
+            if call_control_id:
+                try:
+                    from app.models.models import LiveCall
+                    from sqlalchemy.future import select as _select
+                    async with AsyncSessionLocal() as live_db:
+                        res = await live_db.execute(_select(LiveCall).where(LiveCall.carrier_sid == call_control_id))
+                        rec = res.scalars().first()
+                        if rec:
+                            rec.ended = True
+                            rec.state = "ended"
+                            await live_db.commit()
+                            try:
+                                from app.websockets.call_hub import call_hub
+                                await call_hub.broadcast("call_ended", {"callId": rec.id, "endedBy": "remote"})
+                            except Exception:
+                                pass
+                except Exception as end_err:
+                    logger.warning(f"[SIP-WEBHOOK] Could not mark Assistant-dialed call {call_control_id} ended: {end_err}")
+        # Any other event on a tagged call — acknowledge quietly, never let it
+        # fall through to the xAI path below.
         return {"status": "ignored", "event": std_event_type}
 
     # 3. Everything else is presumed genuine xAI-native traffic. This REQUIRES a

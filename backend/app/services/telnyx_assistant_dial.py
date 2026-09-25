@@ -1,5 +1,6 @@
 import base64
 import logging
+import uuid
 from typing import Optional
 
 import httpx
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.config import settings
-from app.models.models import Connection
+from app.models.models import Connection, LiveCall
 from app.services.secret_box import open_config
 from app.services.telephony_provider import normalize_phone_number, public_http_base
 from app.services.telnyx_assistant_sync import (
@@ -15,6 +16,7 @@ from app.services.telnyx_assistant_sync import (
     resolve_telnyx_assistant_id,
 )
 from app.services.process_logger import log_process_event
+from app.websockets.call_hub import call_hub
 
 logger = logging.getLogger("telnyx_assistant_dial")
 
@@ -116,6 +118,47 @@ async def dial_via_telnyx_assistant(db: AsyncSession, to_number: str) -> dict:
             level="SUCCESS",
             details={"to": to_clean, "from": from_clean, "assistantId": assistant_id, "callControlId": call_control_id},
         )
+
+        # Give this call a LiveCall row so it shows in the dashboard's Live tab,
+        # matching the own-engine outbound flow (outbound_dial.py). Telnyx's own
+        # hosted assistant runs STT/LLM/TTS itself, so there's no bridged media
+        # session or transcript streaming here — this row exists purely for
+        # visibility/state (calling -> ended), keyed by carrier_sid so
+        # sip_webhook.py's call.hangup handler can find and close it.
+        call_id = f"call_{uuid.uuid4().hex[:8]}"
+        try:
+            live_call = LiveCall(
+                id=call_id,
+                carrier_sid=call_control_id,
+                mission_id="m_outbound",
+                prospect=f"Prospect ({to_clean[-4:]})",
+                mission="Telnyx AI Assistant Outbound",
+                state="calling",
+                carrier="telnyx_assistant",
+                channel="voice",
+                duration="00:00",
+                transcript=[f"System: Outbound call to {to_clean} dispatched via Telnyx AI Assistant."],
+            )
+            db.add(live_call)
+            await db.commit()
+            await call_hub.broadcast("call_started", {
+                "callId": call_id,
+                "id": call_id,
+                "caller": from_clean,
+                "prospect": live_call.prospect,
+                "state": "calling",
+                "duration": "00:00",
+                "mission": live_call.mission,
+                "channel": "voice",
+                "ended": False,
+            })
+        except Exception as live_err:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            logger.warning(f"[TELNYX-ASSISTANT-DIAL] Could not create LiveCall row: {live_err}")
+
         return {"success": True, "to": to_clean, "from": from_clean, "call_control_id": call_control_id}
 
     err_text = res.text[:300]
