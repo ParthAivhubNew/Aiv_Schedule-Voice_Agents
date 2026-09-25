@@ -134,8 +134,13 @@ async def handle_telnyx_assistant_call_event(request: Request):
             return {
                 "dynamic_variables": {
                     "caller_name": prospect.get("name") or "there",
+                    "customer_name": prospect.get("name") or "there",
                     "company_name": company.get("name") or "",
                     "agent_name": company.get("agent_name") or "",
+                    # Outbound calls override this via AIAssistantDynamicVariables at
+                    # dial time (Telnyx resolution order: dial-time value wins), so
+                    # defaulting to "inbound" here is safe for both directions.
+                    "call_direction": "inbound",
                 }
             }
         except Exception as err:
