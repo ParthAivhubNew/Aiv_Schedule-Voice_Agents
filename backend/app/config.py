@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     TELNYX_API_KEY: Optional[str] = os.getenv("TELNYX_API_KEY", None)
     TELNYX_PHONE_NUMBER: Optional[str] = os.getenv("TELNYX_PHONE_NUMBER", "+19096866918")
 
+    # Telnyx AI Assistant (Telnyx-hosted STT/LLM/TTS) webhook integration.
+    # Account-level Ed25519 public key from Mission Control -> Account Settings -> Keys & Credentials.
+    TELNYX_ASSISTANT_PUBLIC_KEY: Optional[str] = os.getenv("TELNYX_ASSISTANT_PUBLIC_KEY", None)
+
     # Sipgate Telephony Configuration
     SIPGATE_SIP_ID: Optional[str] = os.getenv("SIPGATE_SIP_ID", "4032431t0")
     SIPGATE_PASSWORD: Optional[str] = os.getenv("SIPGATE_PASSWORD", "qURd1qn99mBV")

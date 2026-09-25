@@ -9323,11 +9323,11 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           </div>
           <div>
             <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Carrier Route</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{hubData.activeCarrier} (Direct SIP)</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: hubData?.status === "connected" ? C.textInk : C.slate, marginTop: 4 }}>{hubData.activeCarrier} (Direct SIP)</div>
           </div>
           <div>
             <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Voice AI Engine</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: C.textInk, marginTop: 4 }}>{hubData.activeEngine} ({hubData.voiceName})</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: hubData?.status === "connected" ? C.textInk : C.slate, marginTop: 4 }}>{hubData.activeEngine} ({hubData.voiceName})</div>
           </div>
           {engineChoice !== "livekit" && (
             <div>

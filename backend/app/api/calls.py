@@ -36,12 +36,17 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
     Returns live conversations. Auto-purges dead/stale calls older than 10 minutes.
     """
     cutoff = datetime.utcnow() - timedelta(minutes=10)
-    # Only purge stale calls older than 10 mins (preserves newly concluded calls)
+    orphan_cutoff = datetime.utcnow() - timedelta(hours=3)
+    # Only purge stale calls older than 10 mins (preserves newly concluded calls).
+    # The 3-hour orphan_cutoff clause is a safety net for calls left stuck in an
+    # active state (e.g. "pitching") with ended=False forever because the backend
+    # crashed/restarted mid-call and nothing ever ran the normal hangup path.
     await db.execute(
         delete(LiveCall).where(
             ((LiveCall.ended == True) & (LiveCall.created_at < cutoff)) |
             (LiveCall.state.in_(["ended", "failed", "canceled"]) & (LiveCall.created_at < cutoff)) |
-            ((LiveCall.state == "calling") & (LiveCall.created_at < cutoff))
+            ((LiveCall.state == "calling") & (LiveCall.created_at < cutoff)) |
+            ((LiveCall.ended == False) & (LiveCall.created_at < orphan_cutoff))
         )
     )
     await db.commit()

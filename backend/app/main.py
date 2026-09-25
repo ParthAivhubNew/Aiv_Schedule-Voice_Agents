@@ -24,6 +24,7 @@ from app.api.analytics import router as analytics_router
 from app.api.scheduler import router as scheduler_router
 from app.api.logs import router as logs_router
 from app.api.sip_webhook import router as sip_webhook_router
+from app.api.telnyx_assistant_webhook import router as telnyx_assistant_webhook_router
 from app.api.enrichment import router as enrichment_router
 from app.api.calcom import router as calcom_router
 from app.api.livekit_router import router as livekit_router
@@ -258,6 +259,25 @@ async def lifespan(app: FastAPI):
     await seed_database()
     try:
         from app.database import AsyncSessionLocal
+        from app.models.models import LiveCall
+        from sqlalchemy.future import select as sweep_select
+        async with AsyncSessionLocal() as sweep_db:
+            orphans = (await sweep_db.execute(
+                sweep_select(LiveCall).where(LiveCall.ended == False)
+            )).scalars().all()
+            for orphan in orphans:
+                orphan.ended = True
+                orphan.state = "ended"
+                orphan.transcript = (orphan.transcript or []) + [
+                    "System: Call auto-closed on server restart — no live session could have survived the process restart."
+                ]
+            if orphans:
+                await sweep_db.commit()
+                logger.warning(f"[Startup Sweep] Closed {len(orphans)} orphaned live call(s) left over from a previous process (crash/restart).")
+    except Exception as sweep_err:
+        logger.warning(f"[Startup Sweep] Could not sweep orphaned live calls: {sweep_err}")
+    try:
+        from app.database import AsyncSessionLocal
         from app.models.models import Connection
         from app.services.secret_box import seal_config
         from sqlalchemy.future import select
@@ -465,6 +485,8 @@ app.include_router(scheduler_router, prefix=settings.API_PREFIX)
 app.include_router(logs_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router)  # Direct /sip-webhook compatibility
+app.include_router(telnyx_assistant_webhook_router, prefix=settings.API_PREFIX)
+app.include_router(telnyx_assistant_webhook_router)  # Direct /telnyx-assistant compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(calcom_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router, prefix=settings.API_PREFIX)
