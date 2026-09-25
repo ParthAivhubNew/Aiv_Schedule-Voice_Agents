@@ -55,10 +55,11 @@ async def resolve_llm_credentials(
             "model": mod
         }
 
-    # Otherwise query DB for any saved Connection
+    # Otherwise query DB for any saved Connection, restricted to the LLM group only -
+    # a Telephony/Calendar/etc. connection's key must never be sent to a chat LLM API.
     if db is not None:
         try:
-            res = await db.execute(select(Connection))
+            res = await db.execute(select(Connection).where(Connection.group_name == "LLM"))
             conns = res.scalars().all()
 
             # 1. Exact or partial match on provider name if provider was requested
@@ -76,7 +77,7 @@ async def resolve_llm_credentials(
                             "model": mod or cfg.get("model")
                         }
 
-            # 2. Prefer connected provider in LLM, Social, Scheduler, or Image groups
+            # 2. Prefer a connected LLM-group provider
             for c in conns:
                 cfg = c.config or {}
                 k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
@@ -91,7 +92,7 @@ async def resolve_llm_credentials(
                         "model": mod or cfg.get("model") or "gpt-4o-mini"
                     }
 
-            # 3. Next check any connection with a non-empty key
+            # 3. Next check any LLM-group connection with a non-empty key
             for c in conns:
                 cfg = c.config or {}
                 k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
