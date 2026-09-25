@@ -7,5 +7,5 @@
   "llm_model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
   "stt": "Telnyx Whisper",
   "stt_model": "openai/whisper-large-v3",
-  "carrier": "Twilio"
+  "carrier": "telnyx"
 }
