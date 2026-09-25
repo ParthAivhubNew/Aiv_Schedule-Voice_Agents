@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -1502,6 +1503,193 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         f"</Response>"
     )
     return Response(content=twiml, media_type="application/xml")
+
+
+async def _resolve_telnyx_api_key_for_calls(db: AsyncSession) -> str:
+    from app.services.secret_box import open_config, config_get_secret
+    res = await db.execute(select(Connection))
+    for c in res.scalars().all():
+        if "telnyx" in (c.name or "").lower():
+            cfg = open_config(c.config if isinstance(c.config, dict) else {})
+            key = config_get_secret(cfg, "api_key", "auth_token")
+            if key:
+                return key
+    return (getattr(settings, "TELNYX_API_KEY", None) or "").strip()
+
+
+@router.api_route("/telnyx/inbound", methods=["GET", "POST"])
+@router.api_route("/telnyx/voice", methods=["GET", "POST"])
+async def telnyx_inbound_voice(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Telnyx Call Control Inbound Voice Webhook.
+    Fires on every event for calls tied to the Call Control Application assigned
+    to your Telnyx number. Mirrors twilio_inbound_voice's flow (LiveCall creation,
+    prospect matching, the same engine-aware start_bridged_voice_session()) but
+    answers via Telnyx's Call Control "answer" action with bidirectional media
+    streaming attached, using the same client_state convention media_stream.py
+    already decodes for Telnyx-originated outbound calls — so this needs no
+    changes to media_stream.py at all.
+    """
+    raw_body = await request.body()
+    if raw_body:
+        from app.services.telnyx_signature import verify_telnyx_ed25519_signature
+        if not verify_telnyx_ed25519_signature(raw_body, dict(request.headers)):
+            logger.error("[Telnyx Inbound] Rejected webhook — invalid signature.")
+            return JSONResponse(status_code=401, content={"error": "Invalid webhook signature"})
+
+    try:
+        body = json.loads(raw_body) if raw_body else {}
+    except Exception:
+        return {"status": "ignored", "reason": "malformed json"}
+
+    inner = body.get("data") if isinstance(body.get("data"), dict) else {}
+    event_type = inner.get("event_type") or ""
+    payload = inner.get("payload") if isinstance(inner.get("payload"), dict) else {}
+    call_control_id = payload.get("call_control_id") or ""
+
+    if event_type == "call.hangup":
+        try:
+            res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == call_control_id))
+            rec = res.scalars().first()
+            if rec:
+                rec.ended = True
+                rec.state = "ended"
+                await db.commit()
+        except Exception:
+            pass
+        return {"status": "ok", "event": event_type}
+
+    if event_type != "call.initiated" or (payload.get("direction") or "").lower() != "incoming":
+        return {"status": "ignored", "event": event_type}
+
+    from_number = payload.get("from", "")
+    to_number = payload.get("to", getattr(settings, "TELNYX_PHONE_NUMBER", None) or "")
+
+    caller_clean = normalize_phone_number(from_number)
+    prospect_label = f"Caller ({caller_clean[-4:] if len(caller_clean) >= 4 else caller_clean})"
+    matched_prospect_id = None
+    matched_mission_id = "m_inbound"
+    matched_mission_title = "Inbound Customer Call"
+
+    try:
+        from app.models.models import ContactRegistry, Prospect
+        reg_res = await db.execute(select(ContactRegistry))
+        for r in reg_res.scalars().all():
+            if r.phone and normalize_phone_number(r.phone) == caller_clean:
+                prospect_label = r.canonical_name or r.name or prospect_label
+                break
+        if prospect_label.startswith("Caller"):
+            pros_res = await db.execute(select(Prospect).where(Prospect.phone == caller_clean))
+            p = pros_res.scalars().first()
+            if p:
+                prospect_label = clean_person_label(p.contact_person) or clean_person_label(p.name) or prospect_label
+                matched_prospect_id = p.id
+                matched_mission_id = p.mission_id or matched_mission_id
+    except Exception:
+        pass
+
+    internal_call_id = f"call_{uuid.uuid4().hex[:8]}"
+
+    live_call = LiveCall(
+        id=internal_call_id,
+        carrier_sid=call_control_id,
+        mission_id=matched_mission_id,
+        prospect_id=matched_prospect_id,
+        prospect=prospect_label,
+        mission=matched_mission_title,
+        state="pitching",
+        carrier="telnyx",
+        channel="voice",
+        duration="00:00",
+        listening=False,
+        taken=False,
+        confirming_end=False,
+        ended=False,
+        booked=False,
+        transcript=[
+            f"System: Inbound call from {from_number} received on {to_number}.",
+            "AI: Connecting caller..."
+        ]
+    )
+    db.add(live_call)
+    await db.commit()
+
+    try:
+        from app.websockets.media_stream import media_stream_hub
+        media_stream_hub.register_alias(internal_call_id, internal_call_id)
+        media_stream_hub.register_alias(call_control_id, internal_call_id)
+    except Exception:
+        pass
+
+    try:
+        await call_hub.broadcast("call_created", {
+            "id": internal_call_id,
+            "prospect": prospect_label,
+            "mission": matched_mission_title,
+            "state": "pitching",
+            "channel": "voice",
+            "duration": "00:00",
+            "carrierSid": call_control_id
+        })
+    except Exception:
+        pass
+
+    await log_process_event(
+        subsystem="telephony",
+        process_name="telnyx_inbound_call_connected",
+        message=f"Inbound Telnyx call from {from_number} ({prospect_label}) answered and bridged.",
+        level="SUCCESS",
+        details={
+            "callId": internal_call_id,
+            "callControlId": call_control_id,
+            "caller": from_number,
+            "prospect": prospect_label,
+            "to": to_number
+        }
+    )
+
+    try:
+        sess = await start_bridged_voice_session(
+            call_id=internal_call_id,
+            caller_number=from_number,
+            prospect_name=prospect_label,
+            is_inbound=True,
+            carrier_sid=call_control_id,
+        )
+        await sess.wait_ready(timeout=2.8)
+    except Exception as bridge_err:
+        logger.warning(f"Inbound Telnyx pre-warm failed: {bridge_err}")
+
+    api_key = await _resolve_telnyx_api_key_for_calls(db)
+    if not api_key or not call_control_id:
+        logger.error("[Telnyx Inbound] No Telnyx API key configured or missing call_control_id — cannot answer inbound call.")
+        return {"status": "error", "reason": "missing api key or call_control_id"}
+
+    from app.services.telephony_provider import public_wss_base
+    import base64
+    media_stream_url = f"{public_wss_base()}/ws/media-stream"
+    answer_payload = {
+        "stream_url": media_stream_url,
+        "stream_track": "inbound_track",
+        "stream_bidirectional_mode": "rtp",
+        "stream_bidirectional_codec": "PCMU",
+        "client_state": base64.b64encode(internal_call_id.encode("utf-8")).decode("ascii"),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            res = await client.post(
+                f"https://api.telnyx.com/v2/calls/{call_control_id}/actions/answer",
+                json=answer_payload,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            )
+            if res.status_code not in (200, 202):
+                logger.warning(f"[Telnyx Inbound] Answer command failed ({res.status_code}): {res.text[:300]}")
+                return {"status": "error", "reason": f"Telnyx answer HTTP {res.status_code}"}
+    except Exception as answer_err:
+        logger.error(f"[Telnyx Inbound] Failed to answer call {call_control_id}: {answer_err}")
+        return {"status": "error", "reason": str(answer_err)}
+
+    return {"status": "answered", "call_id": internal_call_id}
 
 
 @router.get("/{call_id}/recording")
