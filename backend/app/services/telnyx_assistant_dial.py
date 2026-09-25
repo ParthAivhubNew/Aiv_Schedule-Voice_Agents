@@ -6,6 +6,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.config import settings
 from app.models.models import Connection
 from app.services.secret_box import open_config
 from app.services.telephony_provider import normalize_phone_number, public_http_base
@@ -21,7 +22,12 @@ TELNYX_ASSISTANT_DIAL_MARKER = "telnyx_assistant_outbound"
 
 
 async def _resolve_telnyx_from_number(db: AsyncSession) -> Optional[str]:
-    """Our saved Telnyx Telephony connection's own phone number, used as caller ID."""
+    """
+    Our Telnyx caller ID. Checks the saved Telnyx Telephony connection's own
+    phone field first, then falls back to TELNYX_PHONE_NUMBER — same resolution
+    order as get_telephony_hub_status() (connections.py), so this and the
+    "What Calling uses" summary never disagree about which number is active.
+    """
     res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
     for c in res.scalars().all():
         if "telnyx" in (c.name or "").lower():
@@ -29,7 +35,7 @@ async def _resolve_telnyx_from_number(db: AsyncSession) -> Optional[str]:
             phone = (cfg.get("phone") or "").strip()
             if phone:
                 return phone
-    return None
+    return (getattr(settings, "TELNYX_PHONE_NUMBER", None) or "").strip() or None
 
 
 async def _resolve_call_control_app_id(api_key: str) -> Optional[str]:
