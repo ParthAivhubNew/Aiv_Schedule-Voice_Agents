@@ -788,27 +788,30 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
     }
 
 
-@router.post("/publish-due")
-async def publish_due_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
-    """Publish approved posts whose slot time has arrived, if accounts are connected."""
+def _due_ms(post) -> float:
+    base = float(post.slot_date_ms or 0)
+    if not base:
+        return 0.0
+    t = str(getattr(post, "time", None) or "09:00").strip()
+    try:
+        parts = t.split(":")
+        hh = int(parts[0])
+        mm = int(parts[1]) if len(parts) > 1 else 0
+    except Exception:
+        hh, mm = 9, 0
+    dt = datetime.fromtimestamp(base / 1000.0)
+    # Prefer explicit time field over whatever clock was baked into slot_date_ms
+    dt = datetime(dt.year, dt.month, dt.day, hh, mm, 0)
+    return dt.timestamp() * 1000.0
+
+
+async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -> Dict[str, Any]:
+    """Publish approved posts whose slot time has arrived, if accounts are connected.
+
+    Shared by the /publish-due route and the background auto-publish loop
+    (started in app startup) so posts go out even with no browser open.
+    """
     now_ms = time.time() * 1000
-
-    def _due_ms(post) -> float:
-        base = float(post.slot_date_ms or 0)
-        if not base:
-            return 0.0
-        t = str(getattr(post, "time", None) or "09:00").strip()
-        try:
-            parts = t.split(":")
-            hh = int(parts[0])
-            mm = int(parts[1]) if len(parts) > 1 else 0
-        except Exception:
-            hh, mm = 9, 0
-        dt = datetime.fromtimestamp(base / 1000.0)
-        # Prefer explicit time field over whatever clock was baked into slot_date_ms
-        dt = datetime(dt.year, dt.month, dt.day, hh, mm, 0)
-        return dt.timestamp() * 1000.0
-
     result = await db.execute(select(SocialPost).where(SocialPost.status.in_(["approved", "scheduled"])))
     posts = result.scalars().all()
     acc_res = await db.execute(select(SocialAccount))
@@ -835,6 +838,11 @@ async def publish_due_endpoint(request: Request, db: AsyncSession = Depends(get_
         skipped.append(post.id)
     await db.commit()
     return {"status": "ok", "published": published, "skipped": skipped}
+
+
+@router.post("/publish-due")
+async def publish_due_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
+    return await run_publish_due(db, request)
 
 
 _PLAN_FENCE_RE = re.compile(r"```(?:plan|json)\s*([\s\S]*?)```", re.I)
