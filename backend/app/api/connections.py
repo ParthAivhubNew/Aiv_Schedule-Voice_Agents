@@ -119,7 +119,7 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
             "baseUrl": cfg.get("base_url") or "",
             "voiceId": cfg.get("voice_id") or "",
             "accountSid": cfg.get("account_sid") or cfg.get("phone_id") or "",
-            "phone": cfg.get("phone") or "",
+            "phone": cfg.get("phone") or cfg.get("phoneNumber") or "",
         })
         
     return list(grouped.values())
