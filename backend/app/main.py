@@ -4,7 +4,9 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
+import asyncio
 import logging
+import os
 import uuid
 
 from app.config import settings
@@ -37,6 +39,24 @@ from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def _social_publish_due_loop():
+    """Auto-publish due social posts on a timer, so scheduling works with no browser open."""
+    from app.database import AsyncSessionLocal
+    from app.api.scheduler import run_publish_due
+    while True:
+        try:
+            await asyncio.sleep(60)
+            async with AsyncSessionLocal() as db:
+                result = await run_publish_due(db)
+                if result.get("published"):
+                    logger.info(f"[Social Auto-Publish] Published {len(result['published'])} due post(s).")
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Social Auto-Publish] Cycle failed: {loop_err}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -377,10 +397,16 @@ async def lifespan(app: FastAPI):
                 ("Telephony", "Twilio", ""),
             ]
             for group, name, default_model in standard_templates:
-                res = await init_db.execute(select(Connection).where(Connection.group_name == group, Connection.name == name))
+                conn_id = f"c_{group.lower()[:3]}_{name.lower().replace(' ', '_').replace('(', '').replace(')', '')}"
+                res = await init_db.execute(
+                    select(Connection).where(
+                        (Connection.id == conn_id)
+                        | ((Connection.group_name == group) & (Connection.name == name))
+                    )
+                )
                 if not res.scalars().first():
                     init_db.add(Connection(
-                        id=f"c_{group.lower()[:3]}_{name.lower().replace(' ', '_').replace('(', '').replace(')', '')}",
+                        id=conn_id,
                         group_name=group,
                         name=name,
                         status="not_configured",
@@ -434,7 +460,11 @@ async def lifespan(app: FastAPI):
     except Exception as stack_log_err:
         logger.warning(f"[Startup Voice Plan] Could not inspect active voice stack at startup: {stack_log_err}")
 
+    publish_due_task = asyncio.create_task(_social_publish_due_loop())
+
     yield
+
+    publish_due_task.cancel()
     logger.info("Shutting down AIVHub Voice Agent API...")
 
 app = FastAPI(
