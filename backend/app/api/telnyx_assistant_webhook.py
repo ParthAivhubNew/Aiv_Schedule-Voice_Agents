@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import uuid
@@ -147,6 +148,25 @@ async def handle_telnyx_assistant_call_event(request: Request):
 
     if event_type == "assistant.initialization":
         caller_phone = str(payload.get("telnyx_end_user_target") or "").strip()
+
+        # Calls we dialed ourselves (telnyx_assistant_dial.py) tag the call at
+        # dial time with a base64 client_state marker so the sip_webhook.py
+        # handler knows to fire ai_assistant_start on call.answered. Telnyx
+        # echoes client_state back on this event too (same call_control_id),
+        # so we reuse the same marker here to tell outbound from inbound —
+        # there is no dial-time "call_direction" field on the plain
+        # POST /v2/calls flow this app uses, so this is the only reliable signal.
+        call_direction = "inbound"
+        raw_client_state = str(payload.get("client_state") or "").strip()
+        if raw_client_state:
+            try:
+                from app.services.telnyx_assistant_dial import TELNYX_ASSISTANT_DIAL_MARKER
+                decoded = base64.b64decode(raw_client_state).decode("utf-8", errors="ignore")
+                if decoded.startswith(TELNYX_ASSISTANT_DIAL_MARKER):
+                    call_direction = "outbound"
+            except Exception:
+                pass
+
         try:
             from app.services.conversation_engine import context_resolver
             async with AsyncSessionLocal() as db:
@@ -159,15 +179,12 @@ async def handle_telnyx_assistant_call_event(request: Request):
                     "customer_name": prospect.get("name") or "there",
                     "company_name": company.get("name") or "",
                     "agent_name": company.get("agent_name") or "",
-                    # Outbound calls override this via AIAssistantDynamicVariables at
-                    # dial time (Telnyx resolution order: dial-time value wins), so
-                    # defaulting to "inbound" here is safe for both directions.
-                    "call_direction": "inbound",
+                    "call_direction": call_direction,
                 }
             }
         except Exception as err:
             logger.warning(f"[TELNYX-ASSISTANT] Dynamic variable resolution failed: {err}")
-            return {"dynamic_variables": {}}
+            return {"dynamic_variables": {"call_direction": call_direction}}
 
     if any(kw in event_type.lower() for kw in _CALL_END_KEYWORDS):
         caller_phone = str(payload.get("telnyx_end_user_target") or payload.get("from") or "").strip()
