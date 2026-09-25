@@ -27,16 +27,27 @@ async def _resolve_telnyx_api_key(db: AsyncSession) -> Optional[str]:
     return (getattr(settings, "TELNYX_API_KEY", None) or "").strip() or None
 
 
-async def sync_active_prompt_to_telnyx(direction: str = "outbound") -> dict:
+async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
     """
-    Pushes our active conversation template's rendered system prompt to the configured
-    Telnyx AI Assistant's `instructions` field via POST /v2/ai/assistants/{assistant_id}.
+    Pushes a combined, direction-aware system prompt to the configured Telnyx AI
+    Assistant's `instructions` field via POST /v2/ai/assistants/{assistant_id}.
 
-    Rendered with generic (no specific prospect) context, since Telnyx's `instructions`
-    is one static string per assistant, not re-rendered per call the way our own engine
-    renders it live for each caller. Per-call personalization on the Telnyx side still
-    works via its own {{dynamic_variables}}, returned separately by our
-    /api/telnyx-assistant/call-event webhook.
+    Telnyx assistants have exactly ONE `instructions` field — there is no separate
+    slot for inbound vs outbound. So this always renders BOTH our active outbound
+    and inbound templates and combines them under a {{call_direction}} branch,
+    rather than syncing only whichever direction's template was just saved (which
+    would silently overwrite the other direction's behavior on the same assistant).
+    The `direction` param is accepted for logging/back-compat but no longer changes
+    what gets pushed — both directions are always included.
+
+    call_direction resolves to "outbound" at dial time via Telnyx's
+    AIAssistantDynamicVariables (takes priority over our webhook), or "inbound"
+    by default from our /api/telnyx-assistant/call-event webhook otherwise.
+
+    Rendered with generic (no specific prospect) context, since Telnyx's
+    `instructions` is one static string, not re-rendered per call the way our own
+    engine renders it live for each caller. Per-call personalization (caller name,
+    company name) still works via {{dynamic_variables}} from that same webhook.
 
     Opens its own DB session — this is meant to be fired via asyncio.create_task from a
     request handler, so it must not depend on that request's (soon-to-close) session.
@@ -59,11 +70,24 @@ async def sync_active_prompt_to_telnyx(direction: str = "outbound") -> dict:
 
             from app.services.conversation_engine import context_resolver, template_engine
 
-            generic_ctx = await context_resolver.resolve_outbound(db)
-            active_tpl = await template_engine.get_active_template(db, direction=direction)
-            instructions = template_engine.render_system_prompt(active_tpl, generic_ctx)
+            outbound_ctx = await context_resolver.resolve_outbound(db)
+            inbound_ctx = await context_resolver.resolve_inbound(db, "unknown")
+            outbound_tpl = await template_engine.get_active_template(db, direction="outbound")
+            inbound_tpl = await template_engine.get_active_template(db, direction="inbound")
+            outbound_prompt = template_engine.render_system_prompt(outbound_tpl, outbound_ctx)
+            inbound_prompt = template_engine.render_system_prompt(inbound_tpl, inbound_ctx)
+
+            instructions = (
+                "You handle both outbound and inbound phone calls for this business. "
+                "Check the call_direction variable to determine which section applies "
+                "to the current call, and follow ONLY that section's instructions.\n\n"
+                "=== IF call_direction is \"outbound\" (you are calling them) ===\n"
+                f"{outbound_prompt}\n\n"
+                "=== IF call_direction is \"inbound\" (they are calling you) ===\n"
+                f"{inbound_prompt}"
+            )
     except Exception as render_err:
-        logger.error(f"[TELNYX-SYNC] Could not render active template for direction '{direction}': {render_err}")
+        logger.error(f"[TELNYX-SYNC] Could not render active templates: {render_err}")
         return {"synced": False, "reason": f"Template render failed: {render_err}"}
 
     try:
@@ -80,18 +104,18 @@ async def sync_active_prompt_to_telnyx(direction: str = "outbound") -> dict:
             process_name="telnyx_assistant_sync_failed",
             message=f"Failed to sync prompt to Telnyx Assistant {assistant_id}: {req_err}",
             level="ERROR",
-            details={"assistantId": assistant_id, "direction": direction},
+            details={"assistantId": assistant_id},
         )
         return {"synced": False, "reason": str(req_err)}
 
     if res.status_code in (200, 201):
-        logger.info(f"[TELNYX-SYNC] Synced active '{direction}' template to Telnyx Assistant {assistant_id}.")
+        logger.info(f"[TELNYX-SYNC] Synced combined inbound+outbound template to Telnyx Assistant {assistant_id}.")
         await log_process_event(
             subsystem="telephony",
             process_name="telnyx_assistant_sync",
-            message=f"Synced active '{direction}' conversation template to Telnyx Assistant {assistant_id}.",
+            message=f"Synced combined inbound+outbound conversation templates to Telnyx Assistant {assistant_id}.",
             level="SUCCESS",
-            details={"assistantId": assistant_id, "direction": direction, "instructionsLength": len(instructions)},
+            details={"assistantId": assistant_id, "instructionsLength": len(instructions)},
         )
         return {"synced": True}
 
