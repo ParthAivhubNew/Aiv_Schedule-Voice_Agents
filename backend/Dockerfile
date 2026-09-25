@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     logrotate \
     sudo \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
