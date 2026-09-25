@@ -25389,21 +25389,13 @@ export default function App() {
     }
   };
 
-  const [plugin, setPlugin] = useState(() => {
-    const route = parseRoute();
-    if (route.plugin) return route.plugin;
-    try {
-      return localStorage.getItem("aivhub_active_plugin") || null;
-    } catch (_) {
-      return null;
-    }
-  });
+  // Only resume a plugin when the URL itself names one (e.g. a bookmarked/shared
+  // #/voice/list link). A bare link with no hash always opens the clean hub,
+  // even if this browser previously used a plugin.
+  const [plugin, setPlugin] = useState(() => parseRoute().plugin);
 
   const [visitedPlugins, setVisitedPlugins] = useState(() => {
-    const r = parseRoute();
-    const init = r.plugin || (function() {
-      try { return localStorage.getItem("aivhub_active_plugin"); } catch (_) { return null; }
-    })();
+    const init = parseRoute().plugin;
     return init ? [init] : [];
   });
 
