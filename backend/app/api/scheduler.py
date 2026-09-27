@@ -1059,7 +1059,11 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         raise HTTPException(status_code=409, detail="This post is already being published or was just published.")
     await db.refresh(post)
 
-    image_url = _host_image((post.image_url or "").strip(), request)
+    try:
+        image_url = _host_image((post.image_url or "").strip(), request)
+    except Exception:
+        logger.exception("Hosting image before publish failed for %s", post.id)
+        image_url = None
     if image_url and image_url != post.image_url:
         post.image_url = image_url
         await db.commit()
@@ -1137,7 +1141,11 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
             skipped.append(post.id)
             continue
         await db.refresh(post)
-        hosted = _host_image(post.image_url, request)
+        try:
+            hosted = _host_image(post.image_url, request)
+        except Exception:
+            logger.exception("Hosting image before publish failed for %s", post.id)
+            hosted = None
         if hosted:
             post.image_url = hosted
         bundled = await _publish_claimed(db, post, request)
