@@ -423,7 +423,8 @@ async def finish_call(call_control_id: str, payload: Optional[Dict[str, Any]] = 
             _calls.pop(call_control_id, None)
             return
         cause = str(payload.get("hangup_cause") or "")
-        answered = bool(state.get("answered")) or rec.state in ("pitching", "negotiating", "human_review")
+        # "ended" is only ever set on answered calls; needed once _calls has dropped this call.
+        answered = bool(state.get("answered")) or rec.state in ("pitching", "negotiating", "human_review", "ended")
         outcome = _hangup_outcome(cause, answered)
         already_ended = bool(rec.ended)
         if not already_ended:

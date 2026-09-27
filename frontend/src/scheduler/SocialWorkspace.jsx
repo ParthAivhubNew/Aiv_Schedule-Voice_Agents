@@ -1079,8 +1079,8 @@ function parseIsoDate(s) {
 function postDueMs(p) {
   if (!p) return 0;
   const base = parseIsoDate(p.date);
-  const [hh, mm] = String(p.time || "09:00").split(":");
-  return new Date(base).setHours(parseInt(hh, 10) || 9, parseInt(mm, 10) || 0, 0, 0);
+  const [hh, mm] = String(p.time || "09:00").split(":").map((v) => parseInt(v, 10));
+  return new Date(base).setHours(Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
 }
 
 function isPastSlot(date, time, graceMs = 15000) {
