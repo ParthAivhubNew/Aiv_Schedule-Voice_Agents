@@ -85,6 +85,9 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
             "confirmingEnd": c.confirming_end,
             "ended": c.ended,
             "booked": c.booked,
+            "carrier": c.carrier,
+            # Telnyx-hosted assistant calls have no media stream on our side to listen to / take over.
+            "supportsListen": (c.carrier or "") != "telnyx_assistant",
             "transcript": c.transcript or [],
         })
     return out_calls
@@ -141,6 +144,18 @@ async def hangup_carrier_for_call(call: LiveCall, db: Optional[AsyncSession] = N
         logger.debug(f"[Teardown] Carrier resolution fallback: {cred_err}")
 
     carrier = _carrier_for_hangup(call, sid, configured)
+    # Credentials resolved for the *configured* carrier are useless (and wrong) for a
+    # call placed on a different one, e.g. a Telnyx Assistant call while Twilio is active.
+    if configured and carrier.split("_")[0] != str(configured).lower().split("_")[0]:
+        credentials = {}
+    if carrier.startswith("telnyx") and not credentials.get("api_key") and db is not None:
+        try:
+            from app.services.telnyx_assistant_sync import _resolve_telnyx_api_key
+            tx_key = await _resolve_telnyx_api_key(db)
+            if tx_key:
+                credentials = {**credentials, "api_key": tx_key}
+        except Exception:
+            pass
     hung = False
     try:
         adapter = carrier_registry.get_adapter(carrier)
@@ -1396,8 +1411,9 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         reg_res = await db.execute(select(ContactRegistry))
         registries = reg_res.scalars().all()
         for r in registries:
-            if r.phone and normalize_phone_number(r.phone) == caller_clean:
-                prospect_label = r.canonical_name or r.name or prospect_label
+            phones = r.phones if isinstance(r.phones, list) else []
+            if any(p and normalize_phone_number(str(p)) == caller_clean for p in phones):
+                prospect_label = r.canonical_name or prospect_label
                 break
 
         if prospect_label.startswith("Caller"):
@@ -1549,16 +1565,26 @@ async def telnyx_inbound_voice(request: Request, db: AsyncSession = Depends(get_
     payload = inner.get("payload") if isinstance(inner.get("payload"), dict) else {}
     call_control_id = payload.get("call_control_id") or ""
 
+    # Calls we dialed through the Telnyx AI Assistant carry our client_state marker;
+    # they are tracked by telnyx_assistant_calls no matter which URL Telnyx posts to.
+    from app.services.telnyx_assistant_calls import tagged_event, handle_call_control_event
+    tagged = tagged_event(body if isinstance(body, dict) else {})
+    if tagged:
+        return await handle_call_control_event(tagged["event_type"], tagged["payload"], tagged["state"])
+
     if event_type == "call.hangup":
         try:
             res = await db.execute(select(LiveCall).where(LiveCall.carrier_sid == call_control_id))
             rec = res.scalars().first()
-            if rec:
+            if rec and not rec.ended:
+                from app.services.call_log_writer import upsert_call_log_from_live
                 rec.ended = True
                 rec.state = "ended"
+                await upsert_call_log_from_live(db, rec, outcome="contacted")
                 await db.commit()
-        except Exception:
-            pass
+                await call_hub.broadcast("call_ended", {"callId": rec.id, "endedBy": "remote"})
+        except Exception as hang_err:
+            logger.warning(f"[Telnyx Inbound] Hangup bookkeeping failed for {call_control_id}: {hang_err}")
         return {"status": "ok", "event": event_type}
 
     if event_type != "call.initiated" or (payload.get("direction") or "").lower() != "incoming":
@@ -1577,8 +1603,9 @@ async def telnyx_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         from app.models.models import ContactRegistry, Prospect
         reg_res = await db.execute(select(ContactRegistry))
         for r in reg_res.scalars().all():
-            if r.phone and normalize_phone_number(r.phone) == caller_clean:
-                prospect_label = r.canonical_name or r.name or prospect_label
+            phones = r.phones if isinstance(r.phones, list) else []
+            if any(p and normalize_phone_number(str(p)) == caller_clean for p in phones):
+                prospect_label = r.canonical_name or prospect_label
                 break
         if prospect_label.startswith("Caller"):
             pros_res = await db.execute(select(Prospect).where(Prospect.phone == caller_clean))

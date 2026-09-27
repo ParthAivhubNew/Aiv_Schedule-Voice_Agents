@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import logging
 import uuid
 from datetime import datetime
@@ -75,7 +76,7 @@ async def _resolve_vapi_creds(db_session: Optional[Any] = None) -> tuple[str, st
             if conn and conn.config:
                 cfg = open_config(conn.config) if isinstance(conn.config, dict) else {}
                 api_key = cfg.get("api_key") or cfg.get("auth_token") or api_key
-                assistant_id = cfg.get("assistant_id") or cfg.get("model") or assistant_id
+                assistant_id = cfg.get("assistant_id") or cfg.get("agent_id") or (cfg.get("model") if re.fullmatch(r"[0-9a-fA-F-]{36}", str(cfg.get("model") or "")) else None) or assistant_id
                 phone_number_id = cfg.get("phone_number_id") or cfg.get("phoneNumberId") or phone_number_id
     except Exception as err:
         logger.warning("Could not read Vapi credentials from database: %s", err)

@@ -74,8 +74,8 @@ async def _resolve_retell_creds(db_session: Optional[Any] = None) -> tuple[str, 
             if conn and conn.config:
                 cfg = open_config(conn.config) if isinstance(conn.config, dict) else {}
                 api_key = cfg.get("api_key") or cfg.get("auth_token") or api_key
-                agent_id = cfg.get("agent_id") or cfg.get("model") or agent_id
-                from_number = cfg.get("from_number") or cfg.get("phoneNumber") or from_number
+                agent_id = cfg.get("agent_id") or (cfg.get("model") if str(cfg.get("model") or "").startswith("agent_") else None) or agent_id
+                from_number = cfg.get("from_number") or cfg.get("phone") or cfg.get("phoneNumber") or from_number
     except Exception as err:
         logger.warning("Could not read Retell credentials from database: %s", err)
 

@@ -351,8 +351,6 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
         # Auto-discover or auto-create Telnyx Call Control App ID
         async def _resolve_call_control_app(client: httpx.AsyncClient) -> Optional[str]:
             pub_url = public_http_base()
-            if not pub_url.startswith("https://") and not pub_url.startswith("http://"):
-                pub_url = "https://agent.aivhub.com"
 
             # 1. Look for existing Call Control Applications
             try:
@@ -460,8 +458,11 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
         api_key = (creds.get("api_key") or settings.TELNYX_API_KEY or "").strip()
         url = f"https://api.telnyx.com/v2/calls/{call_id}/actions/hangup"
         async with httpx.AsyncClient(timeout=8.0) as client:
-            res = await client.post(url, headers={"Authorization": f"Bearer {api_key}"})
-            return res.status_code == 200
+            res = await client.post(url, json={}, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+            if res.status_code == 200:
+                return True
+            # 422 "call has already ended" / 404 — the leg is down, which is what we wanted.
+            return res.status_code in (404, 422) and ("ended" in res.text.lower() or "not found" in res.text.lower() or res.status_code == 404)
 
     async def get_call_status(self, call_id: str, credentials: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return {"call_id": call_id, "status": "active"}

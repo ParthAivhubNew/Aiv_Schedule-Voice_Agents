@@ -74,23 +74,11 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
     # xAI path below, BEFORE any xAI-specific parsing (which mis-parses this
     # envelope shape and would otherwise wrongly fall through to bridging it
     # into xAI).
-    std_envelope = data.get("data") if isinstance(data.get("data"), dict) else {}
-    std_event_type = std_envelope.get("event_type") or ""
-    std_payload = std_envelope.get("payload") if isinstance(std_envelope.get("payload"), dict) else {}
-    std_client_state_raw = std_payload.get("client_state") or ""
-    decoded_state = ""
-    is_tagged_assistant_call = False
-    if std_client_state_raw:
-        try:
-            from app.services.telnyx_assistant_dial import TELNYX_ASSISTANT_DIAL_MARKER
-            decoded_state = base64.b64decode(std_client_state_raw).decode("utf-8", errors="ignore")
-            is_tagged_assistant_call = decoded_state.startswith(f"{TELNYX_ASSISTANT_DIAL_MARKER}:")
-        except Exception:
-            is_tagged_assistant_call = False
-
-    if is_tagged_assistant_call:
+    from app.services.telnyx_assistant_calls import tagged_event, handle_call_control_event
+    tagged = tagged_event(data if isinstance(data, dict) else {})
+    if tagged:
         from app.services.telnyx_signature import verify_telnyx_ed25519_signature
-        from app.services.telnyx_assistant_sync import resolve_telnyx_public_key, _resolve_telnyx_api_key
+        from app.services.telnyx_assistant_sync import resolve_telnyx_public_key
         from app.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as key_db:
@@ -98,65 +86,12 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
         if not verify_telnyx_ed25519_signature(raw_body, headers_dict, public_key=telnyx_pub_key):
             logger.error("[SIP-WEBHOOK] Rejected Telnyx Assistant-dial event — invalid signature.")
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
-
-        assistant_id = decoded_state.split(":", 1)[1]
-        if std_event_type == "call.answered":
-            call_control_id = std_payload.get("call_control_id")
-            if call_control_id:
-                async with AsyncSessionLocal() as assist_db:
-                    assist_api_key = await _resolve_telnyx_api_key(assist_db)
-                if assist_api_key:
-                    import httpx as _httpx
-                    async with _httpx.AsyncClient(timeout=8.0) as _client:
-                        start_res = await _client.post(
-                            f"https://api.telnyx.com/v2/calls/{call_control_id}/actions/ai_assistant_start",
-                            json={"assistant": {"id": assistant_id}},
-                            headers={"Authorization": f"Bearer {assist_api_key}", "Content-Type": "application/json"},
-                        )
-                    logger.info(f"[SIP-WEBHOOK] ai_assistant_start for {call_control_id} -> HTTP {start_res.status_code}: {start_res.text[:200]}")
-                    if start_res.status_code in (200, 201):
-                        try:
-                            from app.models.models import LiveCall
-                            from sqlalchemy.future import select as _select
-                            async with AsyncSessionLocal() as live_db:
-                                res = await live_db.execute(_select(LiveCall).where(LiveCall.carrier_sid == call_control_id))
-                                rec = res.scalars().first()
-                                if rec:
-                                    rec.state = "pitching"
-                                    rec.transcript = (rec.transcript or []) + ["System: Assistant connected."]
-                                    await live_db.commit()
-                                    try:
-                                        from app.websockets.call_hub import call_hub
-                                        await call_hub.broadcast("call_updated", {"callId": rec.id, "state": "pitching"})
-                                    except Exception:
-                                        pass
-                        except Exception as upd_err:
-                            logger.warning(f"[SIP-WEBHOOK] Could not update LiveCall state for {call_control_id}: {upd_err}")
-                    return {"status": "assistant_started", "call_control_id": call_control_id}
-                logger.error("[SIP-WEBHOOK] Cannot start assistant on answered call — no Telnyx API key configured.")
-        elif std_event_type == "call.hangup":
-            call_control_id = std_payload.get("call_control_id")
-            if call_control_id:
-                try:
-                    from app.models.models import LiveCall
-                    from sqlalchemy.future import select as _select
-                    async with AsyncSessionLocal() as live_db:
-                        res = await live_db.execute(_select(LiveCall).where(LiveCall.carrier_sid == call_control_id))
-                        rec = res.scalars().first()
-                        if rec:
-                            rec.ended = True
-                            rec.state = "ended"
-                            await live_db.commit()
-                            try:
-                                from app.websockets.call_hub import call_hub
-                                await call_hub.broadcast("call_ended", {"callId": rec.id, "endedBy": "remote"})
-                            except Exception:
-                                pass
-                except Exception as end_err:
-                    logger.warning(f"[SIP-WEBHOOK] Could not mark Assistant-dialed call {call_control_id} ended: {end_err}")
-        # Any other event on a tagged call — acknowledge quietly, never let it
-        # fall through to the xAI path below.
-        return {"status": "ignored", "event": std_event_type}
+        # Same handler as /api/telnyx-assistant/call-control; never falls through to xAI.
+        try:
+            return await handle_call_control_event(tagged["event_type"], tagged["payload"], tagged["state"])
+        except Exception as err:
+            logger.error(f"[SIP-WEBHOOK] Assistant call event handling failed: {err}")
+            return {"status": "error", "event": tagged["event_type"]}
 
     # 3. Everything else is presumed genuine xAI-native traffic. This REQUIRES a
     # real Svix signature — fails CLOSED (rejects) if no secret is configured,
@@ -169,10 +104,14 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
             from app.models.models import Connection
             from sqlalchemy.future import select
             async with AsyncSessionLocal() as db:
-                c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
-                c = c_res.scalars().first()
-                if c and c.config and isinstance(c.config, dict):
-                    active_secret = c.config.get("signing_secret")
+                from app.services.secret_box import config_get_secret
+                c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
+                for c in c_res.scalars().all():
+                    if c.config and isinstance(c.config, dict):
+                        active_secret = config_get_secret(c.config, "signing_secret", "webhook_secret")
+                        if active_secret:
+                            break
+                if active_secret:
                     if active_secret:
                         settings.XAI_WEBHOOK_SECRET = active_secret
                         logger.info(f"[SIP-WEBHOOK] Loaded signing secret from DB (starts with: {active_secret[:10]}...)")
@@ -253,9 +192,9 @@ async def handle_xai_sip_webhook(request: Request, background_tasks: BackgroundT
                 custom_call_id = val
 
     if not caller:
-        caller = "+12025550199"
+        caller = "unknown"
     if not callee:
-        callee = settings.TELNYX_PHONE_NUMBER or "+18005550100"
+        callee = settings.TELNYX_PHONE_NUMBER or ""
 
     logger.info(
         f"[SIP-WEBHOOK] Parsed event: type={event_type}, sip_call_id={call_id}, "

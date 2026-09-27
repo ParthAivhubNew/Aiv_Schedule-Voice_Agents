@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, FileResponse
-from sqlalchemy import text
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db, engine
-from app.models.models import SocialPost, SocialEmail, SocialAccount, CompanyProfile
+from app.models.models import SocialPost, SocialEmail, SocialAccount, CompanyProfile, SchedulerSetting, Connection
 from app.services.post_writer import (
     parse_chat_intent,
     create_topic_image_prompt,
@@ -60,7 +60,26 @@ _SOCIAL_POST_EXTRA_COLS = [
     ("adapt_per_channel", "BOOLEAN"),
     ("publish_results", "JSON"),
     ("published_at", "VARCHAR"),
+    ("due_at_ms", "FLOAT"),
 ]
+
+# A post in one of these states must never be edited back to draft/approved by a client
+# save: that is how a stale browser tab re-queued already-published posts (double posting).
+LOCKED_STATUSES = ("published", "publishing")
+
+
+async def ensure_social_schema() -> None:
+    """Called at startup: add new social_posts columns and release posts stuck mid-publish."""
+    await _repair_social_posts_schema()
+    try:
+        async with engine.begin() as conn:
+            # A crash mid-publish leaves the outcome unknown. Surface it instead of retrying
+            # blindly (which could double-post) or leaving it stuck forever.
+            await conn.execute(text(
+                "UPDATE social_posts SET status = 'failed' WHERE status = 'publishing'"
+            ))
+    except Exception as e:
+        logger.warning(f"Could not release stuck publishing posts: {e}")
 
 
 async def _repair_social_posts_schema() -> None:
@@ -105,8 +124,29 @@ def _serialize_post(p: SocialPost) -> Dict[str, Any]:
         "adaptPerChannel": bool(getattr(p, "adapt_per_channel", False)),
         "publishResults": p.publish_results or [],
         "publishedAt": p.published_at,
+        "dueAtMs": getattr(p, "due_at_ms", None),
+        "lastError": _last_error(p),
         "createdAt": p.created_at.isoformat() if p.created_at else None,
     }
+
+
+def _last_error(p: SocialPost) -> str:
+    errs = [
+        f"{(r.get('platform') or '').title()}: {r.get('error')}".strip(": ")
+        for r in (p.publish_results or [])
+        if isinstance(r, dict) and not r.get("ok") and r.get("error")
+    ]
+    return " · ".join(errs)
+
+
+def _apply_due(post: SocialPost, payload: Dict[str, Any]) -> None:
+    due = payload.get("dueAtMs") if payload.get("dueAtMs") is not None else payload.get("due_at_ms")
+    if due is None:
+        return
+    try:
+        post.due_at_ms = float(due) if due else None
+    except (TypeError, ValueError):
+        pass
 
 
 def _apply_package_fields(post: SocialPost, payload: Dict[str, Any]):
@@ -144,6 +184,214 @@ def _host_image(image_url, request=None):
 def _public_base(request=None):
     from app.services.media_store import public_base_from_request
     return public_base_from_request(request)
+
+
+# ── Scheduler AI settings ────────────────────────────────────────────────────
+# The scheduler stores only its *choice* of engine here. API keys are saved once per
+# provider in Connection rows (LLM / IMAGE groups, encrypted) and shared by every plugin
+# that uses that provider - so the browser never has to hold or send a raw key.
+
+TEXT_PROVIDERS = {
+    "auto": "Auto",
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "deepseek": "DeepSeek",
+    "groq": "Groq",
+    "xai": "xAI",
+    "gemini": "Google Gemini",
+}
+IMAGE_PROVIDERS = {
+    "auto": "Auto",
+    "pollinations": "Pollinations (free)",
+    "openai": "OpenAI",
+    "stability": "Stability AI",
+    "fal": "Fal.ai",
+}
+DEFAULT_AI_SETTINGS: Dict[str, Any] = {
+    "textProvider": "auto",
+    "textModel": "",
+    "imageProvider": "auto",
+    "imageModel": "",
+    "imageStyle": "modern_saas",
+    "imageAspectRatio": "4:5",
+}
+
+
+def _auto_none(value: Optional[str]) -> Optional[str]:
+    v = (value or "").strip().lower()
+    return None if not v or v == "auto" else v
+
+
+async def _load_ai_settings(db: AsyncSession) -> Dict[str, Any]:
+    out = dict(DEFAULT_AI_SETTINGS)
+    try:
+        row = (await db.execute(select(SchedulerSetting).where(SchedulerSetting.id == "default"))).scalars().first()
+        if row and isinstance(row.data, dict):
+            out.update({k: v for k, v in row.data.items() if k in DEFAULT_AI_SETTINGS and v is not None})
+    except Exception as e:
+        logger.warning(f"Could not load scheduler AI settings: {e}")
+        await db.rollback()
+    return out
+
+
+async def _saved_ai_keys(db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
+    """Which providers have a saved key (masked) - for the settings UI. Never returns raw keys."""
+    from app.services.key_validator import identify_provider
+    from app.services.secret_box import config_get_secret, mask_secret
+
+    text_keys: Dict[str, Dict[str, Any]] = {}
+    image_keys: Dict[str, Dict[str, Any]] = {}
+    res = await db.execute(select(Connection).where(Connection.group_name.in_(["LLM", "IMAGE"])))
+    for c in res.scalars().all():
+        cfg = c.config if isinstance(c.config, dict) else {}
+        k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
+        burl = (cfg.get("base_url") or cfg.get("baseUrl") or "").strip()
+        is_local = bool(burl and ("localhost" in burl or "127.0.0.1" in burl))
+        if not k and not is_local:
+            continue
+        prov_slug = str(cfg.get("provider") or c.name or "").strip().lower()
+        bucket = text_keys if c.group_name == "LLM" else image_keys
+        bucket[c.name] = {
+            "id": c.id,
+            "provider": prov_slug or c.name,
+            "name": c.name,
+            "baseUrl": burl,
+            "model": cfg.get("model") or "",
+            "masked": c.api_key_masked or (mask_secret(k) if k else "No key required (Local)"),
+            "status": c.status or "connected",
+        }
+    return {"text": list(text_keys.values()), "image": list(image_keys.values())}
+
+
+async def _resolve_text_ai(db: AsyncSession, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Pick the writing model. Supports any custom provider name and custom base_url."""
+    from app.services.llm_gateway import resolve_llm_credentials, _same_provider
+
+    api_key = (payload.get("apiKey") or payload.get("api_key") or "").strip() or None
+    req_provider = (payload.get("provider") or "").strip() or None
+    explicit = bool(api_key or req_provider)
+    if explicit:
+        provider = req_provider
+        model = payload.get("model") or None
+        base_url = payload.get("baseUrl") or payload.get("base_url") or None
+    else:
+        prefs = await _load_ai_settings(db)
+        provider = _auto_none(prefs.get("textProvider"))
+        model = (prefs.get("textModel") or "").strip() or None
+        base_url = None
+
+    creds = await resolve_llm_credentials(db=db, api_key=api_key, provider=provider, model=model, base_url=base_url)
+    error = None
+    if not explicit:
+        is_local = "localhost" in str(creds.get("base_url") or "") or "127.0.0.1" in str(creds.get("base_url") or "")
+        label = provider or "AI"
+        if provider and not _same_provider(provider, creds.get("provider")) and not creds.get("api_key") and not is_local:
+            error = f"No {label} key saved. Add it under Accounts & AI → Writing AI, or set the provider to Auto."
+        elif not creds.get("api_key") and not is_local:
+            error = "No AI writing key saved yet. Add one under Accounts & AI → Writing AI."
+    return {
+        "api_key": creds.get("api_key") or None,
+        "provider": creds.get("provider") or provider or "openai",
+        "model": creds.get("model") or model,
+        "base_url": creds.get("base_url") or base_url,
+        "error": error,
+        "explicit": explicit,
+    }
+
+
+async def _resolve_image_prefs(db: AsyncSession, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Image engine choice: request fields win, else the saved scheduler choice."""
+    prefs = await _load_ai_settings(db)
+    provider = (
+        payload.get("image_provider") or payload.get("imageProvider") or payload.get("imageEngine")
+        or _auto_none(prefs.get("imageProvider"))
+    )
+    return {
+        "provider": provider or None,
+        "api_key": payload.get("image_api_key") or payload.get("imageApiKey") or None,
+        "model": payload.get("image_model") or payload.get("imageModel") or (prefs.get("imageModel") or None),
+        "base_url": payload.get("image_base_url") or payload.get("imageBaseUrl") or None,
+        "style": payload.get("style") or payload.get("imageStyle") or prefs.get("imageStyle") or "modern_saas",
+        "aspect_ratio": payload.get("aspect_ratio") or payload.get("aspectRatio") or prefs.get("imageAspectRatio") or "4:5",
+    }
+
+
+@router.get("/ai-settings")
+async def get_ai_settings(db: AsyncSession = Depends(get_db)):
+    keys = await _saved_ai_keys(db)
+    # Dynamically build providers from saved connections without hardcoding closed lists
+    text_provs = {"auto": "Auto — use any saved key"}
+    for k in keys.get("text", []):
+        text_provs[k["provider"]] = k["name"]
+
+    img_provs = {
+        "auto": "Auto — saved image key, else free",
+        "pollinations": "Pollinations (free)",
+    }
+    for k in keys.get("image", []):
+        img_provs[k["provider"]] = k["name"]
+
+    return {
+        "settings": await _load_ai_settings(db),
+        "keys": keys,
+        "textProviders": text_provs,
+        "imageProviders": img_provs,
+    }
+
+
+@router.post("/ai-settings")
+async def save_ai_settings(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    current = await _load_ai_settings(db)
+    for k in DEFAULT_AI_SETTINGS:
+        if k in payload and payload[k] is not None:
+            current[k] = str(payload[k]).strip()
+    if current["imageAspectRatio"] not in ASPECT_RATIOS:
+        current["imageAspectRatio"] = "4:5"
+    row = (await db.execute(select(SchedulerSetting).where(SchedulerSetting.id == "default"))).scalars().first()
+    if row:
+        row.data = current
+    else:
+        db.add(SchedulerSetting(id="default", data=current))
+    await db.commit()
+    return {"status": "ok", "settings": current}
+
+
+@router.post("/ai-settings/test")
+async def test_ai_settings(db: AsyncSession = Depends(get_db)):
+    """Tiny live call with the saved choice, so the user sees exactly which engine is used."""
+    from app.services.llm_gateway import call_open_chat_llm
+    from app.services.post_writer import resolve_image_credentials
+
+    text_ai = await _resolve_text_ai(db, {})
+    text: Dict[str, Any] = {"ok": False, "provider": text_ai.get("provider"), "model": text_ai.get("model")}
+    if text_ai["error"]:
+        text["error"] = text_ai["error"]
+    else:
+        res = await call_open_chat_llm(
+            messages=[{"role": "user", "content": "Reply with the single word OK."}],
+            system_prompt="You are a connectivity check.",
+            api_key=text_ai["api_key"],
+            provider=text_ai["provider"],
+            model=text_ai["model"],
+            base_url=text_ai["base_url"],
+            max_tokens=5,
+            db=db,
+        )
+        text.update({
+            "ok": bool(res.get("success", True)) and not res.get("error"),
+            "provider": res.get("provider") or text_ai["provider"],
+            "model": res.get("model") or text_ai["model"],
+            "error": res.get("error"),
+        })
+
+    img_prefs = await _resolve_image_prefs(db, {})
+    img_creds = await resolve_image_credentials(db=db, provider=img_prefs["provider"], model=img_prefs["model"])
+    image = {
+        "provider": img_creds.get("provider"),
+        "model": img_creds.get("model") or "",
+        "missingKeyFor": img_creds.get("missing_key_for"),
+    }
+    return {"text": text, "image": image}
 
 
 @router.get("/media/{filename}")
@@ -184,21 +432,21 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
     prompt = payload.get("prompt", "")
     title = payload.get("title", "")
     theme = payload.get("theme", "Operations")
-    style = payload.get("style", "modern_saas")
-    aspect_ratio = payload.get("aspect_ratio") or payload.get("aspectRatio") or "16:9"
 
-    from app.services.post_writer import resolve_image_credentials
-    creds = await resolve_image_credentials(
-        db=db,
-        provider=payload.get("provider") or payload.get("image_provider") or payload.get("imageEngine") or payload.get("imageProvider"),
-        api_key=payload.get("api_key") or payload.get("apiKey") or payload.get("image_api_key") or payload.get("imageApiKey"),
-        model=payload.get("model") or payload.get("image_model") or payload.get("imageModel"),
-        base_url=payload.get("base_url") or payload.get("baseUrl") or payload.get("image_base_url") or payload.get("imageBaseUrl"),
-    )
-    provider = creds.get("provider")
-    api_key = creds.get("api_key")
-    model = creds.get("model")
-    base_url = creds.get("base_url")
+    # This endpoint historically took provider/api_key/model/base_url unprefixed.
+    img_prefs = await _resolve_image_prefs(db, {
+        **payload,
+        "image_provider": payload.get("provider") or payload.get("image_provider") or payload.get("imageEngine") or payload.get("imageProvider"),
+        "image_api_key": payload.get("api_key") or payload.get("apiKey") or payload.get("image_api_key") or payload.get("imageApiKey"),
+        "image_model": payload.get("model") or payload.get("image_model") or payload.get("imageModel"),
+        "image_base_url": payload.get("base_url") or payload.get("baseUrl") or payload.get("image_base_url") or payload.get("imageBaseUrl"),
+    })
+    provider = img_prefs["provider"]
+    api_key = img_prefs["api_key"]
+    model = img_prefs["model"]
+    base_url = img_prefs["base_url"]
+    style = img_prefs["style"]
+    aspect_ratio = img_prefs["aspect_ratio"]
 
     w, h = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
     width = int(payload.get("width", w))
@@ -246,17 +494,20 @@ async def generate_package_endpoint(payload: Dict[str, Any], request: Request, d
         or payload.get("prompt")
         or ""
     )
-    style = payload.get("style") or payload.get("imageStyle") or "modern_saas"
-    aspect_ratio = payload.get("aspect_ratio") or payload.get("aspectRatio") or "4:5"
-
-    api_key = payload.get("apiKey") or payload.get("api_key")
-    provider = payload.get("provider")
-    model = payload.get("model")
-    base_url = payload.get("baseUrl") or payload.get("base_url")
-    image_api_key = payload.get("image_api_key") or payload.get("imageApiKey") or api_key
-    image_provider = payload.get("image_provider") or payload.get("imageProvider") or payload.get("imageEngine")
-    image_model = payload.get("image_model") or payload.get("imageModel")
-    image_base_url = payload.get("image_base_url") or payload.get("imageBaseUrl")
+    text_ai = await _resolve_text_ai(db, payload)
+    if text_ai["error"]:
+        raise HTTPException(status_code=400, detail=text_ai["error"])
+    api_key = text_ai["api_key"]
+    provider = text_ai["provider"]
+    model = text_ai["model"]
+    base_url = text_ai["base_url"]
+    img_prefs = await _resolve_image_prefs(db, payload)
+    image_api_key = img_prefs["api_key"]
+    image_provider = img_prefs["provider"]
+    image_model = img_prefs["model"]
+    image_base_url = img_prefs["base_url"]
+    style = img_prefs["style"]
+    aspect_ratio = img_prefs["aspect_ratio"]
 
     company_name = (payload.get("companyName") or payload.get("company_name") or "").strip()
     company_pitch = (payload.get("companyPitch") or payload.get("company_pitch") or "").strip()
@@ -334,6 +585,9 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
     async def _upsert():
         res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
         existing_post = res.scalars().first()
+        if existing_post and existing_post.status in LOCKED_STATUSES:
+            # Already live (or going live). The server copy wins; the client adopts it.
+            return existing_post
         if existing_post:
             existing_post.title = title
             existing_post.copy = copy
@@ -347,6 +601,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             if image_prompt is not None:
                 existing_post.image_prompt = image_prompt
             _apply_package_fields(existing_post, payload)
+            _apply_due(existing_post, payload)
             return existing_post
         new_post = SocialPost(
             id=post_id,
@@ -361,6 +616,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             image_prompt=image_prompt,
         )
         _apply_package_fields(new_post, payload)
+        _apply_due(new_post, payload)
         db.add(new_post)
         return new_post
 
@@ -382,7 +638,8 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
     return {
         "status": "ok",
         "id": new_post.id,
-        "message": f"Post created successfully with status: {new_post.status}",
+        "locked": new_post.status in LOCKED_STATUSES,
+        "message": f"Post saved with status: {new_post.status}",
         "post": _serialize_post(new_post),
     }
 
@@ -393,6 +650,8 @@ async def update_post_status(post_id: str, payload: Dict[str, Any], request: Req
     post = res.scalars().first()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    if post.status in LOCKED_STATUSES:
+        return {"status": "ok", "locked": True, "postId": post_id, "newStatus": post.status, "post": _serialize_post(post)}
 
     if payload.get("status") is not None:
         post.status = payload.get("status")
@@ -409,6 +668,7 @@ async def update_post_status(post_id: str, payload: Dict[str, Any], request: Req
     if "channels" in payload:
         post.channels = payload["channels"]
     _apply_package_fields(post, payload)
+    _apply_due(post, payload)
 
     await db.commit()
     return {"status": "ok", "postId": post_id, "newStatus": post.status, "post": _serialize_post(post)}
@@ -685,6 +945,40 @@ async def delete_account(account_id: str, db: AsyncSession = Depends(get_db)):
     return {"status": "ok"}
 
 
+async def _claim_for_publish(db: AsyncSession, post_id: str, from_statuses: Optional[List[str]] = None) -> bool:
+    """Atomically move a post to 'publishing'. Only one caller (browser click or the
+    background loop) can win, so the same post is never sent to a network twice."""
+    stmt = update(SocialPost).where(
+        SocialPost.id == post_id,
+        SocialPost.status.notin_(list(LOCKED_STATUSES)),
+    )
+    if from_statuses:
+        stmt = stmt.where(SocialPost.status.in_(from_statuses))
+    res = await db.execute(stmt.values(status="publishing").execution_options(synchronize_session=False))
+    await db.commit()
+    return (res.rowcount or 0) == 1
+
+
+async def _publish_claimed(db: AsyncSession, post: SocialPost, request: Optional[Request]) -> Dict[str, Any]:
+    """Publish a post already claimed via _claim_for_publish. Always leaves it published or failed."""
+    try:
+        acc_res = await db.execute(select(SocialAccount))
+        accounts = acc_res.scalars().all()
+        bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
+    except Exception as e:
+        logger.exception("Publishing %s crashed", post.id)
+        bundled = {"ok": False, "allOk": False, "results": [{"ok": False, "platform": "", "error": str(e)}]}
+    post.publish_results = bundled.get("results") or []
+    if bundled.get("ok"):
+        post.status = "published"
+        post.published_at = datetime.utcnow().isoformat()
+    else:
+        post.status = "failed"
+    await db.commit()
+    await db.refresh(post)
+    return bundled
+
+
 @router.post("/posts/{post_id}/publish")
 async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     payload: Dict[str, Any] = {}
@@ -710,13 +1004,24 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    if post and post.status == "published":
+        return {
+            "status": "ok",
+            "alreadyPublished": True,
+            "allOk": True,
+            "results": post.publish_results or [],
+            "post": _serialize_post(post),
+        }
+    if post and post.status == "publishing":
+        raise HTTPException(status_code=409, detail="This post is already being published.")
+
     if not post:
         post = SocialPost(
             id=post_id,
             title=payload.get("title") or payload.get("topicHeadline") or "Untitled Social Post",
             copy=payload.get("copy") or payload.get("linkedinCopy") or payload.get("linkedin_copy") or "",
             channels=payload.get("channels") or ["linkedin"],
-            status=payload.get("status") or "approved",
+            status="approved",
             slot_date_ms=float(payload.get("slotDateMs") or payload.get("dateMs") or (time.time() * 1000)),
             time=payload.get("time") or "10:00",
             theme=payload.get("theme") or "Operations",
@@ -724,6 +1029,7 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
             image_prompt=payload.get("imagePrompt"),
         )
         _apply_package_fields(post, payload)
+        _apply_due(post, payload)
         db.add(post)
         try:
             await db.commit()
@@ -749,46 +1055,50 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         await db.commit()
         await db.refresh(post)
 
+    if not await _claim_for_publish(db, post.id):
+        raise HTTPException(status_code=409, detail="This post is already being published or was just published.")
+    await db.refresh(post)
+
     image_url = _host_image((post.image_url or "").strip(), request)
     if image_url and image_url != post.image_url:
         post.image_url = image_url
         await db.commit()
-        await db.refresh(post)
     if not (post.image_url or "").strip():
         from app.services.post_writer import create_topic_image_prompt
+        prefs = await _load_ai_settings(db)
         prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
-        img = await generate_image_with_provider(
-            prompt=prompt,
-            style="modern_saas",
-            aspect_ratio="4:5",
-            model=payload.get("model") or payload.get("image_model") or payload.get("imageModel"),
-            provider=payload.get("image_provider") or payload.get("imageProvider") or payload.get("provider"),
-            db=db,
-        )
+        try:
+            img = await generate_image_with_provider(
+                prompt=prompt,
+                style=prefs.get("imageStyle") or "modern_saas",
+                aspect_ratio=prefs.get("imageAspectRatio") or "4:5",
+                model=prefs.get("imageModel") or None,
+                provider=_auto_none(prefs.get("imageProvider")),
+                db=db,
+            )
+        except Exception:
+            logger.exception("Image generation before publish failed for %s", post.id)
+            img = {}
         if img.get("imageUrl"):
             post.image_prompt = img.get("imagePrompt") or prompt
             post.image_url = _host_image(img["imageUrl"], request)
             await db.commit()
-            await db.refresh(post)
 
-    acc_res = await db.execute(select(SocialAccount))
-    accounts = acc_res.scalars().all()
-    bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
-    post.publish_results = bundled.get("results") or []
-    if bundled.get("allOk") or bundled.get("ok"):
-        post.status = "published"
-        post.published_at = datetime.utcnow().isoformat()
-    await db.commit()
-    await db.refresh(post)
+    bundled = await _publish_claimed(db, post, request)
     return {
         "status": "ok" if bundled.get("ok") else "error",
         "allOk": bundled.get("allOk"),
         "results": bundled.get("results") or [],
+        "error": _last_error(post) or None,
         "post": _serialize_post(post),
     }
 
 
 def _due_ms(post) -> float:
+    exact = getattr(post, "due_at_ms", None)
+    if exact:
+        return float(exact)
+    # Legacy rows: slot day + "HH:MM" interpreted in the server's local timezone.
     base = float(post.slot_date_ms or 0)
     if not base:
         return 0.0
@@ -800,44 +1110,42 @@ def _due_ms(post) -> float:
     except Exception:
         hh, mm = 9, 0
     dt = datetime.fromtimestamp(base / 1000.0)
-    # Prefer explicit time field over whatever clock was baked into slot_date_ms
     dt = datetime(dt.year, dt.month, dt.day, hh, mm, 0)
     return dt.timestamp() * 1000.0
 
 
 async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -> Dict[str, Any]:
-    """Publish approved posts whose slot time has arrived, if accounts are connected.
+    """Publish approved posts whose due time has arrived.
 
-    Shared by the /publish-due route and the background auto-publish loop
-    (started in app startup) so posts go out even with no browser open.
+    Shared by the /publish-due route and the background auto-publish loop in main.py,
+    so posts go out with no browser open. Each post is claimed atomically first, and a
+    failure marks it 'failed' (shown in the UI with the reason) instead of retrying
+    against the networks every minute.
     """
     now_ms = time.time() * 1000
     result = await db.execute(select(SocialPost).where(SocialPost.status.in_(["approved", "scheduled"])))
     posts = result.scalars().all()
-    acc_res = await db.execute(select(SocialAccount))
-    accounts = acc_res.scalars().all()
     published = []
+    failed = []
     skipped = []
     for post in posts:
         due_at = _due_ms(post)
-        due = (not due_at) or (due_at <= now_ms)
-        # Only approved posts auto-publish when due (Simple maps "scheduled" → approved on persist).
-        if post.status == "approved" and due:
-            hosted = _host_image(post.image_url, request)
-            if hosted:
-                post.image_url = hosted
-            bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
-            post.publish_results = bundled.get("results") or []
-            if bundled.get("ok"):
-                post.status = "published"
-                post.published_at = datetime.utcnow().isoformat()
-                published.append(_serialize_post(post))
-            else:
-                skipped.append(post.id)
+        if due_at and due_at > now_ms:
+            skipped.append(post.id)
             continue
-        skipped.append(post.id)
-    await db.commit()
-    return {"status": "ok", "published": published, "skipped": skipped}
+        if not await _claim_for_publish(db, post.id, from_statuses=["approved", "scheduled"]):
+            skipped.append(post.id)
+            continue
+        await db.refresh(post)
+        hosted = _host_image(post.image_url, request)
+        if hosted:
+            post.image_url = hosted
+        bundled = await _publish_claimed(db, post, request)
+        if bundled.get("ok"):
+            published.append(_serialize_post(post))
+        else:
+            failed.append(_serialize_post(post))
+    return {"status": "ok", "published": published, "failed": failed, "skipped": skipped}
 
 
 @router.post("/publish-due")
@@ -940,11 +1248,25 @@ def _extract_plan_from_text(text: str) -> Optional[Dict[str, Any]]:
 async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
     prompt = payload.get("text") or payload.get("message") or ""
     messages = payload.get("messages") or []
-    api_key = (payload.get("apiKey") or payload.get("api_key") or "").strip() or None
-    provider = (payload.get("provider") or "openai").strip().lower()
-    model = payload.get("model") or ("gpt-4o-mini" if provider == "openai" else None)
-    base_url = payload.get("baseUrl") or payload.get("base_url")
+    text_ai = await _resolve_text_ai(db, payload)
+    api_key = text_ai["api_key"]
+    provider = text_ai["provider"]
+    model = text_ai["model"]
+    base_url = text_ai["base_url"]
     image_style = payload.get("imageStyle", "modern_saas")
+    if text_ai["error"]:
+        return {
+            "status": "error",
+            "reply": text_ai["error"],
+            "plan": None,
+            "topics": [],
+            "posts": [],
+            "postsCreated": [],
+            "model": model,
+            "provider": provider,
+            "error": text_ai["error"],
+            "needsKey": True,
+        }
 
     logger.info(
         f"[Scheduler Chat] Incoming /chat-plan request: provider={provider}, model={model}, "

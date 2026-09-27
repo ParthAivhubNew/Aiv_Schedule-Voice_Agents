@@ -130,7 +130,7 @@ export const api = {
   getRegistry: () => apiRequest('/prospects/registry'),
 
   // Calls
-  getLiveCalls: () => apiRequest('/calls/live'),
+  getLiveCalls: (opts = {}) => apiRequest(opts.includeEnded ? '/calls/live?include_ended=true' : '/calls/live'),
   endLiveCall: (callId) => apiRequest(`/calls/live/${callId}/end`, { method: 'POST' }),
   deleteLiveCall: (callId) => apiRequest(`/calls/live/${callId}`, { method: 'DELETE' }),
   clearLiveCalls: () => apiRequest('/calls/live', { method: 'DELETE' }),
@@ -238,6 +238,9 @@ export const api = {
   getSocialOauthApps: () => apiRequest('/scheduler/oauth/apps'),
   saveSocialOauthApp: (payload) => apiRequest('/scheduler/oauth/apps', { method: 'POST', body: payload }),
   startSocialOauth: (platform, frontend) => apiRequest(`/scheduler/oauth/${platform}/start${frontend ? `?frontend=${encodeURIComponent(frontend)}` : ''}`),
+  getSchedulerAiSettings: () => apiRequest('/scheduler/ai-settings'),
+  saveSchedulerAiSettings: (payload) => apiRequest('/scheduler/ai-settings', { method: 'POST', body: payload }),
+  testSchedulerAiSettings: () => apiRequest('/scheduler/ai-settings/test', { method: 'POST', timeoutMs: 30000 }),
 
   // Dedicated Process Logs (Multi-Subsystem)
   getProcessLogs: (params = {}) => {

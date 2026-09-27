@@ -48,6 +48,7 @@ import { setCallingEdition } from "./callingEdition";
 import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
 import { ConversationTemplatesView } from "../views/ConversationTemplatesView";
+import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
 
 const PAGES = [
   { id: "list", label: "List", icon: List },
@@ -172,6 +173,7 @@ const LS_THREADS = "aivhub_calling_v1_threads";
 const LS_LISTS = "aivhub_calling_saved_lists";
 const LS_NOTES = "aivhub_calling_v1_notes";
 const LS_CONTACTS = "aivhub_calling_saved_contacts";
+const LS_CALL_VIA = "aivhub_calling_call_via";
 const WELCOME = {
   id: "c0",
   who: "ai",
@@ -863,14 +865,31 @@ export function CallingWorkspace({
   const [voiceName, setVoiceName] = useState("ara-uk");
   const [customVoices, setCustomVoices] = useState([]);
   const [direct, setDirect] = useState({ phone: "", name: "" });
-  const [callVia, setCallVia] = useState("engine");
+  const [callVia, setCallViaState] = useState(() => {
+    try { return localStorage.getItem(LS_CALL_VIA) === "assistant" ? "assistant" : "engine"; } catch (_) { return "engine"; }
+  });
+  const setCallVia = (v) => {
+    setCallViaState(v);
+    try { localStorage.setItem(LS_CALL_VIA, v); } catch (_) {}
+  };
   const [telnyxAssistantConfigured, setTelnyxAssistantConfigured] = useState(false);
+  const assistantQueueRef = useRef([]);
+  const pumpingRef = useRef(false);
+  const [assistantQueued, setAssistantQueued] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    api.getTelnyxAssistantSettings()
-      .then((res) => { if (!cancelled) setTelnyxAssistantConfigured(!!(res && res.assistantId)); })
+    const load = () => api.getTelnyxAssistantSettings()
+      .then((res) => {
+        if (cancelled) return;
+        const ok = !!(res && res.assistantId);
+        setTelnyxAssistantConfigured(ok);
+        if (!ok) setCallViaState("engine");
+      })
       .catch(() => {});
-    return () => { cancelled = true; };
+    load();
+    // Saving the assistant in AI config takes effect here without a reload.
+    window.addEventListener("aivhub_telnyx_assistant_saved", load);
+    return () => { cancelled = true; window.removeEventListener("aivhub_telnyx_assistant_saved", load); };
   }, []);
   const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
   const [liveKitTarget, setLiveKitTarget] = useState({ name: "Browser Caller", phone: "Browser WebRTC", company: "" });
@@ -1258,9 +1277,20 @@ export function CallingWorkspace({
 
   const refreshLive = useCallback(async () => {
     try {
-      const data = await api.getLiveCalls();
+      const data = await api.getLiveCalls({ includeEnded: true });
       const list = Array.isArray(data) ? data : data?.calls || [];
-      setLiveCalls(withLiveClock(list));
+      setLiveCalls((prev) => {
+        const fresh = withLiveClock(list);
+        // Keep an optimistic card (dial HTTP still in flight) until a server call
+        // started at/after it appears — never longer than 20s.
+        const pending = (prev || []).filter((c) => {
+          if (!String(c.id || "").includes("pending_")) return false;
+          const t0 = new Date(c.startedAt || 0).getTime();
+          if (Date.now() - t0 > 20000) return false;
+          return !fresh.some((f) => liveActive(f) && new Date(f.startedAt || 0).getTime() >= t0 - 3000);
+        });
+        return pending.length ? [...pending, ...fresh] : fresh;
+      });
     } catch (_) {}
   }, [withLiveClock]);
 
@@ -1329,7 +1359,23 @@ export function CallingWorkspace({
     const onEvt = (msg) => {
       if (!msg || !msg.type) return;
       const t = msg.type;
-      if (["call_started", "call_created", "call_updated", "call_ended", "call_removed", "calls_cleared", "booking_confirmed"].includes(t)) {
+      if (t === "call_updated" && msg.data && (msg.data.callId || msg.data.id)) {
+        const d = msg.data;
+        const cid = d.callId || d.id;
+        let found = false;
+        setLiveCalls((prev) => (prev || []).map((c) => {
+          if (c.id !== cid) return c;
+          found = true;
+          return {
+            ...c,
+            ...(Array.isArray(d.transcript) ? { transcript: d.transcript } : {}),
+            ...(d.state ? { state: d.state } : {}),
+            ...(d.ended != null ? { ended: d.ended } : {}),
+            ...(d.duration && d.ended ? { duration: d.duration } : {}),
+          };
+        }));
+        if (!found || d.ended) refreshLive();
+      } else if (["call_started", "call_created", "call_ended", "call_removed", "calls_cleared", "booking_confirmed"].includes(t)) {
         refreshLive();
       }
       if (["call_ended", "booking_confirmed"].includes(t)) {
@@ -1678,6 +1724,46 @@ export function CallingWorkspace({
     }
   };
 
+  const swapPending = (pendingId, realId) => {
+    if (!realId) return;
+    setLiveCalls((prev) => {
+      const list = prev || [];
+      if (list.some((c) => c.id === realId)) return list.filter((c) => c.id !== pendingId);
+      return list.map((c) => (c.id === pendingId ? { ...c, id: realId } : c));
+    });
+  };
+
+  // Telnyx Assistant list dialing: keep at most `cap` assistant calls up, start the next as one ends.
+  const pumpAssistantQueue = useCallback(async (liveList) => {
+    const queue = assistantQueueRef.current;
+    if (!queue.length || pumpingRef.current) return;
+    pumpingRef.current = true;
+    try {
+    const cap = queue.cap || 1;
+    const running = (liveList || []).filter((c) => liveActive(c) && (c.carrier === "telnyx_assistant" || String(c.id || "").includes("pending_"))).length;
+    let slots = Math.max(0, cap - running);
+    while (slots > 0 && queue.length) {
+      const p = queue.shift();
+      slots -= 1;
+      setAssistantQueued(queue.length);
+      try {
+        const res = await api.dialViaTelnyxAssistant({ to: p.phone, prospect_name: p.contact || p.name || undefined, mission_title: queue.mission });
+        if (!res || res.success === false) throw new Error(res?.error || "Telnyx Assistant dial failed");
+      } catch (e) {
+        showToast(`${p.name || p.phone}: ${e.message || "dial failed"}`);
+      }
+    }
+    } finally {
+      // Dialed calls need a refresh before they count against the cap.
+      await refreshLive();
+      pumpingRef.current = false;
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (assistantQueueRef.current.length) pumpAssistantQueue(liveCalls);
+  }, [liveCalls, pumpAssistantQueue]);
+
   const callOneRow = async (r) => {
     const phone = String(rowPhone(r) || "").trim();
     if (digitsInPhone(phone).length < 7) {
@@ -1704,10 +1790,15 @@ export function CallingWorkspace({
     ]);
     try {
       if (callVia === "assistant") {
-        const res = await api.dialViaTelnyxAssistant({ to: phone });
+        const res = await api.dialViaTelnyxAssistant({
+          to: phone,
+          prospect_name: prospectLabel !== phone ? prospectLabel : undefined,
+          mission_title: (r.contact || r.company || r.name) ? `Direct — ${r.contact || r.company || r.name}` : undefined,
+        });
         if (!res || res.success === false) throw new Error(res?.error || "Telnyx Assistant dial failed");
+        swapPending(optimisticId, res.callId);
       } else {
-        await api.dialOutbound({
+        const res = await api.dialOutbound({
           to_number: phone,
           from_number: (profile && profile.callerId) || undefined,
           prospect_name: (r.contact || r.name || "").trim() || undefined,
@@ -1716,6 +1807,7 @@ export function CallingWorkspace({
             : "Direct Client Outreach",
           ...savedTwilioCreds(),
         });
+        swapPending(optimisticId, res && (res.call_id || res.callId));
       }
       pushNote(`Outbound to ${phone}`, "success");
       await refreshLive();
@@ -2058,6 +2150,18 @@ export function CallingWorkspace({
     }
     // 2+ selected → up to 2 at once. Whole list (or 0–1 selected) → 1 at a time.
     const cap = useSelected ? MAX_CONCURRENT : 1;
+    if (callVia === "assistant") {
+      const queue = prospects.map((p) => ({ phone: p.phone, name: p.name, contact: p.contact }));
+      queue.cap = cap;
+      queue.mission = fileName ? `List — ${fileName}` : `Outbound list — ${prospects.length} contacts`;
+      assistantQueueRef.current = queue;
+      setAssistantQueued(queue.length);
+      goPage("live");
+      showToast(`Telnyx Assistant: calling ${prospects.length} contact${prospects.length === 1 ? "" : "s"}, ${cap} at a time.`);
+      await pumpAssistantQueue(liveCalls);
+      await refreshLive();
+      return;
+    }
     
     // 0ms Optimistic UI transition: immediate page switch & live card render
     setBusy("dial");
@@ -2119,16 +2223,22 @@ export function CallingWorkspace({
     ]);
     try {
       if (callVia === "assistant") {
-        const res = await api.dialViaTelnyxAssistant({ to: phone });
+        const res = await api.dialViaTelnyxAssistant({
+          to: phone,
+          prospect_name: direct.name.trim() || undefined,
+          mission_title: direct.name.trim() ? `Direct — ${direct.name.trim()}` : undefined,
+        });
         if (!res || res.success === false) throw new Error(res?.error || "Telnyx Assistant dial failed");
+        swapPending(optimisticId, res.callId);
       } else {
-        await api.dialOutbound({
+        const res = await api.dialOutbound({
           to_number: phone,
           from_number: (profile && profile.callerId) || undefined,
           prospect_name: direct.name.trim() || undefined,
           mission_title: direct.name.trim() ? `Direct — ${direct.name.trim()}` : "Direct Client Outreach",
           ...savedTwilioCreds(),
         });
+        swapPending(optimisticId, res && (res.call_id || res.callId));
       }
       pushNote(`Outbound to ${phone}`, "success");
       await refreshLive();
@@ -2228,10 +2338,11 @@ export function CallingWorkspace({
         await api.updateProfile(next);
         if (setProfile) setProfile(next);
       }
+      const custom = (customVoices || []).find((cv) => (cv.voice_id || cv.id) === voiceName);
       await api.selectVoice({
         voice_id: voiceName,
-        label: voiceSelectLabel(voiceName),
-        provider: "xai",
+        label: custom ? (custom.name || voiceName) : voiceSelectLabel(voiceName),
+        provider: custom ? (custom.provider || undefined) : "xai",
         accent: voiceAccentFor(voiceName),
       });
       showToast(companyPanel ? "Voice saved." : "Setup saved.");
@@ -2243,6 +2354,7 @@ export function CallingWorkspace({
   };
 
   const activeLive = liveCalls.filter(liveActive);
+  const recentEnded = liveCalls.filter((c) => !liveActive(c) && !String(c.id || "").includes("pending_")).slice(0, 8);
   const dialable = rows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).length;
   const selectedDialable = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(rowPhone(r)).length >= 7).length;
   const allDialableSelected = dialable > 0 && selectedDialable === dialable;
@@ -3195,52 +3307,38 @@ export function CallingWorkspace({
 
           {page === "live" && (
             <div style={{ display: "grid", gap: 12 }}>
+              <style>{LIVE_CARD_KEYFRAMES}</style>
+              {assistantQueued > 0 ? (
+                <div style={{ ...card(), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+                  <span style={{ flex: 1 }}><b>{assistantQueued}</b> more contact{assistantQueued === 1 ? "" : "s"} queued for the Telnyx Assistant — the next one dials as soon as a line frees up.</span>
+                  <button type="button" onClick={() => { assistantQueueRef.current = []; setAssistantQueued(0); showToast("Queue stopped."); }} style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", fontWeight: 700 }}>Stop queue</button>
+                </div>
+              ) : null}
               {!activeLive.length ? (
-                <div style={{ ...card(), padding: 48, textAlign: "center", color: C.slate }}>No live PSTN calls. Use Call now or a list.</div>
+                <div style={{ ...card(), padding: 40, textAlign: "center", color: C.slate }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, marginBottom: 6 }}>No calls in progress</div>
+                  <div style={{ fontSize: 13 }}>Dial someone from <b>Call anyone</b> or start calls from a list — they show here the moment they ring.</div>
+                  <button type="button" onClick={() => goPage("list")} style={{ marginTop: 14, height: 36, padding: "0 14px", borderRadius: 9, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Go to list</button>
+                </div>
               ) : activeLive.map((c) => {
                 const id = c.id || c.call_sid;
-                const name = c.prospect || c.prospect_name || c.contact || c.name || "Unknown";
-                const st = c.state || c.status || "calling";
-                const lines = c.transcript || [];
                 return (
-                  <div key={id} style={{ ...card(), borderColor: takenId === id ? C.red : listeningId === id ? C.cobalt : C.border, borderWidth: 1.5 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-                      <div>
-                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>{name}</div>
-                        <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{st} · {c.duration || ""} · {c.mission || ""}</div>
-                      </div>
-                      {takenId === id ? <span style={{ color: C.red, fontWeight: 800, fontSize: 11 }}>HUMAN DRIVING</span> : null}
-                    </div>
-                    <div style={{ background: C.paper, borderRadius: 10, padding: 10, marginTop: 12, maxHeight: 120, overflowY: "auto", fontFamily: FONT_MONO, fontSize: 11.5 }}>
-                      {lines.length ? lines.map((line, i) => (
-                        <div key={i} style={{ color: String(line).startsWith("AI") ? C.cobaltDeep : C.textInk, marginBottom: 4 }}>{typeof line === "string" ? line : `${line.who}: ${line.text}`}</div>
-                      )) : <div style={{ color: C.slateLight }}>Waiting for speech…</div>}
-                    </div>
-                    {endingId === id ? (
-                      <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", background: C.redSoft, padding: 10, borderRadius: 10 }}>
-                        <span style={{ flex: 1, fontSize: 13, color: C.red }}>End this call?</span>
-                        <button type="button" onClick={() => setEndingId(null)} style={{ height: 32, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer" }}>Cancel</button>
-                        <button type="button" onClick={() => endCall(id)} style={{ height: 32, padding: "0 10px", borderRadius: 8, border: "none", background: C.red, color: "#fff", cursor: "pointer", fontWeight: 700 }}>Confirm</button>
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => toggleListen(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${listeningId === id ? C.cobalt : C.border}`, background: listeningId === id ? C.cobaltSoft : "#fff", color: listeningId === id ? C.cobalt : C.textInk, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
-                          <Headphones size={14} /> {listeningId === id ? "Stop listen" : "Listen"}
-                        </button>
-                        <button type="button" onClick={() => toggleTakeover(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: takenId === id ? C.redSoft : "#fff", cursor: "pointer", fontWeight: 700 }}>
-                          {takenId === id ? "Hand back to AI" : "Take over"}
-                        </button>
-                        <button type="button" onClick={() => bookMeeting(id)} title="Books from what was said on this call (time + email in transcript) onto the real calendar" style={{ height: 38, padding: "0 12px", borderRadius: 9, border: "none", background: C.green, color: "#fff", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-                          <Calendar size={14} /> Book from call
-                        </button>
-                        <button type="button" onClick={() => setEndingId(id)} style={{ height: 38, padding: "0 12px", borderRadius: 9, border: "none", background: C.redSoft, color: C.red, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
-                          <PhoneOff size={14} /> End
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <LiveCallCard
+                    key={id}
+                    call={c}
+                    listening={listeningId === id}
+                    taken={takenId === id}
+                    confirmingEnd={endingId === id}
+                    onListen={() => toggleListen(id)}
+                    onTakeover={() => toggleTakeover(id)}
+                    onBook={() => bookMeeting(id)}
+                    onAskEnd={() => setEndingId(id)}
+                    onCancelEnd={() => setEndingId(null)}
+                    onConfirmEnd={() => endCall(id)}
+                  />
                 );
               })}
+              <RecentlyEndedList calls={recentEnded} onOpenHistory={() => goPage("logs")} />
             </div>
           )}
 

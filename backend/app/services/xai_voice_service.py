@@ -808,7 +808,7 @@ async def build_xai_system_instructions(
     voice_raw = ""
     try:
         async with AsyncSessionLocal() as acc_db:
-            c_res = await acc_db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            c_res = await acc_db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
             eng = c_res.scalars().first()
             acc = ""
             if eng and isinstance(eng.config, dict):
@@ -1555,7 +1555,7 @@ async def join_xai_call_session(
         from app.models.models import Connection
         from app.services.secret_box import config_get_secret, open_config
         async with AsyncSessionLocal() as db:
-            c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
             c = c_res.scalars().first()
             if c and c.config and isinstance(c.config, dict):
                 # Decrypt the config to access all fields
