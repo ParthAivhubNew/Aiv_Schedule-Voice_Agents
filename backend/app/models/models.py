@@ -393,7 +393,7 @@ class SocialPost(Base):
     title = Column(String, nullable=False)
     copy = Column(Text, nullable=False)
     channels = Column(JSON, default=lambda: ["linkedin", "x"])
-    status = Column(String, default="draft")  # draft, awaiting_approval, approved, scheduled, published
+    status = Column(String, default="draft")  # awaiting_approval, approved, publishing, published, failed
     slot_date_ms = Column(Float, nullable=True)
     time = Column(String, default="10:00")
     theme = Column(String, default="General")
@@ -413,7 +413,19 @@ class SocialPost(Base):
     adapt_per_channel = Column(Boolean, default=False)
     publish_results = Column(JSON, default=list)
     published_at = Column(String, nullable=True)
+    # Exact publish instant (epoch ms) computed in the user's browser timezone.
+    # slot_date_ms + time is kept for the Classic edition / legacy rows.
+    due_at_ms = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SchedulerSetting(Base):
+    """Post Scheduler preferences (which text/image AI to use). Keys live in Connection rows."""
+    __tablename__ = "scheduler_settings"
+
+    id = Column(String, primary_key=True, default="default")
+    data = Column(JSON, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class SocialAccount(Base):

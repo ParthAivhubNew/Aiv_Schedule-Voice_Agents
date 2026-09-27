@@ -330,6 +330,23 @@ def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 120
     return f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}"
 
 
+def _image_provider_id(raw: Optional[str]) -> str:
+    p = (raw or "").strip().lower()
+    if not p or p == "auto":
+        return ""
+    if any(x in p for x in ("chatgpt", "gpt", "dall", "openai")):
+        return "openai"
+    if "stability" in p or "sdxl" in p:
+        return "stability"
+    if "fal" in p:
+        return "fal"
+    if "pollinations" in p or "flux" in p or p == "free":
+        return "pollinations"
+    if "custom" in p:
+        return "custom"
+    return p
+
+
 async def resolve_image_credentials(
     db: Any = None,
     provider: Optional[str] = None,
@@ -337,18 +354,23 @@ async def resolve_image_credentials(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Prefer the saved IMAGE connection (custom / OpenAI). Never send an xAI voice key to an image API."""
+    """Resolve the image engine.
+
+    An explicitly chosen provider is honoured: "pollinations" stays free even when a paid
+    key is saved, and "openai"/"stability"/"fal" use that provider's saved IMAGE key (OpenAI
+    may also reuse the saved OpenAI LLM key - same account). Only when no provider is chosen
+    ("auto") does the first saved IMAGE connection, then OPENAI_API_KEY, then Pollinations win.
+    Never sends an xAI voice key to an image API.
+    """
     from app.config import settings
     from sqlalchemy.future import select
     from app.models.models import Connection
     from app.services.secret_box import reject_if_masked, config_get_secret
 
-    prov = (provider or "").strip().lower()
-    key = reject_if_masked(api_key)
+    prov = _image_provider_id(provider)
+    key = reject_if_masked(api_key) or ""
     mod = (model or "").strip()
     burl = (base_url or "").strip()
-    if prov in ("chatgpt", "gpt", "dall-e", "dalle"):
-        prov = "openai"
 
     def _is_xai(k: str) -> bool:
         return (k or "").startswith("xai-")
@@ -356,70 +378,69 @@ async def resolve_image_credentials(
     if _is_xai(key):
         key = ""
 
-    img_row = None
-    if db is not None:
+    if prov == "pollinations":
+        return {"provider": "pollinations", "api_key": "", "model": mod if "flux" in mod.lower() else "", "base_url": ""}
+
+    image_rows: List[Dict[str, Any]] = []
+    openai_llm_key = ""
+    if db is not None and not key:
         try:
             res = await db.execute(select(Connection))
-            conns = list(res.scalars().all())
-            image_conns = [
-                c for c in conns
-                if c.status == "connected" and str(c.group_name or "").upper().startswith("IMAGE")
-            ]
-            prefer = image_conns or [
-                c for c in conns
-                if c.status == "connected" and "image" in str(c.name or "").lower()
-            ]
-            for c in prefer:
+            for c in res.scalars().all():
                 cfg = c.config if isinstance(c.config, dict) else {}
                 k = config_get_secret(cfg, "api_key", "apiKey")
-                if k and not _is_xai(k):
-                    img_row = {
-                        "provider": (cfg.get("provider") or c.name or "custom").strip().lower(),
+                if not k or _is_xai(k):
+                    continue
+                group = str(c.group_name or "").upper()
+                row_prov = _image_provider_id(cfg.get("provider") or c.name) or "custom"
+                if group.startswith("IMAGE") or (c.status == "connected" and "image" in str(c.name or "").lower()):
+                    image_rows.append({
+                        "provider": row_prov,
                         "api_key": k,
                         "base_url": (cfg.get("base_url") or cfg.get("baseUrl") or "").strip(),
                         "model": (cfg.get("model") or "").strip(),
-                    }
-                    break
+                        "connected": c.status == "connected",
+                    })
+                elif group == "LLM" and row_prov == "openai" and not openai_llm_key:
+                    openai_llm_key = k
         except Exception as e:
             logger.warning(f"IMAGE connection lookup failed: {e}")
 
-    if img_row:
-        row_prov = img_row["provider"]
-        if row_prov in ("chatgpt", "gpt", "dall-e", "dalle"):
-            row_prov = "openai"
-        # Saved IMAGE connection is the engine. Do not let an LLM/xAI key steal this slot.
-        prov = row_prov or prov or "custom"
-        key = img_row["api_key"] or key
-        burl = img_row["base_url"] or burl
-        mod = img_row["model"] or mod
-        if not mod and (prov == "custom" or "gpt-image" in (burl or "").lower()):
-            mod = "gpt-image-2.5-flare"
+    if not key:
+        if prov:
+            matches = [r for r in image_rows if r["provider"] == prov]
+        else:
+            matches = [r for r in image_rows if r["connected"]] or image_rows
+        row = matches[0] if matches else None
+        if row:
+            prov = prov or row["provider"]
+            key = row["api_key"]
+            burl = burl or row["base_url"]
+            mod = mod or row["model"]
+        elif prov == "openai" and openai_llm_key:
+            key = openai_llm_key
 
-    explicit_paid = any(x in (prov or "") for x in ("stability", "fal", "custom", "openai", "dall"))
     env_openai = (getattr(settings, "OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY") or "").strip()
     if _is_xai(env_openai):
         env_openai = ""
+    if not key and prov in ("", "openai") and env_openai:
+        prov, key = "openai", env_openai
 
-    if explicit_paid and (key or burl):
-        return {
-            "provider": prov or "custom",
-            "api_key": key,
-            "model": mod,
-            "base_url": burl,
-        }
-    if env_openai:
-        return {
-            "provider": "openai",
-            "api_key": env_openai,
-            "model": mod if mod and ("dall-e" in mod or "gpt-image" in mod) else "dall-e-3",
-            "base_url": burl or "https://api.openai.com/v1",
-        }
-    return {
-        "provider": prov or "pollinations",
-        "api_key": key,
-        "model": mod,
-        "base_url": burl,
-    }
+    if prov == "custom" and not mod and "gpt-image" in (burl or "").lower():
+        mod = "gpt-image-2.5-flare"
+    if prov == "openai":
+        if not (mod and ("dall-e" in mod or "gpt-image" in mod)):
+            mod = "dall-e-3"
+        burl = burl or "https://api.openai.com/v1"
+
+    if prov and prov != "pollinations" and (key or (prov == "custom" and burl)):
+        return {"provider": prov, "api_key": key, "model": mod, "base_url": burl}
+
+    # Chosen paid engine has no key: fall back to free, and say why.
+    result = {"provider": "pollinations", "api_key": "", "model": "", "base_url": ""}
+    if prov and prov != "pollinations":
+        result["missing_key_for"] = prov
+    return result
 
 
 async def generate_image_with_provider(
@@ -441,10 +462,10 @@ async def generate_image_with_provider(
     creds = await resolve_image_credentials(
         db=db, provider=provider, api_key=api_key, model=model, base_url=base_url
     )
-    prov = (creds.get("provider") or provider or "pollinations").lower().strip()
-    api_key = creds.get("api_key") or api_key
-    model = creds.get("model") or model
-    base_url = creds.get("base_url") or base_url
+    prov = (creds.get("provider") or "pollinations").lower().strip()
+    api_key = creds.get("api_key") or ""
+    model = creds.get("model") or ""
+    base_url = creds.get("base_url") or ""
     paid = prov in ("openai", "stability", "fal", "custom") and bool((api_key or "").strip() or (base_url or "").strip())
 
     clean_prompt = (prompt or "").strip() or "Business intelligence operations dashboard analytics"
@@ -455,6 +476,11 @@ async def generate_image_with_provider(
     w = int(width or def_w)
     h = int(height or def_h)
     fallback_warning = None
+    if creds.get("missing_key_for"):
+        fallback_warning = (
+            f"No {creds['missing_key_for']} image key saved - used the free image engine. "
+            "Add the key in Accounts & AI."
+        )
 
     # 1. OpenAI (DALL-E 3 / gpt-image-1)
     if ("openai" in prov or "dall" in prov) and api_key and api_key.strip():
@@ -706,7 +732,10 @@ async def generate_image_with_provider(
         "width": w,
         "height": h,
         "fallback": True,
-        "warning": fallback_warning or "No OpenAI/ChatGPT image key saved — used free Pollinations.",
+        "warning": fallback_warning or (
+            None if _image_provider_id(provider) == "pollinations"
+            else "No OpenAI/ChatGPT image key saved — used free Pollinations."
+        ),
     }
     return resp
 
@@ -950,22 +979,16 @@ Return ONLY valid JSON:
         llm_payload["skipImage"] = True
         return llm_payload
 
-    # Generate Image with Provider & Key
-    img_creds = await resolve_image_credentials(
-        db=db,
-        provider=image_provider,
-        api_key=image_api_key or api_key,
-        model=image_model,
-        base_url=image_base_url or base_url,
-    )
+    # Generate image. The text-model key is never reused for images: the image engine
+    # resolves its own key (see resolve_image_credentials).
     img_prompt = linkedin_image_prompt(llm_payload, clean_topic, brand)
     width, height = ASPECT_RATIOS.get(aspect_ratio, (1080, 1350))
     img_res = await generate_image_with_provider(
         prompt=img_prompt,
-        provider=img_creds.get("provider") or image_provider,
-        api_key=img_creds.get("api_key") or image_api_key,
-        model=img_creds.get("model") or image_model,
-        base_url=img_creds.get("base_url") or image_base_url,
+        provider=image_provider,
+        api_key=image_api_key,
+        model=image_model,
+        base_url=image_base_url,
         style=style,
         aspect_ratio=aspect_ratio,
         width=width,

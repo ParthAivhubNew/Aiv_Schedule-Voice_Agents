@@ -678,7 +678,7 @@ async def publish_post_to_accounts(post, accounts: List[Any], public_base: Optio
             results.append({
                 "ok": False,
                 "platform": plat,
-                "error": f"No connected {plat} account. Open Accounts and paste an access token.",
+                "error": f"No connected {plat} account. Connect it under Accounts & AI.",
             })
             continue
         text = copy_for_platform(post, plat)

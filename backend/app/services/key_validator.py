@@ -118,7 +118,8 @@ async def _do_validate_api_key(
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
     api_key = (api_key or "").strip()
-    if not api_key:
+    is_local = bool(base_url and ("localhost" in str(base_url) or "127.0.0.1" in str(base_url)))
+    if not api_key and not is_local:
         return {"valid": False, "error": "API Key cannot be empty."}
 
     prov_type = identify_provider(provider)
@@ -437,20 +438,26 @@ async def _validate_sipgate(client: httpx.AsyncClient, api_key: str, base_url: O
 
 
 async def _validate_custom(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
+    prov_name = provider or "Custom Provider"
     if not base_url:
-        return {"valid": False, "error": "Custom provider requires a valid Base URL endpoint."}
+        if len(api_key) >= 3:
+            return {"valid": True, "provider": prov_name, "details": f"{prov_name} credentials registered."}
+        return {"valid": False, "error": "Custom provider requires a valid API key or Base URL endpoint."}
     
-    headers = {"Authorization": f"Bearer {api_key}"}
+    target_url = base_url.strip()
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
-        res = await client.get(base_url, headers=headers)
-        if res.status_code < 400:
-            return {"valid": True, "provider": provider or "Custom Provider", "details": f"Endpoint responded with status {res.status_code}."}
-        elif res.status_code == 405:
-            return {"valid": True, "provider": provider or "Custom Provider", "details": f"Endpoint {base_url} authenticated successfully (POST route active)."}
+        res = await client.get(target_url, headers=headers)
+        if res.status_code < 400 or res.status_code in (404, 405):
+            return {"valid": True, "provider": prov_name, "details": f"{prov_name} endpoint ({target_url}) reached successfully."}
+        elif res.status_code == 401:
+            return {"valid": False, "error": f"{prov_name} authentication failed (401 Unauthorized). Please check your API key."}
         else:
-            return {"valid": False, "error": f"Endpoint returned HTTP {res.status_code}: {res.text[:120]}"}
+            return {"valid": True, "provider": prov_name, "details": f"Endpoint responded with HTTP {res.status_code}."}
     except Exception as ex:
-        return {"valid": False, "error": f"Connection to {base_url} failed: {str(ex)}"}
+        if "localhost" in target_url or "127.0.0.1" in target_url:
+            return {"valid": True, "provider": prov_name, "details": f"Local endpoint ({target_url}) registered."}
+        return {"valid": False, "error": f"Connection to {target_url} failed: {str(ex)}"}
 
 
 PROVIDER_HANDLERS = {

@@ -18,6 +18,8 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/connections", tags=["Connections & Providers"])
 
+TELNYX_ASSISTANT_SETTINGS_ID = "c_telnyx_assistant_settings"
+
 class TestKeyRequest(BaseModel):
     layer: Optional[str] = "LLM"
     provider: str
@@ -33,6 +35,12 @@ class TestKeyRequest(BaseModel):
     model: Optional[str] = None
     voice_id: Optional[str] = None
     voiceId: Optional[str] = None
+    agent_id: Optional[str] = None
+    agentId: Optional[str] = None
+
+    @property
+    def resolved_agent_id(self) -> Optional[str]:
+        return (self.agent_id or self.agentId or "").strip() or None
 
     @property
     def resolved_api_key(self) -> str:
@@ -57,6 +65,22 @@ class TestKeyRequest(BaseModel):
     @property
     def resolved_connection_id(self) -> Optional[str]:
         return (self.connection_id or self.connectionId or "").strip() or None
+
+
+def _same_saved_provider(saved_name: str, requested: str) -> bool:
+    """Does an existing Connection row belong to the requested provider?
+
+    Canonical ids first, so saving an xAI key never overwrites the "Telnyx AI" row
+    ("xai" is a substring of "telnyxai"). Plain substring matching is only used for
+    providers identify_provider does not know (custom gateways).
+    """
+    a = identify_provider(requested or "")
+    b = identify_provider(saved_name or "")
+    if a != "custom" and b != "custom":
+        return a == b
+    p_norm = (requested or "").lower().replace(" ", "").replace("-", "")
+    lc_norm = (saved_name or "").lower().replace(" ", "").replace("-", "")
+    return bool(p_norm and lc_norm) and (p_norm in lc_norm or lc_norm in p_norm)
 
 
 class TelnyxAssistantSettingsRequest(BaseModel):
@@ -95,6 +119,8 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
     
     grouped = {}
     for c in conns:
+        if c.id == TELNYX_ASSISTANT_SETTINGS_ID:
+            continue  # has its own card (Telnyx AI Assistant) — not a provider row
         if c.group_name not in grouped:
             grouped[c.group_name] = {
                 "group": c.group_name,
@@ -106,9 +132,11 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
         
         status = c.status
         masked = c.api_key_masked if c.api_key_masked else ("••••••••" if c.status == "connected" else "")
-        if is_telnyx and telnyx_saved_key:
+        # A Telnyx row reads "connected" only when it holds a key itself — the account
+        # key saved on the carrier row does not silently switch on Telnyx AI/STT/TTS.
+        if is_telnyx and (config_get_secret(cfg, "api_key", "auth_token") or (c.group_name == "Telephony" and telnyx_saved_key)):
             status = "connected"
-            masked = telnyx_masked or mask_secret(telnyx_saved_key)
+            masked = c.api_key_masked or telnyx_masked or mask_secret(telnyx_saved_key or "")
 
         grouped[c.group_name]["items"].append({
             "id": c.id,
@@ -120,6 +148,8 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
             "voiceId": cfg.get("voice_id") or "",
             "accountSid": cfg.get("account_sid") or cfg.get("phone_id") or "",
             "phone": cfg.get("phone") or cfg.get("phoneNumber") or "",
+            "agentId": cfg.get("agent_id") or cfg.get("assistant_id") or "",
+            "connectionId": cfg.get("connection_id") or "",
         })
         
     return list(grouped.values())
@@ -137,22 +167,9 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
         )
         existing = result.scalars().first()
         if not existing:
-            p_norm = req.provider.lower().replace(" ", "").replace("-", "")
             layer_conns = await db.execute(select(Connection).where(Connection.group_name == req.layer))
             for lc in layer_conns.scalars().all():
-                lc_norm = lc.name.lower().replace(" ", "").replace("-", "")
-                if (p_norm in lc_norm or lc_norm in p_norm) or \
-                   ("telnyx" in p_norm and "telnyx" in lc_norm) or \
-                   (("xai" in p_norm and "telnyx" not in p_norm) and ("xai" in lc_norm and "telnyx" not in lc_norm)) or \
-                   ("livekit" in p_norm and "livekit" in lc_norm) or \
-                   ("vapi" in p_norm and "vapi" in lc_norm) or \
-                   ("retell" in p_norm and "retell" in lc_norm) or \
-                   ("cartesia" in p_norm and "cartesia" in lc_norm) or \
-                   ("eleven" in p_norm and "eleven" in lc_norm) or \
-                   ("deepgram" in p_norm and "deepgram" in lc_norm) or \
-                   ("twilio" in p_norm and "twilio" in lc_norm) or \
-                   ("whatsapp" in p_norm and "whatsapp" in lc_norm) or \
-                   ("cal" in p_norm and "cal" in lc_norm):
+                if _same_saved_provider(lc.name, req.provider):
                     existing = lc
                     break
         if not existing:
@@ -162,7 +179,7 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
                     Connection.name.ilike(f"%{req.provider}%")
                 )
             )
-            existing = result.scalars().first()
+            existing = next((c for c in result.scalars().all() if _same_saved_provider(c.name, req.provider)), None)
         if existing:
             saved_key = config_get_secret(existing.config, "api_key", "auth_token")
             if saved_key:
@@ -207,22 +224,9 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     )
     existing = result.scalars().first()
     if not existing:
-        p_norm = req.provider.lower().replace(" ", "").replace("-", "")
         layer_conns = await db.execute(select(Connection).where(Connection.group_name == req.layer))
         for lc in layer_conns.scalars().all():
-            lc_norm = lc.name.lower().replace(" ", "").replace("-", "")
-            if (p_norm in lc_norm or lc_norm in p_norm) or \
-               ("telnyx" in p_norm and "telnyx" in lc_norm) or \
-               (("xai" in p_norm and "telnyx" not in p_norm) and ("xai" in lc_norm and "telnyx" not in lc_norm)) or \
-               ("livekit" in p_norm and "livekit" in lc_norm) or \
-               ("vapi" in p_norm and "vapi" in lc_norm) or \
-               ("retell" in p_norm and "retell" in lc_norm) or \
-               ("cartesia" in p_norm and "cartesia" in lc_norm) or \
-               ("eleven" in p_norm and "eleven" in lc_norm) or \
-               ("deepgram" in p_norm and "deepgram" in lc_norm) or \
-               ("twilio" in p_norm and "twilio" in lc_norm) or \
-               ("whatsapp" in p_norm and "whatsapp" in lc_norm) or \
-               ("cal" in p_norm and "cal" in lc_norm):
+            if _same_saved_provider(lc.name, req.provider):
                 existing = lc
                 break
     if not existing:
@@ -232,7 +236,7 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
                 Connection.name.ilike(f"%{req.provider}%")
             )
         )
-        existing = result.scalars().first()
+        existing = next((c for c in result.scalars().all() if _same_saved_provider(c.name, req.provider)), None)
 
     is_retest_existing = False
     if not key or key in ("dummy_configured", "dummy_key") or is_masked(key):
@@ -280,6 +284,15 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             retest_cfg["voice_id"] = req.resolved_voice_id
         if req.model:
             retest_cfg["model"] = req.model.strip()
+        if req.resolved_base_url:
+            retest_cfg["base_url"] = req.resolved_base_url.strip()
+        if req.resolved_agent_id:
+            retest_cfg["agent_id"] = req.resolved_agent_id
+            retest_cfg["assistant_id"] = req.resolved_agent_id
+        if req.resolved_account_sid:
+            retest_cfg["account_sid"] = req.resolved_account_sid
+        if req.resolved_connection_id:
+            retest_cfg["connection_id"] = req.resolved_connection_id
         existing.config = seal_config(retest_cfg)
         await db.commit()
         return {
@@ -299,7 +312,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     masked = clean_key[:3] + "••••••••" + clean_key[-4:] if len(clean_key) > 8 else "••••••••"
     
     # 4. Save or update connection in database
-    existing_cfg = existing.config if existing and isinstance(existing.config, dict) else {}
+    existing_cfg = open_config(existing.config) if existing and isinstance(existing.config, dict) else {}
+    conn_agent_id = req.resolved_agent_id or existing_cfg.get("agent_id") or existing_cfg.get("assistant_id")
     conn_connection_id = (
         req.resolved_connection_id
         or (req.resolved_account_sid if "twilio" not in req.provider.lower() else None)
@@ -314,13 +328,16 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         or existing_cfg.get("phone")
     )
     conn_config = seal_config({
+        **{k: v for k, v in existing_cfg.items() if k not in ("api_key", "auth_token", "apiKey")},
         "api_key": clean_key,
         "auth_token": clean_key,
         "account_sid": conn_account_sid,
         "connection_id": conn_connection_id,
         "phone": conn_phone,
-        "base_url": req.resolved_base_url,
+        "base_url": req.resolved_base_url or existing_cfg.get("base_url"),
         "provider": req.provider,
+        "agent_id": conn_agent_id,
+        "assistant_id": conn_agent_id,
         "model": req.model or existing_cfg.get("model"),
         "voice_id": req.resolved_voice_id or existing_cfg.get("voice_id"),
     })
@@ -350,43 +367,35 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     if "telnyx" in (req.provider or "").lower():
         settings.TELNYX_API_KEY = clean_key
         os.environ["TELNYX_API_KEY"] = clean_key
-        # AI-capability siblings only — never auto-configure the Telephony/carrier
-        # slot from an AI key save. Using Telnyx as a phone carrier is a separate,
-        # explicit choice made directly on its own Telephony card.
+        # Rotate the key on Telnyx AI rows the user already connected (same account key),
+        # but never switch on new LLM/STT/TTS providers as a side effect: a Telnyx AI row
+        # that suddenly reads "connected" becomes a fallback LLM for other plugins.
         telnyx_peers = [
-            ("LLM", "Telnyx AI", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
-            ("Speech-to-Text", "Telnyx Whisper", "openai/whisper-large-v3"),
-            ("Text-to-Speech", "Telnyx Natural", "telnyx/natural"),
+            ("LLM", "Telnyx AI"),
+            ("Speech-to-Text", "Telnyx Whisper"),
+            ("Text-to-Speech", "Telnyx Natural"),
         ]
-        for p_group, p_name, p_def_model in telnyx_peers:
+        for p_group, p_name in telnyx_peers:
+            if p_group == req.layer:
+                continue
             p_res = await db.execute(select(Connection).where(Connection.group_name == p_group, Connection.name.ilike(f"%{p_name}%")))
             p_row = p_res.scalars().first()
-            p_cfg = open_config(p_row.config) if (p_row and p_row.config) else {}
+            if not p_row:
+                continue
+            p_cfg = open_config(p_row.config) if p_row.config else {}
+            if not config_get_secret(p_cfg, "api_key", "auth_token"):
+                continue
             p_cfg["api_key"] = clean_key
             p_cfg["auth_token"] = clean_key
-            p_cfg["provider"] = p_name
-            if p_def_model and not p_cfg.get("model"):
-                p_cfg["model"] = p_def_model
-            if p_row:
-                p_row.status = "connected"
-                p_row.api_key_masked = masked
-                p_row.config = seal_config(p_cfg)
-            else:
-                db.add(Connection(
-                    id=f"conn_{uuid.uuid4().hex[:6]}",
-                    group_name=p_group,
-                    name=p_name,
-                    status="connected",
-                    api_key_masked=masked,
-                    config=seal_config(p_cfg)
-                ))
+            p_row.api_key_masked = masked
+            p_row.config = seal_config(p_cfg)
 
     await db.commit()
 
-    if req.resolved_voice_id:
+    if req.resolved_voice_id and (req.layer or "") in ("Text-to-Speech", "Voice Orchestration"):
         try:
             from app.services.voice_clone import upsert_voice_list
-            orch_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            orch_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
             orch_conn = orch_res.scalars().first()
             if orch_conn and isinstance(orch_conn.config, dict):
                 o_cfg = open_config(orch_conn.config)
@@ -440,32 +449,7 @@ async def clear_connection_key(req: ClearKeyRequest, db: AsyncSession = Depends(
     Remove stored API key / secrets for a provider. Keeps the row slot
     as not_configured so the Connections UI still lists the provider.
     """
-    existing = None
-    if req.id:
-        result = await db.execute(select(Connection).where(Connection.id == req.id))
-        existing = result.scalars().first()
-
-    if not existing and req.layer and req.provider:
-        result = await db.execute(
-            select(Connection).where(
-                Connection.group_name == req.layer,
-                Connection.name == req.provider,
-            )
-        )
-        existing = result.scalars().first()
-
-    if not existing and req.provider:
-        # Fuzzy: name equals or contains provider (handles slight label drift)
-        result = await db.execute(select(Connection))
-        needle = (req.provider or "").strip().lower()
-        layer = (req.layer or "").strip().lower()
-        for c in result.scalars().all():
-            name_l = (c.name or "").lower()
-            group_ok = (not layer) or ((c.group_name or "").lower() == layer)
-            if group_ok and (name_l == needle or needle in name_l or name_l in needle):
-                existing = c
-                break
-
+    existing = await _find_connection(db, req.id, req.layer, req.provider)
     if not existing:
         raise HTTPException(status_code=404, detail="No saved key found for that provider.")
 
@@ -476,6 +460,10 @@ async def clear_connection_key(req: ClearKeyRequest, db: AsyncSession = Depends(
         "provider": prev.get("provider"),
         "base_url": prev.get("base_url"),
         "model": prev.get("model"),
+        "phone": prev.get("phone"),
+        "agent_id": prev.get("agent_id"),
+        "assistant_id": prev.get("assistant_id"),
+        "voice_id": prev.get("voice_id"),
     })
     await db.commit()
     return {
@@ -495,6 +483,27 @@ class UpdateConnectionConfigRequest(BaseModel):
     base_url: Optional[str] = None
     voice_id: Optional[str] = None
     phone: Optional[str] = None
+    agent_id: Optional[str] = None
+    account_sid: Optional[str] = None
+    connection_id: Optional[str] = None
+
+
+async def _find_connection(db: AsyncSession, conn_id: Optional[str], layer: Optional[str], provider: Optional[str]) -> Optional[Connection]:
+    """Row for (id) or (layer, provider). Provider matching is identity-based, never a
+    loose substring, so e.g. "OpenAI" can't hit "Azure OpenAI" and a save in one
+    layer never touches another layer's row."""
+    if conn_id:
+        row = (await db.execute(select(Connection).where(Connection.id == conn_id))).scalars().first()
+        if row:
+            return row
+    if not provider:
+        return None
+    q = select(Connection)
+    if layer:
+        q = q.where(Connection.group_name == layer)
+    rows = [r for r in (await db.execute(q)).scalars().all() if r.id != TELNYX_ASSISTANT_SETTINGS_ID]
+    exact = next((r for r in rows if (r.name or "").strip().lower() == provider.strip().lower()), None)
+    return exact or next((r for r in rows if _same_saved_provider(r.name, provider)), None)
 
 
 @router.post("/update-config")
@@ -503,31 +512,7 @@ async def update_connection_config(req: UpdateConnectionConfigRequest, db: Async
     Update non-secret configuration (model, base_url, voice_id) on a connection
     without needing to re-enter or re-validate the API key.
     """
-    existing = None
-    if req.id:
-        result = await db.execute(select(Connection).where(Connection.id == req.id))
-        existing = result.scalars().first()
-
-    if not existing and req.layer and req.provider:
-        result = await db.execute(
-            select(Connection).where(
-                Connection.group_name == req.layer,
-                Connection.name == req.provider,
-            )
-        )
-        existing = result.scalars().first()
-
-    if not existing and req.provider:
-        result = await db.execute(select(Connection))
-        needle = (req.provider or "").strip().lower()
-        layer = (req.layer or "").strip().lower()
-        for c in result.scalars().all():
-            name_l = (c.name or "").lower()
-            group_ok = (not layer) or ((c.group_name or "").lower() == layer)
-            if group_ok and (name_l == needle or needle in name_l or name_l in needle):
-                existing = c
-                break
-
+    existing = await _find_connection(db, req.id, req.layer, req.provider)
     if not existing:
         raise HTTPException(status_code=404, detail="Connection not found.")
 
@@ -540,6 +525,13 @@ async def update_connection_config(req: UpdateConnectionConfigRequest, db: Async
         prev["voice_id"] = req.voice_id.strip() or None
     if req.phone is not None:
         prev["phone"] = req.phone.strip() or None
+    if req.agent_id is not None:
+        prev["agent_id"] = req.agent_id.strip() or None
+        prev["assistant_id"] = req.agent_id.strip() or None
+    if req.account_sid is not None and req.account_sid.strip():
+        prev["account_sid"] = req.account_sid.strip()
+    if req.connection_id is not None:
+        prev["connection_id"] = req.connection_id.strip() or None
     existing.config = seal_config(prev)
     await db.commit()
     return {
@@ -551,10 +543,10 @@ async def update_connection_config(req: UpdateConnectionConfigRequest, db: Async
         "base_url": prev.get("base_url"),
         "phone": prev.get("phone"),
         "voice_id": prev.get("voice_id"),
+        "agent_id": prev.get("agent_id"),
     }
 
 
-TELNYX_ASSISTANT_SETTINGS_ID = "c_telnyx_assistant_settings"
 
 
 @router.get("/telnyx-assistant-settings")
@@ -589,11 +581,12 @@ async def save_telnyx_assistant_settings(req: TelnyxAssistantSettingsRequest, db
 
     if row:
         row.config = cfg
+        row.group_name = "Telnyx AI Assistant"
         row.status = "connected" if cfg.get("assistant_id") else "not_configured"
     else:
         db.add(Connection(
             id=TELNYX_ASSISTANT_SETTINGS_ID,
-            group_name="Voice Orchestration",
+            group_name="Telnyx AI Assistant",
             name="Telnyx AI Assistant Settings",
             status="connected" if cfg.get("assistant_id") else "not_configured",
             config=cfg,
@@ -802,7 +795,8 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         logger.info(f"[TelephonyHub] Not configured: {plan_err}")
 
     # Detect public webhook URL
-    public = (getattr(settings, "PUBLIC_BASE_URL", None) or "http://127.0.0.1:8000").rstrip("/")
+    from app.services.telephony_provider import public_http_base
+    public = public_http_base()
     default_webhook = (
         getattr(settings, "XAI_WEBHOOK_URL", None)
         or f"{public}/api/sip-webhook"
@@ -812,7 +806,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     clean_secret = active_secret if (active_secret and not active_secret.startswith("whsec_••••")) else ""
 
     # Engine settings from Voice Orchestration connection if present
-    engine_conn_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+    engine_conn_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
     engine_conn = engine_conn_res.scalars().first()
     if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
         configured_voice = engine_conn.config.get("voice_name") or engine_conn.config.get("voice") or ui_voice
@@ -881,7 +875,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "externalTts": external_tts,
         "ttsVoiceId": tts_voice_id,
         "phoneNumber": active_phone,
-        "agentId": getattr(settings, "XAI_AGENT_ID", "agent_QDoRHfWcKMybf197"),
+        "agentId": getattr(settings, "XAI_AGENT_ID", None) or "",
         "voiceName": ui_voice,
         "voiceEngineName": configured_voice,
         "accent": configured_accent,
@@ -1240,10 +1234,10 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
             if needle in name or (provider and provider in name):
                 target = c
                 break
-        if target is None and tts_conns:
-            target = next((c for c in tts_conns if c.status == "connected"), tts_conns[0])
+        # No fallback onto an unrelated TTS provider: an ElevenLabs voice id written
+        # onto the Cartesia/Telnyx row would break that provider's calls.
         if target is not None:
-            cfg = dict(target.config) if isinstance(target.config, dict) else {}
+            cfg = open_config(target.config) if isinstance(target.config, dict) else {}
             cfg["voice_id"] = vid
             cfg["provider"] = provider if provider in ("cartesia", "elevenlabs", "telnyx") else (
                 "cartesia" if "cartesia" in (target.name or "").lower() else cfg.get("provider")
@@ -1285,7 +1279,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
         # Load existing stored configs to prevent credential loss or undefined variable errors
         prev_voices = []
         prev_label = None
-        prev_orch_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+        prev_orch_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
         prev_c = prev_orch_res.scalars().first()
         if prev_c and isinstance(prev_c.config, dict):
             orch_cfg = open_config(prev_c.config)
@@ -1679,7 +1673,7 @@ async def get_telephony_hub_debug(db: AsyncSession = Depends(get_db)):
         
         # Check DB connection table for signing secret if not in settings
         if not active_secret:
-            c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+            c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
             c = c_res.scalars().first()
             if c and c.config and isinstance(c.config, dict):
                 active_secret = config_get_secret(c.config, "signing_secret", "webhook_secret")
@@ -1703,7 +1697,8 @@ async def test_telephony_hub_ping():
     try:
         start_time = time.time()
         status_code = 200
-        public = (getattr(settings, "PUBLIC_BASE_URL", None) or "http://127.0.0.1:8000").rstrip("/")
+        from app.services.telephony_provider import public_http_base
+        public = public_http_base()
         webhook = (
             getattr(settings, "XAI_WEBHOOK_URL", None)
             or f"{public}/api/sip-webhook"
@@ -1750,7 +1745,7 @@ async def list_xai_registered_numbers(db: AsyncSession = Depends(get_db)):
     """Queries xAI directly to list all numbers currently registered on the xAI account."""
     key = settings.XAI_API_KEY
     if not key:
-        c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+        c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
         c = c_res.scalars().first()
         if c and c.config and isinstance(c.config, dict):
             key = config_get_secret(c.config, "api_key", "auth_token")

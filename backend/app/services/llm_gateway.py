@@ -21,6 +21,15 @@ def _get_llm_client() -> httpx.AsyncClient:
         )
     return _llm_http_client
 
+def _same_provider(requested: Optional[str], actual: Optional[str]) -> bool:
+    """True when no provider was requested, or the fallback key belongs to the requested provider."""
+    r = (requested or "").strip().lower()
+    a = (actual or "").strip().lower()
+    if not r:
+        return True
+    return bool(a) and (r in a or a in r)
+
+
 async def resolve_llm_credentials(
     db: Optional[AsyncSession] = None,
     api_key: Optional[str] = None,
@@ -88,8 +97,10 @@ async def resolve_llm_credentials(
                     return {
                         "provider": c_prov,
                         "api_key": k,
-                        "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
-                        "model": mod or cfg.get("model") or "gpt-4o-mini"
+                        "base_url": cfg.get("base_url") or cfg.get("baseUrl") or (burl if _same_provider(prov, c_prov) else None),
+                        # A model named for another provider (e.g. gpt-4o-mini) must not be sent
+                        # to this fallback provider's API.
+                        "model": (mod if _same_provider(prov, c_prov) else None) or cfg.get("model") or None
                     }
 
             # 3. Next check any LLM-group connection with a non-empty key
@@ -103,8 +114,8 @@ async def resolve_llm_credentials(
                     return {
                         "provider": c_prov,
                         "api_key": k,
-                        "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
-                        "model": mod or cfg.get("model") or "gpt-4o-mini"
+                        "base_url": cfg.get("base_url") or cfg.get("baseUrl") or (burl if _same_provider(prov, c_prov) else None),
+                        "model": (mod if _same_provider(prov, c_prov) else None) or cfg.get("model") or None
                     }
         except Exception as e:
             logger.warning(f"Failed to query DB for LLM connections: {e}")
@@ -134,11 +145,12 @@ async def resolve_llm_credentials(
     for p_name, (env_var, default_url, default_model) in prov_env_map.items():
         k = os.getenv(env_var, "").strip()
         if k and (env_var != "ANTHROPIC_API_KEY" or k.startswith("sk-ant-")):
+            same = _same_provider(prov, p_name)
             return {
                 "provider": p_name,
                 "api_key": k,
-                "base_url": burl or default_url,
-                "model": mod or default_model
+                "base_url": (burl if same else None) or default_url,
+                "model": (mod if same else None) or default_model
             }
 
     # Return whatever was provided without pretending to have a key

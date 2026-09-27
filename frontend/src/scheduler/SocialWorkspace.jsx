@@ -31,11 +31,10 @@ import {
   FONT_BODY,
   FONT_DISPLAY,
   HUB_PAPER,
-  getActiveAiCredentials,
-  resolveImageCredentials,
 } from "../tokens";
 import { isClassicRevertPhrase, setSchedulerEdition } from "./schedulerEdition";
 import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
+import { SchedulerAiPanel } from "./SchedulerAiPanel";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -209,7 +208,7 @@ function ApprovalsBoard({
       const d = p.date || "undated";
       if (!map[d]) map[d] = { date: d, waiting: 0, total: 0 };
       map[d].total += 1;
-      if (p.status === "draft" || !p.status) map[d].waiting += 1;
+      if (needsAction(p.status)) map[d].waiting += 1;
     });
     return Object.keys(map).sort().map((d) => map[d]);
   }, [allPosts]);
@@ -250,8 +249,8 @@ function ApprovalsBoard({
 
   const activePosts = useMemo(() => {
     const day = allPosts.filter((p) => (p.date || "undated") === dateTab);
-    if (scope === "waiting") return day.filter((p) => p.status === "draft" || !p.status);
-    if (scope === "approved") return day.filter((p) => p.status === "approved" || p.status === "scheduled");
+    if (scope === "waiting") return day.filter((p) => needsAction(p.status));
+    if (scope === "approved") return day.filter((p) => p.status === "approved" || p.status === "scheduled" || p.status === "publishing");
     if (scope === "posted") return day.filter((p) => p.status === "posted");
     return day;
   }, [allPosts, dateTab, scope]);
@@ -273,8 +272,8 @@ function ApprovalsBoard({
   }, [activePosts]);
 
   const expandedPost = expandedId ? allPosts.find((p) => p.id === expandedId) : null;
-  const expandedDone = expandedPost && expandedPost.status && expandedPost.status !== "draft";
-  const canEdit = expandedPost && expandedPost.status !== "posted";
+  const expandedDone = expandedPost && !needsAction(expandedPost.status);
+  const canEdit = expandedPost && !isLocked(expandedPost.status);
   const expandedProg = expandedPost && genProgress ? genProgress[expandedPost.id] : null;
   const chMeta = expandedPost
     ? (CHANNELS.find((c) => c.id === String(expandedPost.channel || "").toLowerCase()) || { label: expandedPost.channel, color: C.ink, soft: HUB_PAPER, mark: "?" })
@@ -569,12 +568,13 @@ function ApprovalsBoard({
                               <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {p.headline || "Draft post"}
                               </div>
-                              <div style={{ fontSize: 11, color: C.slate, marginTop: 2 }}>
+                              <div style={{ fontSize: 11, color: p.status === "failed" ? C.red : C.slate, marginTop: 2 }}>
                                 {p.time || "09:00"} · {statusLabel(p.status)}
+                                {p.syncError ? " · not saved to server" : ""}
                               </div>
                             </div>
                           </button>
-                          {deletePost && p.status !== "posted" ? (
+                          {deletePost && !isLocked(p.status) ? (
                             <button
                               type="button"
                               disabled={dimmed}
@@ -678,6 +678,12 @@ function ApprovalsBoard({
               <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
                 {/* Live post preview only */}
                 <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 14, background: HUB_PAPER }}>
+                  {expandedPost.status === "failed" ? (
+                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
+                      <strong>Publishing failed.</strong> {expandedPost.lastError || "The network rejected the post."}
+                      <div style={{ color: C.slate, marginTop: 4 }}>Fix the cause (usually Accounts & AI → Reconnect), then Retry. It will not retry by itself.</div>
+                    </div>
+                  ) : null}
                   <div style={{
                     background: "#fff",
                     borderRadius: 14,
@@ -945,7 +951,7 @@ function ApprovalsBoard({
                     <Clock size={13} /> Schedule
                   </button>
                 ) : null}
-                {deletePost && expandedPost.status !== "posted" ? (
+                {deletePost && !isLocked(expandedPost.status) ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -963,8 +969,14 @@ function ApprovalsBoard({
                 <div style={{ flex: 1 }} />
                 {!expandedDone ? (
                   <button type="button" disabled={!!publishing} onClick={() => approveOne(expandedPost)} style={priBtn}>
-                    <Check size={14} /> {publishing === expandedPost.id ? "Posting…" : "Approve & post"}
+                    <Check size={14} /> {publishing === expandedPost.id
+                      ? "Posting…"
+                      : expandedPost.status === "failed"
+                        ? "Retry now"
+                        : (isPastSlot(expandedPost.date, expandedPost.time) ? "Approve & post now" : "Approve & schedule")}
                   </button>
+                ) : expandedPost.status === "publishing" ? (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>Publishing…</span>
                 ) : expandedPost.status === "posted" ? (
                   <span style={{ fontSize: 12, fontWeight: 700, color: C.teal }}>Posted — live on channel</span>
                 ) : expandedPost.status === "scheduled" || expandedPost.status === "approved" ? (
@@ -1015,6 +1027,11 @@ function ApprovalsBoard({
       </div>
     </div>
   );
+}
+
+function pkg_warning(res) {
+  const pkg = res && res.package;
+  return (pkg && pkg.imageWarning && /no .* key saved|Add the key/i.test(pkg.imageWarning)) ? pkg.imageWarning : "";
 }
 
 function assembleCaption(pkg, fallback) {
@@ -1120,7 +1137,7 @@ function sameTaskDrafts(posts, dates, channels, topic) {
 }
 
 function keepEditableStatus(status) {
-  if (status === "posted") return "posted";
+  if (isLocked(status)) return status;
   if (status === "scheduled" || status === "approved") return status;
   return "draft";
 }
@@ -1170,8 +1187,72 @@ function companyName(profile) {
 function mapStatus(s) {
   if (s === "published") return "posted";
   if (s === "awaiting_approval") return "draft";
-  if (s === "approved" || s === "scheduled" || s === "draft" || s === "posted") return s;
+  if (["approved", "scheduled", "draft", "posted", "publishing", "failed"].includes(s)) return s;
   return "draft";
+}
+
+// Posts the user has to act on: new drafts and failed publishes.
+function needsAction(status) {
+  return !status || status === "draft" || status === "failed";
+}
+
+// Live or going live: read-only in the UI (the server refuses edits too).
+function isLocked(status) {
+  return status === "posted" || status === "publishing";
+}
+
+// Fields that only exist in the browser (drafting context), kept when the server copy wins.
+const LOCAL_ONLY_FIELDS = ["plan", "batchId", "uniqueForChannel", "copyChat", "imageChat", "hook", "hashtags", "imageConcept", "imageHeadline"];
+
+function hhmm(ms) {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+function fromServerPost(p, local) {
+  const due = Number(p.dueAtMs) || 0;
+  const base = {
+    id: p.id,
+    date: due ? isoDate(due) : (p.dateMs ? isoDate(p.dateMs) : isoDate(p.slotDateMs || Date.now())),
+    time: due ? hhmm(due) : (p.time || "09:00"),
+    channel: (p.channels && p.channels[0]) || "linkedin",
+    channels: p.channels || ["linkedin"],
+    headline: p.topicHeadline || p.title || p.headline || "Post",
+    caption: p.copy || p.linkedinCopy || p.caption || "",
+    imageUrl: p.imageUrl || "",
+    imagePrompt: p.imagePrompt || "",
+    status: mapStatus(p.status),
+    publishResults: p.publishResults || [],
+    publishedAt: p.publishedAt || "",
+    lastError: p.lastError || "",
+    synced: true,
+    syncError: false,
+    enriching: false,
+  };
+  if (local) LOCAL_ONLY_FIELDS.forEach((k) => { if (local[k] !== undefined) base[k] = local[k]; });
+  return base;
+}
+
+// Server is the source of truth for Simple-edition posts (id prefix v2_).
+// Local rows win only while they are being generated or saved, or never reached the server.
+function mergeServerPosts(prev, serverList, busyIds) {
+  const server = (serverList || []).filter((p) => String(p.id || "").startsWith("v2_"));
+  const serverIds = new Set(server.map((p) => p.id));
+  const localById = {};
+  (prev || []).forEach((p) => { localById[p.id] = p; });
+  const out = [];
+  server.forEach((sp) => {
+    const local = localById[sp.id];
+    const busy = local && (local.enriching || busyIds.has(sp.id) || local.syncError);
+    out.push(busy && !isLocked(mapStatus(sp.status)) ? local : fromServerPost(sp, local));
+  });
+  (prev || []).forEach((p) => {
+    if (serverIds.has(p.id)) return;
+    // Saved before but gone from the server: deleted elsewhere. Never saved: keep and retry.
+    if (p.synced && !p.syncError) return;
+    out.push(p);
+  });
+  return out;
 }
 
 function newPostId() {
@@ -1457,7 +1538,6 @@ function SimpleAccountsPage({
   onConnect,
   onDisconnect,
   showToast,
-  aiKeysPanel,
   profile,
   setProfile,
   knowledgeSources,
@@ -1547,17 +1627,11 @@ function SimpleAccountsPage({
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Accounts & AI</div>
         <div style={{ fontSize: 13, color: C.slate, marginBottom: 20, lineHeight: 1.45 }}>
-          Connect posting accounts here. Admin pastes Client ID + Secret once per network, then anyone clicks Connect and logs in. Account names update from the network on each login.
+          1. Connect the networks you post to. 2. Choose the AI that writes and draws. 3. Tell it about your company.
+          Everything here is saved on the server, so it works in any browser and posts go out even when this tab is closed.
         </div>
 
-        <SimpleCompanyKnowledge
-          profile={profile}
-          setProfile={setProfile}
-          knowledgeSources={knowledgeSources}
-          setKnowledgeSources={setKnowledgeSources}
-          showToast={showToast}
-        />
-
+        <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 10 }}>Posting accounts</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12, marginBottom: 22 }}>
           {CHANNELS.map((ch) => {
             const app = appFor(ch.id);
@@ -1633,8 +1707,18 @@ function SimpleAccountsPage({
           })}
         </div>
 
+        <SchedulerAiPanel showToast={showToast} />
+
+        <SimpleCompanyKnowledge
+          profile={profile}
+          setProfile={setProfile}
+          knowledgeSources={knowledgeSources}
+          setKnowledgeSources={setKnowledgeSources}
+          showToast={showToast}
+        />
+
         <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>OAuth app (admin, once)</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Network app setup (admin, once per network)</div>
           <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 14 }}>
             Paste Client ID + Secret from the platform developer portal. Operators then only click Connect.
           </div>
@@ -1705,11 +1789,6 @@ function SimpleAccountsPage({
           </div>
         </div>
 
-        {aiKeysPanel ? (
-          <div style={{ marginTop: 8 }}>
-            {aiKeysPanel}
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -1729,9 +1808,7 @@ export function SocialWorkspace({
   knowledgeSources,
   setKnowledgeSources,
   commonAi,
-  onOpenCommonAi,
   onUseClassic,
-  aiKeysPanel,
 }) {
   const [posts, setPosts] = useState(() => {
     const saved = readJson(LS_POSTS, []);
@@ -1867,9 +1944,11 @@ export function SocialWorkspace({
   }, []);
   const [hoverMsg, setHoverMsg] = useState("");
 
+  const toastTimer = useRef(null);
   const showToast = (msg) => {
     setToast(msg);
-    window.setTimeout(() => setToast(""), 3200);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(""), Math.min(8000, 3200 + String(msg || "").length * 25));
   };
 
   const startChatResize = (e) => {
@@ -1930,34 +2009,30 @@ export function SocialWorkspace({
     return () => window.removeEventListener("message", onMsg);
   }, [refreshAccounts]);
 
-  useEffect(() => {
-    api.getPosts()
-      .then((data) => {
-        if (!Array.isArray(data)) return;
-        const v2 = data.filter((p) => String(p.id || "").startsWith("v2_"));
-        if (!v2.length) return;
-        setPosts((prev) => {
-          const byId = {};
-          prev.forEach((p) => { byId[p.id] = p; });
-          v2.forEach((p) => {
-            byId[p.id] = {
-              ...byId[p.id],
-              id: p.id,
-              date: p.date || (p.dateMs ? isoDate(p.dateMs) : isoDate(p.slotDateMs || Date.now())),
-              time: p.time || "09:00",
-              channel: (p.channels && p.channels[0]) || "linkedin",
-              channels: p.channels || ["linkedin"],
-              headline: p.topicHeadline || p.title || p.headline || "Post",
-              caption: p.copy || p.linkedinCopy || p.caption || "",
-              imageUrl: p.imageUrl || "",
-              imagePrompt: p.imagePrompt || "",
-              status: mapStatus(p.status),
-            };
-          });
-          return Object.values(byId);
-        });
-      })
-      .catch(() => {});
+  const pendingSaves = useRef(new Set());
+  const refreshedOnce = useRef(false);
+  const postsRef = useRef(posts);
+  postsRef.current = posts;
+  const [serverDown, setServerDown] = useState(false);
+
+  const refreshPosts = useCallback(async () => {
+    let data;
+    try {
+      data = await api.getPosts();
+    } catch (_) {
+      setServerDown(true);
+      return null;
+    }
+    setServerDown(false);
+    if (!Array.isArray(data)) return null;
+    const before = {};
+    (postsRef.current || []).forEach((p) => { before[p.id] = p.status; });
+    const changed = data
+      .map((sp) => ({ id: sp.id, status: mapStatus(sp.status) }))
+      .filter((p) => before[p.id] && before[p.id] !== p.status && (p.status === "posted" || p.status === "failed"));
+    setPosts((prev) => mergeServerPosts(prev, data, pendingSaves.current));
+    refreshedOnce.current = true;
+    return changed;
   }, []);
 
   const connected = useMemo(
@@ -1966,7 +2041,7 @@ export function SocialWorkspace({
   );
 
   const selected = posts.find((p) => p.id === selectedId) || null;
-  const drafts = posts.filter((p) => p.status === "draft" || !p.status);
+  const drafts = posts.filter((p) => needsAction(p.status));
   const approved = posts.filter((p) => p.status === "approved");
   const readyToSend = posts.filter((p) => p.status === "approved" || p.status === "scheduled");
   const planReady = posts.length > 0 && drafts.length === 0 && approved.length > 0;
@@ -1987,28 +2062,46 @@ export function SocialWorkspace({
     return map;
   }, [posts]);
 
-  const persistPost = (np) => {
-    // Backend publish-due only fires status "approved" when slot is due.
-    // Simple "scheduled" = already approved, waiting for slot → store as approved.
-    const apiStatus = np.status === "draft" || !np.status
+  // Save one post to the server. Resolves true/false; never throws. On failure the row is
+  // flagged "not saved to server" and retried by the sync loop.
+  const persistPost = async (np) => {
+    if (!np || !np.id || isLocked(np.status)) return true;
+    // The background publisher only picks up "approved" posts once they are due.
+    // Simple "scheduled" = approved and waiting for its slot.
+    const apiStatus = needsAction(np.status) && np.status !== "failed"
       ? "awaiting_approval"
-      : np.status === "posted"
-        ? "published"
-        : (np.status === "scheduled" || np.status === "approved")
-          ? "approved"
-          : np.status;
-    return api.createPost({
-      id: np.id,
-      title: np.headline,
-      copy: np.caption,
-      channels: np.channels || [np.channel],
-      status: apiStatus,
-      slotDateMs: postDueMs(np),
-      time: np.time || "09:00",
-      theme: np.headline,
-      imageUrl: np.imageUrl,
-      imagePrompt: np.imagePrompt,
-    }).catch(() => null);
+      : (np.status === "scheduled" || np.status === "approved")
+        ? "approved"
+        : np.status;
+    const dueAtMs = postDueMs(np);
+    pendingSaves.current.add(np.id);
+    try {
+      const res = await api.createPost({
+        id: np.id,
+        title: np.headline,
+        copy: np.caption,
+        channels: np.channels || [np.channel],
+        status: apiStatus,
+        slotDateMs: dueAtMs,
+        dueAtMs,
+        time: np.time || "09:00",
+        theme: np.headline,
+        imageUrl: np.imageUrl,
+        imagePrompt: np.imagePrompt,
+      });
+      const serverPost = res && res.post;
+      setPosts((ps) => ps.map((row) => {
+        if (row.id !== np.id) return row;
+        if (res && res.locked && serverPost) return fromServerPost(serverPost, row);
+        return { ...row, synced: true, syncError: false };
+      }));
+      return true;
+    } catch (_) {
+      setPosts((ps) => ps.map((row) => (row.id === np.id ? { ...row, syncError: true } : row)));
+      return false;
+    } finally {
+      pendingSaves.current.delete(np.id);
+    }
   };
 
   const syncBatchImage = (batchId, imageUrl, imagePrompt, exceptId) => {
@@ -2090,8 +2183,6 @@ export function SocialWorkspace({
     const skipImage = !!opts.skipImage;
     const revisionNote = String(opts.revisionNote || "").trim();
     const shareOpt = opts.share !== false;
-    const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
-    const img = resolveImageCredentials(commonAi);
     const seeds = (items || []).map((item) => (typeof item === "string" ? { id: item } : item)).filter((p) => p && p.id);
     if (!seeds.length) return;
     const groups = [];
@@ -2130,19 +2221,10 @@ export function SocialWorkspace({
             revisionNote,
             skipImage,
             linkedinDirective: (commonAi && commonAi.channelDirectives && commonAi.channelDirectives.linkedin) || "",
-            style: img.imageStyle || "modern_saas",
-            aspect_ratio: img.imageAspectRatio || "16:9",
             adaptPerChannel: false,
-            apiKey: creds.apiKey,
-            provider: creds.provider,
-            model: creds.model,
-            baseUrl: creds.baseUrl,
-            image_provider: img.imageProvider,
-            imageApiKey: img.imageApiKey,
-            image_model: img.imageModel,
-            image_base_url: img.imageBaseUrl,
             ...companyPayload(profile),
           });
+          if (pkg_warning(res)) showToast(pkg_warning(res));
           const pkg = res && res.package;
           const share = shareOpt && !p.uniqueForChannel;
           const src = pkg ? pkg.generationSource : (revisionNote ? "missing" : "");
@@ -2183,6 +2265,11 @@ export function SocialWorkspace({
           }
         } catch (e) {
           failGenProgress(ids);
+          if (!revisionNote) {
+            const msg = e.message || "The writer failed.";
+            showToast(/key/i.test(msg) ? msg : "Could not draft this post: " + msg);
+            if (/key saved|Accounts & AI/i.test(msg)) setPage("accounts");
+          }
           setPosts((rows) => rows.map((row) => {
             if (!ids.includes(row.id)) return row;
             const fail = {
@@ -2279,7 +2366,6 @@ export function SocialWorkspace({
     if (!p || imageBusy) return;
     setImageBusy(p.id);
     startGenProgress([p.id], { kind: "image" });
-    const img = resolveImageCredentials(commonAi);
     const change = String(note || "").trim();
     const prompt = [
       (p.imagePrompt || p.caption || p.headline || "").trim(),
@@ -2290,18 +2376,9 @@ export function SocialWorkspace({
         prompt,
         title: p.headline,
         theme: p.headline,
-        style: img.imageStyle || "editorial",
-        aspect_ratio: img.imageAspectRatio || "16:9",
-        provider: img.imageProvider,
-        image_provider: img.imageProvider,
-        api_key: img.imageApiKey,
-        imageApiKey: img.imageApiKey,
-        model: img.imageModel,
-        image_model: img.imageModel,
-        base_url: img.imageBaseUrl,
-        image_base_url: img.imageBaseUrl,
       });
       if (res && res.imageUrl) {
+        if (res.warning) showToast(res.warning);
         const aiTurn = change
           ? { id: "ima_" + Date.now(), who: "ai", text: "Done — new image is in the preview." }
           : null;
@@ -2367,18 +2444,28 @@ export function SocialWorkspace({
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch, status: keepEditableStatus(p.status) } : p)));
   };
 
-  const deletePost = (id) => {
+  const deletePost = async (id) => {
     if (!id) return;
+    const removed = posts.find((p) => p.id === id);
     setPosts((ps) => ps.filter((p) => p.id !== id));
     setSelectedId((cur) => (cur === id ? "" : cur));
     setExpandedApprovalId((cur) => (cur === id ? "" : cur));
     setFocusPostId((cur) => (cur === id ? "" : cur));
-    api.deletePost(id).catch(() => null);
-    showToast("Post deleted.");
+    try {
+      await api.deletePost(id);
+      showToast("Post deleted.");
+    } catch (e) {
+      if (/not found/i.test(e.message || "")) {
+        showToast("Post deleted.");
+        return;
+      }
+      if (removed) setPosts((ps) => (ps.some((p) => p.id === id) ? ps : [...ps, removed]));
+      showToast("Could not delete on the server: " + (e.message || "error"));
+    }
   };
 
   const approveOne = async (p, opts = {}) => {
-    if (!p || p.status === "posted") return { ok: false, reason: "posted" };
+    if (!p || isLocked(p.status)) return { ok: false, reason: "posted" };
     if (!opts.batch && publishing) return { ok: false, reason: "busy" };
     const ch = String(p.channel || "linkedin").toLowerCase();
     if (!connected.some((a) => String(a.platform || "").toLowerCase() === ch)) {
@@ -2392,27 +2479,45 @@ export function SocialWorkspace({
     try {
       const dueMs = postDueMs(p);
       const nowMs = Date.now();
-      // Future slot → keep scheduled locally; backend stores as approved so publish-due can fire
+      // Future slot: store as approved; the server publishes it at the due time,
+      // even with this tab closed.
       if (dueMs > nowMs + 60000) {
-        const next = { ...p, status: "scheduled" };
-        await persistPost(next);
+        const next = { ...p, status: "scheduled", lastError: "" };
         setPosts((ps) => ps.map((row) => (row.id === p.id ? next : row)));
-        if (!opts.quiet) showToast("Approved. Scheduled " + dayLabel(p.date) + " " + (p.time || "09:00") + ".");
+        const saved = await persistPost(next);
+        if (!saved) {
+          setPosts((ps) => ps.map((row) => (row.id === p.id ? { ...row, status: p.status } : row)));
+          if (!opts.quiet) showToast("Could not schedule — the server did not save it. Try again.");
+          return { ok: false, reason: "save" };
+        }
+        if (!opts.quiet) showToast("Approved. Goes live " + dayLabel(p.date) + " " + (p.time || "09:00") + ".");
         return { ok: true, status: "scheduled" };
       }
-      await persistPost({ ...p, status: "approved" });
+      if (!(await persistPost({ ...p, status: "approved" }))) {
+        if (!opts.quiet) showToast("Could not reach the server. Nothing was posted.");
+        return { ok: false, reason: "save" };
+      }
+      setPosts((ps) => ps.map((row) => (row.id === p.id ? { ...row, status: "publishing" } : row)));
       const res = await api.publishPost(p.id, {
         title: p.headline,
         copy: p.caption,
         channels: p.channels || [p.channel],
         imageUrl: p.imageUrl,
       });
-      const ok = res && (res.status === "ok" || res.ok || (res.publishResults || []).some((r) => r.ok));
-      setPosts((ps) => ps.map((row) => (row.id === p.id ? { ...row, status: ok ? "posted" : row.status, publishResults: res && res.publishResults } : row)));
-      if (!opts.quiet) showToast(ok ? "Posted." : "Publish failed. Check Accounts.");
-      return { ok, status: ok ? "posted" : "draft", reason: ok ? undefined : "publish" };
+      const ok = !!(res && res.status === "ok");
+      setPosts((ps) => ps.map((row) => (row.id === p.id
+        ? (res && res.post ? fromServerPost(res.post, row) : { ...row, status: ok ? "posted" : "failed" })
+        : row)));
+      if (!opts.quiet) {
+        if (res && res.alreadyPublished) showToast("Already posted.");
+        else if (ok && res.allOk === false) showToast("Posted, but some channels failed: " + (res.error || "see the post"));
+        else showToast(ok ? "Posted." : "Publish failed: " + ((res && res.error) || "check Accounts & AI"));
+      }
+      return { ok, status: ok ? "posted" : "failed", reason: ok ? undefined : "publish" };
     } catch (e) {
-      if (!opts.quiet) showToast("Publish failed: " + (e.message || "error"));
+      // 409: someone else (the background publisher or another tab) is posting it right now.
+      refreshPosts();
+      if (!opts.quiet) showToast(/already being published|just published/i.test(e.message || "") ? "Already posting — refreshing." : "Publish failed: " + (e.message || "error"));
       return { ok: false, reason: "error", message: e.message };
     } finally {
       if (!opts.batch) setPublishing("");
@@ -2424,7 +2529,7 @@ export function SocialWorkspace({
     const nextTime = String(time || "09:00").trim() || "09:00";
     if (!id || !nextDate) return;
     const row = posts.find((p) => p.id === id);
-    if (!row || row.status === "posted") return;
+    if (!row || isLocked(row.status)) return;
 
     if (postNow || isPastSlot(nextDate, nextTime)) {
       const next = { ...row, date: nextDate, time: nextTime, status: keepEditableStatus(row.status) };
@@ -2435,63 +2540,54 @@ export function SocialWorkspace({
       return;
     }
 
-    const next = { ...row, date: nextDate, time: nextTime, status: "scheduled" };
+    // Moving a draft only changes its date; approving is a separate, explicit step.
+    const next = { ...row, date: nextDate, time: nextTime, status: row.status === "failed" ? "draft" : row.status };
     setPosts((ps) => ps.map((p) => (p.id === id ? next : p)));
-    await persistPost(next);
-    showToast("Schedule → " + dayLabel(nextDate) + " " + nextTime);
+    const saved = await persistPost(next);
+    showToast(saved
+      ? "Moved to " + dayLabel(nextDate) + " " + nextTime + (needsAction(next.status) ? " — approve it to schedule." : ".")
+      : "Moved here, but the server did not save it yet. Will retry.");
   };
 
-  const postsRef = useRef(posts);
-  const publishingRef = useRef(publishing);
-  const approveOneRef = useRef(approveOne);
-  postsRef.current = posts;
-  publishingRef.current = publishing;
-  approveOneRef.current = approveOne;
-
+  // Publishing happens on the server (background loop, every minute) so it works with no
+  // tab open. This loop only pulls fresh status and retries rows that failed to save.
   useEffect(() => {
     let busy = false;
     const tick = async () => {
-      if (busy || publishingRef.current) return;
+      if (busy) return;
       busy = true;
       try {
-        const list = postsRef.current || [];
-        // Re-sync scheduled/approved so backend has approved + full due datetime
-        const waiting = list.filter((p) => p && (p.status === "scheduled" || p.status === "approved"));
-        for (const p of waiting) {
+        // Rows the server has never confirmed. Only after one refresh, so rows that already
+        // exist on the server are adopted from it instead of overwriting it.
+        const unsynced = refreshedOnce.current
+          ? (postsRef.current || []).filter((p) => p && (p.syncError || !p.synced) && !p.enriching
+            && !isLocked(p.status) && !pendingSaves.current.has(p.id))
+          : [];
+        for (const p of unsynced) {
           await persistPost(p);
         }
-        const res = await api.publishDuePosts().catch(() => null);
-        if (res && Array.isArray(res.published) && res.published.length) {
-          const ids = new Set(res.published.map((x) => x.id));
-          setPosts((prev) => prev.map((p) => {
-            const hit = res.published.find((x) => x.id === p.id);
-            if (!hit) return p;
-            return {
-              ...p,
-              status: "posted",
-              publishedAt: hit.publishedAt || hit.published_at || "just now",
-              publishResults: hit.publishResults || hit.publish_results || p.publishResults,
-            };
-          }));
-          showToast("Posted " + ids.size + " due post" + (ids.size === 1 ? "" : "s") + ".");
-          return;
-        }
-        const dueLocal = list.filter((p) => {
-          if (!p || p.status === "posted" || p.status === "draft" || !p.status) return false;
-          if (p.status !== "scheduled" && p.status !== "approved") return false;
-          return postDueMs(p) <= Date.now();
-        });
-        for (const p of dueLocal) {
-          await approveOneRef.current(p, { quiet: true, batch: true });
+        const changed = await refreshPosts();
+        if (changed && changed.length) {
+          const posted = changed.filter((p) => p.status === "posted").length;
+          const failed = changed.filter((p) => p.status === "failed").length;
+          const bits = [];
+          if (posted) bits.push(posted + " post" + (posted === 1 ? "" : "s") + " went live");
+          if (failed) bits.push(failed + " failed — open Approvals");
+          showToast(bits.join(" · ") + ".");
         }
       } finally {
         busy = false;
       }
     };
-    const id = window.setInterval(tick, 30000);
     tick();
-    return () => window.clearInterval(id);
-  }, []);
+    const id = window.setInterval(tick, 30000);
+    const onFocus = () => tick();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refreshPosts]);
 
   const approveAllDrafts = async () => {
     const list = posts.filter((p) => p.status === "draft" || !p.status);
@@ -2681,7 +2777,6 @@ export function SocialWorkspace({
     setTyping(true);
     setEditingId("");
 
-    const creds = getActiveAiCredentials(commonAi, "scheduler", "postWriter");
     const baseHistory = (override && override.replaceFromId)
       ? chat.filter((_, i, arr) => {
         const idx = arr.findIndex((x) => x.id === override.replaceFromId);
@@ -2714,10 +2809,6 @@ export function SocialWorkspace({
     api.chatPlan({
       text: sendText,
       messages: history.concat([{ role: "user", content: sendText }]).slice(-12),
-      apiKey: creds.apiKey || "",
-      provider: creds.provider || "openai",
-      model: creds.model || "gpt-4o-mini",
-      baseUrl: creds.baseUrl || "",
       returnPlan: true,
       currentPlan,
       targetDate: pinnedDates.length === 1 ? pinnedDates[0] : "",
@@ -2727,6 +2818,10 @@ export function SocialWorkspace({
       ...companyPayload(profile),
     }).then((res) => {
       setTyping(false);
+      if (res && res.needsKey) {
+        setChat((cs) => [...cs, { id: "a_" + Date.now(), who: "ai", kind: "needsKey", text: res.reply }]);
+        return;
+      }
       let incoming = (res && res.plan) || extractPlanFromText(res && res.reply) || extractPlanFromText(text);
       if (incoming && Array.isArray(incoming.posts) && incoming.posts.length && namedSend.length) {
         const filtered = incoming.posts.filter((p) => namedSend.includes(String(p.channel || "").toLowerCase()));
@@ -2883,7 +2978,7 @@ export function SocialWorkspace({
   }, [approvalDragging]);
 
   const cta = (() => {
-    if (drafts.length) return { label: drafts.length + " in Approvals", disabled: false, action: () => openApprovals(selectedId), tone: "approve" };
+    if (drafts.length) return { label: drafts.length + " need" + (drafts.length === 1 ? "s" : "") + " review", disabled: false, action: () => openApprovals(selectedId), tone: "approve" };
     if (readyToSend.length) {
       return { label: publishing ? "Posting…" : "Post scheduled", disabled: !!publishing, action: () => openApprovals(readyToSend[0].id), tone: "go" };
     }
@@ -2892,25 +2987,28 @@ export function SocialWorkspace({
 
   const statusColor = (s) => {
     if (s === "posted") return C.teal;
-    if (s === "approved" || s === "scheduled") return C.green;
+    if (s === "failed") return C.red;
+    if (s === "approved" || s === "scheduled" || s === "publishing") return C.green;
     return C.amber;
   };
 
   const statusLabel = (s) => {
     if (s === "posted") return "Posted";
+    if (s === "publishing") return "Publishing…";
+    if (s === "failed") return "Failed";
     if (s === "scheduled") return "Scheduled";
     if (s === "approved") return "Approved";
     return "Waiting";
   };
 
   const reviewList = posts.slice().sort((a, b) => {
-    const rank = (s) => (s === "posted" ? 2 : (s === "scheduled" || s === "approved" ? 1 : 0));
+    const rank = (s) => (s === "posted" ? 2 : (s === "scheduled" || s === "approved" || s === "publishing" ? 1 : 0));
     const d = rank(a.status) - rank(b.status);
     if (d) return d;
     return String(a.date || "").localeCompare(String(b.date || ""));
   });
-  const waitingList = reviewList.filter((p) => p.status === "draft" || !p.status);
-  const doneList = reviewList.filter((p) => p.status && p.status !== "draft");
+  const waitingList = reviewList.filter((p) => needsAction(p.status));
+  const doneList = reviewList.filter((p) => !needsAction(p.status));
 
   const applyImageToBatch = (p) => {
     if (!p || !p.imageUrl || !p.batchId) {
@@ -3069,7 +3167,6 @@ export function SocialWorkspace({
             onConnect={connectOauth}
             onDisconnect={disconnectAccount}
             showToast={showToast}
-            aiKeysPanel={aiKeysPanel}
             profile={profile}
             setProfile={setProfile}
             knowledgeSources={knowledgeSources}
@@ -3110,6 +3207,13 @@ export function SocialWorkspace({
           </div>
         </div>
 
+        {serverDown || posts.some((p) => p.syncError) ? (
+          <div style={{ padding: "8px 20px", background: C.amberSoft || "#FCEFDA", borderBottom: `1px solid ${C.border}`, fontSize: 12.5, color: C.ink }}>
+            {serverDown
+              ? "Can't reach the server. Changes stay in this browser and are saved once it is back."
+              : "Some changes are not saved to the server yet. Retrying automatically."}
+          </div>
+        ) : null}
         <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
           <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -3253,7 +3357,7 @@ export function SocialWorkspace({
                             {p.enriching ? "Writing…" : p.headline}
                           </div>
                         </div>
-                        {p.status !== "posted" ? (
+                        {!isLocked(p.status) ? (
                           <button
                             type="button"
                             title="Delete post"
@@ -3433,6 +3537,11 @@ export function SocialWorkspace({
                     {m.postId && !editing ? (
                       <button type="button" onClick={() => openApprovals(m.postId)} style={{ ...secBtn, marginTop: 6, height: 28, fontSize: 11 }}>
                         Open in Approvals
+                      </button>
+                    ) : null}
+                    {m.kind === "needsKey" && !editing ? (
+                      <button type="button" onClick={() => { setApprovalOpen(false); setPage("accounts"); }} style={{ ...secBtn, marginTop: 6, height: 28, fontSize: 11 }}>
+                        Open Accounts & AI
                       </button>
                     ) : null}
                   </div>

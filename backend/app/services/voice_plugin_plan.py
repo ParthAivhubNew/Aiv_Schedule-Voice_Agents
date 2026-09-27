@@ -196,7 +196,8 @@ async def resolve_voice_plan() -> VoicePlan:
     llm_conn = None
     async with AsyncSessionLocal() as db:
         res = await db.execute(select(Connection))
-        conns = res.scalars().all()
+        # The Telnyx-hosted Assistant's settings row is not a call engine.
+        conns = [c for c in res.scalars().all() if c.id != "c_telnyx_assistant_settings"]
 
     active_stack = get_active_stack()
     target_engine = (active_stack.get("engine") or "livekit").lower()

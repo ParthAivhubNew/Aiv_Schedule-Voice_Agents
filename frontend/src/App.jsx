@@ -8756,6 +8756,8 @@ function TelnyxAssistantSettingsCard() {
   const [dialTo, setDialTo] = useState("");
   const [dialing, setDialing] = useState(false);
   const [dialMsg, setDialMsg] = useState("");
+  const [publicBase, setPublicBase] = useState("");
+  const [copied, setCopied] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -8767,21 +8769,41 @@ function TelnyxAssistantSettingsCard() {
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoaded(true); });
+    api.getTelephonyHub()
+      .then((hub) => {
+        if (cancelled || !hub || !hub.webhookUrl) return;
+        setPublicBase(String(hub.webhookUrl).replace(/\/api\/sip-webhook\/?$/, ""));
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
   const handleSave = async () => {
+    const id = assistantId.trim();
+    if (id && !/^[A-Za-z0-9_-]{6,}$/.test(id)) {
+      setSavedMsg("That doesn't look like an Assistant ID (copy it from Telnyx → AI Assistants).");
+      return;
+    }
     setSaving(true);
     setSavedMsg("");
     try {
-      await api.saveTelnyxAssistantSettings({ assistant_id: assistantId.trim(), public_key: publicKey.trim() });
+      await api.saveTelnyxAssistantSettings({ assistant_id: id, public_key: publicKey.trim() });
       setSavedMsg("Saved");
+      try { window.dispatchEvent(new Event("aivhub_telnyx_assistant_saved")); } catch (_) {}
       setTimeout(() => setSavedMsg(""), 2500);
     } catch (e) {
-      setSavedMsg("Failed to save");
+      setSavedMsg(e?.message || "Failed to save");
     } finally {
       setSaving(false);
     }
+  };
+
+  const copyUrl = async (key, text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(""), 1400);
+    } catch (_) {}
   };
 
   const handleDial = async () => {
@@ -8791,7 +8813,10 @@ function TelnyxAssistantSettingsCard() {
     setDialMsg("");
     try {
       const res = await api.dialViaTelnyxAssistant({ to });
-      setDialMsg(res?.success ? `Calling ${res.to || to}...` : (res?.error || "Call failed."));
+      setDialMsg(res?.success ? `Calling ${res.to || to} — follow it on the Live page.` : (res?.error || "Call failed."));
+      if (res?.success) {
+        try { window.dispatchEvent(new CustomEvent("aivhub_set_voice_view", { detail: "live" })); } catch (_) {}
+      }
     } catch (e) {
       setDialMsg(e?.message || "Call failed.");
     } finally {
@@ -8842,6 +8867,26 @@ function TelnyxAssistantSettingsCard() {
           )}
         </div>
 
+        {publicBase && (
+          <div style={{ background: C.paper, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", display: "grid", gap: 6 }}>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>Paste into your Telnyx Assistant</div>
+            {[
+              ["events", "Assistant webhook (dynamic variables + call end)", `${publicBase}/api/telnyx-assistant/call-event`],
+              ["tools", "Webhook tool URL (replace {tool} with check_availability / book_appointment)", `${publicBase}/api/telnyx-assistant/tool/{tool}`],
+            ].map(([k, label, url]) => (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate }}>{label}</div>
+                  <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.textInk, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{url}</div>
+                </div>
+                <button type="button" onClick={() => copyUrl(k, url)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  {copied === k ? "Copied" : "Copy"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 6, paddingTop: 12 }}>
           <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Call via Telnyx Assistant</label>
           <div style={{ display: "flex", gap: 8 }}>
@@ -8884,28 +8929,29 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
 
   const cached = getCachedHub();
 
+  // Until /telephony-hub answers, show "Not configured" — never a made-up stack.
   const [hubData, setHubData] = useState(cached || {
-    activeCarrier: "Twilio",
-    activeEngine: "LiveKit (self-hosted)",
-    liveEngine: "livekit",
+    activeCarrier: "Not configured",
+    activeEngine: "Not configured",
+    liveEngine: "not_configured",
     liveNote: "",
-    externalTts: true,
-    ttsProvider: "cartesia",
-    ttsName: "Cartesia Sonic",
-    llmProvider: "deepseek",
-    llmName: "DeepSeek",
-    sttProvider: "deepgram",
-    sttName: "Deepgram",
-    ttsVoiceId: "84cc42cf-0831-49cc-a60c-b681dbb2180f",
+    externalTts: false,
+    ttsProvider: null,
+    ttsName: "Not configured",
+    llmProvider: null,
+    llmName: "Not configured",
+    sttProvider: null,
+    sttName: "Not configured",
+    ttsVoiceId: null,
     phoneNumber: profile?.callerId || "",
-    voiceName: "84cc42cf-0831-49cc-a60c-b681dbb2180f",
+    voiceName: "",
     silenceDurationMs: 380,
     temperature: 0.80,
-    status: "connected",
+    status: "not_configured",
     webhookUrl: "",
-    xaiFqdn: "sip.voice.x.ai",
+    xaiFqdn: "",
     codecs: ["G.711 μ-law (PCMU)", "G.711 A-law (PCMA)", "G.722"],
-    isLive: true
+    isLive: false
   });
   const [carrierChoice, setCarrierChoice] = useState(() => {
     const c = String(cached?.activeCarrier || "twilio").toLowerCase();
@@ -8923,7 +8969,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [showKey, setShowKey] = useState(false);
   const [accountSid, setAccountSid] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
-  const [voiceName, setVoiceName] = useState(cached?.voiceName || "84cc42cf-0831-49cc-a60c-b681dbb2180f");
+  const [voiceName, setVoiceName] = useState(cached?.voiceName || "");
   const [speakMode, setSpeakMode] = useState("clone"); // builtin | clone
   const [customVoices, setCustomVoices] = useState(cached?.customVoices || []);
   const [cloneName, setCloneName] = useState("");
@@ -9982,14 +10028,14 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Inbound FQDN Target</span>
                   <button
                     type="button"
-                    onClick={() => copyToClipboard("sip.voice.x.ai:5060", "fqdn")}
+                    onClick={() => copyToClipboard(`${hubData?.xaiFqdn || "sip.voice.x.ai"}:5060`, "fqdn")}
                     style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
                   >
                     {copiedFqdn ? <Check size={11} color={C.green} /> : <Copy size={11} />}
                     {copiedFqdn ? "Copied" : "Copy"}
                   </button>
                 </div>
-                <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink }}>sip.voice.x.ai:5060</div>
+                <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink }}>{hubData?.xaiFqdn || "sip.voice.x.ai"}:5060</div>
                 <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>
                   Destination: <b>+E.164</b> • Codecs: <b>G.711 μ-law, G.722</b>
                 </div>
@@ -10720,8 +10766,8 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                     if (itNorm.includes("deepgram") && bNorm.includes("deepgram")) return true;
                     // Twilio aliases
                     if (itNorm.includes("twilio") && bNorm.includes("twilio")) return true;
-                    // Cal.com aliases
-                    if (itNorm.includes("cal") && bNorm.includes("cal")) return true;
+                    // Cal.com aliases (not any name containing "cal", e.g. "Local LLM")
+                    if (itNorm.includes("calcom") && bNorm.includes("calcom")) return true;
                     return false;
                   });
                 }
@@ -10736,6 +10782,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                     model: live.model || it.model,
                     baseUrl: live.baseUrl || it.baseUrl,
                     voiceId: live.voiceId || it.voiceId,
+                    phone: live.phone || it.phone,
+                    accountSid: live.accountSid || it.accountSid,
+                    agentId: live.agentId || it.agentId,
+                    connectionId: live.connectionId || it.connectionId,
                   };
                 }
                 return it;
@@ -10750,6 +10800,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 model: b.model,
                 baseUrl: b.baseUrl,
                 voiceId: b.voiceId,
+                phone: b.phone,
+                accountSid: b.accountSid,
+                agentId: b.agentId,
+                connectionId: b.connectionId,
               }));
 
               return {
@@ -10786,12 +10840,29 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const setRow = (rowKey, patch) =>
     setRowState((s) => ({ ...s, [rowKey]: { ...(s[rowKey] || {}), ...patch } }));
 
+  const isTelnyxCarrierRow = (rowKey) => /^Telephony\|/.test(rowKey || "") && /telnyx/i.test(rowKey || "");
+
+  // Non-secret fields sent with every save so "Save" never blanks what the form showed.
+  const extraFields = (rowKey, row) => {
+    const second = (row.agentIdValue || "").trim();
+    if (isTelnyxCarrierRow(rowKey)) return { connection_id: second };
+    if (/twilio|whatsapp/i.test(rowKey || "")) return {};
+    return { agent_id: second };
+  };
+
+  const refreshLiveHub = async () => {
+    try {
+      const hub = await api.getTelephonyHub();
+      if (hub) setLiveHub(hub);
+    } catch (_) {}
+  };
+
   const handleConnect = (rowKey, it = {}) =>
     setRow(rowKey, {
       phase: "editing",
       keyValue: "",
       phoneValue: it?.phone || "",
-      agentIdValue: "",
+      agentIdValue: isTelnyxCarrierRow(rowKey) ? (it?.connectionId || "") : (it?.agentId || ""),
       accountSidValue: it?.accountSid || "",
       modelValue: it?.model || "",
       baseUrlValue: it?.baseUrl || "",
@@ -10865,6 +10936,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
           base_url: savedBaseUrl,
           voice_id: savedVoiceId,
           phone: savedPhone,
+          ...extraFields(rowKey, row),
         });
         setCredsState((s) =>
           s.map((g) =>
@@ -10875,10 +10947,12 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                     x.name === itemName
                       ? {
                           ...x,
-                          model: savedModel || x.model,
-                          baseUrl: savedBaseUrl || x.baseUrl,
-                          voiceId: savedVoiceId || x.voiceId,
-                          config: { ...(x.config || {}), voice_id: savedVoiceId || x.voiceId, model: savedModel || (x.config || {}).model },
+                          model: savedModel,
+                          baseUrl: savedBaseUrl,
+                          voiceId: savedVoiceId,
+                          phone: savedPhone,
+                          ...(isTelnyxCarrierRow(rowKey) ? { connectionId: (row.agentIdValue || "").trim() } : { agentId: (row.agentIdValue || "").trim() }),
+                          config: { ...(x.config || {}), voice_id: savedVoiceId, model: savedModel },
                         }
                       : x
                   ),
@@ -10903,6 +10977,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
           ...ns,
         ]);
         flash();
+        refreshLiveHub();
         return;
       } catch (err) {
         setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Failed to update configuration." });
@@ -10929,6 +11004,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         model: (row.modelValue || "").trim() || undefined,
         voice_id: (row.voiceIdValue || "").trim() || undefined,
         phone: (row.phoneValue || "").trim() || undefined,
+        ...extraFields(rowKey, row),
       });
       const savedVoiceId = (row.voiceIdValue || "").trim();
       setCredsState((s) =>
@@ -10946,6 +11022,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                         model: (row.modelValue || "").trim() || x.model,
                         baseUrl: (row.baseUrlValue || "").trim() || x.baseUrl,
                         voiceId: savedVoiceId || x.voiceId,
+                        phone: (row.phoneValue || "").trim() || x.phone,
+                        ...(isTelnyxCarrierRow(rowKey)
+                          ? { connectionId: (row.agentIdValue || "").trim() || x.connectionId }
+                          : { agentId: (row.agentIdValue || "").trim() || x.agentId }),
                         config: { ...(x.config || {}), voice_id: savedVoiceId || x.voiceId },
                       }
                     : x
@@ -10977,6 +11057,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         ...ns,
       ]);
       flash();
+      refreshLiveHub();
     } catch (err) {
       setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Save failed." });
     }
@@ -11005,7 +11086,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                 ...g,
                 items: (g.items || []).map((x) =>
                   x.name === item.name
-                    ? { ...x, status: "not_configured", apiKeyMasked: undefined, id: undefined, voiceId: undefined }
+                    ? { ...x, status: "not_configured", apiKeyMasked: undefined }
                     : x
                 ),
               }
@@ -11067,12 +11148,6 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         cached.voiceName = newIntegration.voiceId;
         localStorage.setItem("aivhub_telephony_hub_cache", JSON.stringify(cached));
       } catch (_) {}
-    }
-    if (newIntegration.category === "LLM" && setCommonAi) {
-      setCommonAi((prev) => ({
-        ...prev,
-        providers: [...(prev.providers || []), { id: "custom_" + Date.now(), name: newIntegration.name, type: "llm", status: "active", models: [newIntegration.name] }],
-      }));
     }
     setNotifications((ns) => [
       { id: "n_" + Date.now(), text: `✓ Verified and activated ${newIntegration.name}`, time: "just now", unread: true, type: "success" },
@@ -11353,7 +11428,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                 </div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                   <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                    {String(it.name || "").toLowerCase().includes("twilio")
+                                    {isTelnyxCarrierRow(rowKey)
+                                      ? "Call Control App ID (Optional)"
+                                      : String(it.name || "").toLowerCase().includes("twilio")
                                       ? "Account SID (required)"
                                       : String(it.name || "").toLowerCase().includes("whatsapp")
                                       ? "Phone Number ID (Required)"
@@ -11378,7 +11455,9 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                         setRow(rowKey, { agentIdValue: v });
                                       }
                                     }}
-                                    placeholder={String(it.name || "").toLowerCase().includes("twilio")
+                                    placeholder={isTelnyxCarrierRow(rowKey)
+                                      ? "Leave empty to auto-detect"
+                                      : String(it.name || "").toLowerCase().includes("twilio")
                                       ? "ACxxxxxxxx… (34 characters)"
                                       : String(it.name || "").toLowerCase().includes("whatsapp")
                                       ? "e.g. 1238965585975808 (15 digits)"
@@ -25388,18 +25467,6 @@ function SchedulerEditionRoot(props) {
   return (
     <SocialWorkspaceGate
       {...props}
-      aiKeysPanel={
-        <CommonAiConfigModal
-          embedded
-          isOpen
-          onClose={() => {}}
-          commonAi={props.commonAi}
-          setCommonAi={props.setCommonAi}
-          initialTab="scheduler"
-          scopePlugin="scheduler"
-          operator={props.operator}
-        />
-      }
       onUseClassic={() => {
         setSchedulerEdition("classic");
         setEdition("classic");

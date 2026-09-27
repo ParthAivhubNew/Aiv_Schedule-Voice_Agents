@@ -460,6 +460,12 @@ async def lifespan(app: FastAPI):
     except Exception as stack_log_err:
         logger.warning(f"[Startup Voice Plan] Could not inspect active voice stack at startup: {stack_log_err}")
 
+    try:
+        from app.api.scheduler import ensure_social_schema
+        await ensure_social_schema()
+    except Exception as social_schema_err:
+        logger.warning(f"[Social] Schema check failed: {social_schema_err}")
+
     publish_due_task = asyncio.create_task(_social_publish_due_loop())
 
     yield

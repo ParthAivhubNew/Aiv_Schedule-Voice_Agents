@@ -18,7 +18,7 @@ XAI_BUILTIN = {"ara", "eve", "rex", "leo", "sal", "leo"}
 
 
 async def _orchestration_conn(db: AsyncSession) -> Optional[Connection]:
-    res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+    res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
     return res.scalars().first()
 
 

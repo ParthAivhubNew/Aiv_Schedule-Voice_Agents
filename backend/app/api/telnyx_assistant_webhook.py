@@ -1,10 +1,10 @@
 import asyncio
-import base64
+import hashlib
 import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -35,6 +35,10 @@ async def _read_and_verify(request: Request) -> Tuple[bytes, bool]:
 
 class DialViaAssistantRequest(BaseModel):
     to: str
+    prospect_name: Optional[str] = None
+    mission_title: Optional[str] = None
+    prospect_id: Optional[str] = None
+    mission_id: Optional[str] = None
 
 
 @router.post("/dial")
@@ -44,10 +48,43 @@ async def dial_via_assistant_endpoint(req: DialViaAssistantRequest, db: AsyncSes
     our configured Telnyx AI Assistant, using our saved Telnyx number as caller ID.
     """
     from app.services.telnyx_assistant_dial import dial_via_telnyx_assistant
-    result = await dial_via_telnyx_assistant(db, req.to)
+    result = await dial_via_telnyx_assistant(
+        db,
+        req.to,
+        prospect_name=req.prospect_name,
+        mission_title=req.mission_title,
+        prospect_id=req.prospect_id,
+        mission_id=req.mission_id,
+    )
     if not result.get("success"):
         return JSONResponse(status_code=400, content=result)
     return result
+
+
+@router.post("/call-control")
+async def handle_assistant_call_control(request: Request):
+    """
+    Per-call webhook_url for calls placed by /dial: Call Control events
+    (call.initiated / call.answered / call.hangup) for Assistant-dialed calls.
+    """
+    raw_body, is_valid = await _read_and_verify(request)
+    if not is_valid:
+        logger.error("[TELNYX-ASSISTANT] Rejected call-control webhook — invalid signature.")
+        return JSONResponse(status_code=401, content={"error": "Invalid webhook signature"})
+    try:
+        body = json.loads(raw_body) if raw_body else {}
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Malformed JSON payload"})
+
+    from app.services.telnyx_assistant_calls import tagged_event, handle_call_control_event
+    tagged = tagged_event(body if isinstance(body, dict) else {})
+    if not tagged:
+        return {"status": "ignored", "reason": "not an assistant-dialed call"}
+    try:
+        return await handle_call_control_event(tagged["event_type"], tagged["payload"], tagged["state"])
+    except Exception as err:
+        logger.error(f"[TELNYX-ASSISTANT] call-control handling failed: {err}")
+        return {"status": "error", "error": str(err)}
 
 
 @router.post("/tool/{tool_name}")
@@ -106,6 +143,13 @@ async def handle_telnyx_tool_call(tool_name: str, request: Request):
         logger.error(f"[TELNYX-ASSISTANT] Tool execution failed for '{tool_name}': {err}")
         return JSONResponse(status_code=200, content={"success": False, "error": str(err)})
 
+    if "book" in tool_name.lower() and isinstance(tool_result, dict) and tool_result.get("success"):
+        try:
+            from app.services.telnyx_assistant_calls import mark_booked_for_phone
+            await mark_booked_for_phone(caller_phone)
+        except Exception as mark_err:
+            logger.debug(f"[TELNYX-ASSISTANT] Could not flag live call as booked: {mark_err}")
+
     return tool_result
 
 
@@ -157,15 +201,9 @@ async def handle_telnyx_assistant_call_event(request: Request):
         # there is no dial-time "call_direction" field on the plain
         # POST /v2/calls flow this app uses, so this is the only reliable signal.
         call_direction = "inbound"
-        raw_client_state = str(payload.get("client_state") or "").strip()
-        if raw_client_state:
-            try:
-                from app.services.telnyx_assistant_dial import TELNYX_ASSISTANT_DIAL_MARKER
-                decoded = base64.b64decode(raw_client_state).decode("utf-8", errors="ignore")
-                if decoded.startswith(TELNYX_ASSISTANT_DIAL_MARKER):
-                    call_direction = "outbound"
-            except Exception:
-                pass
+        from app.services.telnyx_assistant_calls import decode_client_state, is_tracked, call_control_id_from_assistant_payload
+        if decode_client_state(payload.get("client_state")) or is_tracked(call_control_id_from_assistant_payload(payload)):
+            call_direction = "outbound"
 
         try:
             from app.services.conversation_engine import context_resolver
@@ -173,6 +211,11 @@ async def handle_telnyx_assistant_call_event(request: Request):
                 call_context = await context_resolver.resolve_inbound(db, caller_phone or "unknown")
             prospect = call_context.get("prospect") or {}
             company = call_context.get("company") or {}
+            if call_direction == "inbound":
+                from app.services.telnyx_assistant_calls import call_control_id_from_assistant_payload, track_inbound
+                ccid = call_control_id_from_assistant_payload(payload)
+                if ccid:
+                    asyncio.create_task(track_inbound(ccid, caller_phone, prospect.get("name") or ""))
             return {
                 "dynamic_variables": {
                     "caller_name": prospect.get("name") or "there",
@@ -187,31 +230,65 @@ async def handle_telnyx_assistant_call_event(request: Request):
             return {"dynamic_variables": {"call_direction": call_direction}}
 
     if any(kw in event_type.lower() for kw in _CALL_END_KEYWORDS):
+        from app.services.telnyx_assistant_calls import call_control_id_from_assistant_payload, finish_call, is_tracked
+        summary = str(payload.get("summary") or payload.get("conversation_summary") or "").strip()
+        ccid = call_control_id_from_assistant_payload(payload)
+
+        if ccid:
+            # Our own LiveCall for this call (outbound dial or tracked inbound) —
+            # close it / enrich its Call history row, never write a second one.
+            from sqlalchemy.future import select as _select
+            from app.models.models import LiveCall
+            async with AsyncSessionLocal() as db:
+                known = (await db.execute(_select(LiveCall).where(LiveCall.carrier_sid == ccid))).scalars().first()
+            if known or is_tracked(ccid):
+                try:
+                    await finish_call(ccid, {}, summary=summary)
+                except Exception as err:
+                    logger.warning(f"[TELNYX-ASSISTANT] Could not finish tracked call {ccid}: {err}")
+                return {"status": "received", "event": event_type}
+
         caller_phone = str(payload.get("telnyx_end_user_target") or payload.get("from") or "").strip()
         transcript_raw = payload.get("transcript") or payload.get("messages") or []
-        summary = payload.get("summary") or payload.get("conversation_summary") or ""
         duration_secs = payload.get("call_duration_secs") or payload.get("duration") or 0
-        now_iso = datetime.utcnow().isoformat()
+        now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
 
-        transcript = transcript_raw if isinstance(transcript_raw, list) else ([{"note": str(transcript_raw)}] if transcript_raw else [])
+        transcript = []
+        for m in transcript_raw if isinstance(transcript_raw, list) else []:
+            if isinstance(m, dict):
+                role = str(m.get("role") or "").lower()
+                text = str(m.get("text") or m.get("content") or "").strip()
+                if text and role in ("user", "assistant"):
+                    transcript.append({"who": "ai" if role == "assistant" else "them", "text": text})
+        if not transcript and transcript_raw and not isinstance(transcript_raw, list):
+            transcript.append({"who": "system", "text": str(transcript_raw)})
         if summary:
-            transcript = transcript + [{"role": "system", "content": f"Summary: {summary}"}]
+            transcript.append({"who": "system", "text": f"Summary: {summary}"})
 
+        # Deterministic id so Telnyx retries / several end events update one row.
+        key = ccid or str(payload.get("conversation_id") or inner.get("id") or data.get("id") or uuid.uuid4().hex)
+        log_id = "cl_tx_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
+        try:
+            secs = int(float(duration_secs or 0))
+        except Exception:
+            secs = 0
         try:
             async with AsyncSessionLocal() as db:
-                db.add(CallLog(
-                    id=f"cl_{uuid.uuid4().hex[:6]}",
+                await db.merge(CallLog(
+                    id=log_id,
                     canonical_name=caller_phone or "Unknown caller",
                     listed_as=caller_phone or "Unknown caller",
                     channel="voice",
-                    mission="Telnyx AI Assistant",
-                    started_at=now_iso,
-                    ended_at=now_iso,
-                    duration=f"{int(duration_secs)}s" if duration_secs else "0 min",
+                    mission="Telnyx AI Assistant — inbound",
+                    started_at=now_str,
+                    ended_at=now_str,
+                    duration=f"{secs // 60:02d}:{secs % 60:02d} min",
                     outcome="contacted",
                     transcript=transcript,
                 ))
                 await db.commit()
+            from app.websockets.call_hub import call_hub
+            await call_hub.broadcast("call_ended", {"callId": log_id, "endedBy": "remote"})
         except Exception as err:
             logger.warning(f"[TELNYX-ASSISTANT] Failed to persist CallLog for event '{event_type}': {err}")
 
