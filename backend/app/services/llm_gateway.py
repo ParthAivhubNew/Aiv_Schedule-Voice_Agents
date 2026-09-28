@@ -359,7 +359,17 @@ def _resolve_endpoint_and_model(prov: str, model: Optional[str], base_url: Optio
     """Maps a provider name (+ optional explicit base_url/model) to an OpenAI-compatible chat endpoint + model slug."""
     prov = (prov or "").lower()
     if base_url:
-        endpoint = base_url.rstrip("/")
+        endpoint = base_url.strip().rstrip("/")
+        if endpoint in ["https://deepseek.com", "http://deepseek.com", "https://www.deepseek.com", "http://www.deepseek.com"]:
+            endpoint = "https://api.deepseek.com"
+        elif endpoint in ["https://openai.com", "http://openai.com", "https://www.openai.com", "http://www.openai.com"]:
+            endpoint = "https://api.openai.com/v1"
+        elif endpoint in ["https://groq.com", "http://groq.com", "https://www.groq.com", "http://www.groq.com"]:
+            endpoint = "https://api.groq.com/openai/v1"
+        elif endpoint in ["https://x.ai", "http://x.ai", "https://www.x.ai"]:
+            endpoint = "https://api.x.ai/v1"
+        elif endpoint in ["https://openrouter.ai", "http://openrouter.ai"]:
+            endpoint = "https://openrouter.ai/api/v1"
         if "generativelanguage.googleapis.com" in endpoint and not endpoint.endswith("/openai"):
             endpoint += "/openai"
         if not endpoint.endswith("/chat/completions"):
