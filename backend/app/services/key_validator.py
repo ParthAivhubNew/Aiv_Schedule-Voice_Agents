@@ -191,7 +191,10 @@ async def _validate_telnyx(client: httpx.AsyncClient, api_key: str, base_url: Op
 
 
 async def _validate_deepseek(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
-    url = (base_url or "https://api.deepseek.com").rstrip("/") + "/models"
+    burl = (base_url or "https://api.deepseek.com").strip().rstrip("/")
+    if burl in ["https://deepseek.com", "http://deepseek.com", "https://www.deepseek.com", "http://www.deepseek.com"]:
+        burl = "https://api.deepseek.com"
+    url = (burl + "/models") if not burl.endswith("/models") else burl
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
     res = await client.get(url, headers=headers)
     if res.status_code == 200:
@@ -447,17 +450,28 @@ async def _validate_custom(client: httpx.AsyncClient, api_key: str, base_url: Op
     target_url = base_url.strip()
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
-        res = await client.get(target_url, headers=headers)
-        if res.status_code < 400 or res.status_code in (404, 405):
+        # Check models endpoint if OpenAI-compatible base URL
+        probe_url = target_url
+        if not probe_url.endswith("/models") and not probe_url.endswith("/chat/completions"):
+            probe_models = probe_url.rstrip("/") + "/models"
+            try:
+                res = await client.get(probe_models, headers=headers)
+                if res.status_code == 200:
+                    return {"valid": True, "provider": prov_name, "details": f"{prov_name} endpoint ({probe_models}) verified successfully."}
+            except Exception:
+                pass
+
+        res = await client.get(probe_url, headers=headers)
+        if res.status_code == 200 or res.status_code == 204:
             return {"valid": True, "provider": prov_name, "details": f"{prov_name} endpoint ({target_url}) reached successfully."}
-        elif res.status_code == 401:
-            return {"valid": False, "error": f"{prov_name} authentication failed (401 Unauthorized). Please check your API key."}
+        elif res.status_code in (401, 403):
+            return {"valid": False, "error": f"{prov_name} authentication failed (HTTP {res.status_code} Unauthorized / Access Denied). Please check your API key and endpoint URL."}
+        elif res.status_code == 404:
+            return {"valid": False, "error": f"{prov_name} endpoint not found (HTTP 404) at {target_url}. Please check the base URL."}
         else:
-            return {"valid": True, "provider": prov_name, "details": f"Endpoint responded with HTTP {res.status_code}."}
+            return {"valid": False, "error": f"{prov_name} returned error status HTTP {res.status_code} at {target_url}."}
     except Exception as ex:
-        if "localhost" in target_url or "127.0.0.1" in target_url:
-            return {"valid": True, "provider": prov_name, "details": f"Local endpoint ({target_url}) registered."}
-        return {"valid": False, "error": f"Connection to {target_url} failed: {str(ex)}"}
+        return {"valid": False, "error": f"Could not reach {target_url}: {str(ex)}"}
 
 
 PROVIDER_HANDLERS = {
