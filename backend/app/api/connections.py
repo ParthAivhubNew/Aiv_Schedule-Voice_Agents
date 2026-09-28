@@ -238,6 +238,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         )
         existing = next((c for c in result.scalars().all() if _same_saved_provider(c.name, req.provider)), None)
 
+    burl_req = (req.resolved_base_url or "").lower()
+    local_endpoint = "localhost" in burl_req or "127.0.0.1" in burl_req
     is_retest_existing = False
     if not key or key in ("dummy_configured", "dummy_key") or is_masked(key):
         if existing and (existing.name.lower() == req.provider.lower() or identify_provider(existing.name) == identify_provider(req.provider)):
@@ -245,13 +247,13 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             if saved_key:
                 key = saved_key
                 is_retest_existing = True
-        if not is_retest_existing:
+        if not is_retest_existing and not (local_endpoint and not key):
             raise HTTPException(
                 status_code=400,
                 detail="Please paste your raw API key (masked dots cannot be authenticated)."
             )
 
-    if not key:
+    if not key and not local_endpoint:
         raise HTTPException(
             status_code=400,
             detail="API Key is required."
@@ -308,8 +310,11 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         }
 
     # 3. Mask the key for safe storage
-    clean_key = key
-    masked = clean_key[:3] + "••••••••" + clean_key[-4:] if len(clean_key) > 8 else "••••••••"
+    clean_key = key or ""
+    if not clean_key:
+        masked = "No key required (Local)"
+    else:
+        masked = clean_key[:3] + "••••••••" + clean_key[-4:] if len(clean_key) > 8 else "••••••••"
     
     # 4. Save or update connection in database
     existing_cfg = open_config(existing.config) if existing and isinstance(existing.config, dict) else {}
