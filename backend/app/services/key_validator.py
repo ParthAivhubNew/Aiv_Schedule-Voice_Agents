@@ -458,12 +458,17 @@ async def _validate_custom(client: httpx.AsyncClient, api_key: str, base_url: Op
                 res = await client.get(probe_models, headers=headers)
                 if res.status_code == 200:
                     return {"valid": True, "provider": prov_name, "details": f"{prov_name} endpoint ({probe_models}) verified successfully."}
+                if res.status_code in (401, 403):
+                    return {"valid": False, "error": f"{prov_name} authentication failed (HTTP {res.status_code}). Please check your API key."}
             except Exception:
                 pass
 
         res = await client.get(probe_url, headers=headers)
         if res.status_code == 200 or res.status_code == 204:
             return {"valid": True, "provider": prov_name, "details": f"{prov_name} endpoint ({target_url}) reached successfully."}
+        elif res.status_code == 405:
+            # POST-only route (e.g. .../chat/completions) exists; GET cannot check the key here.
+            return {"valid": True, "provider": prov_name, "details": f"{prov_name} endpoint ({target_url}) reached (POST route)."}
         elif res.status_code in (401, 403):
             return {"valid": False, "error": f"{prov_name} authentication failed (HTTP {res.status_code} Unauthorized / Access Denied). Please check your API key and endpoint URL."}
         elif res.status_code == 404:

@@ -28,6 +28,12 @@ function mirrorForClassic(s) {
   } catch (_) {}
 }
 
+function matchKey(keys, selected) {
+  const s = String(selected || "").trim().toLowerCase();
+  if (!s) return null;
+  return keys.find((k) => String(k.name || "").toLowerCase() === s || String(k.provider || "").toLowerCase() === s) || null;
+}
+
 export function SchedulerAiPanel({ showToast }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -57,6 +63,26 @@ export function SchedulerAiPanel({ showToast }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // A saved choice of "auto" or a legacy slug ("openai" vs the key's name "OpenAI") matches no
+  // key, so the dropdown would show the first key while the backend used something else.
+  // Pin the shown provider so what the user sees is what posts are written with.
+  useEffect(() => {
+    if (!data || !settings) return;
+    const tk = (data.keys && data.keys.text) || [];
+    const ik = (data.keys && data.keys.image) || [];
+    const patch = {};
+    if (tk.length && !matchKey(tk, settings.textProvider)) {
+      patch.textProvider = tk[0].name;
+      if (!settings.textModel) patch.textModel = tk[0].model || "";
+    }
+    const ip = String(settings.imageProvider || "").toLowerCase();
+    if (ik.length && ip !== "pollinations" && !matchKey(ik, settings.imageProvider)) {
+      patch.imageProvider = ik[0].name;
+      if (!settings.imageModel) patch.imageModel = ik[0].model || "";
+    }
+    if (Object.keys(patch).length) persist(patch);
+  }, [data, settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist = async (patch) => {
     const next = { ...settings, ...patch };
@@ -199,18 +225,13 @@ export function SchedulerAiPanel({ showToast }) {
 
   // Active Provider selection resolution
   const hasTextKeys = textKeys.length > 0;
-  const effectiveTp = settings.textProvider && textProviders[settings.textProvider]
-    ? settings.textProvider
-    : (hasTextKeys ? textKeys[0].name : "");
-
-  const activeTextKey = textKeys.find((k) => k.name === effectiveTp || k.provider === effectiveTp);
+  const activeTextKey = matchKey(textKeys, settings.textProvider) || (hasTextKeys ? textKeys[0] : null);
+  const effectiveTp = activeTextKey ? activeTextKey.name : "";
 
   const hasImageKeys = imageKeys.length > 0;
-  const effectiveIp = settings.imageProvider && imageProviders[settings.imageProvider]
-    ? settings.imageProvider
-    : (hasImageKeys ? imageKeys[0].name : "pollinations");
-
-  const activeImageKey = imageKeys.find((k) => k.name === effectiveIp || k.provider === effectiveIp);
+  const isPollinations = String(settings.imageProvider || "").toLowerCase() === "pollinations";
+  const activeImageKey = isPollinations ? null : (matchKey(imageKeys, settings.imageProvider) || (hasImageKeys ? imageKeys[0] : null));
+  const effectiveIp = activeImageKey ? activeImageKey.name : "pollinations";
 
   return (
     <div style={card}>

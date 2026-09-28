@@ -78,7 +78,9 @@ async def resolve_llm_credentials(
                     k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
                     c_name = c.name.lower()
                     cfg_prov = str(cfg.get("provider", "")).lower()
-                    if k and (prov in c_name or c_name in prov or prov in cfg_prov):
+                    c_burl = str(cfg.get("base_url") or cfg.get("baseUrl") or "").lower()
+                    keyless_local = "localhost" in c_burl or "127.0.0.1" in c_burl
+                    if (k or keyless_local) and (prov in c_name or c_name in prov or prov in cfg_prov):
                         return {
                             "provider": prov,
                             "api_key": k,
