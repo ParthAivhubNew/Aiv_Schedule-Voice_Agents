@@ -342,9 +342,8 @@ def _image_provider_id(raw: Optional[str]) -> str:
         return "fal"
     if "pollinations" in p or "flux" in p or p == "free":
         return "pollinations"
-    if "custom" in p:
-        return "custom"
-    return p
+    # Any other named provider is an OpenAI-compatible custom endpoint.
+    return "custom"
 
 
 async def resolve_image_credentials(
@@ -389,12 +388,18 @@ async def resolve_image_credentials(
             for c in res.scalars().all():
                 cfg = c.config if isinstance(c.config, dict) else {}
                 k = config_get_secret(cfg, "api_key", "apiKey")
-                if not k or _is_xai(k):
+                if _is_xai(k):
                     continue
+                row_burl = (cfg.get("base_url") or cfg.get("baseUrl") or "").strip()
                 group = str(c.group_name or "").upper()
                 row_prov = _image_provider_id(cfg.get("provider") or c.name) or "custom"
-                if group.startswith("IMAGE") or (c.status == "connected" and "image" in str(c.name or "").lower()):
+                is_image_row = group.startswith("IMAGE") or (c.status == "connected" and "image" in str(c.name or "").lower())
+                # Keyless rows only make sense for a self-hosted custom endpoint.
+                if not k and not (is_image_row and row_prov == "custom" and row_burl):
+                    continue
+                if is_image_row:
                     image_rows.append({
+                        "name": (c.name or "").strip().lower(),
                         "provider": row_prov,
                         "api_key": k,
                         "base_url": (cfg.get("base_url") or cfg.get("baseUrl") or "").strip(),
@@ -408,7 +413,9 @@ async def resolve_image_credentials(
 
     if not key:
         if prov:
-            matches = [r for r in image_rows if r["provider"] == prov]
+            # Exact saved name first, so two custom endpoints don't shadow each other.
+            wanted = (provider or "").strip().lower()
+            matches = [r for r in image_rows if r["name"] == wanted] or [r for r in image_rows if r["provider"] == prov]
         else:
             matches = [r for r in image_rows if r["connected"]] or image_rows
         row = matches[0] if matches else None
