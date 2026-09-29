@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,8 @@ from sqlalchemy.future import select
 
 from app.models.models import CallLog, LiveCall, Prospect
 from app.services.call_names import apply_names_to_log, resolve_call_people
+from app.services.org_settings import org_timezone
+from app.services.timezone_service import tzinfo
 
 logger = logging.getLogger("call_log_writer")
 
@@ -178,9 +180,10 @@ async def upsert_call_log_from_live(
         else:
             dur_disp = dur
 
-        now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
+        tz = tzinfo(await org_timezone(db))
+        now_str = datetime.now(tz).strftime("%d %b %Y, %H:%M")
         started = (
-            call.created_at.strftime("%d %b %Y, %H:%M")
+            call.created_at.replace(tzinfo=timezone.utc).astimezone(tz).strftime("%d %b %Y, %H:%M")
             if getattr(call, "created_at", None)
             else now_str
         )

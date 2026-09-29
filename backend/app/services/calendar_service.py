@@ -21,6 +21,7 @@ from sqlalchemy import delete
 
 from app.config import settings
 from app.models.models import Meeting, MeetingEventType, CalcomSetting, Notification, CompanyProfile
+from app.services.org_settings import org_timezone
 from app.services.timezone_service import (
     combine_local,
     convert_local,
@@ -571,7 +572,6 @@ class CalendarService:
                 default_event_type_slug="15-min-discovery",
                 default_duration=15,
                 default_platform="google_meet",
-                timezone="Europe/London",
                 working_hours_start="09:00",
                 working_hours_end="17:30",
                 working_days=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
@@ -594,7 +594,7 @@ class CalendarService:
         for field in [
             "host_email", "host_name", "api_key", "base_url",
             "default_event_type_slug", "default_duration", "default_platform",
-            "timezone", "working_hours_start", "working_hours_end",
+            "working_hours_start", "working_hours_end",
             "working_days", "working_hours_by_day", "slot_step_minutes", "flex_minutes",
             "buffer_before", "buffer_after",
             "auto_email_attendee", "auto_email_host",
@@ -1035,7 +1035,7 @@ class CalendarService:
         call_override: Optional[str] = None,
     ) -> Tuple[str, str]:
         setting = await self.get_or_create_settings(db)
-        host_tz = setting.timezone or "Europe/London"
+        host_tz = await org_timezone(db)
         p_tz = resolve_prospect_timezone(
             phone=phone,
             mission_tz=mission_tz,
@@ -1057,7 +1057,7 @@ class CalendarService:
         Times on each slot are host-local. If prospect_tz is set, also attach spoken prospect-local times.
         """
         setting = await self.get_or_create_settings(db)
-        host_tz = setting.timezone or "Europe/London"
+        host_tz = await org_timezone(db)
 
         native = await self._native_slots(db, setting, date_str, event_type_slug, host_tz)
         cal_open: List[Dict[str, Any]] = []
@@ -1215,7 +1215,7 @@ class CalendarService:
     ) -> List[Dict[str, Any]]:
         """Open slots for the next N working days, using host calendar + working hours."""
         setting = await self.get_or_create_settings(db)
-        host_tz = setting.timezone or "Europe/London"
+        host_tz = await org_timezone(db)
         stamp = start or now_in(host_tz)
         out = []
         scanned = 0
@@ -1250,7 +1250,7 @@ class CalendarService:
         """Compact, spoken-ready JSON calendar availability for token-efficient LLM prompts."""
         try:
             setting = await self.get_or_create_settings(db)
-            host_tz = setting.timezone or "Europe/London"
+            host_tz = await org_timezone(db)
             p_tz = prospect_tz or host_tz
             p_now = now_in(p_tz)
             today_iso = p_now.strftime("%Y-%m-%d")
@@ -1287,7 +1287,7 @@ class CalendarService:
     ) -> str:
         """Plain-language calendar snapshot for the live voice prompt."""
         setting = await self.get_or_create_settings(db)
-        host_tz = setting.timezone or "Europe/London"
+        host_tz = await org_timezone(db)
         p_tz = prospect_tz or host_tz
         host_now = now_in(host_tz)
         p_now = now_in(p_tz)
@@ -1350,7 +1350,7 @@ class CalendarService:
         brand = await self._company_brand(db)
         resolved_host_email = host_email or setting.host_email or ""
         resolved_host_name = setting.host_name or brand.get("caller") or brand["name"]
-        host_tz = setting.timezone or "Europe/London"
+        host_tz = await org_timezone(db)
         p_tz = resolve_prospect_timezone(
             phone=prospect_phone,
             mission_tz=mission_tz,
@@ -1661,7 +1661,7 @@ class CalendarService:
         old_date = meeting.date
         old_time = meeting.time
         setting = await self.get_or_create_settings(db)
-        host_tz = meeting.host_timezone or setting.timezone or "Europe/London"
+        host_tz = meeting.host_timezone or await org_timezone(db)
         p_tz = meeting.prospect_timezone or host_tz
         slots = await self.get_available_slots(db, new_date, meeting.event_type_slug or "15-min-discovery")
         open_times = [s["time"] for s in slots if s.get("available")]
@@ -2045,7 +2045,7 @@ class CalendarService:
         company = brand["name"]
         host_name = (setting.host_name or brand.get("caller") or company).strip()
         host_email = (setting.host_email or "").strip()
-        tz = setting.timezone or "Europe/London"
+        tz = await org_timezone(db)
         try:
             z = ZoneInfo(tz)
         except Exception:

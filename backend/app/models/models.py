@@ -60,7 +60,11 @@ class CompanyProfile(Base):
     ico_ref = Column(String, default="ZA774219")
     dpo_contact = Column(String, default="privacy@aivhub.io")
     dnc_notes = Column(Text, default="Opt-outs logged immediately and excluded from all future missions.")
+    # Organisation time settings: the one source every feature reads (see org_settings.py).
     timezone = Column(String, default="Europe/London")
+    week_start = Column(String, default="monday")
+    time_format = Column(String, default="24h")  # 24h | 12h
+    approver_emails = Column(JSON, default=list)
     lunch_start = Column(String, default="12:00")
     lunch_end = Column(String, default="13:00")
     call_hours_policy = Column(String, default="respectful")
@@ -305,7 +309,7 @@ class CalcomSetting(Base):
     default_event_type_slug = Column(String, default="15-min-discovery")
     default_duration = Column(Integer, default=15)
     default_platform = Column(String, default="google_meet")
-    timezone = Column(String, default="Europe/London")
+    # Timezone comes from the organisation settings (org_settings.org_timezone).
     working_hours_start = Column(String, default="09:00")
     working_hours_end = Column(String, default="17:30")
     working_days = Column(JSON, default=lambda: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
@@ -399,8 +403,8 @@ class SocialPost(Base):
     adapt_per_channel = Column(Boolean, default=False)
     publish_results = Column(JSON, default=list)
     published_at = Column(String, nullable=True)
-    # Exact publish instant (epoch ms) computed in the user's browser timezone.
-    # slot_date_ms + time is kept for the Classic edition / legacy rows.
+    # Exact publish instant (epoch ms): date + time in the organisation timezone, set by the server.
+    # slot_date_ms + time is kept for rows created before due_at_ms existed.
     due_at_ms = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

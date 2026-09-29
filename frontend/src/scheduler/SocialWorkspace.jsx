@@ -34,6 +34,7 @@ import {
 } from "../tokens";
 import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
 import { SchedulerAiPanel } from "./SchedulerAiPanel";
+import { formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../org/orgSettings";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -268,6 +269,7 @@ function ApprovalsBoard({
   const userPickedDate = useRef(false);
   const lastSyncedInitial = useRef("");
   const snapRef = useRef({});
+  const org = useOrg();
   const [bodyRef, bodyWidth] = useElementWidth();
   // Wide window: list on the left, the open post beside it instead of on top of the list.
   const wide = bodyWidth >= 820;
@@ -626,7 +628,7 @@ function ApprovalsBoard({
                                 {p.headline || "Draft post"}
                               </div>
                               <div style={{ fontSize: 11, color: p.status === "failed" ? C.red : C.slate, marginTop: 2 }}>
-                                {p.time || "09:00"} · {statusLabel(p.status)}
+                                {formatOrgTime(p.time || "09:00", org.timeFormat)} · {statusLabel(p.status)}
                                 {p.syncError ? " · not saved to server" : ""}
                               </div>
                             </div>
@@ -1140,11 +1142,21 @@ function parseIsoDate(s) {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
 }
 
+// Organisation timezone for the module-level date helpers below; SocialWorkspace sets it
+// from useOrg() on every render so all scheduling uses the organisation clock.
+let orgTz = "Europe/London";
+function setSchedulerTz(tz) {
+  if (tz) orgTz = tz;
+}
+
+function todayIso() {
+  return orgToday(orgTz);
+}
+
 function postDueMs(p) {
   if (!p) return 0;
-  const base = parseIsoDate(p.date);
-  const [hh, mm] = String(p.time || "09:00").split(":").map((v) => parseInt(v, 10));
-  return new Date(base).setHours(Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
+  const ms = orgInstant(p.date || todayIso(), p.time || "09:00", orgTz);
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 function isPastSlot(date, time, graceMs = 15000) {
@@ -1155,10 +1167,18 @@ function monthLabel(year, month) {
   return new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
-function buildMonthCells(year, month) {
+const WEEK_START_INDEX = { sunday: 0, monday: 1, saturday: 6 };
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function weekdayHeaders(weekStart) {
+  const start = WEEK_START_INDEX[weekStart] ?? 1;
+  return DAY_NAMES.map((_, i) => DAY_NAMES[(start + i) % 7]);
+}
+
+function buildMonthCells(year, month, weekStart) {
   const first = new Date(year, month, 1);
   const daysIn = new Date(year, month + 1, 0).getDate();
-  const pad = (first.getDay() + 6) % 7;
+  const pad = (first.getDay() - (WEEK_START_INDEX[weekStart] ?? 1) + 7) % 7;
   const cells = [];
   for (let i = 0; i < pad; i++) cells.push(null);
   for (let d = 1; d <= daysIn; d++) cells.push(new Date(year, month, d));
@@ -1268,17 +1288,14 @@ function isLocked(status) {
 // Fields that only exist in the browser (drafting context), kept when the server copy wins.
 const LOCAL_ONLY_FIELDS = ["plan", "batchId", "uniqueForChannel", "copyChat", "imageChat", "hook", "hashtags", "imageConcept", "imageHeadline"];
 
-function hhmm(ms) {
-  const d = new Date(ms);
-  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-}
 
 function fromServerPost(p, local) {
   const due = Number(p.dueAtMs) || 0;
+  const at = due ? orgDateTime(due, orgTz) : null;
   const base = {
     id: p.id,
-    date: due ? isoDate(due) : (p.dateMs ? isoDate(p.dateMs) : isoDate(p.slotDateMs || Date.now())),
-    time: due ? hhmm(due) : (p.time || "09:00"),
+    date: at ? at.date : orgDateTime(p.dateMs || p.slotDateMs || Date.now(), orgTz).date,
+    time: at ? at.time : (p.time || "09:00"),
     channel: (p.channels && p.channels[0]) || "linkedin",
     channels: p.channels || ["linkedin"],
     headline: p.topicHeadline || p.title || p.headline || "Post",
@@ -1873,6 +1890,8 @@ export function SocialWorkspace({
   setKnowledgeSources,
   commonAi,
 }) {
+  const org = useOrg();
+  setSchedulerTz(org.timezone);
   const [posts, setPosts] = useState(() => {
     const saved = readJson(LS_POSTS, []);
     if (!Array.isArray(saved)) return [];
@@ -1905,7 +1924,7 @@ export function SocialWorkspace({
   });
   const [draft, setDraft] = useState("");
   const [topicDraft, setTopicDraft] = useState("");
-  const [dateDraft, setDateDraft] = useState(isoDate(Date.now()));
+  const [dateDraft, setDateDraft] = useState(todayIso());
   const [channelDrafts, setChannelDrafts] = useState(["linkedin"]);
   const [typing, setTyping] = useState(false);
   const [toast, setToast] = useState("");
@@ -1914,8 +1933,10 @@ export function SocialWorkspace({
   const [accounts, setAccounts] = useState([]);
   const [connecting, setConnecting] = useState("");
   const [publishing, setPublishing] = useState("");
-  const now = new Date();
-  const [cal, setCal] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const [cal, setCal] = useState(() => {
+    const [y, m] = todayIso().split("-").map(Number);
+    return { year: y, month: m - 1 };
+  });
   const chatEnd = useRef(null);
   const inputRef = useRef(null);
   const datePickRef = useRef(null);
@@ -2114,7 +2135,7 @@ export function SocialWorkspace({
     (ch) => !connected.some((a) => String(a.platform || "").toLowerCase() === ch)
   );
 
-  const cells = useMemo(() => buildMonthCells(cal.year, cal.month), [cal.year, cal.month]);
+  const cells = useMemo(() => buildMonthCells(cal.year, cal.month, org.weekStart), [cal.year, cal.month, org.weekStart]);
   const postsByDay = useMemo(() => {
     const map = {};
     posts.forEach((p) => {
@@ -2146,6 +2167,7 @@ export function SocialWorkspace({
         copy: np.caption,
         channels: np.channels || [np.channel],
         status: apiStatus,
+        date: np.date,
         slotDateMs: dueAtMs,
         dueAtMs,
         time: np.time || "09:00",
@@ -2182,7 +2204,7 @@ export function SocialWorkspace({
 
   const applyPlan = (incoming, replaceAll, share = true) => {
     if (!incoming || !Array.isArray(incoming.posts) || !incoming.posts.length) return [];
-    const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || isoDate(Date.now());
+    const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || todayIso();
     const stamp = "b_" + Date.now();
     const nextPosts = incoming.posts.map((raw) => {
       const channel = String(raw.channel || (incoming.channels && incoming.channels[0]) || (channelDrafts[0]) || "linkedin").toLowerCase();
@@ -2364,7 +2386,7 @@ export function SocialWorkspace({
     setPinnedDates((prev) => {
       if (!prev.includes(key)) return prev;
       const next = prev.filter((d) => d !== key);
-      setDateDraft(next[next.length - 1] || isoDate(Date.now()));
+      setDateDraft(next[next.length - 1] || todayIso());
       setFocusDate((fd) => (fd === key ? (next[next.length - 1] || "") : fd));
       showToast("Unpinned " + dayLabel(key));
       return next;
@@ -2377,7 +2399,7 @@ export function SocialWorkspace({
     setPinnedDates((prev) => {
       if (prev.includes(key)) {
         const next = prev.filter((d) => d !== key);
-        setDateDraft(next[next.length - 1] || isoDate(Date.now()));
+        setDateDraft(next[next.length - 1] || todayIso());
         setFocusDate((fd) => (fd === key ? (next[next.length - 1] || "") : fd));
         showToast("Unpinned " + dayLabel(key));
         return next;
@@ -2715,10 +2737,9 @@ export function SocialWorkspace({
   };
 
   const shiftIso = (n) => {
-    const t = new Date();
-    t.setHours(12, 0, 0, 0);
-    t.setDate(t.getDate() + n);
-    return isoDate(t.getTime());
+    const [y, m, d] = todayIso().split("-").map(Number);
+    const t = new Date(Date.UTC(y, m - 1, d + n));
+    return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(t.getUTCDate()).padStart(2, "0")}`;
   };
 
   const generateFromComposer = () => {
@@ -2729,7 +2750,7 @@ export function SocialWorkspace({
       return;
     }
     const topic = typed;
-    const dates = pinnedDates.length ? pinnedDates.slice() : [dateDraft || isoDate(Date.now())];
+    const dates = pinnedDates.length ? pinnedDates.slice() : [dateDraft || todayIso()];
     const named = channelsNamedInText(topic);
     const channels = named.length ? named : activeChannels();
     const reuseKey = dates.slice().sort().join(",") + "|" + channels.slice().sort().join(",") + "|" + normPlan(topic);
@@ -2886,7 +2907,7 @@ export function SocialWorkspace({
         };
       }
       if (incoming && Array.isArray(incoming.posts) && incoming.posts.length) {
-        const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || isoDate(Date.now());
+        const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || todayIso();
         const dates = [...new Set(incoming.posts.map((p) => p.date || pinFallback))];
         const channels = namedSend.length ? namedSend : [...new Set(incoming.posts.map((p) => String(p.channel || "linkedin").toLowerCase()))];
         const reuseKey = dates.slice().sort().join(",") + "|" + channels.slice().sort().join(",") + "|" + normPlan(text);
@@ -3243,7 +3264,7 @@ export function SocialWorkspace({
               {plan.rangeLabel || monthLabel(cal.year, cal.month)}
             </div>
             <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-              {companyName(profile)} · Pin dates · generate · Approvals window
+              {companyName(profile)} · Times in {tzLabel(org.timezone)}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -3303,7 +3324,7 @@ export function SocialWorkspace({
                     {dayLabel(d)} <X size={11} />
                   </button>
                 ))}
-                <button type="button" onClick={() => { setPinnedDates([]); setFocusDate(""); setDateDraft(isoDate(Date.now())); }} style={{ ...secBtn, height: 28, fontSize: 11 }}>
+                <button type="button" onClick={() => { setPinnedDates([]); setFocusDate(""); setDateDraft(todayIso()); }} style={{ ...secBtn, height: 28, fontSize: 11 }}>
                   Unpin all
                 </button>
               </div>
@@ -3311,7 +3332,7 @@ export function SocialWorkspace({
               <div style={{ fontSize: 12, color: C.slate }}>Single-click a day to pin it. Double-click to see every post that day. Several days can stay pinned at once.</div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
-              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+              {weekdayHeaders(org.weekStart).map((d) => (
                 <div key={d} style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, textAlign: "center", padding: "4px 0", minWidth: 0, overflow: "hidden" }}>{d}</div>
               ))}
             </div>
@@ -3320,7 +3341,7 @@ export function SocialWorkspace({
                 if (!day) return <div key={"e" + i} style={{ minHeight: 84, minWidth: 0 }} />;
                 const key = isoDate(day.getTime());
                 const dayPosts = postsByDay[key] || [];
-                const isToday = isoDate(Date.now()) === key;
+                const isToday = todayIso() === key;
                 const pinned = pinnedDates.includes(key);
                 return (
                   <div
@@ -3400,7 +3421,7 @@ export function SocialWorkspace({
                           <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, overflow: "hidden" }}>
                             <span style={{ width: 6, height: 6, borderRadius: 99, background: statusColor(p.status), flexShrink: 0 }} />
                             <span style={{ fontSize: 10, fontWeight: 700, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                              {p.time} · {p.channel}
+                              {formatOrgTime(p.time, org.timeFormat)} · {p.channel}
                             </span>
                           </div>
                           <div
@@ -3621,7 +3642,7 @@ export function SocialWorkspace({
             <div style={{ flexShrink: 0, borderTop: `1px solid ${C.border}`, padding: 12, background: "#fff" }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: C.slateLight, marginBottom: 6 }}>DATES</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 10 }}>
-                <button type="button" onClick={() => addComposerDate(shiftIso(0))} style={{ ...chipBtn, background: pinnedDates.includes(isoDate(Date.now())) ? C.tealSoft : "#fff", borderColor: pinnedDates.includes(isoDate(Date.now())) ? C.teal : C.border }}>
+                <button type="button" onClick={() => addComposerDate(shiftIso(0))} style={{ ...chipBtn, background: pinnedDates.includes(todayIso()) ? C.tealSoft : "#fff", borderColor: pinnedDates.includes(todayIso()) ? C.teal : C.border }}>
                   Today
                 </button>
                 <button type="button" onClick={() => addComposerDate(shiftIso(1))} style={{ ...chipBtn, background: pinnedDates.includes(shiftIso(1)) ? C.tealSoft : "#fff", borderColor: pinnedDates.includes(shiftIso(1)) ? C.teal : C.border }}>

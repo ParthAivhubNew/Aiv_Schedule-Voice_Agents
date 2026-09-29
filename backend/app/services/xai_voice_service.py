@@ -32,6 +32,7 @@ from app.services.call_names import clean_person_label, greeting_first_name, is_
 from app.services.process_logger import log_process_event, scrub_text
 from app.services.rag_service import search_knowledge
 from app.services.timezone_service import display_hhmm, now_in, resolve_prospect_timezone
+from app.services.org_settings import org_timezone
 from app.websockets.call_hub import call_hub
 
 logger = logging.getLogger("xai_voice_service")
@@ -593,7 +594,7 @@ async def _resolve_call_clocks(
     from app.services.calendar_service import calendar_service
 
     setting = await calendar_service.get_or_create_settings(db)
-    host_tz = setting.timezone or "Europe/London"
+    host_tz = await org_timezone(db)
     phone = caller_number or ""
     mission_tz = None
     override = setting.prospect_timezone_override
