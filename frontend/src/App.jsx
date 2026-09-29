@@ -124,6 +124,7 @@ import { CalcomSchedulerPlugin } from "./plugins/CalcomSchedulerPlugin";
 import { CalcomAdminModal } from "./admin/CalcomAdminModal";
 import { meetingTimeLabel, logDisplayName, dedupeNotifications, prependNotification, notificationFingerprint, resolveNotificationTarget, notificationActionLabel, scrubSecretsForStorage } from "./tokens";
 import { SocialWorkspaceGate } from "./scheduler/SocialWorkspace";
+import { OrgSettingsProvider, announceOrgUpdated } from "./org/orgSettings";
 import { humanizeAiReply } from "./scheduler/chatClean";
 import { CallingWorkspace } from "./calling/CallingWorkspace";
 import { CALLING_EDITION_EVENT, getCallingEdition, setCallingEdition } from "./calling/callingEdition";
@@ -5632,6 +5633,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
     } catch (_) {}
     try {
       await api.updateProfile(profile);
+      announceOrgUpdated();
       await api.saveServices(services);
       await api.saveFaqs(faq);
       if (voiceName) {
@@ -5937,16 +5939,49 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
               <Field label="Caller persona name" value={profile.callerName} onChange={(v) => update("callerName", v)} placeholder="Name the agent uses" hint="The name the AI introduces itself as on calls." />
               <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…" />
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Working timezone</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Organisation timezone</div>
                 <select
                   value={profile.timezone || "Europe/London"}
                   onChange={(e) => update("timezone", e.target.value)}
                   style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
                 >
+                  {!TIMEZONES.some((z) => z.id === (profile.timezone || "Europe/London")) ? <option value={profile.timezone}>{profile.timezone}</option> : null}
                   {TIMEZONES.map((z) => <option key={z.id} value={z.id}>{z.label}</option>)}
                 </select>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Every call window, callback, and meeting time is shown in this zone. Change it any time.</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>The whole app runs on this clock: post schedules, call windows, callbacks, meetings and call logs.</div>
               </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Week starts on</div>
+                  <select
+                    value={profile.weekStart || "monday"}
+                    onChange={(e) => update("weekStart", e.target.value)}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+                  >
+                    <option value="monday">Monday</option>
+                    <option value="sunday">Sunday</option>
+                    <option value="saturday">Saturday</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Time format</div>
+                  <select
+                    value={profile.timeFormat || "24h"}
+                    onChange={(e) => update("timeFormat", e.target.value)}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+                  >
+                    <option value="24h">24-hour (14:30)</option>
+                    <option value="12h">12-hour (2:30 PM)</option>
+                  </select>
+                </div>
+              </div>
+              <Field
+                label="Post approver emails"
+                value={Array.isArray(profile.approverEmails) ? profile.approverEmails.join(", ") : (profile.approverEmails || "")}
+                onChange={(v) => update("approverEmails", v)}
+                placeholder="approver@company.com, manager@company.com"
+                hint="Every scheduled post is sent here for approval. Separate several with commas."
+              />
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Active Calendar Engine</div>
                 <select
@@ -17990,7 +18025,7 @@ export default function App() {
   if (!operator) return <LoginScreen onLogin={handleUpdateOperator} />;
   
   return (
-    <>
+    <OrgSettingsProvider>
       {!plugin && (
         <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
           <PluginHub
@@ -18153,6 +18188,6 @@ export default function App() {
         operator={operator}
         setOperator={handleUpdateOperator}
       />
-    </>
+    </OrgSettingsProvider>
   );
 }

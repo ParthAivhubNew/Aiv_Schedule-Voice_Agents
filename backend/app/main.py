@@ -180,6 +180,9 @@ async def lifespan(app: FastAPI):
             ("calendar_mode", "VARCHAR DEFAULT 'internal'"),
             ("default_outbound_template_id", "VARCHAR"),
             ("default_inbound_template_id", "VARCHAR"),
+            ("week_start", "VARCHAR DEFAULT 'monday'"),
+            ("time_format", "VARCHAR DEFAULT '24h'"),
+            ("approver_emails", "JSON"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS {col} {col_type};"))
@@ -459,6 +462,12 @@ async def lifespan(app: FastAPI):
             logger.warning(f"[Startup Voice Plan] Live voice plan not fully configured yet: {plan_res_err}")
     except Exception as stack_log_err:
         logger.warning(f"[Startup Voice Plan] Could not inspect active voice stack at startup: {stack_log_err}")
+
+    try:
+        from app.services.org_settings import migrate_calendar_timezone
+        await migrate_calendar_timezone()
+    except Exception as org_tz_err:
+        logger.warning(f"[Org] Timezone migration failed: {org_tz_err}")
 
     try:
         from app.api.scheduler import ensure_social_schema
