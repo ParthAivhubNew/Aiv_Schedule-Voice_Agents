@@ -260,7 +260,7 @@ async def set_active(db: AsyncSession, kind: str, ref: str) -> Dict[str, Any]:
         patch = {"voice_kind": "builtin", "voice_ref": ref}
         if engine == "xai":
             patch["tts"] = f"xAI built-in ({ref})"
-        set_active_stack(patch)
+        await set_active_stack(patch)
         return await active_voice(db)
     row = (await db.execute(select(Voice).where(Voice.id == ref))).scalars().first()
     if not row:
@@ -275,7 +275,7 @@ async def set_active(db: AsyncSession, kind: str, ref: str) -> Dict[str, Any]:
         model = (open_config(conn["row"].config) if isinstance(conn["row"].config, dict) else {}).get("model")
         if model:
             patch["tts_model"] = model
-    set_active_stack(patch)
+    await set_active_stack(patch)
     return await active_voice(db)
 
 
@@ -298,7 +298,7 @@ async def follow_tts_switch(db: AsyncSession, tts_name: str) -> None:
         except VoiceError:
             pass
     if stack.get("voice_kind") == "library":
-        set_active_stack({"voice_kind": "", "voice_ref": ""})
+        await set_active_stack({"voice_kind": "", "voice_ref": ""})
 
 
 async def catalog(db: AsyncSession, provider: str) -> List[Dict[str, Any]]:
@@ -393,5 +393,5 @@ async def migrate_legacy(db: AsyncSession) -> None:
         if same:
             patch = {"voice_kind": "library", "voice_ref": same[0].id}
     await db.commit()
-    set_active_stack(patch)
+    await set_active_stack(patch)
     logger.info(f"[VoiceLibrary] Migrated {len(added)} saved voice(s); call voice {patch or 'not set'}.")

@@ -23,10 +23,17 @@ _UUID_RE = re.compile(
     re.I,
 )
 
+import asyncio
 import os
 import json
 
-ACTIVE_STACK_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "active_voice_stack.json")
+# The live voice stack (engine, carrier, STT/TTS/LLM, call voice) is stored in the database
+# (app_settings row STACK_KEY). The app never writes this old file any more: on the first start
+# with an empty database it is read once to move existing settings over (and serves as the
+# defaults of a fresh install). It stays in git so pulling never deletes someone's settings
+# before they are moved.
+LEGACY_STACK_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "active_voice_stack.json")
+STACK_KEY = "active_voice_stack"
 
 DEFAULT_ACTIVE_STACK = {
     "engine": "livekit",
@@ -40,29 +47,67 @@ DEFAULT_ACTIVE_STACK = {
     "carrier": "Twilio",
 }
 
-def get_active_stack() -> Dict[str, str]:
-    if os.path.exists(ACTIVE_STACK_FILE):
-        try:
-            with open(ACTIVE_STACK_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return {**DEFAULT_ACTIVE_STACK, **data}
-        except Exception:
-            pass
-    return dict(DEFAULT_ACTIVE_STACK)
+# In-memory copy of the stored stack, so sync readers stay cheap. Loaded at startup and
+# refreshed from the database before every call (resolve_voice_plan).
+_stack: Dict[str, str] = {}
+_stack_lock = asyncio.Lock()
 
-def set_active_stack(patch: Dict[str, Any]) -> Dict[str, str]:
-    current = get_active_stack()
-    for k, v in patch.items():
-        if v is not None:
-            current[k] = str(v).strip()
-    os.makedirs(os.path.dirname(ACTIVE_STACK_FILE), exist_ok=True)
-    try:
-        with open(ACTIVE_STACK_FILE, "w", encoding="utf-8") as f:
-            json.dump(current, f, indent=2)
-        logger.info(f"[VoiceStack] Persisted active voice stack to {ACTIVE_STACK_FILE}: {current} (patch: {patch})")
-    except Exception as e:
-        logger.warning(f"Could not persist active voice stack to {ACTIVE_STACK_FILE}: {e}")
-    return current
+
+def get_active_stack() -> Dict[str, str]:
+    return {**DEFAULT_ACTIVE_STACK, **_stack}
+
+
+async def refresh_active_stack() -> Dict[str, str]:
+    """Reload the stack from the database (another worker may have changed it)."""
+    from app.models.models import AppSetting
+
+    global _stack
+    async with AsyncSessionLocal() as db:
+        row = (await db.execute(select(AppSetting).where(AppSetting.id == STACK_KEY))).scalars().first()
+    if row is not None and isinstance(row.data, dict):
+        _stack = {k: str(v) for k, v in row.data.items() if v is not None}
+    return get_active_stack()
+
+
+async def set_active_stack(patch: Dict[str, Any]) -> Dict[str, str]:
+    """Change some stack fields and save them. Fields set to None are left as they are."""
+    from app.models.models import AppSetting
+
+    global _stack
+    async with _stack_lock:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(AppSetting).where(AppSetting.id == STACK_KEY))).scalars().first()
+            current = dict(row.data) if row is not None and isinstance(row.data, dict) else dict(_stack)
+            for k, v in patch.items():
+                if v is not None:
+                    current[k] = str(v).strip()
+            if row is None:
+                db.add(AppSetting(id=STACK_KEY, data=current))
+            else:
+                row.data = current
+            await db.commit()
+        _stack = current
+    logger.info(f"[VoiceStack] Saved active voice stack (patch: {patch})")
+    return get_active_stack()
+
+
+async def load_active_stack() -> Dict[str, str]:
+    """Startup: load the stored stack. The first time, move the old JSON file's settings in."""
+    from app.models.models import AppSetting
+
+    async with AsyncSessionLocal() as db:
+        row = (await db.execute(select(AppSetting).where(AppSetting.id == STACK_KEY))).scalars().first()
+    if row is None:
+        legacy: Dict[str, Any] = {}
+        if os.path.exists(LEGACY_STACK_FILE):
+            try:
+                with open(LEGACY_STACK_FILE, "r", encoding="utf-8") as f:
+                    legacy = json.load(f) or {}
+                logger.info(f"[VoiceStack] Moved settings from {LEGACY_STACK_FILE} into the database.")
+            except Exception as e:
+                logger.warning(f"Could not read {LEGACY_STACK_FILE}: {e}")
+        return await set_active_stack({**DEFAULT_ACTIVE_STACK, **legacy})
+    return await refresh_active_stack()
 
 
 @dataclass
@@ -226,7 +271,7 @@ async def resolve_voice_plan() -> VoicePlan:
         # The Telnyx-hosted Assistant's settings row is not a call engine.
         conns = [c for c in res.scalars().all() if c.id != "c_telnyx_assistant_settings"]
 
-    active_stack = get_active_stack()
+    active_stack = await refresh_active_stack()
     # The call voice is one choice in the stack, written only by voice_library: an engine
     # built-in voice, or a library voice (spoken by its provider's TTS plugin, or natively
     # when the provider is the engine itself, e.g. an xAI custom voice).
