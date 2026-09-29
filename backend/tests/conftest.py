@@ -27,10 +27,11 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True)
 def isolated_voice_stack(tmp_path, monkeypatch):
-    """Every test gets its own active voice stack file."""
+    """Every test starts with an empty in-memory voice stack and no legacy stack file."""
     from app.services import voice_plugin_plan
 
-    monkeypatch.setattr(voice_plugin_plan, "ACTIVE_STACK_FILE", str(tmp_path / "active_voice_stack.json"))
+    monkeypatch.setattr(voice_plugin_plan, "_stack", {})
+    monkeypatch.setattr(voice_plugin_plan, "LEGACY_STACK_FILE", str(tmp_path / "active_voice_stack.json"))
     yield
 
 

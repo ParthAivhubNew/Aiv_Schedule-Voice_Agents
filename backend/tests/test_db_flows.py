@@ -208,7 +208,7 @@ async def _tts(db, name, key="sk_test_key_123456"):
 async def test_voice_library_picks_and_guards(client, db):
     from app.services.voice_plugin_plan import get_active_stack, set_active_stack
 
-    set_active_stack({"engine": "livekit", "voice_kind": "", "voice_ref": ""})
+    await set_active_stack({"engine": "livekit", "voice_kind": "", "voice_ref": ""})
     await _tts(db, "Cartesia")
     lib = (await client.get("/api/voices/library")).json()
     assert lib["active"]["status"] == "missing" and lib["builtins"] == []
@@ -223,7 +223,7 @@ async def test_voice_library_picks_and_guards(client, db):
     vid = lib["active"]["id"]
     assert (await client.delete(f"/api/voices/{vid}")).status_code == 400  # the call voice
 
-    set_active_stack({"engine": "xai"})
+    await set_active_stack({"engine": "xai"})
     lib = (await client.post("/api/voices/active", json={"kind": "builtin", "ref": "ara-uk"})).json()
     assert lib["active"]["status"] == "ok" and get_active_stack()["tts"] == "xAI built-in (ara-uk)"
 
@@ -241,7 +241,7 @@ async def test_call_plan_uses_the_picked_voice_and_fails_clearly_without_its_key
                       config={"api_key": "dg-test"}))
     await db.commit()
     await _tts(db, "Cartesia")
-    set_active_stack({"engine": "xai", "carrier": "Twilio"})
+    await set_active_stack({"engine": "xai", "carrier": "Twilio"})
     lib = (await client.post("/api/voices", json={"provider": "cartesia", "voiceId": "a0e99841-438c-4a64-b679-ae501e7d6091", "useForCalls": True})).json()
     plan = await resolve_voice_plan()
     assert plan.external_tts and plan.tts.provider == "cartesia" and plan.tts.voice_id.startswith("a0e99841")
@@ -255,3 +255,21 @@ async def test_call_plan_uses_the_picked_voice_and_fails_clearly_without_its_key
     plan = await resolve_voice_plan()
     assert plan.voice_name == "rex" and not plan.external_tts
     assert lib["active"]["id"]
+
+
+async def test_voice_stack_lives_in_the_database(db):
+    import json
+
+    from app.services import voice_plugin_plan as vp
+
+    with open(vp.LEGACY_STACK_FILE, "w", encoding="utf-8") as f:
+        json.dump({"engine": "xai", "carrier": "Telnyx"}, f)
+    stack = await vp.load_active_stack()
+    assert stack["engine"] == "xai" and stack["carrier"] == "Telnyx"  # moved in from the old file
+
+    await vp.set_active_stack({"engine": "livekit"})
+    with open(vp.LEGACY_STACK_FILE, "w", encoding="utf-8") as f:
+        json.dump({"engine": "openai"}, f)  # the file no longer matters
+    vp._stack = {}  # a fresh process (or another worker) reads the database
+    assert (await vp.load_active_stack())["engine"] == "livekit"
+    assert vp.get_active_stack()["carrier"] == "Telnyx"

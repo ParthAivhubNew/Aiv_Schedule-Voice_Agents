@@ -1044,7 +1044,7 @@ async def select_active_stack_endpoint(req: SelectActiveStackRequest, db: AsyncS
         patch["tts_model"] = req.tts_model or req.model
 
     logger.info(f"[SelectStack] User updated active voice stack: patch={patch}")
-    updated = set_active_stack(patch)
+    updated = await set_active_stack(patch)
     if req.tts:
         # The call voice follows the TTS provider: its most recent saved voice, or none (yellow).
         from app.services.voice_library import follow_tts_switch
@@ -1426,7 +1426,7 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
             raise HTTPException(status_code=500, detail=f"Could not save the line settings: {str(db_err)[:300]}")
 
         # The live call plan reads the active stack: keep it in step with what was just saved.
-        set_active_stack({"engine": engine_id, "engine_label": engine_name, "carrier": carrier_name})
+        await set_active_stack({"engine": engine_id, "engine_label": engine_name, "carrier": carrier_name})
 
         try:
             await log_process_event(
