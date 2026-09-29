@@ -406,7 +406,34 @@ class SocialPost(Base):
     # Exact publish instant (epoch ms): date + time in the organisation timezone, set by the server.
     # slot_date_ms + time is kept for rows created before due_at_ms existed.
     due_at_ms = Column(Float, nullable=True)
+    # AI writing state shown on the card: queued | writing | imaging | failed (None = idle).
+    gen_state = Column(String, nullable=True)
+    gen_error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialGenJob(Base):
+    """One piece of content to write (and illustrate) for one or more posts that share it.
+    Stored so queued work survives restarts and runs with no browser open."""
+    __tablename__ = "social_gen_jobs"
+
+    id = Column(String, primary_key=True)
+    post_ids = Column(JSON, default=list)
+    plan = Column(Text, default="")
+    headline = Column(Text, default="")
+    channel = Column(String, default="linkedin")
+    date = Column(String, default="")
+    revision_note = Column(Text, default="")
+    existing_copy = Column(Text, default="")
+    skip_image = Column(Boolean, default=False)
+    solo = Column(Boolean, default=False)  # retry alone after a batched reply failed
+    options = Column(JSON, default=dict)
+    priority = Column(Integer, default=0)
+    state = Column(String, default="queued")  # queued | writing | image_queued | imaging | done | failed
+    error = Column(Text, nullable=True)
+    attempts = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class SchedulerSetting(Base):
