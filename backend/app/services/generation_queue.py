@@ -83,6 +83,20 @@ def wake() -> None:
     _wake.set()
 
 
+async def cancel_for_posts(db, post_ids: List[str]) -> None:
+    """Drop not-yet-started work for posts that are being removed. The caller commits."""
+    ids = set(post_ids)
+    if not ids:
+        return
+    pending = (await db.execute(
+        select(SocialGenJob).where(SocialGenJob.state.in_(["queued", "image_queued"]))
+    )).scalars().all()
+    for job in pending:
+        if ids & set(job.post_ids or []):
+            job.state = "done"
+            job.error = "cancelled"
+
+
 async def enqueue(db, groups: List[Dict[str, Any]], *, priority: int = 0, options: Optional[Dict[str, Any]] = None) -> List[str]:
     """Queue content to write. Each group is one piece of content shared by its post_ids:
     {post_ids, plan, headline, channel, date, revision_note, existing_copy, skip_image}.

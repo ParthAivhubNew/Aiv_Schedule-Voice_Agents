@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.config import settings
-from app.models.models import SocialEmail, SocialPost
+from app.models.models import SocialEmail, SocialPost, SocialSchedule
 from app.services.org_settings import load_org
 
 logger = logging.getLogger("approval_mail")
@@ -170,16 +170,36 @@ details summary{{cursor:pointer;color:#B42318;font-weight:700;font-size:14px;mar
 
 # ── Approval requests ───────────────────────────────────────────────────────
 
+async def _schedules_for(db: AsyncSession, posts: List[SocialPost]) -> Dict[str, SocialSchedule]:
+    ids = {p.schedule_id for p in posts if p.schedule_id}
+    if not ids:
+        return {}
+    rows = (await db.execute(select(SocialSchedule).where(SocialSchedule.id.in_(ids)))).scalars().all()
+    return {s.id: s for s in rows}
+
+
+def _by_recipient(posts: List[SocialPost], schedules: Dict[str, SocialSchedule], org_emails: List[str], field: str) -> Dict[str, List[SocialPost]]:
+    """email -> posts. A schedule's own list (approvers or results) replaces the organisation's."""
+    out: Dict[str, List[SocialPost]] = {}
+    for p in posts:
+        sched = schedules.get(p.schedule_id or "")
+        emails = (getattr(sched, field, None) or []) if sched else []
+        for email in emails or org_emails:
+            out.setdefault(email, []).append(p)
+    return out
+
+
 async def request_approvals(db: AsyncSession, now_ms: float, due_of: Callable[[SocialPost], float], public_base: str, force: bool = False) -> int:
     """Email the approvers about posts ready for review. Returns how many posts were sent."""
     org = await load_org(db)
-    approvers = org["approverEmails"]
-    if not approvers:
-        return 0
     rows = (await db.execute(
         select(SocialPost).where(SocialPost.status == WAITING, SocialPost.approval_requested_at.is_(None))
     )).scalars().all()
-    ready = [p for p in rows if needs_review(p) and (due_of(p) or float("inf")) > now_ms]
+    # "Right now" posts are due already; they go out as soon as someone approves them.
+    ready = [p for p in rows if needs_review(p) and (p.asap or (due_of(p) or float("inf")) > now_ms)]
+    schedules = await _schedules_for(db, ready)
+    recipients = _by_recipient(ready, schedules, org["approverEmails"], "approver_emails")
+    ready = [p for p in ready if any(p in ps for ps in recipients.values())]
     if not ready:
         return 0
     now = time.time()
@@ -190,24 +210,23 @@ async def request_approvals(db: AsyncSession, now_ms: float, due_of: Callable[[S
     for p in ready:
         _changed_at.pop(p.id, None)
 
-    ready.sort(key=lambda p: due_of(p) or 0)
     stamp = datetime.utcnow().replace(microsecond=0)
     for p in ready:
         p.approval_requested_at = stamp
-    ids = [p.id for p in ready]
     company = await _company_name(db)
-    n = len(ready)
-    subject = f"{company}: {n} post{'s' if n != 1 else ''} waiting for your approval"
-    for email in approvers:
+    for email, posts in recipients.items():
+        posts = sorted(posts, key=lambda p: due_of(p) or 0)
+        n = len(posts)
+        subject = f"{company}: {n} post{'s' if n != 1 else ''} waiting for your approval"
         req_id = f"apr_{uuid.uuid4().hex[:16]}"
         token = sign({"r": req_id, "m": email, "x": int(time.time()) + LINK_TTL_S})
         link = f"{public_base.rstrip('/')}/api/scheduler/review?t={token}"
-        html_body, text_body = _approval_email(company, ready, link, org, due_of)
+        html_body, text_body = _approval_email(company, posts, link, org, due_of)
         res = await _send(db, email, subject, html_body, text_body)
-        db.add(_log_row(req_id, "approval", email, subject, ids, res, {"requestedAt": stamp.isoformat()}))
+        db.add(_log_row(req_id, "approval", email, subject, [p.id for p in posts], res, {"requestedAt": stamp.isoformat()}))
     await db.commit()
-    logger.info(f"[Approval mail] Asked {len(approvers)} approver(s) to review {n} post(s).")
-    return n
+    logger.info(f"[Approval mail] Asked {len(recipients)} approver(s) to review {len(ready)} post(s).")
+    return len(ready)
 
 
 def _approval_email(company: str, posts: List[SocialPost], link: str, org: Dict[str, Any], due_of) -> tuple:
@@ -374,10 +393,20 @@ async def send_results(db: AsyncSession, published: List[SocialPost], failed: Li
     if not (published or failed or missed):
         return
     org = await load_org(db)
-    approvers = org["approverEmails"]
-    if not approvers:
-        return
+    schedules = await _schedules_for(db, published + failed + missed)
+    recipients = _by_recipient(published + failed + missed, schedules, org["approverEmails"], "result_emails")
     company = await _company_name(db)
+    for email, posts in recipients.items():
+        mine = set(p.id for p in posts)
+        await _send_result(
+            db, email, company, org, due_of,
+            [p for p in published if p.id in mine], [p for p in failed if p.id in mine], [p for p in missed if p.id in mine],
+        )
+    await db.commit()
+
+
+async def _send_result(db: AsyncSession, email: str, company: str, org: Dict[str, Any], due_of,
+                       published: List[SocialPost], failed: List[SocialPost], missed: List[SocialPost]) -> None:
     parts = []
     if published:
         parts.append(f"{len(published)} posted")
@@ -418,11 +447,79 @@ async def send_results(db: AsyncSession, published: List[SocialPost], failed: Li
         + [f"Failed: {p.title}" for p in failed]
         + [f"Missed approval: {p.title}" for p in missed]
     )
-    ids = [p.id for p in published + failed + missed]
-    for email in approvers:
+    res = await _send(db, email, subject, html_body, text_body)
+    db.add(_log_row(f"res_{uuid.uuid4().hex[:16]}", "result", email, subject, [p.id for p in published + failed + missed], res))
+
+
+# ── Schedule end reminder ───────────────────────────────────────────────────
+
+EXTEND_MONTHS = 3
+
+
+async def send_schedule_reminder(db: AsyncSession, s: SocialSchedule, public_base: str, tz: str) -> None:
+    """Two weeks before a repeating schedule ends: ask whether to keep it going. If nobody
+    answers, it simply ends on its end date."""
+    org = await load_org(db)
+    to = (s.result_emails or []) or (s.approver_emails or []) or org["approverEmails"]
+    if not to:
+        return
+    company = await _company_name(db)
+    subject = f"{company}: schedule \"{s.theme}\" ends on {s.end_date}"
+    for email in to:
+        token = sign({"s": s.id, "e": s.end_date, "m": email, "x": int(time.time()) + LINK_TTL_S})
+        link = f"{public_base.rstrip('/')}/api/scheduler/schedule-extend?t={token}"
+        html_body = (
+            '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#12141C;max-width:620px">'
+            f'<h2 style="font-size:18px;margin:0 0 6px">"{html.escape(s.theme)}" ends on {html.escape(s.end_date or "")}</h2>'
+            '<p style="font-size:14px;color:#5B6170">After that no new posts are made for it. Posts already made stay as they are.</p>'
+            f'<p><a href="{html.escape(link)}" style="display:inline-block;background:#12141C;color:#fff;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:10px">Keep it going {EXTEND_MONTHS} more months</a></p>'
+            '<p style="font-size:12px;color:#8A8F9C">Do nothing to let it end. You can also change the end date in the post scheduler.</p></div>'
+        )
+        text_body = f'"{s.theme}" ends on {s.end_date}. Keep it going {EXTEND_MONTHS} more months: {link}\nDo nothing to let it end.'
         res = await _send(db, email, subject, html_body, text_body)
-        db.add(_log_row(f"res_{uuid.uuid4().hex[:16]}", "result", email, subject, ids, res))
+        db.add(_log_row(f"rem_{uuid.uuid4().hex[:16]}", "reminder", email, subject, [], res, {"scheduleId": s.id}))
+
+
+async def _extend_target(db: AsyncSession, token: str):
+    data = verify(token)
+    if not data or not data.get("s"):
+        return None, None
+    s = (await db.execute(select(SocialSchedule).where(SocialSchedule.id == str(data["s"])))).scalars().first()
+    return data, s
+
+
+async def extend_page(db: AsyncSession, token: str, notice: str = "") -> str:
+    data, s = await _extend_target(db, token)
+    if not s:
+        return _page("Link not valid", "<h1>This link is no longer valid</h1><div class='sub'>The schedule was deleted or the link expired.</div>")
+    banner = f'<div class="card" style="border-color:#0F766E"><strong>{html.escape(notice)}</strong></div>' if notice else ""
+    if s.end_date != data.get("e"):
+        action = f"<div class='card'>This schedule now ends on {html.escape(s.end_date or '')}. Nothing to do here.</div>"
+    else:
+        from app.services.schedule_engine import add_months, parse_date
+
+        new_end = add_months(parse_date(s.end_date), EXTEND_MONTHS).isoformat()
+        action = (
+            f"<div class='card'>Ends on <strong>{html.escape(s.end_date or '')}</strong>. Keep it going until {new_end}?"
+            f"<form method='post' action='schedule-extend' class='row'><input type='hidden' name='t' value='{html.escape(token)}'>"
+            f"<button class='ok' type='submit'>Keep it going until {new_end}</button></form></div>"
+        )
+    return _page("Keep the schedule going", f"<h1>{html.escape(s.theme)}</h1><div class='sub'>{html.escape(s.focus or '')[:300]}</div>{banner}{action}")
+
+
+async def extend_action(db: AsyncSession, token: str) -> str:
+    from app.services.schedule_engine import add_months, parse_date
+
+    data, s = await _extend_target(db, token)
+    if not s or s.end_date != data.get("e"):
+        return ""
+    s.end_date = add_months(parse_date(s.end_date), EXTEND_MONTHS).isoformat()
+    s.reminder_sent_at = None
+    if s.status == "ended":
+        s.status = "active"
+        s.ended_reason = None
     await db.commit()
+    return f"Done. It now runs until {s.end_date}."
 
 
 async def mail_status(db: AsyncSession) -> Dict[str, Any]:
