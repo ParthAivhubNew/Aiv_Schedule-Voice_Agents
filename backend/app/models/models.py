@@ -364,6 +364,22 @@ class Notification(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # Post Scheduler Models
+class Voice(Base):
+    """A voice saved for calls: one row per provider voice (many per provider, many providers).
+    Engine built-in voices (xAI Ara/Rex, OpenAI Alloy, ...) are not stored. The call voice is
+    picked in the active voice stack (voice_kind / voice_ref)."""
+    __tablename__ = "voices"
+    __table_args__ = (UniqueConstraint("provider", "voice_id", name="uq_voices_provider_voice"),)
+
+    id = Column(String, primary_key=True)
+    provider = Column(String, nullable=False)  # cartesia | elevenlabs | telnyx | deepgram | xai | <custom>
+    voice_id = Column(String, nullable=False)
+    label = Column(String, default="")
+    origin = Column(String, default="pasted")  # saved_with_tts | imported | pasted | cloned | migrated
+    meta = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class SocialSchedule(Base):
     """A posting plan: right now, once, or repeating. Its posts are created a little ahead of
     time, written by the AI queue, approved like any post and published by the publish loop."""

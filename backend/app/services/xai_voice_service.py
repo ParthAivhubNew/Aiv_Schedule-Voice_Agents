@@ -810,13 +810,11 @@ async def build_xai_system_instructions(
     voice_raw = ""
     try:
         async with AsyncSessionLocal() as acc_db:
-            c_res = await acc_db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
-            eng = c_res.scalars().first()
-            acc = ""
-            if eng and isinstance(eng.config, dict):
-                acc = str(eng.config.get("accent") or "").lower()
-                voice_raw = str(eng.config.get("voice_name") or eng.config.get("voice") or "")
-            if acc in ("british", "uk", "en-gb") or "-uk" in voice_raw.lower() or "_uk" in voice_raw.lower():
+            from app.services.voice_library import engine_voice
+
+            # Accent comes with the picked voice (e.g. "ara-uk").
+            voice_raw = await engine_voice(acc_db)
+            if "-uk" in voice_raw.lower() or "_uk" in voice_raw.lower():
                 is_female = _voice_gender(voice_raw) == "female"
                 who = "UK caller (female)" if is_female else "UK caller (male)"
                 accent_block = f"""ACCENT & DICTION (British English): Speak clear, measured British English ({who}). Enunciate clearly, natural times ('half past nine', 'two o\\'clock')."""
@@ -1556,9 +1554,13 @@ async def join_xai_call_session(
     try:
         from app.models.models import Connection
         from app.services.secret_box import config_get_secret, open_config
+        from app.services.voice_clone import _orchestration_conn
+        from app.services.voice_library import engine_voice
         async with AsyncSessionLocal() as db:
-            c_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
-            c = c_res.scalars().first()
+            picked = await engine_voice(db)
+            if picked:
+                active_voice = _xai_voice_id(picked)
+            c = await _orchestration_conn(db)
             if c and c.config and isinstance(c.config, dict):
                 # Decrypt the config to access all fields
                 dec_config = open_config(c.config)
@@ -1569,12 +1571,7 @@ async def join_xai_call_session(
                     settings.XAI_API_KEY = stored_key
                     settings.VOICE_ENGINE_MODE = "live"
                 
-                # Use decrypted config to get voice settings
-                if dec_config.get("voice_name"):
-                    active_voice = _xai_voice_id(dec_config.get("voice_name"), dec_config.get("accent"))
-                elif dec_config.get("voice"):
-                    active_voice = _xai_voice_id(dec_config.get("voice"), dec_config.get("accent"))
-                
+
                 if dec_config.get("silence_duration_ms"):
                     silence_ms = int(dec_config.get("silence_duration_ms"))
                 if dec_config.get("prefix_padding_ms"):

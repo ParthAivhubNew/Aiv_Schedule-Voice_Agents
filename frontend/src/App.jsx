@@ -114,7 +114,6 @@ import {
 
 
 import { api } from "./api/apiClient";
-import { compressVoiceBlob, cloneFilename } from "./utils/compressVoice";
 import { WebSocketClient } from "./api/wsClient";
 import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import { TelephonyDocsView } from "./views/TelephonyDocsView";
@@ -125,6 +124,7 @@ import { CalcomAdminModal } from "./admin/CalcomAdminModal";
 import { meetingTimeLabel, logDisplayName, dedupeNotifications, prependNotification, notificationFingerprint, resolveNotificationTarget, notificationActionLabel, scrubSecretsForStorage } from "./tokens";
 import { SocialWorkspaceGate } from "./scheduler/SocialWorkspace";
 import { OrgSettingsProvider, announceOrgUpdated } from "./org/orgSettings";
+import { VoicePicker, VOICE_CHANGED_EVENT, announceVoiceChanged } from "./voice/VoicePicker";
 import { humanizeAiReply } from "./scheduler/chatClean";
 import { CallingWorkspace } from "./calling/CallingWorkspace";
 import { CALLING_EDITION_EVENT, getCallingEdition, setCallingEdition } from "./calling/callingEdition";
@@ -183,67 +183,12 @@ function prettyProvider(raw, fallback) {
   return map[s.toLowerCase()] || s;
 }
 
-function isCartesiaUuid(v) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "").trim());
-}
-
-function looksLikeApiKeyNotVoiceId(v) {
-  const s = String(v || "").trim().toLowerCase();
-  if (!s) return false;
-  return /^(sk_|sk-|sk_car_|xai-|whsec_|api_|key_|el_)/.test(s);
-}
-
-// Status texts older screens stored in voice fields. They are never a voice.
-const VOICE_PLACEHOLDERS = ["not configured", "none", "null", "undefined", "n/a", "-", "not set", "select a voice", "no voice", "—"];
-const ENGINE_BUILTIN_VOICES = ["ara", "eve", "rex", "leo", "sal"];
-
-// A real voice value, or "" for empty / placeholder text.
-function cleanVoice(v) {
-  const s = String(v || "").trim();
-  return VOICE_PLACEHOLDERS.includes(s.toLowerCase()) ? "" : s;
-}
-
-function isValidCloneVoiceId(v) {
-  const s = cleanVoice(v);
-  if (!s || s.length < 2 || looksLikeApiKeyNotVoiceId(s)) return false;
-  // Engine built-in personas are not external voices.
-  if (ENGINE_BUILTIN_VOICES.includes(s.toLowerCase().replace(/[-_]uk$/, ""))) return false;
-  // Valid for Telnyx (e.g. Telnyx.Ultra.cc91c96c-...), Cartesia UUID, ElevenLabs ID, Deepgram, OpenAI, or custom voice slugs
-  return true;
-}
-
-// One rule for the voice status everywhere: yellow = none picked, green = set, red = wrong value.
-function voiceState(v) {
-  const s = cleanVoice(v);
-  if (!s) return "missing";
-  if (looksLikeApiKeyNotVoiceId(s)) return "invalid";
-  return "ok";
-}
-
-function VoiceStatusPill({ voice, label }) {
-  const state = voiceState(voice);
-  const look = state === "ok"
-    ? { bg: "#ECFDF5", border: "#A7F3D0", color: "#065F46", text: "Active speaking voice: " }
-    : state === "invalid"
-      ? { bg: "#FEF2F2", border: "#FECACA", color: "#991B1B", text: "An API key was pasted instead of a voice ID. Paste the voice ID." }
-      : { bg: "#FFFBEB", border: "#FDE68A", color: "#92400E", text: "Active speaking voice: Not configured. Pick a voice." };
-  return (
-    <div role="status" style={{ marginTop: 4, padding: "8px 12px", background: look.bg, border: `1px solid ${look.border}`, borderRadius: 8, fontSize: 12.5, color: look.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 7 }}>
-      {state === "ok" ? <CheckCircle2 size={15} color="#059669" /> : <AlertTriangle size={15} />}
-      <div>
-        {look.text}
-        {state === "ok" ? <b>{label || cleanVoice(voice)}</b> : null}
-      </div>
-    </div>
-  );
-}
-
 function liveStackLabels(hub) {
   if (hub?.liveLabels && typeof hub.liveLabels === "object") {
     return hub.liveLabels;
   }
   const engine = String(hub?.liveEngine || "").toLowerCase();
-  const voice = cleanVoice(hub?.voiceName) || cleanVoice(hub?.voiceEngineName) || "—";
+  const voice = hub?.voiceLabel || "—";
   const engineLabel =
     engine === "xai" ? "xAI Grok (speech-to-speech)"
     : engine === "openai" ? "OpenAI Realtime"
@@ -5593,10 +5538,8 @@ const SOURCE_TYPES = [
   { id: "Manual text", label: "Direct Text / Notes", icon: PenLine, placeholder: "Paste raw objection rebuttals, customer Q&As, or pricing rules here...", hint: "Paste custom scripts or internal knowledge directly into the AI's memory." },
 ];
 
-function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false, voiceName, setVoiceName, onDirtyChange }) {
+function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false, onDirtyChange }) {
   const [tab, setTab] = useState("identity");
-  // The call voice this form last saw saved; only a change to it is sent on Save.
-  const savedVoiceRef = useRef(voiceName);
   const [saved, setSaved] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", type: "Website URL", value: "" });
@@ -5650,7 +5593,7 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
     };
     window.addEventListener("aivhub_save_company", onExternalSave);
     return () => window.removeEventListener("aivhub_save_company", onExternalSave);
-  }, [profile, sources, services, faq, voiceName]);
+  }, [profile, sources, services, faq]);
 
   const update = (k, v) => {
     markDirty();
@@ -5676,26 +5619,6 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
       announceOrgUpdated();
       await api.saveServices(services);
       await api.saveFaqs(faq);
-      // Only a voice changed in this form is sent: saving the profile must never switch the
-      // call voice picked elsewhere (Line setup, Calling).
-      if (cleanVoice(voiceName) && voiceName !== savedVoiceRef.current) {
-        try {
-          const builtin = ENGINE_BUILTIN_VOICES.includes(String(voiceName).toLowerCase().replace(/[-_]uk$/, ""));
-          await api.selectVoice({
-            voice_id: voiceName,
-            label:
-              voiceName === "rex-uk" ? "Rex UK — Sam (British, male)"
-              : voiceName === "ara-uk" ? "Ara UK (British, female)"
-              : voiceName === "eve-uk" ? "Eve UK (British, female)"
-              : voiceName === "rex" ? "Rex (Sam / male)"
-              : voiceName === "ara" ? "Ara (female)"
-              : voiceName,
-            provider: builtin ? "xai" : undefined,
-            accent: String(voiceName || "").includes("-uk") ? "british" : undefined,
-          });
-          savedVoiceRef.current = voiceName;
-        } catch (_) {}
-      }
       setSaving(false);
       setSaved(true);
       setSaveStatus("saved");
@@ -6860,6 +6783,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [voiceId, setVoiceId] = useState("");
+  const [useForCalls, setUseForCalls] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [accountSid, setAccountSid] = useState("");
@@ -6945,6 +6869,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
         account_sid: accountSid.trim() || undefined,
         model: model.trim() || undefined,
         voice_id: isTts && voiceId.trim() ? voiceId.trim() : undefined,
+        use_for_calls: isTts && voiceId.trim() ? useForCalls : undefined,
       });
 
       if (isTelnyx && phoneNumber.trim()) {
@@ -7195,16 +7120,20 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
           {isTts && (
             <div>
               <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
-                Cloned Voice ID (optional)
+                Voice ID (optional)
               </label>
               <input
                 value={voiceId}
                 onChange={(e) => setVoiceId(e.target.value)}
-                placeholder={providerChoice.includes("Cartesia") ? "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" : "ElevenLabs or Cartesia voice id"}
+                placeholder={providerChoice.includes("Cartesia") ? "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" : "Voice ID from this provider"}
                 style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5 }}
               />
+              <label style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: FONT_BODY, fontSize: 12, color: C.textInk, marginTop: 6 }}>
+                <input type="checkbox" checked={useForCalls} onChange={(e) => setUseForCalls(e.target.checked)} />
+                Use for calls
+              </label>
               <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
-                With Voice Orchestration = xAI, this TTS plugin speaks your clone on live calls.
+                Saved to the voice library. Add more voices and switch between them under Line setup → Voice.
               </div>
             </div>
           )}
@@ -8097,46 +8026,6 @@ function QuickSwitchModelModal({
       ];
     }
 
-    if (layerKey === "voice") {
-      const builtin = [
-        { id: "rex", label: "Rex (Friendly Male)", desc: "Warm, energetic tone with fast pacing", value: "rex", badge: "Engine Persona", isBuiltIn: true },
-        { id: "ara", label: "Ara (Warm Female)", desc: "Professional, crisp executive tone", value: "ara", badge: "Engine Persona", isBuiltIn: true },
-        { id: "eve", label: "Eve (Energetic Female)", desc: "Bright, engaging conversationalist", value: "eve", badge: "Engine Persona", isBuiltIn: true },
-        { id: "leo", label: "Leo (Direct Male)", desc: "Authoritative, clear business speaker", value: "leo", badge: "Engine Persona", isBuiltIn: true },
-        { id: "sal", label: "Sal (Smooth Neutral)", desc: "Calm, reassuring voice profile", value: "sal", badge: "Engine Persona", isBuiltIn: true },
-      ];
-      const seenVids = new Set();
-      const customClones = [];
-      (Array.isArray(hubData?.customVoices) ? hubData.customVoices : []).forEach((cv) => {
-        const vid = cv.id || cv.voice_id;
-        if (vid && !seenVids.has(vid)) {
-          seenVids.add(vid);
-          customClones.push({
-            id: vid,
-            label: `${cv.name || "Custom Clone"} (Cloned Voice)`,
-            desc: `Custom voice profile · ID: ${vid}`,
-            value: vid,
-            badge: "Cloned Voice",
-          });
-        }
-      });
-      (connections || []).forEach((group) => {
-        (group.items || []).forEach((item) => {
-          const vid = item.voiceId || item.config?.voice_id;
-          if (vid && isValidCloneVoiceId(vid) && !seenVids.has(vid)) {
-            seenVids.add(vid);
-            customClones.push({
-              id: vid,
-              label: `${item.name} (${vid.slice(0, 8)}...)`,
-              desc: `Saved in Connections (${item.name}) · ID: ${vid}`,
-              value: vid,
-              badge: `${item.name} Clone`,
-            });
-          }
-        });
-      });
-      return [...customClones, ...builtin];
-    }
 
     if (layerKey === "llm") {
       const res = [];
@@ -8362,10 +8251,6 @@ function QuickSwitchModelModal({
       const curEngine = String(hubData?.liveEngine || hubData?.activeEngine || "").toLowerCase();
       return (opt.value && curEngine === opt.value.toLowerCase()) || curEngine.includes(v);
     }
-    if (layerKey === "voice") {
-      const curVoice = String(hubData?.voiceName || "").toLowerCase();
-      return curVoice === v || (opt.id && curVoice === opt.id.toLowerCase());
-    }
     if (layerKey === "llm") {
       if (m) {
         if (curModel) return curModel === m;
@@ -8407,9 +8292,6 @@ function QuickSwitchModelModal({
       const payload = {};
       if (layerKey === "engine") {
         payload.engine = opt.value;
-        payload.voice = opt.value;
-      } else if (layerKey === "voice") {
-        payload.voice = opt.value;
       } else if (layerKey === "llm") {
         payload.llm = opt.provider || opt.value;
         if (opt.model) payload.llm_model = opt.model;
@@ -8418,13 +8300,14 @@ function QuickSwitchModelModal({
         if (opt.model) payload.stt_model = opt.model;
       } else if (layerKey === "tts") {
         payload.tts = opt.provider || opt.value;
-        if (opt.voiceId) payload.voice = opt.voiceId;
         if (opt.model) payload.tts_model = opt.model;
       } else if (layerKey === "telephony") {
         payload.carrier = opt.value;
       }
 
       await api.selectActiveStack(payload);
+      // Switching engine or TTS can change which call voice fits.
+      announceVoiceChanged();
       setTimeout(() => {
         if (onSelectSuccess) onSelectSuccess(opt);
         onClose();
@@ -8480,7 +8363,9 @@ function QuickSwitchModelModal({
 
         {/* Scrollable Model Options */}
         <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, paddingRight: 4, maxHeight: 380, margin: "4px 0 16px" }}>
-          {options.length === 0 ? (
+          {layerKey === "voice" ? (
+            <VoicePicker variant="full" />
+          ) : options.length === 0 ? (
             <div style={{ padding: "28px 16px", textAlign: "center", background: "#F8FAFC", borderRadius: 12, border: `1px dashed ${C.border}` }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: C.textInk, marginBottom: 4 }}>
                 No connected {layerTitle || "providers"} found
@@ -8669,9 +8554,9 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       value: (modular || hybrid)
         ? labels.tts
         : (engine === "xai"
-          ? `xAI built-in (${cleanVoice(hubData?.voiceName) || "no voice picked"})`
+          ? `xAI built-in (${hubData?.voiceLabel || "no voice picked"})`
           : engine === "openai"
-            ? `OpenAI (${cleanVoice(hubData?.voiceName) || "no voice picked"})`
+            ? `OpenAI (${hubData?.voiceLabel || "no voice picked"})`
             : labels.tts),
       model: resolveModel("tts"),
       ok: modular || hybrid ? !!(hubData?.ttsProvider || hubData?.ttsName) : hubData?.status === "connected",
@@ -8681,19 +8566,13 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
     },
     {
       key: "voice",
-      title: "Voice ID",
+      title: "Call voice",
       layer: "Voice Persona",
-      value: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
-        ? "API key pasted by mistake"
-        : (hybrid
-          ? (hubData?.ttsVoiceId || hubData?.voiceName || "—")
-          : (hubData?.voiceName || "—")),
-      ok: hubData?.status === "connected" && (looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
-        ? false
-        : !!(cleanVoice(hubData?.voiceName).length > 1 && (!hybrid || isValidCloneVoiceId(hubData.voiceName)))),
-      hint: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
-        ? "Paste Cartesia Voice UUID on Line setup"
-        : (hybrid ? "Must be Cartesia UUID with dashes" : "Saved engine persona (ara / rex / …)"),
+      value: hubData?.voiceStatus === "ok"
+        ? (hubData?.voiceLabel || hubData?.voiceName)
+        : (hubData?.voiceProblem || "Not configured"),
+      ok: hubData?.voiceStatus === "ok",
+      hint: "Pick from the voice library: engine voices or saved TTS voices",
       needPlugin: true,
     },
   ];
@@ -9005,7 +8884,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
     sttName: "Not configured",
     ttsVoiceId: null,
     phoneNumber: profile?.callerId || "",
-    voiceName: "",
     silenceDurationMs: 380,
     temperature: 0.80,
     status: "not_configured",
@@ -9030,22 +8908,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [showKey, setShowKey] = useState(false);
   const [accountSid, setAccountSid] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
-  const [voiceName, setVoiceName] = useState(cleanVoice(cached?.voiceName));
-  const [speakMode, setSpeakMode] = useState("clone"); // builtin | clone
-  const [customVoices, setCustomVoices] = useState(cached?.customVoices || []);
-  const [cloneName, setCloneName] = useState("");
-  const [pasteVoiceId, setPasteVoiceId] = useState("");
-  const [cloneMsg, setCloneMsg] = useState("");
-  const [cloneErr, setCloneErr] = useState("");
-  const [cloning, setCloning] = useState(false);
-  const [xaiCloneBlocked, setXaiCloneBlocked] = useState(false);
-  const [showEnterpriseRecord, setShowEnterpriseRecord] = useState(false);
-  const [recState, setRecState] = useState("idle");
-  const [recSec, setRecSec] = useState(0);
-  const recRef = useRef(null);
-  const recTimerRef = useRef(null);
-  const recChunksRef = useRef([]);
-  const [recBlob, setRecBlob] = useState(null);
   const [silenceDurationMs, setSilenceDurationMs] = useState(cached?.silenceDurationMs || 380);
   const [temperature, setTemperature] = useState(cached?.temperature || 0.80);
   const [webhookUrl, setWebhookUrl] = useState(cached?.webhookUrl || "");
@@ -9087,12 +8949,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           setProfile((prev) => ({ ...prev, callerId: data.phoneNumber }));
         }
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
-        // The server sends null when no voice is picked; clear any stale value instead of keeping it.
-        const serverVoice = cleanVoice(data.voiceEngineName || data.voiceName);
-        setVoiceName(serverVoice);
-        if (serverVoice) setSpeakMode(isValidCloneVoiceId(serverVoice) ? "clone" : "builtin");
-        if (Array.isArray(data.customVoices)) setCustomVoices(data.customVoices);
-        if (data.xaiCloneApiBlocked) setXaiCloneBlocked(true);
         if (data.silenceDurationMs) setSilenceDurationMs(data.silenceDurationMs);
         if (data.temperature) setTemperature(data.temperature);
         if (data.signingSecret) setSigningSecret(data.signingSecret);
@@ -9100,17 +8956,23 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           const cLower = data.activeCarrier.toLowerCase();
           setCarrierChoice(cLower.includes("twilio") ? "twilio" : cLower.includes("sip") ? "generic_sip" : "telnyx");
         }
-        if (data.liveEngine) {
-          setEngineChoice(["xai", "openai", "livekit", "modular"].includes(data.liveEngine) ? data.liveEngine : "xai");
-        } else if (data.activeEngine) {
-          const eLower = data.activeEngine.toLowerCase();
-          setEngineChoice(eLower.includes("livekit") ? "livekit" : eLower.includes("openai") ? "openai" : eLower.includes("modular") ? "modular" : "xai");
-        }
+        // Only engines this form can set up; anything else keeps the current choice.
+        const known = ["xai", "openai", "livekit", "modular"];
+        const eLower = String(data.liveEngine || data.activeEngine || "").toLowerCase();
+        const engine = known.find((k) => eLower === k) || known.find((k) => eLower.includes(k));
+        if (engine) setEngineChoice(engine);
       }
     } catch (err) {
       console.error("Failed to load telephony hub data:", err);
     }
   };
+
+  // A voice picked anywhere (this page, Calling, Connections) refreshes the line status.
+  useEffect(() => {
+    const onVoice = () => fetchStatus();
+    window.addEventListener(VOICE_CHANGED_EVENT, onVoice);
+    return () => window.removeEventListener(VOICE_CHANGED_EVENT, onVoice);
+  }, []);
 
   useEffect(() => {
     fetchStatus();
@@ -9157,199 +9019,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
     }
   };
 
-  const notifyAdminXaiClone = (force) => {
-    if (typeof setNotifications !== "function") return;
-    try {
-      if (!force && sessionStorage.getItem("aivhub_admin_xai_clone_notice") === "1") return;
-      sessionStorage.setItem("aivhub_admin_xai_clone_notice", "1");
-    } catch (_) { /* ignore */ }
-    setNotifications((ns) => {
-      if ((ns || []).some((n) => n.id === "n_xai_clone_enterprise")) return ns;
-      return [
-        {
-          id: "n_xai_clone_enterprise",
-          text: "Admin action needed: xAI in-app voice clone (Record → Save) requires an Enterprise plan. Until upgrade, operators must create the voice in console.x.ai → Custom Voices, copy the 8-character Voice ID, and paste it in Voice & Telephony Trunking Hub.",
-          time: "just now",
-          unread: true,
-          type: "alert",
-          targetView: "provider",
-          targetAction: "Open voice hub →",
-        },
-        ...(ns || []),
-      ];
-    });
-  };
-
-  useEffect(() => {
-    setCloneErr("");
-    setCloneMsg("");
-    setRecBlob(null);
-    setRecState("idle");
-    try { recRef.current?.stop(); } catch (_) { /* ignore */ }
-    if (engineChoice === "xai") notifyAdminXaiClone(false);
-  }, [engineChoice]);
-
-  useEffect(() => {
-    if (recState !== "recording") return undefined;
-    recTimerRef.current = setInterval(() => {
-      setRecSec((s) => {
-        const next = s + 1;
-        if (next >= 90) {
-          try { recRef.current?.stop(); } catch (_) { /* ignore */ }
-        }
-        return next;
-      });
-    }, 1000);
-    return () => {
-      if (recTimerRef.current) clearInterval(recTimerRef.current);
-    };
-  }, [recState]);
-
-  const stopRecording = () => {
-    try {
-      recRef.current?.stop();
-    } catch (_) { /* ignore */ }
-    recRef.current = null;
-    if (recTimerRef.current) clearInterval(recTimerRef.current);
-  };
-
-  const startRecording = async () => {
-    setCloneErr("");
-    setCloneMsg("");
-    setRecBlob(null);
-    setRecSec(0);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm")
-          ? "audio/webm"
-          : "";
-      recChunksRef.current = [];
-      let rec;
-      try {
-        const recOpts = mime
-          ? { mimeType: mime, audioBitsPerSecond: 16000 }
-          : { audioBitsPerSecond: 16000 };
-        rec = new MediaRecorder(stream, recOpts);
-      } catch (_) {
-        rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      }
-      rec.ondataavailable = (e) => {
-        if (e.data && e.data.size) recChunksRef.current.push(e.data);
-      };
-      rec.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const type = rec.mimeType || "audio/webm";
-        setRecBlob(new Blob(recChunksRef.current, { type }));
-        setRecState("ready");
-      };
-      rec.start(1000);
-      recRef.current = rec;
-      setRecState("recording");
-    } catch (err) {
-      setCloneErr(`Mic blocked: ${err.message || err}`);
-    }
-  };
-
-  const uploadClone = async () => {
-    if (!recBlob) {
-      setCloneErr("Record your voice first (aim 60–90 seconds).");
-      return;
-    }
-    if (recSec < 15 && recBlob.size < 40000) {
-      setCloneErr("Too short. Record at least 30 seconds of natural speech.");
-      return;
-    }
-    setCloning(true);
-    setCloneErr("");
-    setCloneMsg("Compressing recording…");
-    try {
-      let file = recBlob;
-      try {
-        file = await compressVoiceBlob(recBlob);
-      } catch (_) {
-        if (recBlob.size > 900 * 1024) {
-          throw new Error("Could not compress recording. Record 30–45 seconds and retry.");
-        }
-      }
-      const fd = new FormData();
-      fd.append("name", cloneName.trim() || "My voice");
-      fd.append("engine", engineChoice);
-      fd.append("file", file, cloneFilename(file));
-      setCloneMsg("Uploading clone…");
-      const res = await api.cloneVoice(fd);
-      setCloneMsg(res.message || "Voice cloned and saved.");
-      if (res.voices) setCustomVoices(res.voices);
-      if (res.voice?.voice_id) setVoiceName(res.voice.voice_id);
-      setRecState("idle");
-      setRecBlob(null);
-    } catch (err) {
-      const msg = err.message || String(err);
-      setCloneErr(msg);
-      if (/enterprise/i.test(msg) || /403/.test(msg)) {
-        setXaiCloneBlocked(true);
-        setShowEnterpriseRecord(false);
-        notifyAdminXaiClone(true);
-      }
-    } finally {
-      setCloning(false);
-    }
-  };
-
-  const linkPastedVoice = async () => {
-    const vid = pasteVoiceId.trim();
-    if (!vid) {
-      setCloneErr("Please paste a Voice ID or model identifier (e.g. Telnyx, Cartesia, ElevenLabs).");
-      return;
-    }
-    if (looksLikeApiKeyNotVoiceId(vid)) {
-      setCloneErr("That is an API key. Save it under Connections. Here paste only the Voice ID / Model slug.");
-      return;
-    }
-    if (!isValidCloneVoiceId(vid)) {
-      setCloneErr("Invalid Voice ID format. Please check your provider's voice model identifier.");
-      return;
-    }
-    setCloning(true);
-    setCloneErr("");
-    try {
-      const looksUuid = isCartesiaUuid(vid);
-      const vLow = vid.toLowerCase();
-      const lLow = (cloneName || "").toLowerCase();
-      let provider = "custom";
-      if (vLow.includes("telnyx") || lLow.includes("telnyx")) {
-        provider = "telnyx";
-      } else if (looksUuid || lLow.includes("cartesia")) {
-        provider = "cartesia";
-      } else if (vLow.includes("eleven") || lLow.includes("eleven") || vid.length >= 16) {
-        provider = "elevenlabs";
-      } else if (vLow.includes("deepgram") || lLow.includes("deepgram") || vLow.includes("aura")) {
-        provider = "deepgram";
-      } else if (vLow.includes("openai") || lLow.includes("openai")) {
-        provider = "openai";
-      }
-      const effectiveLabel = cloneName.trim() || (provider === "telnyx" ? "Telnyx Natural" : provider === "cartesia" ? "Cartesia Voice" : vid);
-      const res = await api.selectVoice({
-        voice_id: vid,
-        label: effectiveLabel,
-        provider,
-      });
-      setVoiceName(vid);
-      setSpeakMode("clone");
-      if (res.voices) setCustomVoices(res.voices);
-      setCloneMsg(`✓ Active voice set to ${res.voice_name || effectiveLabel}`);
-      setTimeout(() => setCloneMsg(""), 3500);
-      setPasteVoiceId("");
-      setCloneName("");
-      try { await fetchStatus(); } catch (_) { /* ignore */ }
-    } catch (err) {
-      setCloneErr(err.message || String(err));
-    } finally {
-      setCloning(false);
-    }
-  };
-
   const handlePing = async () => {
     setPinging(true);
     setPingResult(null);
@@ -9383,7 +9052,6 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         phone_number: phoneNumber,
         api_key: apiKey,
         account_sid: accountSid,
-        voice_name: cleanVoice(voiceName) || undefined,
         silence_duration_ms: Number(silenceDurationMs),
         temperature: Number(temperature),
         webhook_url: webhookUrl,
@@ -9557,7 +9225,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           </div>
           <div>
             <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Voice AI Engine</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: hubData?.status === "connected" ? C.textInk : C.slate, marginTop: 4 }}>{hubData.activeEngine} ({cleanVoice(hubData.voiceName) || "no voice picked"})</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: hubData?.status === "connected" ? C.textInk : C.slate, marginTop: 4 }}>{hubData.activeEngine} ({hubData.voiceLabel || "no voice picked"})</div>
           </div>
           {engineChoice !== "livekit" && (
             <div>
@@ -9805,181 +9473,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
               <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 8 }}>
                 Who speaks on the call?
               </div>
-
-              {looksLikeApiKeyNotVoiceId(voiceName) && (
-                <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 8, background: "#FEF2F2", border: "1px solid #FECACA", fontSize: 12.5, color: "#991B1B", lineHeight: 1.45 }}>
-                  Active voice is set to an <b>API key</b> (`{String(voiceName).slice(0, 12)}…`). That cannot speak. Save the key under <b>Connections → Cartesia</b>, then paste your Cartesia <b>Voice UUID</b> below (looks like <code>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>).
-                </div>
-              )}
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSpeakMode("builtin");
-                    const fallback = ["ara-uk", "ara", "rex-uk", "rex", "eve-uk", "eve"].includes(voiceName) ? voiceName : "ara-uk";
-                    setVoiceName(fallback);
-                    api.selectVoice({
-                      voice_id: fallback,
-                      label: fallback === "ara-uk" ? "Ara UK (British, female)" : fallback,
-                      provider: "xai",
-                      accent: String(fallback).includes("-uk") ? "british" : undefined,
-                    }).then(() => fetchStatus()).catch(() => {});
-                  }}
-                  style={{
-                    textAlign: "left",
-                    padding: "12px 14px",
-                    borderRadius: 10,
-                    border: `2px solid ${speakMode === "builtin" && !looksLikeApiKeyNotVoiceId(voiceName) ? C.cobalt : C.border}`,
-                    background: speakMode === "builtin" && !looksLikeApiKeyNotVoiceId(voiceName) ? "#F8FAFC" : "#fff",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>Built-in xAI voice</div>
-                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4, lineHeight: 1.4 }}>Ara / Rex / Eve — no Cartesia needed</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSpeakMode("clone")}
-                  style={{
-                    textAlign: "left",
-                    padding: "12px 14px",
-                    borderRadius: 10,
-                    border: `2px solid ${speakMode === "clone" || looksLikeApiKeyNotVoiceId(voiceName) ? C.cobalt : C.border}`,
-                    background: speakMode === "clone" || looksLikeApiKeyNotVoiceId(voiceName) ? "#F8FAFC" : "#fff",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>Custom / Cloned Voice</div>
-                  <div style={{ fontSize: 12, color: C.slate, marginTop: 4, lineHeight: 1.4 }}>Telnyx · Cartesia · ElevenLabs · Custom TTS</div>
-                </button>
-              </div>
-
-              {speakMode === "builtin" && !looksLikeApiKeyNotVoiceId(voiceName) ? (
-                <div>
-                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                    Pick built-in voice
-                  </label>
-                  <select
-                    value={["rex-uk", "rex", "ara-uk", "ara", "eve-uk", "eve"].includes(voiceName) ? voiceName : "ara-uk"}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setVoiceName(v);
-                      api.selectVoice({
-                        voice_id: v,
-                        label: v === "rex-uk" ? "Rex UK — Sam (British, male)"
-                          : v === "ara-uk" ? "Ara UK (British, female)"
-                          : v === "eve-uk" ? "Eve UK (British, female)"
-                          : v,
-                        provider: "xai",
-                        accent: String(v || "").includes("-uk") ? "british" : undefined,
-                      }).then(() => fetchStatus()).catch(() => {});
-                    }}
-                    style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
-                  >
-                    <option value="ara-uk">Ara UK (British female)</option>
-                    <option value="ara">Ara (Female)</option>
-                    <option value="rex-uk">Rex UK (British male)</option>
-                    <option value="rex">Rex (Male)</option>
-                    <option value="eve-uk">Eve UK (British female)</option>
-                    <option value="eve">Eve (Female)</option>
-                  </select>
-                </div>
-              ) : (
-                <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, background: "#F8FAFC", display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45 }}>
-                    <b style={{ color: C.textInk }}>Step A.</b> Connections → Save your provider API key (Telnyx, Cartesia, ElevenLabs, etc.).<br />
-                    <b style={{ color: C.textInk }}>Step B.</b> Copy your provider's <b>Voice ID / Model Slug</b> (e.g. <code>Telnyx.Ultra.cc91c96c-...</code>, Cartesia UUID, ElevenLabs ID).<br />
-                    <b style={{ color: C.textInk }}>Step C.</b> Paste below & click <b>Link</b> — it becomes the active speaking voice on calls.
-                  </div>
-
-                  {(() => {
-                    const seen = new Set();
-                    const allClones = [];
-                    (customVoices || []).filter((v) => isValidCloneVoiceId(v.voice_id)).forEach((v) => {
-                      if (!seen.has(v.voice_id)) {
-                        seen.add(v.voice_id);
-                        allClones.push(v);
-                      }
-                    });
-                    (connsState || []).forEach((g) => {
-                      (g.items || []).forEach((it) => {
-                        const vid = it.voiceId || it.config?.voice_id;
-                        if (vid && isValidCloneVoiceId(vid) && !seen.has(vid)) {
-                          seen.add(vid);
-                          allClones.push({
-                            voice_id: vid,
-                            name: `${it.name} Voice (${vid.slice(0, 8)}...)`,
-                            provider: it.name.toLowerCase(),
-                          });
-                        }
-                      });
-                    });
-                    if (!allClones.length) return null;
-                    return (
-                      <div>
-                        <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                          Saved & Linked Cloned / Provider Voices
-                        </label>
-                        <select
-                          value={isValidCloneVoiceId(voiceName) ? voiceName : ""}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (!v) return;
-                            setVoiceName(v);
-                            const fromList = allClones.find((x) => x.voice_id === v);
-                            api.selectVoice({
-                              voice_id: v,
-                              label: fromList?.name || v,
-                              provider: fromList?.provider || (isCartesiaUuid(v) ? "cartesia" : v.toLowerCase().includes("telnyx") ? "telnyx" : "elevenlabs"),
-                            }).then(() => fetchStatus()).catch(() => {});
-                          }}
-                          style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
-                        >
-                          <option value="" disabled>Select a cloned voice…</option>
-                          {allClones.map((v) => (
-                            <option key={v.voice_id} value={v.voice_id}>
-                              {v.name || v.voice_id}{v.provider ? ` · ${v.provider}` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    );
-                  })()}
-
-                  <div>
-                    <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 6 }}>
-                      Link new Voice ID or Model Slug
-                    </label>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr auto", gap: 8, alignItems: "center" }}>
-                      <input
-                        type="text"
-                        value={cloneName}
-                        onChange={(e) => setCloneName(e.target.value)}
-                        placeholder="Label (e.g. Telnyx Natural, My voice)"
-                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
-                      />
-                      <input
-                        type="text"
-                        value={pasteVoiceId}
-                        onChange={(e) => setPasteVoiceId(e.target.value)}
-                        placeholder="e.g. Telnyx.Ultra.cc91c96c-... or Cartesia UUID or ElevenLabs ID"
-                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5, background: "#fff" }}
-                      />
-                      <button type="button" onClick={linkPastedVoice} disabled={cloning || !pasteVoiceId.trim()} style={{ background: pasteVoiceId.trim() ? C.ink : "#E7E5E4", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: pasteVoiceId.trim() ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}>
-                        {cloning ? "…" : "Link"}
-                      </button>
-                    </div>
-                    {cloneMsg && <div style={{ marginTop: 8, fontSize: 12.5, color: "#059669" }}>{cloneMsg}</div>}
-                    {cloneErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{cloneErr}</div>}
-                  </div>
-
-                  <VoiceStatusPill
-                    voice={isValidCloneVoiceId(voiceName) || looksLikeApiKeyNotVoiceId(voiceName) ? voiceName : ""}
-                    label={customVoices.find((v) => v.voice_id === voiceName)?.name}
-                  />
-                </div>
-              )}
+              <VoicePicker variant="full" />
             </div>
 
             <div>
@@ -10778,9 +10272,6 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const [credsState, setCredsState] = useState(CONNECTIONS);
   const [rowState, setRowState] = useState({});
   const [liveHub, setLiveHub] = useState(null);
-  const [customVoices, setCustomVoices] = useState([]);
-  const [voiceName, setVoiceName] = useState("");
-  const [speakMode, setSpeakMode] = useState("builtin"); // "builtin" or "clone"
   const [deleteKeyConfirm, setDeleteKeyConfirm] = useState(null); // { groupName, item, rowKey, deleting }
   const liveLabels = liveHub ? liveStackLabels(liveHub) : null;
 
@@ -10876,7 +10367,6 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         const hub = await api.getTelephonyHub();
         if (hub) {
           setLiveHub(hub);
-          if (Array.isArray(hub.customVoices)) setCustomVoices(hub.customVoices);
           if (setCommonAi) {
             setCommonAi((prev) => ({
               ...prev,
@@ -10962,6 +10452,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         base_url: (row.baseUrlValue || "").trim() || undefined,
         model: (row.modelValue || "").trim() || undefined,
         voice_id: (row.voiceIdValue || "").trim() || undefined,
+        use_for_calls: !!row.useForCallsValue,
       });
       setRow(rowKey, { phase: "tested_ok", testResult: res.details || "Authentication verified! Ready to save." });
     } catch (err) {
@@ -10993,6 +10484,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
           model: savedModel,
           base_url: savedBaseUrl,
           voice_id: savedVoiceId,
+          use_for_calls: !!row.useForCallsValue,
           phone: savedPhone,
           ...extraFields(rowKey, row),
         });
@@ -11018,17 +10510,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               : g
           )
         );
-        if (savedVoiceId) {
-          const vObj = {
-            voice_id: savedVoiceId,
-            id: savedVoiceId,
-            name: `${itemName} Voice (${savedVoiceId.slice(0, 8)}...)`,
-            provider: itemName.toLowerCase(),
-          };
-          setCustomVoices((prev) => [vObj, ...(prev || []).filter((v) => v.voice_id !== savedVoiceId)]);
-          setVoiceName(savedVoiceId);
-          setSpeakMode("clone");
-        }
+        if (savedVoiceId) announceVoiceChanged();
         handleCancel(rowKey);
         setNotifications((ns) => [
           { id: "n_" + Date.now(), text: `✓ Updated configuration for ${itemName}`, time: "just now", unread: true, type: "success" },
@@ -11061,6 +10543,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
         base_url: (row.baseUrlValue || "").trim() || undefined,
         model: (row.modelValue || "").trim() || undefined,
         voice_id: (row.voiceIdValue || "").trim() || undefined,
+        use_for_calls: !!row.useForCallsValue,
         phone: (row.phoneValue || "").trim() || undefined,
         ...extraFields(rowKey, row),
       });
@@ -11092,17 +10575,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
             : g
         )
       );
-      if (savedVoiceId) {
-        const vObj = {
-          voice_id: savedVoiceId,
-          id: savedVoiceId,
-          name: `${itemName} Voice (${savedVoiceId.slice(0, 8)}...)`,
-          provider: itemName.toLowerCase(),
-        };
-        setCustomVoices((prev) => [vObj, ...(prev || []).filter((v) => v.voice_id !== savedVoiceId)]);
-        setVoiceName(savedVoiceId);
-        setSpeakMode("clone");
-      }
+      if (savedVoiceId) announceVoiceChanged();
       if (row.phoneValue && setProfile) {
         setProfile((prev) => ({ ...prev, callerId: row.phoneValue }));
       }
@@ -11193,23 +10666,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
       }
       return [...prev, { group: newIntegration.category, desc: "", items: [itemObj] }];
     });
-    if (newIntegration.voiceId) {
-      const vObj = {
-        voice_id: newIntegration.voiceId,
-        id: newIntegration.voiceId,
-        name: `${newIntegration.name} Voice (${newIntegration.voiceId.slice(0, 8)}...)`,
-        provider: newIntegration.name.toLowerCase(),
-      };
-      setCustomVoices((prev) => [vObj, ...(prev || []).filter((v) => v.voice_id !== newIntegration.voiceId)]);
-      setVoiceName(newIntegration.voiceId);
-      setSpeakMode("clone");
-      try {
-        const cached = JSON.parse(localStorage.getItem("aivhub_telephony_hub_cache") || "{}");
-        cached.customVoices = [vObj, ...(cached.customVoices || []).filter((v) => v.voice_id !== newIntegration.voiceId)];
-        cached.voiceName = newIntegration.voiceId;
-        localStorage.setItem("aivhub_telephony_hub_cache", JSON.stringify(cached));
-      } catch (_) {}
-    }
+    if (newIntegration.voiceId) announceVoiceChanged();
     setNotifications((ns) => [
       { id: "n_" + Date.now(), text: `✓ Verified and activated ${newIntegration.name}`, time: "just now", unread: true, type: "success" },
       ...ns,
@@ -11564,19 +11021,24 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                               </div>
                             )}
 
-                            {/* Cloned Voice ID for TTS / Voice layers */}
-                            {(group.group === "Text-to-Speech" || group.group === "Voice Orchestration") && (
+                            {/* A voice saved with a TTS key goes into the voice library */}
+                            {group.group === "Text-to-Speech" && (
                               <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
                                 <label style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                  Cloned Voice ID (Optional)
+                                  Add a voice (optional){it.voiceCount ? ` · ${it.voiceCount} saved` : ""}
                                 </label>
                                 <input
                                   type="text"
                                   value={rs.voiceIdValue || ""}
                                   onChange={(e) => setRow(rowKey, { voiceIdValue: e.target.value })}
-                                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx or ElevenLabs Voice ID"
+                                  placeholder="Voice ID from this provider"
                                   style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
                                 />
+                                <label style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: FONT_BODY, fontSize: 12, color: C.textInk }}>
+                                  <input type="checkbox" checked={!!rs.useForCallsValue} onChange={(e) => setRow(rowKey, { useForCallsValue: e.target.checked })} />
+                                  Use for calls
+                                </label>
+                                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Saved to the voice library. See and switch all voices under Line setup → Voice.</div>
                               </div>
                             )}
 

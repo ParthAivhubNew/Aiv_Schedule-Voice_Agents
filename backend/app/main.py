@@ -35,6 +35,7 @@ from app.api.retell_router import router as retell_router
 from app.api.custom_voice_router import router as custom_voice_router
 from app.api.conversation_templates import router as conversation_templates_router
 from app.api.diagnostics import router as diagnostics_router
+from app.api.voices import router as voices_router
 from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
@@ -464,6 +465,14 @@ async def lifespan(app: FastAPI):
         logger.warning(f"[Startup Voice Plan] Could not inspect active voice stack at startup: {stack_log_err}")
 
     try:
+        from app.database import AsyncSessionLocal
+        from app.services.voice_library import migrate_legacy
+        async with AsyncSessionLocal() as voice_db:
+            await migrate_legacy(voice_db)
+    except Exception as voice_mig_err:
+        logger.warning(f"[Voices] Library migration failed: {voice_mig_err}")
+
+    try:
         from app.services.org_settings import migrate_calendar_timezone
         await migrate_calendar_timezone()
     except Exception as org_tz_err:
@@ -548,6 +557,7 @@ app.include_router(custom_voice_router)  # Direct /custom-voice compatibility
 app.include_router(conversation_templates_router, prefix=settings.API_PREFIX)
 app.include_router(conversation_templates_router)  # Direct /conversation-templates compatibility
 app.include_router(diagnostics_router, prefix=settings.API_PREFIX)
+app.include_router(voices_router, prefix=settings.API_PREFIX)
 app.include_router(diagnostics_router)  # Direct /diagnostics compatibility
 app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
 
