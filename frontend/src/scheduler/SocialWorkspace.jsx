@@ -57,6 +57,47 @@ const CHANNELS = [
   { id: "threads", label: "Threads", color: "#000000", soft: "#F4F4F5", mark: "@" },
 ];
 
+// Esc closes only the top-most open window. Layers register a depth (approvals 1 <
+// post preview 2 < enlarged image 3) because child effects run before parent effects,
+// so registration order alone would put the outer window on top.
+const escLayers = [];
+function onEscapeKey(e) {
+  if (e.key !== "Escape" || !escLayers.length) return;
+  const top = escLayers.reduce((a, b) => (b.depth >= a.depth ? b : a));
+  e.preventDefault();
+  e.stopPropagation();
+  top.close.current();
+}
+
+function useEscapeLayer(active, depth, onClose) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!active) return undefined;
+    const layer = { depth, close };
+    if (!escLayers.length) window.addEventListener("keydown", onEscapeKey);
+    escLayers.push(layer);
+    return () => {
+      const i = escLayers.indexOf(layer);
+      if (i >= 0) escLayers.splice(i, 1);
+      if (!escLayers.length) window.removeEventListener("keydown", onEscapeKey);
+    };
+  }, [active, depth]);
+}
+
+function useElementWidth() {
+  const ref = useRef(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver((entries) => setWidth(entries[0].contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width];
+}
+
 function companyPayload(profile) {
   if (!profile) return {};
   const bits = [profile.pitch, profile.industry, profile.website, profile.social].filter(Boolean);
@@ -199,6 +240,7 @@ function ApprovalsBoard({
   updateSchedule,
   deletePost,
   initialDate,
+  requestedScope,
   genProgress,
 }) {
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
@@ -227,6 +269,13 @@ function ApprovalsBoard({
   const userPickedDate = useRef(false);
   const lastSyncedInitial = useRef("");
   const snapRef = useRef({});
+  const [bodyRef, bodyWidth] = useElementWidth();
+  // Wide window: list on the left, the open post beside it instead of on top of the list.
+  const wide = bodyWidth >= 820;
+
+  useEffect(() => {
+    if (requestedScope && requestedScope.scope) setScope(requestedScope.scope);
+  }, [requestedScope]);
 
   useEffect(() => {
     if (!dateTabs.length) {
@@ -354,6 +403,14 @@ function ApprovalsBoard({
     return () => window.clearTimeout(t);
   }, [expandedPost && expandedPost.caption, expandedPost && expandedPost.headline, expandedPost && expandedPost.imageUrl, expandedPost && expandedPost.id]);
 
+  const closePreview = () => {
+    setExpandedId("");
+    setEditMode(false);
+    setScheduleOpen(false);
+  };
+  useEscapeLayer(!!expandedPost, 2, closePreview);
+  useEscapeLayer(lightbox, 3, () => setLightbox(false));
+
   const switchDate = (d) => {
     userPickedDate.current = true;
     setDateTab(d);
@@ -452,7 +509,7 @@ function ApprovalsBoard({
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", flexWrap: "wrap" }}>
           <div style={{ fontSize: 12, color: C.slate, flex: 1, minWidth: 160 }}>
             {dateTab ? (dateTab === "undated" ? "No date" : dayLabel(dateTab)) : "—"}
-            {" · "}select a channel row, then enlarge a post.
+            {" · "}click a post to preview, edit and approve it.
           </div>
           {[
             { id: "waiting", label: "Waiting" },
@@ -482,7 +539,8 @@ function ApprovalsBoard({
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, position: "relative", padding: "0 16px 16px" }}>
+      <div ref={bodyRef} style={{ flex: 1, minHeight: 0, position: "relative", padding: "0 16px 16px", display: wide ? "flex" : "block", gap: 16 }}>
+        <div style={wide ? { flex: "0 0 40%", maxWidth: 520, minWidth: 300, minHeight: 0, height: "100%" } : { height: "100%" }}>
         {!dateTabs.length ? (
           <div style={{ padding: 28, color: C.slate, fontSize: 13, border: `1px dashed ${C.border}`, borderRadius: 12, textAlign: "center" }}>
             No posts yet. Generate a draft first.
@@ -492,7 +550,7 @@ function ApprovalsBoard({
             Nothing in “{scope}” for this date.
           </div>
         ) : (
-          <div style={{ height: "100%", overflowY: expandedPost ? "hidden" : "auto", paddingRight: 4 }}>
+          <div style={{ height: "100%", overflowY: expandedPost && !wide ? "hidden" : "auto", paddingRight: 4 }}>
             {channels.map((ch) => {
               const totalAmt = ch.posts.length;
               return (
@@ -513,7 +571,7 @@ function ApprovalsBoard({
                   </div>
                   {ch.posts.map((p) => {
                     const open = expandedId === p.id;
-                    const dimmed = !!expandedId && !open;
+                    const dimmed = !wide && !!expandedId && !open;
                     const prog = (genProgress && genProgress[p.id]) || null;
                     const busy = !!(prog || p.enriching || imageBusy === p.id || copyBusy === p.id);
                     return (
@@ -521,10 +579,10 @@ function ApprovalsBoard({
                         key={p.id}
                         id={"appr_" + p.id}
                         style={{
-                          width: "100%",
-                          border: `1px solid ${busy ? C.teal : C.border}`,
+                          width: "calc(100% - 8px)",
+                          border: `1px solid ${busy || (wide && open) ? C.teal : C.border}`,
                           borderRadius: 10,
-                          background: "#fff",
+                          background: wide && open ? C.tealSoft : "#fff",
                           padding: "8px 10px",
                           display: "flex",
                           flexDirection: "column",
@@ -600,16 +658,19 @@ function ApprovalsBoard({
             })}
           </div>
         )}
+        </div>
+
+        {wide && !expandedPost ? (
+          <div style={{ flex: 1, minWidth: 0, border: `1px dashed ${C.border}`, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center", color: C.slate, fontSize: 13, textAlign: "center", padding: 24 }}>
+            Select a post on the left to preview, edit and approve it.
+          </div>
+        ) : null}
 
         {expandedPost ? (
           <div
             role="presentation"
-            onClick={() => {
-              setExpandedId("");
-              setEditMode(false);
-              setScheduleOpen(false);
-            }}
-            style={{
+            onClick={wide ? undefined : closePreview}
+            style={wide ? { flex: 1, minWidth: 0, minHeight: 0, display: "flex" } : {
               position: "absolute",
               inset: 0,
               background: "rgba(248,247,244,0.78)",
@@ -628,20 +689,20 @@ function ApprovalsBoard({
               onClick={(e) => e.stopPropagation()}
               style={{
               width: "100%",
-              maxWidth: editMode ? 860 : 560,
+              maxWidth: wide ? "none" : (editMode ? 860 : 560),
               background: "#fff",
               border: `1px solid ${C.border}`,
               borderRadius: 16,
-              boxShadow: "0 20px 48px rgba(18,20,28,0.22)",
+              boxShadow: wide ? "0 2px 10px rgba(18,20,28,0.06)" : "0 20px 48px rgba(18,20,28,0.22)",
               overflow: "hidden",
               display: "flex",
               flexDirection: "column",
               transition: previewDragging ? "none" : "max-width 0.2s ease",
-              transform: `translate(${previewPos.x}px, ${previewPos.y}px)`,
+              transform: wide ? "none" : `translate(${previewPos.x}px, ${previewPos.y}px)`,
               cursor: "default",
             }}>
               <div
-                onMouseDown={onPreviewHeaderDown}
+                onMouseDown={wide ? undefined : onPreviewHeaderDown}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
@@ -651,10 +712,10 @@ function ApprovalsBoard({
                   alignItems: "center",
                   flexShrink: 0,
                   background: "#fff",
-                  cursor: previewDragging ? "grabbing" : "grab",
+                  cursor: wide ? "default" : (previewDragging ? "grabbing" : "grab"),
                   userSelect: "none",
                 }}
-                title="Drag to move"
+                title={wide ? undefined : "Drag to move"}
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12, color: C.slate, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -669,7 +730,7 @@ function ApprovalsBoard({
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(expandedPost.status) }}>{statusLabel(expandedPost.status)}</span>
-                  <button type="button" onClick={() => { setExpandedId(""); setEditMode(false); setScheduleOpen(false); }} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Close">
+                  <button type="button" onClick={closePreview} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Close">
                     <X size={16} color={C.slate} />
                   </button>
                 </div>
@@ -991,7 +1052,11 @@ function ApprovalsBoard({
               ? createPortal(
                 <div
                   style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(8,10,14,0.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
-                  onClick={() => setLightbox(false)}
+                  onClick={(e) => {
+                    // React bubbles portal clicks to the preview backdrop, which would close the post too.
+                    e.stopPropagation();
+                    setLightbox(false);
+                  }}
                 >
                   <button
                     type="button"
@@ -1831,6 +1896,7 @@ export function SocialWorkspace({
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [expandedApprovalId, setExpandedApprovalId] = useState("");
   const [approvalTargetDate, setApprovalTargetDate] = useState("");
+  const [approvalScope, setApprovalScope] = useState({ scope: "waiting" });
   const [approvalPos, setApprovalPos] = useState({ x: 0, y: 0 });
   const [approvalDragging, setApprovalDragging] = useState(false);
   const approvalDragRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
@@ -2358,8 +2424,7 @@ export function SocialWorkspace({
       clearTimeout(dayClickTimerRef.current[key]);
       delete dayClickTimerRef.current[key];
     }
-    const targetPostId = postId || (postsByDay[key] && postsByDay[key][0]?.id) || null;
-    openApprovals(targetPostId, key);
+    openDayList(key);
   };
 
   const regenImage = async (p, note) => {
@@ -2927,7 +2992,25 @@ export function SocialWorkspace({
     setThreads((ts) => ts.filter((t) => t.id !== id));
   };
 
+  const closeApprovals = () => {
+    setApprovalOpen(false);
+    setExpandedApprovalId("");
+    setApprovalTargetDate("");
+  };
+  useEscapeLayer(approvalOpen, 1, closeApprovals);
+
+  // Day list: the whole day, every channel and status, nothing opened yet.
+  const openDayList = (targetDate) => {
+    setApprovalTargetDate(targetDate);
+    setExpandedApprovalId("");
+    setApprovalScope({ scope: "all" });
+    setApprovalPos({ x: 0, y: 0 });
+    setApprovalOpen(true);
+  };
+
   const openApprovals = (id, targetDate) => {
+    const target = id ? posts.find((p) => p.id === id) : null;
+    setApprovalScope({ scope: target && !needsAction(target.status) ? "all" : "waiting" });
     if (id) {
       setSelectedId(id);
       setExpandedApprovalId(id);
@@ -3233,9 +3316,9 @@ export function SocialWorkspace({
                     key={d}
                     type="button"
                     onClick={(e) => unpinDate(d, e)}
-                    onDoubleClick={(e) => { e.stopPropagation(); openApprovals(null, d); }}
+                    onDoubleClick={(e) => { e.stopPropagation(); openDayList(d); }}
                     style={{ ...secBtn, height: 28, fontSize: 11, background: C.tealSoft, borderColor: C.teal }}
-                    title="Click to unpin · Double-click to open approvals"
+                    title="Click to unpin · Double-click to see all posts that day"
                   >
                     {dayLabel(d)} <X size={11} />
                   </button>
@@ -3245,7 +3328,7 @@ export function SocialWorkspace({
                 </button>
               </div>
             ) : (
-              <div style={{ fontSize: 12, color: C.slate }}>Single-click a day to pin it. Double-click to open its approval window. Several days can stay pinned at once.</div>
+              <div style={{ fontSize: 12, color: C.slate }}>Single-click a day to pin it. Double-click to see every post that day. Several days can stay pinned at once.</div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
               {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
@@ -3267,7 +3350,7 @@ export function SocialWorkspace({
                     onClick={(e) => handleDayOrPostClick(key, null, e)}
                     onDoubleClick={(e) => handleDayOrPostDoubleClick(key, null, e)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pinned ? unpinDate(key) : pinDay(key); } }}
-                    title={pinned ? "Single-click to unpin · Double-click to open approvals" : "Single-click to pin · Double-click to open approvals"}
+                    title={pinned ? "Single-click to unpin · Double-click to see all posts that day" : "Single-click to pin · Double-click to see all posts that day"}
                     style={{
                       minHeight: 84,
                       minWidth: 0,
@@ -3332,7 +3415,7 @@ export function SocialWorkspace({
                             display: "block",
                             boxSizing: "border-box",
                           }}
-                          title={(p.headline || "Scheduled post") + " · Single-click to pin · Double-click to open approvals"}
+                          title={(p.headline || "Scheduled post") + " · Single-click to pin · Double-click to see all posts that day"}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, overflow: "hidden" }}>
                             <span style={{ width: 6, height: 6, borderRadius: 99, background: statusColor(p.status), flexShrink: 0 }} />
@@ -3674,10 +3757,10 @@ export function SocialWorkspace({
       </div>
 
       {approvalOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 20 }} onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); setApprovalTargetDate(""); }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 20 }} onClick={closeApprovals}>
           <div
             style={{
-              width: 880,
+              width: "min(1400px, 94vw)",
               maxWidth: "100%",
               height: "min(860px, calc(100vh - 40px))",
               background: HUB_PAPER,
@@ -3717,7 +3800,7 @@ export function SocialWorkspace({
                   <Check size={14} /> Approve all drafts
                 </button>
               ) : null}
-              <button type="button" onClick={() => { setApprovalOpen(false); setExpandedApprovalId(""); setApprovalTargetDate(""); }} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
+              <button type="button" onClick={closeApprovals} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
             </div>
             <div style={{ flex: 1, minHeight: 0, padding: 14, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <ApprovalsBoard
@@ -3729,6 +3812,7 @@ export function SocialWorkspace({
                   if (id) setSelectedId(id);
                 }}
                 initialDate={approvalTargetDate || (posts.find((p) => p.id === selectedId) || {}).date || ""}
+                requestedScope={approvalScope}
                 statusColor={statusColor}
                 statusLabel={statusLabel}
                 imageBusy={imageBusy}
