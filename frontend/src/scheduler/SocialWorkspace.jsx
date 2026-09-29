@@ -34,7 +34,7 @@ import {
 } from "../tokens";
 import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
 import { SchedulerAiPanel } from "./SchedulerAiPanel";
-import { formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../org/orgSettings";
+import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../org/orgSettings";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -348,12 +348,12 @@ function EditableText({ value, onSave, disabled, placeholder, multiline, textSty
 
 const VERSION_LABELS = { original: "Original", you: "Edited by you", ai: "Written by AI", restore: "Restored", update: "Updated" };
 
+// A server timestamp shown in the organisation's timezone and time format.
 function versionTime(iso) {
-  try {
-    return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  } catch (_) {
-    return "";
-  }
+  const ms = Date.parse(iso || "");
+  if (!ms) return "";
+  const at = orgDateTime(ms, orgTz);
+  return dayLabel(at.date) + ", " + formatOrgTime(at.time, orgTimeFormat);
 }
 
 // Last 10 versions of a post's text and image. Newest first; the top one is what is live now.
@@ -423,6 +423,99 @@ function VersionHistory({ post, reloadKey, onRestore, onClose }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// Who gets the approval emails (the organisation's approvers, also in Company Profile),
+// and whether the last email went out.
+function ApprovalMailLine() {
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState("");
+  const load = useCallback(() => {
+    api.getApprovalStatus().then(setInfo).catch(() => setInfo(null));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (!info) return null;
+  const line = { fontSize: 11.5, marginTop: 3, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
+  const linkBtn = { border: "none", background: "transparent", padding: 0, color: C.teal, fontWeight: 700, fontSize: 11.5, cursor: "pointer", fontFamily: FONT_BODY };
+  const approvers = info.approvers || [];
+
+  const saveApprovers = async () => {
+    setError("");
+    const list = draft.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+    const bad = list.filter((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+    if (bad.length) {
+      setError("Not an email: " + bad.join(", "));
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.saveOrgSettings({ approverEmails: list });
+      announceOrgUpdated();
+      setEditing(false);
+      load();
+    } catch (e) {
+      setError(e.message || "Could not save.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div style={{ ...line, color: C.slate }} onMouseDown={(e) => e.stopPropagation()}>
+        <input
+          autoFocus
+          aria-label="Approver emails"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") saveApprovers(); }}
+          placeholder="name@company.com, other@company.com"
+          style={{ height: 28, minWidth: 280, borderRadius: 7, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 12 }}
+        />
+        <button type="button" onClick={saveApprovers} disabled={busy} style={linkBtn}>{busy ? "Saving…" : "Save"}</button>
+        <button type="button" onClick={() => { setEditing(false); setError(""); }} style={{ ...linkBtn, color: C.slate }}>Cancel</button>
+        {error ? <span style={{ color: C.red }}>{error}</span> : null}
+      </div>
+    );
+  }
+  const edit = (
+    <button type="button" onClick={() => { setDraft(approvers.join(", ")); setEditing(true); }} style={linkBtn}>
+      {approvers.length ? "Change" : "Add approvers"}
+    </button>
+  );
+  if (!approvers.length) {
+    return (
+      <div style={{ ...line, color: C.slate }}>
+        Approval emails are off: no approver emails set. Approve posts here instead.
+        {edit}
+      </div>
+    );
+  }
+  const resend = async () => {
+    setBusy(true);
+    try {
+      await api.resendApprovalEmails();
+    } catch (_) {
+      // The status line below shows the outcome.
+    }
+    setBusy(false);
+    load();
+  };
+  const failed = info.failed || [];
+  return (
+    <div style={{ ...line, color: failed.length ? C.red : C.slate }}>
+      {failed.length
+        ? "Approval email not sent to " + failed.map((f) => f.to).join(", ") + ": " + failed[0].error
+        : "Approval emails go to " + approvers.join(", ") + (info.lastSentAt ? " · last sent " + versionTime(info.lastSentAt) : "")}
+      {edit}
+      <button type="button" onClick={resend} disabled={busy} style={linkBtn} title="Email the approvers again about every post still waiting">
+        {busy ? "Sending…" : "Send again"}
+      </button>
     </div>
   );
 }
@@ -1014,6 +1107,18 @@ function ApprovalsBoard({
                       <GenFailed post={expandedPost} onRetry={retryGeneration} />
                     </div>
                   ) : null}
+                  {expandedPost.status === "rejected" ? (
+                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
+                      <strong>Rejected by the approver.</strong> {expandedPost.reviewNote || ""}
+                      <div style={{ color: C.slate, marginTop: 4 }}>Change the post and it goes back for approval, or approve it yourself.</div>
+                    </div>
+                  ) : null}
+                  {expandedPost.status === "missed" ? (
+                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.amberSoft || "#FCEFDA", border: `1px solid ${C.amber}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
+                      <strong>Not posted: nobody approved it before {expandedPost.time || "its time"}.</strong>
+                      <div style={{ color: C.slate, marginTop: 4 }}>Pick a new time under Schedule (it goes back for approval), or approve and post it now.</div>
+                    </div>
+                  ) : null}
                   {expandedPost.status === "failed" ? (
                     <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
                       <strong>Publishing failed.</strong> {expandedPost.lastError || "The network rejected the post."}
@@ -1410,7 +1515,9 @@ function ApprovalsBoard({
                   <span style={{ fontSize: 12, fontWeight: 700, color: C.teal }}>Posted — live on channel</span>
                 ) : expandedPost.status === "scheduled" || expandedPost.status === "approved" ? (
                   <span style={{ fontSize: 12, color: C.slate }}>
-                    {expandedPost.status === "scheduled" ? "Scheduled — edit anytime" : "Approved — edit anytime"}
+                    {expandedPost.status === "scheduled" ? "Scheduled" : "Approved"}
+                    {expandedPost.approvedBy && expandedPost.approvedBy !== "app" ? " by " + expandedPost.approvedBy : ""}
+                    {" · changing it needs a new approval"}
                   </span>
                 ) : null}
               </div>
@@ -1494,8 +1601,10 @@ function parseIsoDate(s) {
 // Organisation timezone for the module-level date helpers below; SocialWorkspace sets it
 // from useOrg() on every render so all scheduling uses the organisation clock.
 let orgTz = "Europe/London";
-function setSchedulerTz(tz) {
+let orgTimeFormat = "24h";
+function setSchedulerTz(tz, timeFormat) {
   if (tz) orgTz = tz;
+  if (timeFormat) orgTimeFormat = timeFormat;
 }
 
 function todayIso() {
@@ -1602,13 +1711,16 @@ function companyName(profile) {
 function mapStatus(s) {
   if (s === "published") return "posted";
   if (s === "awaiting_approval") return "draft";
+  if (s === "approval_missed") return "missed";
+  if (s === "rejected") return "rejected";
   if (["approved", "scheduled", "draft", "posted", "publishing", "failed"].includes(s)) return s;
   return "draft";
 }
 
-// Posts the user has to act on: new drafts and failed publishes.
+// Posts the user has to act on: waiting for approval, rejected by an approver, slot missed
+// before approval, or publishing failed.
 function needsAction(status) {
-  return !status || status === "draft" || status === "failed";
+  return !status || status === "draft" || status === "failed" || status === "rejected" || status === "missed";
 }
 
 // Live or going live: read-only in the UI (the server refuses edits too).
@@ -1640,6 +1752,9 @@ function fromServerPost(p, local) {
     genState: p.genState || "",
     genError: p.genError || "",
     editedByUser: !!p.editedByUser,
+    serverStatus: p.status || "",
+    approvedBy: p.approvedBy || "",
+    reviewNote: p.reviewNote || "",
     synced: true,
     syncError: false,
     enriching: false,
@@ -2196,7 +2311,7 @@ export function SocialWorkspace({
   commonAi,
 }) {
   const org = useOrg();
-  setSchedulerTz(org.timezone);
+  setSchedulerTz(org.timezone, org.timeFormat);
   const [posts, setPosts] = useState(() => {
     const saved = readJson(LS_POSTS, []);
     if (!Array.isArray(saved)) return [];
@@ -2481,12 +2596,25 @@ export function SocialWorkspace({
         imageUrl: np.imageUrl,
         imagePrompt: np.imagePrompt,
         ...(editSource === "ai" ? { editSource } : {}),
+        // What this browser last saw on the server: if the status moved on since (approved or
+        // rejected by email, slot missed), the server keeps its status and we adopt it.
+        ...(np.serverStatus ? { knownStatus: np.serverStatus } : {}),
       });
       const serverPost = res && res.post;
       setPosts((ps) => ps.map((row) => {
         if (row.id !== np.id) return row;
         if (res && res.locked && serverPost) return fromServerPost(serverPost, row);
-        return { ...row, synced: true, syncError: false };
+        if (!serverPost) return { ...row, synced: true, syncError: false };
+        const kept = serverPost.status === apiStatus && (row.status === "scheduled" || row.status === "approved");
+        return {
+          ...row,
+          synced: true,
+          syncError: false,
+          serverStatus: serverPost.status,
+          status: kept ? row.status : mapStatus(serverPost.status),
+          approvedBy: serverPost.approvedBy || "",
+          reviewNote: serverPost.reviewNote || "",
+        };
       }));
       return true;
     } catch (_) {
@@ -2840,6 +2968,9 @@ export function SocialWorkspace({
     pendingSaves.current.add(id);
     try {
       const res = await api.editPost(id, body);
+      if (res && res.post && (row.status === "scheduled" || row.status === "approved") && res.post.status === "awaiting_approval") {
+        showToast("Changed after approval, so it needs approving again.");
+      }
       if (res && res.post) {
         setPosts((ps) => ps.map((p) => (p.id === id
           ? { ...fromServerPost(res.post, p), ...(contentEdit ? { uniqueForChannel: true } : {}) }
@@ -3431,7 +3562,7 @@ export function SocialWorkspace({
 
   const statusColor = (s) => {
     if (s === "posted") return C.teal;
-    if (s === "failed") return C.red;
+    if (s === "failed" || s === "rejected" || s === "missed") return C.red;
     if (s === "approved" || s === "scheduled" || s === "publishing") return C.green;
     return C.amber;
   };
@@ -3440,6 +3571,8 @@ export function SocialWorkspace({
     if (s === "posted") return "Posted";
     if (s === "publishing") return "Publishing…";
     if (s === "failed") return "Failed";
+    if (s === "rejected") return "Rejected";
+    if (s === "missed") return "Approval missed";
     if (s === "scheduled") return "Scheduled";
     if (s === "approved") return "Approved";
     return "Waiting";
@@ -4146,8 +4279,9 @@ export function SocialWorkspace({
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Approvals</div>
                 <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                  {drafts.length ? drafts.length + " draft" + (drafts.length === 1 ? "" : "s") + " waiting" : "Nothing waiting"}
+                  {drafts.length ? drafts.length + " post" + (drafts.length === 1 ? "" : "s") + " need you" : "Nothing waiting"}
                 </div>
+                <ApprovalMailLine />
               </div>
               {drafts.length > 1 ? (
                 <button type="button" onClick={approveAllDrafts} disabled={!!publishing} style={priBtn}>
