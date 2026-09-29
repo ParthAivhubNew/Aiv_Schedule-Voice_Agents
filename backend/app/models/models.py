@@ -409,7 +409,23 @@ class SocialPost(Base):
     # AI writing state shown on the card: queued | writing | imaging | failed (None = idle).
     gen_state = Column(String, nullable=True)
     gen_error = Column(Text, nullable=True)
+    # Text or image changed by hand: chat edits that sweep many posts leave it alone.
+    edited_by_user = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialPostVersion(Base):
+    """Saved content of a post after each change (the newest 10 per post are kept) for undo/restore."""
+    __tablename__ = "social_post_versions"
+
+    id = Column(String, primary_key=True)
+    post_id = Column(String, index=True, nullable=False)
+    source = Column(String, default="update")  # original | you | ai | restore | update
+    title = Column(String, default="")
+    copy = Column(Text, default="")
+    image_url = Column(Text, nullable=True)
+    image_prompt = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class SocialGenJob(Base):
