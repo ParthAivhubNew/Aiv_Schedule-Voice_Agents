@@ -123,6 +123,22 @@ def test_schedule_validation_and_defaults():
             clean(bad, today)
 
 
+def test_custom_dates_can_each_have_their_own_topic():
+    from app.services.schedule_engine import clean
+
+    today = date(2026, 9, 29)
+    base = {"name": "Launch week", "plan": "", "channels": ["linkedin"], "pattern": "dates",
+            "customDates": ["2026-10-02", "2026-10-05"]}
+    ok = clean({**base, "dateTopics": {"2026-10-02": " Onboarding checklist ", "2026-10-05": "Why spreadsheets break", "2026-12-01": "not a picked date"}}, today)
+    assert ok["date_topics"] == {"2026-10-02": "Onboarding checklist", "2026-10-05": "Why spreadsheets break"}
+    with pytest.raises(ValueError, match="every date a topic"):
+        clean({**base, "dateTopics": {"2026-10-02": "Only one"}}, today)
+    # With a brief, dates without a topic follow it.
+    assert clean({**base, "plan": "Ops tips", "dateTopics": {"2026-10-02": "Only one"}}, today)["date_topics"] == {"2026-10-02": "Only one"}
+    with pytest.raises(ValueError, match="what the posts should be about"):
+        clean({**base, "pattern": "weekly", "weekdays": ["MO"]}, today)
+
+
 def test_add_months_clamps_to_month_end():
     from app.services.schedule_engine import add_months
 

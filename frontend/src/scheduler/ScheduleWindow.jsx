@@ -40,6 +40,7 @@ function blankForm(today) {
     weekdays: [],
     monthDay: "",
     customDates: [],
+    dateTopics: {},
     date: today,
     time: "10:00",
     startDate: today,
@@ -63,6 +64,7 @@ function formFromSchedule(s) {
     weekdays: s.weekdays || [],
     monthDay: s.monthDay || "",
     customDates: s.customDates || [],
+    dateTopics: s.dateTopics || {},
     date: s.startDate || "",
     time: s.time || "10:00",
     startDate: s.startDate || "",
@@ -85,6 +87,7 @@ function payloadOf(form) {
     weekdays: form.weekdays,
     monthDay: form.monthDay ? Number(form.monthDay) : null,
     customDates: form.customDates,
+    dateTopics: form.dateTopics,
     date: form.date,
     time: form.time,
     startDate: form.frequency === "once" ? form.date : form.startDate,
@@ -139,6 +142,9 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [dateToAdd, setDateToAdd] = useState("");
+  const [topicToAdd, setTopicToAdd] = useState("");
+  const [pasteList, setPasteList] = useState("");
+  const [pasteNote, setPasteNote] = useState(null);
 
   useEscapeLayer(open, 1, onClose);
 
@@ -159,10 +165,43 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
+  // Custom dates, each with an optional topic of its own.
+  const addDates = (pairs) => {
+    setForm((f) => {
+      const topics = { ...(f.dateTopics || {}) };
+      pairs.forEach(([d, t]) => { if (String(t || "").trim()) topics[d] = String(t).trim(); });
+      return { ...f, customDates: [...new Set([...f.customDates, ...pairs.map(([d]) => d)])].sort(), dateTopics: topics };
+    });
+  };
+  const removeDate = (d) => {
+    setForm((f) => {
+      const topics = { ...(f.dateTopics || {}) };
+      delete topics[d];
+      return { ...f, customDates: f.customDates.filter((x) => x !== d), dateTopics: topics };
+    });
+  };
+  const addPasted = () => {
+    const pairs = [];
+    const bad = [];
+    pasteList.split("\n").map((l) => l.trim()).filter(Boolean).forEach((line) => {
+      const m = line.match(/^(\d{4}-\d{2}-\d{2})\s*[-–—:|,]?\s*(.*)$/);
+      if (m && !Number.isNaN(new Date(m[1] + "T00:00:00").getTime())) pairs.push([m[1], m[2]]);
+      else bad.push(line);
+    });
+    if (pairs.length) addDates(pairs);
+    setPasteList(bad.join("\n"));
+    setPasteNote(bad.length
+      ? { ok: false, text: "Added " + pairs.length + ". These lines need a date like 2026-10-02 first." }
+      : { ok: true, text: "Added " + pairs.length + " date" + (pairs.length === 1 ? "" : "s") + "." });
+  };
+
   // Show which dates the schedule would post on, as the user fills it in.
   useEffect(() => {
     if (!open) return undefined;
-    if (!form.name.trim() || !form.plan.trim()) {
+    // Custom dates may go without a brief when each date has its own topic; the server says
+    // which is missing.
+    const customDates = form.frequency === "recurring" && form.pattern === "dates";
+    if (!form.name.trim() || (!form.plan.trim() && !customDates)) {
       setPreview(null);
       setPreviewError("");
       return undefined;
@@ -243,6 +282,9 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
   const weekOrder = WEEK_ORDER[org.weekStart] || WEEK_ORDER.monday;
   const current = list.find((x) => x.id === form.id);
 
+  const topicCount = form.pattern === "dates" && form.frequency === "recurring"
+    ? form.customDates.filter((d) => String((form.dateTopics || {})[d] || "").trim()).length
+    : 0;
   const summary = useMemo(() => {
     if (previewError) return { tone: "warn", text: previewError };
     if (!preview) return { tone: "idle", text: "Name the schedule and say what to post about to see the dates." };
@@ -255,9 +297,10 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
     return {
       tone: "ok",
       text: n + " date" + (n === 1 ? "" : "s") + perDate + ": " + first + (n > (preview.upcoming || []).length ? ", …" : "")
-        + (form.frequency === "recurring" ? " · ends " + longDay(preview.endDate) : ""),
+        + (form.frequency === "recurring" ? " · ends " + longDay(preview.endDate) : "")
+        + (topicCount ? " · " + topicCount + " with their own topic" : ""),
     };
-  }, [preview, previewError, form.frequency, form.channels]);
+  }, [preview, previewError, form.frequency, form.channels, topicCount]);
 
   if (!open) return null;
 
@@ -329,7 +372,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                   <Field label="Name">
                     <input aria-label="Schedule name" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Weekly operations tips" style={input} />
                   </Field>
-                  <Field label="What should the posts be about?" hint="Each post gets its own topic within this. The AI avoids repeating earlier posts.">
+                  <Field label="What should the posts be about?" hint="Each post gets its own topic within this. The AI avoids repeating earlier posts. With custom dates you can instead give each date its own topic (Schedule tab).">
                     <textarea aria-label="What to post about" value={form.plan} onChange={(e) => set({ plan: e.target.value })} rows={5} placeholder="e.g. Practical tips that help small teams run operations with less admin. Mix how-tos, lessons and one product mention a month." style={{ ...input, height: "auto", padding: 10, resize: "vertical" }} />
                   </Field>
                   <Field label="Channels" hint="With more than one, each date gets the same post on every channel.">
@@ -380,26 +423,44 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                         </Field>
                       ) : null}
                       {form.pattern === "dates" ? (
-                        <Field label="Dates">
+                        <Field label="Dates and topics" hint="Each date can have its own topic. Dates left without one follow the brief on the Content tab.">
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                             <input type="date" aria-label="Date to add" min={today} value={dateToAdd} onChange={(e) => setDateToAdd(e.target.value)} style={{ ...input, width: 170 }} />
-                            <button
-                              type="button"
-                              disabled={!dateToAdd}
-                              onClick={() => { set({ customDates: [...new Set([...form.customDates, dateToAdd])].sort() }); setDateToAdd(""); }}
-                              style={secBtn}
-                            >
+                            <input aria-label="Topic for that date" value={topicToAdd} onChange={(e) => setTopicToAdd(e.target.value)} placeholder="Topic for that post (optional)" style={{ ...input, flex: "1 1 200px", width: "auto" }} />
+                            <button type="button" disabled={!dateToAdd} onClick={() => { addDates([[dateToAdd, topicToAdd]]); setDateToAdd(""); setTopicToAdd(""); }} style={secBtn}>
                               Add date
                             </button>
                           </div>
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                          <details style={{ marginTop: 8 }}>
+                            <summary style={{ fontSize: 12.5, color: C.teal, fontWeight: 700, cursor: "pointer" }}>Paste many dates and topics</summary>
+                            <textarea
+                              aria-label="Paste dates and topics"
+                              value={pasteList}
+                              onChange={(e) => setPasteList(e.target.value)}
+                              rows={5}
+                              placeholder={"One per line, date first:\n2026-10-02 Onboarding checklist\n2026-10-05 Why spreadsheets break"}
+                              style={{ ...input, height: "auto", padding: 10, marginTop: 6, fontSize: 12.5, resize: "vertical" }}
+                            />
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                              <button type="button" disabled={!pasteList.trim()} onClick={addPasted} style={secBtn}>Add all</button>
+                              {pasteNote ? <span style={{ fontSize: 12, color: pasteNote.ok ? C.teal : C.red }}>{pasteNote.text}</span> : null}
+                            </div>
+                          </details>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
                             {form.customDates.map((d) => (
-                              <span key={d} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 8px", borderRadius: 99, background: HUB_PAPER, border: `1px solid ${C.border}`, fontSize: 12 }}>
-                                {dayText(d)}
-                                <button type="button" aria-label={"Remove " + d} onClick={() => set({ customDates: form.customDates.filter((x) => x !== d) })} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0, display: "flex" }}>
-                                  <X size={12} />
+                              <div key={d} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ width: 96, flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: C.ink }}>{dayText(d)}</span>
+                                <input
+                                  aria-label={"Topic for " + d}
+                                  value={(form.dateTopics || {})[d] || ""}
+                                  onChange={(e) => set({ dateTopics: { ...(form.dateTopics || {}), [d]: e.target.value } })}
+                                  placeholder={form.plan.trim() ? "Follows the brief" : "Topic for this post"}
+                                  style={{ ...input, height: 34 }}
+                                />
+                                <button type="button" aria-label={"Remove " + d} onClick={() => removeDate(d)} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4, display: "flex", color: C.slate }}>
+                                  <X size={14} />
                                 </button>
-                              </span>
+                              </div>
                             ))}
                           </div>
                         </Field>
