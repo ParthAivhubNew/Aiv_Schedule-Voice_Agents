@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db, engine
 from app.services.org_settings import org_instant_ms, org_timezone
-from app.services import post_versions
+from app.services import approval_mail, post_versions
 from app.services import generation_queue as gen_queue
 from app.services.generation_queue import IMAGE_SLOTS, PRIORITY_INTERACTIVE, TEXT_SLOTS
 from app.services.timezone_service import tzinfo
@@ -66,6 +66,10 @@ _SOCIAL_POST_EXTRA_COLS = [
     ("gen_state", "VARCHAR"),
     ("gen_error", "TEXT"),
     ("edited_by_user", "BOOLEAN"),
+    ("approval_requested_at", "TIMESTAMP"),
+    ("approved_by", "VARCHAR"),
+    ("approved_at", "TIMESTAMP"),
+    ("review_note", "TEXT"),
 ]
 
 # A post in one of these states must never be edited back to draft/approved by a client
@@ -150,9 +154,17 @@ def _serialize_post(p: SocialPost) -> Dict[str, Any]:
         "genState": getattr(p, "gen_state", None),
         "genError": getattr(p, "gen_error", None),
         "editedByUser": bool(getattr(p, "edited_by_user", False)),
+        "approvalRequestedAt": _iso(getattr(p, "approval_requested_at", None)),
+        "approvedBy": getattr(p, "approved_by", None),
+        "approvedAt": _iso(getattr(p, "approved_at", None)),
+        "reviewNote": getattr(p, "review_note", None),
         "lastError": _last_error(p),
         "createdAt": p.created_at.isoformat() if p.created_at else None,
     }
+
+
+def _iso(dt: Optional[datetime]) -> Optional[str]:
+    return dt.isoformat() + "Z" if dt else None
 
 
 def _last_error(p: SocialPost) -> str:
@@ -603,6 +615,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             return existing_post
         if existing_post:
             before = post_versions.content_of(existing_post)
+            before_status = existing_post.status
             # While the AI queue is writing this post, the server copy of the text/image is the
             # newest; a browser save made before it refreshed must not blank it.
             writing = existing_post.gen_state in ("queued", "writing", "imaging")
@@ -610,7 +623,11 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
                 existing_post.title = title
                 existing_post.copy = copy
             existing_post.channels = channels
-            existing_post.status = status
+            known = payload.get("knownStatus")
+            # The browser's view of the status is stale (approved or rejected by email, or
+            # missed meanwhile): the server's status stands and the browser adopts it.
+            if not known or known == before_status:
+                existing_post.status = status
             existing_post.slot_date_ms = float(slot_date_ms)
             existing_post.time = time_str
             existing_post.theme = theme
@@ -620,7 +637,8 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
                 existing_post.image_prompt = image_prompt
             _apply_package_fields(existing_post, payload)
             _apply_due(existing_post, payload, tz)
-            await post_versions.record_version(db, existing_post, "ai" if payload.get("editSource") == "ai" else "update", before=before)
+            changed = await post_versions.record_version(db, existing_post, "ai" if payload.get("editSource") == "ai" else "update", before=before)
+            _after_status_change(existing_post, before_status, content_changed=bool(changed))
             return existing_post
         new_post = SocialPost(
             id=post_id,
@@ -636,6 +654,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
         )
         _apply_package_fields(new_post, payload)
         _apply_due(new_post, payload, tz)
+        _after_status_change(new_post, None, content_changed=False)
         db.add(new_post)
         return new_post
 
@@ -724,13 +743,40 @@ async def edit_post(post_id: str, payload: Dict[str, Any], request: Request, db:
             raise HTTPException(status_code=400, detail="Date must look like 2026-10-01.")
         post.time = time_str
         _apply_due(post, {"date": date_str, "time": time_str}, await org_timezone(db))
+        if post.status == approval_mail.MISSED and (post.due_at_ms or 0) > time.time() * 1000:
+            # Moved to a new slot: it goes back for approval.
+            post.status = approval_mail.WAITING
+            _after_status_change(post, approval_mail.MISSED, content_changed=False)
 
     if content_keys and not _same_content(before, post_versions.content_of(post)):
         post.edited_by_user = True
         await post_versions.record_version(db, post, "you", before=before)
+        _after_status_change(post, post.status, content_changed=True)
     await db.commit()
     await db.refresh(post)
     return {"status": "ok", "post": _serialize_post(post)}
+
+
+APPROVED = ("approved", "scheduled")
+
+
+def _after_status_change(post: SocialPost, before_status: Optional[str], content_changed: bool) -> None:
+    """Keep the approval fields true to the status. Approval covers the content that was
+    reviewed: a change to the text or image after approval sends the post back for review."""
+    if content_changed and (post.status in APPROVED or post.status == approval_mail.REJECTED):
+        post.status = approval_mail.WAITING
+    if post.status in APPROVED:
+        if before_status not in APPROVED:
+            post.approved_by = "app"  # approved in the scheduler (the creator may approve)
+            post.approved_at = datetime.utcnow()
+            post.review_note = None
+    elif post.status == approval_mail.WAITING and (before_status != approval_mail.WAITING or content_changed):
+        # Back in review (new, edited after approval, rejected then changed, rescheduled after
+        # a missed slot) or changed while the approvers look at it: they get a fresh email.
+        post.approval_requested_at = None
+        post.approved_by = None
+        post.approved_at = None
+        approval_mail.note_change(post.id)
 
 
 def _same_content(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
@@ -765,6 +811,42 @@ async def post_version_restore(post_id: str, version_id: str, db: AsyncSession =
     await db.commit()
     await db.refresh(post)
     return {"status": "ok", "post": _serialize_post(post)}
+
+
+@router.get("/review", response_class=HTMLResponse)
+async def review_page(t: str = "", db: AsyncSession = Depends(get_db)):
+    """Page behind the link in the approval email. Viewing never changes anything."""
+    tz = await org_timezone(db)
+    return HTMLResponse(await approval_mail.review_page(db, t, lambda p: _due_ms(p, tz)))
+
+
+@router.post("/review", response_class=HTMLResponse)
+async def review_submit(request: Request, db: AsyncSession = Depends(get_db)):
+    form = await request.form()
+    token = str(form.get("t") or "")
+    notice = await approval_mail.review_action(
+        db, token, str(form.get("action") or ""), str(form.get("post") or ""), str(form.get("note") or "")
+    )
+    tz = await org_timezone(db)
+    return HTMLResponse(await approval_mail.review_page(db, token, lambda p: _due_ms(p, tz), notice=notice))
+
+
+@router.get("/approval/status")
+async def approval_status(db: AsyncSession = Depends(get_db)):
+    return {"status": "ok", **(await approval_mail.mail_status(db))}
+
+
+@router.post("/approval/resend")
+async def approval_resend(db: AsyncSession = Depends(get_db)):
+    """Email the approvers again about every post still waiting (e.g. after fixing the mail account)."""
+    res = await db.execute(
+        update(SocialPost).where(SocialPost.status == approval_mail.WAITING)
+        .values(approval_requested_at=None).execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    tz = await org_timezone(db)
+    sent = await approval_mail.request_approvals(db, time.time() * 1000, lambda p: _due_ms(p, tz), _public_base(None), force=True)
+    return {"status": "ok", "posts": sent, "reset": res.rowcount or 0}
 
 
 @router.delete("/posts/{post_id}")
@@ -1084,11 +1166,31 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     """
     now_ms = time.time() * 1000
     tz = await org_timezone(db)
+    due_of = lambda p: _due_ms(p, tz)  # noqa: E731
+
+    # Nobody approved it before its slot: it does not go out late on its own.
+    waiting = (await db.execute(select(SocialPost).where(SocialPost.status == approval_mail.WAITING))).scalars().all()
+    missed_posts = []
+    for post in waiting:
+        due_at = due_of(post)
+        if due_at and due_at < now_ms - approval_mail.MISSED_GRACE_MS:
+            post.status = approval_mail.MISSED
+            missed_posts.append(post)
+    if missed_posts:
+        await db.commit()
+
+    try:
+        await approval_mail.request_approvals(db, now_ms, due_of, _public_base(request))
+    except Exception:
+        logger.exception("Sending approval emails failed")
+        await db.rollback()
+
     result = await db.execute(select(SocialPost).where(SocialPost.status.in_(["approved", "scheduled"])))
     posts = result.scalars().all()
     published = []
     failed = []
     skipped = []
+    done_posts = []
     for post in posts:
         due_at = _due_ms(post, tz)
         if due_at and due_at > now_ms:
@@ -1106,11 +1208,24 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
         if hosted:
             post.image_url = hosted
         bundled = await _publish_claimed(db, post, request)
+        done_posts.append(post)
         if bundled.get("ok"):
             published.append(_serialize_post(post))
         else:
             failed.append(_serialize_post(post))
-    return {"status": "ok", "published": published, "failed": failed, "skipped": skipped}
+    try:
+        await approval_mail.send_results(
+            db,
+            [p for p in done_posts if p.status == "published"],
+            [p for p in done_posts if p.status != "published"],
+            missed_posts,
+            due_of,
+        )
+    except Exception:
+        logger.exception("Sending results email failed")
+        await db.rollback()
+    return {"status": "ok", "published": published, "failed": failed, "skipped": skipped,
+            "missed": [p.id for p in missed_posts]}
 
 
 _PLAN_FENCE_RE = re.compile(r"```(?:plan|json)\s*([\s\S]*?)```", re.I)

@@ -226,6 +226,8 @@ export const api = {
   }),
   queueGeneration: (payload) => apiRequest('/scheduler/generate', { method: 'POST', body: payload }),
   retryGeneration: (payload) => apiRequest('/scheduler/generate/retry', { method: 'POST', body: payload }),
+  getApprovalStatus: () => apiRequest('/scheduler/approval/status'),
+  resendApprovalEmails: () => apiRequest('/scheduler/approval/resend', { method: 'POST' }),
   getSocialAccounts: (refresh = false) => apiRequest(`/scheduler/accounts${refresh ? '?refresh=true' : ''}`),
   deleteSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}`, { method: 'DELETE' }),
   publishPost: (postId, payload) => apiRequest(`/scheduler/posts/${postId}/publish`, { method: 'POST', body: payload || {} }),
