@@ -136,7 +136,25 @@ def test_custom_dates_can_each_have_their_own_topic():
     # With a brief, dates without a topic follow it.
     assert clean({**base, "plan": "Ops tips", "dateTopics": {"2026-10-02": "Only one"}}, today)["date_topics"] == {"2026-10-02": "Only one"}
     with pytest.raises(ValueError, match="what the posts should be about"):
-        clean({**base, "pattern": "weekly", "weekdays": ["MO"]}, today)
+        clean({**base, "frequency": "once", "date": "2026-10-02"}, today)
+
+
+def test_repeating_schedules_can_give_each_date_its_own_topic():
+    from app.services.schedule_engine import clean
+
+    today = date(2026, 9, 29)  # a Tuesday
+    base = {"name": "Mondays", "plan": "", "channels": ["x"], "pattern": "weekly", "weekdays": ["MO"],
+            "endDate": "2026-10-19"}
+    with pytest.raises(ValueError, match=r"every date a topic \(3 still"):
+        clean(base, today)
+    topics = {"2026-10-05": "Pricing", "2026-10-12": "Hiring", "2026-10-19": "Roadmap", "2026-10-06": "a Tuesday"}
+    ok = clean({**base, "dateTopics": topics}, today)
+    assert ok["date_topics"] == {"2026-10-05": "Pricing", "2026-10-12": "Hiring", "2026-10-19": "Roadmap"}
+    # A date already past the first open day needs no topic.
+    assert clean({**base, "dateTopics": {"2026-10-12": "Hiring", "2026-10-19": "Roadmap"}}, today,
+                 first_day=date(2026, 10, 6))["date_topics"] == {"2026-10-12": "Hiring", "2026-10-19": "Roadmap"}
+    # Previews list dates before any topic is set.
+    assert clean(base, today, require_topics=False)["date_topics"] == {}
 
 
 def test_add_months_clamps_to_month_end():

@@ -179,6 +179,25 @@ async def test_custom_dates_write_each_dates_own_topic(client, db):
     assert all(j.plan.startswith(j.headline) for j in jobs)
 
 
+
+async def test_daily_schedule_takes_a_topic_per_day(client, db):
+    from app.models.models import SocialGenJob
+
+    await client.put("/api/profile/org", json={"timezone": "UTC"})
+    days = [(date.today() + timedelta(days=i)).isoformat() for i in (1, 2, 3)]
+    body = {"name": "Three days", "plan": "", "channels": ["linkedin"], "pattern": "daily", "time": "09:00",
+            "startDate": days[0], "endDate": days[-1]}
+    preview = (await client.post("/api/scheduler/schedules/preview", json=body)).json()
+    assert preview["schedule"]["allDates"] == days
+    missing = await client.post("/api/scheduler/schedules", json={**body, "dateTopics": {days[0]: "Pricing"}})
+    assert missing.status_code == 400 and "2 still without one" in missing.json()["detail"]
+    res = await client.post("/api/scheduler/schedules", json={
+        **body, "plan": "We sell ops software", "dateTopics": {days[0]: "Pricing", days[2]: "Roadmap"}})
+    assert res.status_code == 200, res.text
+    jobs = {j.date: j for j in (await db.execute(select(SocialGenJob))).scalars().all()}
+    assert jobs[days[0]].headline == "Pricing" and "We sell ops software" in jobs[days[0]].plan
+    assert jobs[days[1]].headline == "" and jobs[days[2]].plan.startswith("Roadmap")
+
 # ── Chat protection of hand-edited posts ────────────────────────────────────
 
 async def test_bulk_chat_rewrite_skips_hand_edited_posts(client, db):
