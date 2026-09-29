@@ -18,8 +18,11 @@ XAI_BUILTIN = {"ara", "eve", "rex", "leo", "sal", "leo"}
 
 
 async def _orchestration_conn(db: AsyncSession) -> Optional[Connection]:
-    res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
-    return res.scalars().first()
+    """The engine row for the active engine (same pick as the live call plan)."""
+    from app.services.voice_plugin_plan import get_active_stack, pick_engine_conn
+
+    res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))
+    return pick_engine_conn(list(res.scalars().all()), get_active_stack().get("engine") or "")
 
 
 def _cfg(conn: Optional[Connection]) -> Dict[str, Any]:
@@ -57,19 +60,22 @@ def stored_custom_voices(conn: Optional[Connection]) -> List[Dict[str, Any]]:
 async def save_orchestration_config(db: AsyncSession, updates: Dict[str, Any]) -> Dict[str, Any]:
     from app.services.secret_box import seal_config
     conn = await _orchestration_conn(db)
+    from app.services.voice_plugin_plan import get_active_stack
+
     cfg = _cfg(conn)
     cfg.update({k: v for k, v in updates.items() if v is not None})
     cfg = seal_config(cfg)
     if conn:
+        # Settings only: saving a voice never marks an engine connected (that needs its key).
         conn.config = cfg
-        conn.status = "connected"
     else:
         import uuid
+        stack = get_active_stack()
         conn = Connection(
             id=f"conn_{uuid.uuid4().hex[:6]}",
             group_name="Voice Orchestration",
-            name="xAI Voice Agent",
-            status="connected",
+            name=stack.get("engine_label") or stack.get("engine") or "Voice engine",
+            status="not_configured",
             config=cfg,
         )
         db.add(conn)
