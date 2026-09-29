@@ -2340,6 +2340,10 @@ export function SocialWorkspace({
   const [approvalTargetDate, setApprovalTargetDate] = useState("");
   const [approvalScope, setApprovalScope] = useState({ scope: "waiting" });
   const [approvalPos, setApprovalPos] = useState({ x: 0, y: 0 });
+  // Dragging moves the window for this visit only: every opening starts centred.
+  useEffect(() => {
+    if (approvalOpen) setApprovalPos({ x: 0, y: 0 });
+  }, [approvalOpen]);
   const [approvalDragging, setApprovalDragging] = useState(false);
   const approvalDragRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const dayClickTimerRef = useRef({});
@@ -3501,7 +3505,6 @@ export function SocialWorkspace({
     setApprovalTargetDate(targetDate);
     setExpandedApprovalId("");
     setApprovalScope({ scope: "all" });
-    setApprovalPos({ x: 0, y: 0 });
     setApprovalOpen(true);
   };
 
@@ -3525,7 +3528,6 @@ export function SocialWorkspace({
         setExpandedApprovalId(firstPostOnDate.id);
       }
     }
-    setApprovalPos({ x: 0, y: 0 });
     setApprovalOpen(true);
   };
 
