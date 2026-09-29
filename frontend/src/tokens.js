@@ -325,84 +325,12 @@ export function scrubSecretsForStorage(obj) {
 }
 
 export function getActiveAiCredentials(commonAi, pluginType = "leadgen", featureKey = "") {
-  // If scheduler, directly read the user's configured scheduler AI settings
-  if (pluginType === "scheduler") {
-    let schedProv = commonAi?.schedulerAi?.provider;
-    let schedKey = commonAi?.schedulerAi?.apiKey;
-    let schedModel = commonAi?.schedulerAi?.model || commonAi?.schedulerLayers?.postWriter;
-    let schedBaseUrl = commonAi?.schedulerAi?.baseUrl;
-
-    // Also check persisted localStorage for Scheduler AI config
-    if (!schedKey || !schedProv) {
-      try {
-        const s = localStorage.getItem("aivhub_scheduler_ai");
-        if (s) {
-          const parsed = JSON.parse(s);
-          if (!schedKey && parsed.apiKey) schedKey = parsed.apiKey;
-          if (!schedProv && parsed.provider) schedProv = parsed.provider;
-          if (!schedModel && parsed.model) schedModel = parsed.model;
-          if (!schedBaseUrl && parsed.baseUrl) schedBaseUrl = parsed.baseUrl;
-        }
-      } catch (_) {}
-    }
-
-    // If key not entered directly in Scheduler card, look up the key for this chosen provider in commonAi.providers
-    if (!schedKey && schedProv && Array.isArray(commonAi?.providers)) {
-      const matched = commonAi.providers.find((p) => p.id === schedProv || p.name?.toLowerCase() === schedProv.toLowerCase());
-      if (matched && matched.apiKey) {
-        schedKey = matched.apiKey;
-        schedBaseUrl = schedBaseUrl || matched.baseUrl;
-      }
-    }
-
-    const openaiProv = (Array.isArray(commonAi?.providers) ? commonAi.providers : []).find(
-      (p) => p.id === "openai" || /openai|chatgpt|gpt/i.test(p.name || "")
-    );
-    const looksClaude = /claude|anthropic|sonnet/i.test(String(schedModel || "") + String(schedProv || ""));
-    const hasAnthropic = schedProv === "anthropic" && schedKey;
-    if (looksClaude && !hasAnthropic && (openaiProv?.apiKey || (schedProv === "openai" && schedKey))) {
-      schedProv = "openai";
-      schedKey = schedKey || openaiProv?.apiKey;
-      schedModel = "gpt-4o-mini";
-      schedBaseUrl = schedBaseUrl || openaiProv?.baseUrl || "https://api.openai.com/v1";
-    }
-
-    // Ultimate fallback: check commonAi.providers or localStorage['aivhub_common_ai'] for ANY working key
-    if (!schedKey) {
-      let provs = Array.isArray(commonAi?.providers) ? commonAi.providers : [];
-      if (!provs.length) {
-        try {
-          const savedCommon = localStorage.getItem("aivhub_common_ai");
-          if (savedCommon) {
-            const parsed = JSON.parse(savedCommon);
-            if (Array.isArray(parsed.providers)) provs = parsed.providers;
-          }
-        } catch (_) {}
-      }
-      const anyConnected = provs.find((p) => p.apiKey && p.apiKey.trim().length > 0);
-      if (anyConnected) {
-        schedKey = anyConnected.apiKey;
-        if (!schedProv) schedProv = anyConnected.id;
-        if (!schedModel) schedModel = anyConnected.models?.[0] || undefined;
-        schedBaseUrl = schedBaseUrl || anyConnected.baseUrl || "";
-      }
-    }
-
-    return {
-      apiKey: isMaskedSecret(schedKey) ? "" : (schedKey || ""),
-      provider: schedProv || "openai",
-      model: schedModel || "gpt-4o-mini",
-      baseUrl: schedBaseUrl || ""
-    };
-  }
-
   if (!commonAi) {
     return { apiKey: "", provider: "openai", model: "gpt-4o-mini", baseUrl: "" };
   }
 
   let modelName = "";
   if (pluginType === "leadgen") modelName = commonAi.leadgenLayers?.[featureKey || "researchLlm"] || "deepseek-chat";
-  else if (pluginType === "scheduler") modelName = commonAi.schedulerLayers?.[featureKey || "postWriter"] || commonAi.schedulerAi?.model || "gpt-4o-mini";
   else if (pluginType === "email") modelName = commonAi.emailLayers?.[featureKey || "copywriterLlm"] || "Claude 3.5 Sonnet";
   else if (pluginType === "voice") modelName = commonAi.voiceLayers?.[featureKey || "llm"] || "xAI Grok-2";
 
@@ -433,25 +361,6 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
   const provObj = (commonAi.providers || []).find((p) => p.id === provId);
   let resolvedKey = provObj?.apiKey || "";
 
-  // Scheduler fallback
-  if (!resolvedKey && pluginType === "scheduler") {
-    if (commonAi.schedulerAi?.apiKey) {
-      resolvedKey = commonAi.schedulerAi.apiKey;
-      if (commonAi.schedulerAi.provider) provId = commonAi.schedulerAi.provider;
-    } else {
-      try {
-        const s = localStorage.getItem("aivhub_scheduler_ai");
-        if (s) {
-          const parsed = JSON.parse(s);
-          if (parsed.apiKey) {
-            resolvedKey = parsed.apiKey;
-            if (parsed.provider) provId = parsed.provider;
-          }
-        }
-      } catch (_) {}
-    }
-  }
-
   // Fallback: if resolvedKey is still empty, search ANY connected provider with an API key
   if (!resolvedKey && Array.isArray(commonAi.providers)) {
     const anyConnected = commonAi.providers.find((p) => p.apiKey && p.apiKey.trim().length > 0);
@@ -466,6 +375,6 @@ export function getActiveAiCredentials(commonAi, pluginType = "leadgen", feature
     apiKey: isMaskedSecret(resolvedKey) ? "" : resolvedKey,
     provider: provId,
     model: modelName || "gpt-4o-mini",
-    baseUrl: provObj?.baseUrl || commonAi?.schedulerAi?.baseUrl || ""
+    baseUrl: provObj?.baseUrl || ""
   };
 }
