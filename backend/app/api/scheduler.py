@@ -6,6 +6,7 @@ from sqlalchemy.future import select
 from app.database import get_db, engine
 from app.services.org_settings import org_instant_ms, org_timezone
 from app.services import approval_mail, post_versions, schedule_engine
+from app.services.endpoints import is_self_hosted
 from app.services import generation_queue as gen_queue
 from app.services.generation_queue import IMAGE_SLOTS, PRIORITY_INTERACTIVE, TEXT_SLOTS
 from app.services.timezone_service import tzinfo
@@ -320,8 +321,7 @@ async def _saved_ai_keys(db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
         cfg = c.config if isinstance(c.config, dict) else {}
         k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
         burl = (cfg.get("base_url") or cfg.get("baseUrl") or "").strip()
-        is_local = bool(burl and ("localhost" in burl or "127.0.0.1" in burl))
-        if not k and not is_local:
+        if not k and not is_self_hosted(burl):
             continue
         prov_slug = str(cfg.get("provider") or c.name or "").strip().lower()
         bucket = text_keys if c.group_name == "LLM" else image_keys
@@ -331,7 +331,7 @@ async def _saved_ai_keys(db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
             "name": c.name,
             "baseUrl": burl,
             "model": cfg.get("model") or "",
-            "masked": c.api_key_masked or (mask_secret(k) if k else "No key required (Local)"),
+            "masked": c.api_key_masked or (mask_secret(k) if k else "No key needed"),
             "status": c.status or "connected",
         }
     return {"text": list(text_keys.values()), "image": list(image_keys.values())}
@@ -357,7 +357,7 @@ async def _resolve_text_ai(db: AsyncSession, payload: Dict[str, Any]) -> Dict[st
     creds = await resolve_llm_credentials(db=db, api_key=api_key, provider=provider, model=model, base_url=base_url)
     error = None
     if not explicit:
-        is_local = "localhost" in str(creds.get("base_url") or "") or "127.0.0.1" in str(creds.get("base_url") or "")
+        is_local = is_self_hosted(creds.get("base_url"))
         label = provider or "AI"
         if provider and not _same_provider(provider, creds.get("provider")) and not creds.get("api_key") and not is_local:
             error = f"No {label} key saved. Add it under Accounts & AI → Writing AI, or set the provider to Auto."

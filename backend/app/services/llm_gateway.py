@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional, AsyncGenerator
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from app.services.endpoints import is_self_hosted
 from app.models.models import Connection, CompanyProfile
 
 logger = logging.getLogger("llm_gateway")
@@ -97,7 +98,7 @@ async def resolve_llm_credentials(
                     c_name = c.name.lower()
                     cfg_prov = str(cfg.get("provider", "")).lower()
                     c_burl = str(cfg.get("base_url") or cfg.get("baseUrl") or "").lower()
-                    keyless_local = "localhost" in c_burl or "127.0.0.1" in c_burl
+                    keyless_local = is_self_hosted(c_burl)
                     if (k or keyless_local) and (prov in c_name or c_name in prov or prov in cfg_prov):
                         return {
                             "provider": prov,
@@ -250,8 +251,7 @@ async def call_open_chat_llm(
         }
 
     # If no key and not an explicit local endpoint, inform user immediately without buffering
-    is_local = bool(resolved_base_url and ("localhost" in str(resolved_base_url) or "127.0.0.1" in str(resolved_base_url)))
-    if not resolved_key and not is_local:
+    if not resolved_key and not is_self_hosted(resolved_base_url):
         prov_display = resolved_provider.upper() if resolved_provider else "AI"
         return {
             "success": False,

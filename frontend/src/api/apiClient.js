@@ -184,6 +184,7 @@ export const api = {
   testConnection: (payload) => apiRequest('/connections/test', { method: 'POST', body: payload, timeoutMs: 15000 }),
   testAndSaveConnection: (payload) => apiRequest('/connections/test-and-save', { method: 'POST', body: payload, timeoutMs: 20000 }),
   clearConnectionKey: (payload) => apiRequest('/connections/clear-key', { method: 'POST', body: payload, timeoutMs: 12000 }),
+  connectionUsage: ({ id, layer, provider }) => apiRequest(`/connections/usage?${new URLSearchParams(Object.entries({ id, layer, provider }).filter(([, v]) => v)).toString()}`),
   updateConnectionConfig: (payload) => apiRequest('/connections/update-config', { method: 'POST', body: payload }),
   getTelnyxAssistantSettings: () => apiRequest('/connections/telnyx-assistant-settings'),
   saveTelnyxAssistantSettings: (payload) => apiRequest('/connections/telnyx-assistant-settings', { method: 'POST', body: payload }),
