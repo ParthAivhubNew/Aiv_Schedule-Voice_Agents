@@ -369,29 +369,14 @@ function syncCommonAiWithBackend(prevCommonAi, backendConns, liveHub) {
     nextVoiceLayers = voiceLayersFromHub(liveHub, nextVoiceLayers);
   }
 
-  let nextSchedAi = prev.schedulerAi || {};
-  let nextSchedLayers = prev.schedulerLayers || {};
-  try {
-    const s = localStorage.getItem("aivhub_scheduler_ai");
-    if (s) {
-      const parsed = JSON.parse(s);
-      nextSchedAi = { ...nextSchedAi, ...parsed };
-      if (parsed.model) {
-        nextSchedLayers = { ...nextSchedLayers, postWriter: parsed.model };
-      }
-      if (parsed.imageProvider || parsed.imageModel) {
-        const imgName = parsed.imageProvider === "pollinations" ? "Pollinations FLUX (Free)" : (parsed.imageModel || parsed.imageProvider);
-        nextSchedLayers = { ...nextSchedLayers, imageStudio: imgName };
-      }
-    }
-  } catch (_) {}
+  // Scheduler AI lives in Post Scheduler → Accounts & AI (backend); drop the old browser copy.
+  const { schedulerLayers: _oldLayers, schedulerAi: _oldSchedAi, ...rest } = prev;
+  try { localStorage.removeItem("aivhub_scheduler_ai"); } catch (_) {}
 
   return {
-    ...prev,
+    ...rest,
     providers: nextProviders,
     voiceLayers: nextVoiceLayers,
-    schedulerLayers: nextSchedLayers,
-    schedulerAi: nextSchedAi,
   };
 }
 
@@ -404,14 +389,6 @@ const LEADGEN_LAYERS = [
 ];
 
 const LOCAL_BGE_EMBEDDINGS = "BAAI/bge-small-en-v1.5 (local CPU)";
-
-const SCHEDULER_LAYERS = [
-  { key: "postWriter", label: "Post Drafting & Multi-Channel Copywriting", desc: "Generates high-engagement social copy formatted per platform", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
-  { key: "topicResearch", label: "Topic Research & Trend Discovery", desc: "Monitors industry trends to formulate timely editorial hooks", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
-  { key: "imageStudio", label: "Visual Creative & Image Generator", desc: "Renders branded editorial visuals for scheduled posts", paid: "Pollinations FLUX (Free)", oss: "Pollinations FLUX", options: ["Pollinations FLUX (Free)", "OpenAI DALL-E 3", "Stability SDXL", "Fal.ai FLUX.1 Pro", "Custom Image API"] },
-  { key: "chatPlanner", label: "Plan Chat Editorial Assistant", desc: "Refines campaign concepts and schedules interactively", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
-  { key: "embeddings", label: "Knowledge Base Embeddings (RAG)", desc: "Generates 384-dimensional vector embeddings for website crawls, voice RAG, and knowledge retrieval.", paid: LOCAL_BGE_EMBEDDINGS, oss: LOCAL_BGE_EMBEDDINGS, options: [LOCAL_BGE_EMBEDDINGS, "text-embedding-3-small (OpenAI)", "all-MiniLM-L6-v2 (local FastEmbed)", "nomic-embed-text (Ollama)", "text-embedding-3-large (OpenAI)"] },
-];
 
 const EMAIL_LAYERS = [
   { key: "copywriterLlm", label: "Outreach Copywriter & Sequencer", desc: "Drafts concise, high-converting B2B cold email sequences", paid: "gpt-4o-mini", oss: "deepseek-chat", options: ["gpt-4o-mini", "deepseek-chat", "grok-4.20-0309-non-reasoning"] },
@@ -432,15 +409,11 @@ const INITIAL_COMMON_AI_CONFIG = {
   // 1. Lead Generation layers
   leadgenLayers: Object.fromEntries(LEADGEN_LAYERS.map((l) => [l.key, l.paid])),
 
-  // 2. Scheduler layers (shared with Post Scheduler)
-  schedulerLayers: Object.fromEntries(SCHEDULER_LAYERS.map((l) => [l.key, l.paid])),
-
   // 3. Email Outreach layers
   emailLayers: Object.fromEntries(EMAIL_LAYERS.map((l) => [l.key, l.paid])),
 
   // 4. Voice layers (shared with Voice Agent)
   voiceLayers: Object.fromEntries(VOICE_LAYERS.map((l) => [l.key, l.paid])),
-  schedulerMode: "custom",
   temperature: 0.8,
   personaPrompt: "Write authoritative, crisp B2B content that teaches actionable lessons without fluff or corporate buzzwords. Speak directly to C-suite and operations leaders.",
   prohibitedWords: "delve, in today's fast-paced world, game-changer, revolutionary, synergy, leverage, unlock, not because, the fix isn't, most teams still, scattered data in",
@@ -14250,10 +14223,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
       ? commonAi.providers
       : INITIAL_COMMON_AI_CONFIG.providers,
     leadgenLayers: { ...INITIAL_COMMON_AI_CONFIG.leadgenLayers, ...(commonAi?.leadgenLayers || {}) },
-    schedulerLayers: {
-      ...INITIAL_COMMON_AI_CONFIG.schedulerLayers,
-      ...(commonAi?.schedulerLayers || {}),
-    },
     emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(commonAi?.emailLayers || {}) },
     voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(commonAi?.voiceLayers || {}) },
     customConnections: Array.isArray(commonAi?.customConnections) ? commonAi.customConnections : [],
@@ -14279,25 +14248,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
       ...prev,
       leadgenLayers: { ...((prev && prev.leadgenLayers) || {}), [key]: val },
     }));
-    flash();
-  };
-
-  const updateSchedulerLayer = (key, val) => {
-    setCommonAi((prev) => {
-      const nextSchedLayers = { ...((prev && prev.schedulerLayers) || {}), [key]: val };
-      const nextSchedAi = {
-        ...((prev && prev.schedulerAi) || {}),
-        ...(key === "postWriter" ? { model: val, provider: getProviderIdForModel(val) } : {}),
-        ...(key === "imageStudio" ? { imageEngine: val } : {}),
-        ...(key === "embeddings" ? { embeddingModel: val, embeddingProvider: getProviderIdForModel(val) } : {}),
-      };
-      try { localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(scrubSecretsForStorage(nextSchedAi))); } catch (_) {}
-      return {
-        ...prev,
-        schedulerLayers: nextSchedLayers,
-        schedulerAi: nextSchedAi,
-      };
-    });
     flash();
   };
 
@@ -14337,7 +14287,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
       // 1. Update the layer's model to the user's custom model name directly & display name
       updateVisibleName(assignedFeature, displayName);
       if (targetPluginId === "leadgen") updateLeadgenLayer(assignedFeature, modelName);
-      if (targetPluginId === "scheduler") updateSchedulerLayer(assignedFeature, modelName);
       if (targetPluginId === "email") updateEmailLayer(assignedFeature, modelName);
       if (targetPluginId === "voice") updateVoiceLayer(assignedFeature, modelName);
 
@@ -14373,7 +14322,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             {
               id: newConn.id,
               name: `${customProviderName} (${displayName || modelName})`,
-              type: targetPluginId === "scheduler" && (assignedFeature === "imageStudio" || customProviderName.toLowerCase().includes("fal") || customProviderName.toLowerCase().includes("stability")) ? "image" : "llm",
+              type: "llm",
               apiKey: apiKey,
               baseUrl: baseUrl || undefined,
               status: "connected",
@@ -14967,8 +14916,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
             </div>
             <div>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: "-0.01em" }}>
-                {scopePlugin === "scheduler" ? "Post Scheduler AI keys"
-                  : scopePlugin === "voice" ? "Voice AI keys"
+                {scopePlugin === "voice" ? "Voice AI keys"
                   : scopePlugin === "email" ? "Email Outreach AI keys"
                   : scopePlugin === "leadgen" ? "Lead Generation AI keys"
                   : "AI Plugin Configuration"}
@@ -14992,7 +14940,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
         <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
           {[
             { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
-            { id: "scheduler", label: "Post Scheduler", icon: CalendarDays, color: C.teal },
             { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
             { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
             { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
@@ -15070,86 +15017,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
               {renderPluginAiFeaturesList("leadgen", LEADGEN_LAYERS, safeCommonAi.leadgenLayers, updateLeadgenLayer)}
               {renderCustomConnectionsSection("leadgen", LEADGEN_LAYERS)}
-            </div>
-          )}
-
-          {/* TAB 2: POST SCHEDULER */}
-          {tab === "scheduler" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {!scopePlugin ? (
-              <div style={{ background: "#F0FDF4", border: `1px solid #BBF7D0`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <CalendarDays size={18} color={C.teal} />
-                  <div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      Post Scheduler AI Configuration
-                    </div>
-                    <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
-                      Powers multi-channel post drafting, topic ideation, image rendering, and editorial planning.
-                    </div>
-                  </div>
-                </div>
-                {onNavigateToPlugin && (
-                  <button
-                    onClick={() => { onNavigateToPlugin("scheduler"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    Open Plugin <ChevronRight size={13} />
-                  </button>
-                )}
-              </div>
-              ) : null}
-
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                  Post Scheduler AI Capabilities (User Definable)
-                </div>
-                <span style={{ fontSize: 11.5, color: C.slate }}>
-                  Type any custom model name or pick from suggestions
-                </span>
-              </div>
-
-              {renderPluginAiFeaturesList("scheduler", SCHEDULER_LAYERS, safeCommonAi.schedulerLayers, updateSchedulerLayer)}
-
-              {/* Brand Voice Controls */}
-              <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>
-                    Creativity Temperature: {safeCommonAi.temperature || 0.7}
-                  </label>
-                  <span style={{ fontSize: 11.5, color: C.slate }}>
-                    {(safeCommonAi.temperature || 0.7) > 0.7 ? "Engaging & Creative" : "Factual & Direct"}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0.2"
-                  max="1.0"
-                  step="0.05"
-                  value={safeCommonAi.temperature || 0.7}
-                  onChange={(e) => {
-                    setCommonAi((p) => ({ ...p, temperature: parseFloat(e.target.value) }));
-                    flash();
-                  }}
-                  style={{ width: "100%", marginBottom: 12 }}
-                />
-
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
-                  Brand Voice Instructions
-                </label>
-                <textarea
-                  value={safeCommonAi.personaPrompt || ""}
-                  onChange={(e) => {
-                    setCommonAi((p) => ({ ...p, personaPrompt: e.target.value }));
-                    flash();
-                  }}
-                  rows={2}
-                  placeholder="e.g. Write crisp, actionable B2B posts. Avoid fluff or corporate jargon."
-                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5 }}
-                />
-              </div>
-
-              {renderCustomConnectionsSection("scheduler", SCHEDULER_LAYERS)}
             </div>
           )}
 
@@ -17980,11 +17847,6 @@ export default function App() {
           ? parsed.providers
           : INITIAL_COMMON_AI_CONFIG.providers,
         leadgenLayers: { ...INITIAL_COMMON_AI_CONFIG.leadgenLayers, ...(parsed.leadgenLayers || {}) },
-        schedulerLayers: {
-          ...INITIAL_COMMON_AI_CONFIG.schedulerLayers,
-          ...(parsed.schedulerLayers || {}),
-          embeddings: parsed.schedulerLayers?.embeddings || INITIAL_COMMON_AI_CONFIG.schedulerLayers?.embeddings || LOCAL_BGE_EMBEDDINGS,
-        },
         emailLayers: { ...INITIAL_COMMON_AI_CONFIG.emailLayers, ...(parsed.emailLayers || {}) },
         voiceLayers: { ...INITIAL_COMMON_AI_CONFIG.voiceLayers, ...(parsed.voiceLayers || {}) },
         customConnections: Array.isArray(parsed.customConnections) ? parsed.customConnections : [],
