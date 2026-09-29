@@ -2339,12 +2339,15 @@ export function CallingWorkspace({
         if (setProfile) setProfile(next);
       }
       const custom = (customVoices || []).find((cv) => (cv.voice_id || cv.id) === voiceName);
-      await api.selectVoice({
-        voice_id: voiceName,
-        label: custom ? (custom.name || voiceName) : voiceSelectLabel(voiceName),
-        provider: custom ? (custom.provider || undefined) : "xai",
-        accent: voiceAccentFor(voiceName),
-      });
+      const voice = String(voiceName || "").trim();
+      if (voice && !/^(not configured|none|null|undefined)$/i.test(voice)) {
+        await api.selectVoice({
+          voice_id: voice,
+          label: custom ? (custom.name || voice) : voiceSelectLabel(voice),
+          provider: custom ? (custom.provider || undefined) : undefined,
+          accent: voiceAccentFor(voice),
+        });
+      }
       showToast(companyPanel ? "Voice saved." : "Setup saved.");
     } catch (e) {
       showToast(e.message || "Save failed");

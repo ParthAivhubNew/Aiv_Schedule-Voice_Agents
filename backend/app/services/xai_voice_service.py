@@ -23,6 +23,7 @@ from app.models.models import (
     LiveCall,
     Meeting,
     Mission,
+    Notification,
     Prospect,
     ScheduleItem,
     Service,

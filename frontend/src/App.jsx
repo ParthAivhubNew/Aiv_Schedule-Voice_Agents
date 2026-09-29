@@ -193,11 +193,49 @@ function looksLikeApiKeyNotVoiceId(v) {
   return /^(sk_|sk-|sk_car_|xai-|whsec_|api_|key_|el_)/.test(s);
 }
 
-function isValidCloneVoiceId(v) {
+// Status texts older screens stored in voice fields. They are never a voice.
+const VOICE_PLACEHOLDERS = ["not configured", "none", "null", "undefined", "n/a", "-", "not set", "select a voice", "no voice", "—"];
+const ENGINE_BUILTIN_VOICES = ["ara", "eve", "rex", "leo", "sal"];
+
+// A real voice value, or "" for empty / placeholder text.
+function cleanVoice(v) {
   const s = String(v || "").trim();
+  return VOICE_PLACEHOLDERS.includes(s.toLowerCase()) ? "" : s;
+}
+
+function isValidCloneVoiceId(v) {
+  const s = cleanVoice(v);
   if (!s || s.length < 2 || looksLikeApiKeyNotVoiceId(s)) return false;
+  // Engine built-in personas are not external voices.
+  if (ENGINE_BUILTIN_VOICES.includes(s.toLowerCase().replace(/[-_]uk$/, ""))) return false;
   // Valid for Telnyx (e.g. Telnyx.Ultra.cc91c96c-...), Cartesia UUID, ElevenLabs ID, Deepgram, OpenAI, or custom voice slugs
   return true;
+}
+
+// One rule for the voice status everywhere: yellow = none picked, green = set, red = wrong value.
+function voiceState(v) {
+  const s = cleanVoice(v);
+  if (!s) return "missing";
+  if (looksLikeApiKeyNotVoiceId(s)) return "invalid";
+  return "ok";
+}
+
+function VoiceStatusPill({ voice, label }) {
+  const state = voiceState(voice);
+  const look = state === "ok"
+    ? { bg: "#ECFDF5", border: "#A7F3D0", color: "#065F46", text: "Active speaking voice: " }
+    : state === "invalid"
+      ? { bg: "#FEF2F2", border: "#FECACA", color: "#991B1B", text: "An API key was pasted instead of a voice ID. Paste the voice ID." }
+      : { bg: "#FFFBEB", border: "#FDE68A", color: "#92400E", text: "Active speaking voice: Not configured. Pick a voice." };
+  return (
+    <div role="status" style={{ marginTop: 4, padding: "8px 12px", background: look.bg, border: `1px solid ${look.border}`, borderRadius: 8, fontSize: 12.5, color: look.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 7 }}>
+      {state === "ok" ? <CheckCircle2 size={15} color="#059669" /> : <AlertTriangle size={15} />}
+      <div>
+        {look.text}
+        {state === "ok" ? <b>{label || cleanVoice(voice)}</b> : null}
+      </div>
+    </div>
+  );
 }
 
 function liveStackLabels(hub) {
@@ -205,7 +243,7 @@ function liveStackLabels(hub) {
     return hub.liveLabels;
   }
   const engine = String(hub?.liveEngine || "").toLowerCase();
-  const voice = hub?.voiceName || hub?.voiceEngineName || "—";
+  const voice = cleanVoice(hub?.voiceName) || cleanVoice(hub?.voiceEngineName) || "—";
   const engineLabel =
     engine === "xai" ? "xAI Grok (speech-to-speech)"
     : engine === "openai" ? "OpenAI Realtime"
@@ -5557,6 +5595,8 @@ const SOURCE_TYPES = [
 
 function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false, voiceName, setVoiceName, onDirtyChange }) {
   const [tab, setTab] = useState("identity");
+  // The call voice this form last saw saved; only a change to it is sent on Save.
+  const savedVoiceRef = useRef(voiceName);
   const [saved, setSaved] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", type: "Website URL", value: "" });
@@ -5636,8 +5676,11 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
       announceOrgUpdated();
       await api.saveServices(services);
       await api.saveFaqs(faq);
-      if (voiceName) {
+      // Only a voice changed in this form is sent: saving the profile must never switch the
+      // call voice picked elsewhere (Line setup, Calling).
+      if (cleanVoice(voiceName) && voiceName !== savedVoiceRef.current) {
         try {
+          const builtin = ENGINE_BUILTIN_VOICES.includes(String(voiceName).toLowerCase().replace(/[-_]uk$/, ""));
           await api.selectVoice({
             voice_id: voiceName,
             label:
@@ -5647,9 +5690,10 @@ function CompanyProfileView({ profile, setProfile, notifications, setNotificatio
               : voiceName === "rex" ? "Rex (Sam / male)"
               : voiceName === "ara" ? "Ara (female)"
               : voiceName,
-            provider: "xai",
+            provider: builtin ? "xai" : undefined,
             accent: String(voiceName || "").includes("-uk") ? "british" : undefined,
           });
+          savedVoiceRef.current = voiceName;
         } catch (_) {}
       }
       setSaving(false);
@@ -8625,9 +8669,9 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
       value: (modular || hybrid)
         ? labels.tts
         : (engine === "xai"
-          ? `xAI built-in (${hubData?.voiceName || "rex"})`
+          ? `xAI built-in (${cleanVoice(hubData?.voiceName) || "no voice picked"})`
           : engine === "openai"
-            ? `OpenAI (${hubData?.voiceName || "alloy"})`
+            ? `OpenAI (${cleanVoice(hubData?.voiceName) || "no voice picked"})`
             : labels.tts),
       model: resolveModel("tts"),
       ok: modular || hybrid ? !!(hubData?.ttsProvider || hubData?.ttsName) : hubData?.status === "connected",
@@ -8646,7 +8690,7 @@ function CallPluginStackBoard({ hubData, connections = [], onChangeModel, onAddL
           : (hubData?.voiceName || "—")),
       ok: hubData?.status === "connected" && (looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
         ? false
-        : !!(hubData?.voiceName && String(hubData.voiceName).length > 1 && (!hybrid || isValidCloneVoiceId(hubData.voiceName)))),
+        : !!(cleanVoice(hubData?.voiceName).length > 1 && (!hybrid || isValidCloneVoiceId(hubData.voiceName)))),
       hint: looksLikeApiKeyNotVoiceId(hubData?.voiceName || hubData?.ttsVoiceId)
         ? "Paste Cartesia Voice UUID on Line setup"
         : (hybrid ? "Must be Cartesia UUID with dashes" : "Saved engine persona (ara / rex / …)"),
@@ -8986,7 +9030,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
   const [showKey, setShowKey] = useState(false);
   const [accountSid, setAccountSid] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
-  const [voiceName, setVoiceName] = useState(cached?.voiceName || "");
+  const [voiceName, setVoiceName] = useState(cleanVoice(cached?.voiceName));
   const [speakMode, setSpeakMode] = useState("clone"); // builtin | clone
   const [customVoices, setCustomVoices] = useState(cached?.customVoices || []);
   const [cloneName, setCloneName] = useState("");
@@ -9043,10 +9087,10 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           setProfile((prev) => ({ ...prev, callerId: data.phoneNumber }));
         }
         if (data.webhookUrl) setWebhookUrl(data.webhookUrl);
-        if (data.voiceName) {
-          setVoiceName(data.voiceName);
-          setSpeakMode(isValidCloneVoiceId(data.voiceName) ? "clone" : "builtin");
-        }
+        // The server sends null when no voice is picked; clear any stale value instead of keeping it.
+        const serverVoice = cleanVoice(data.voiceEngineName || data.voiceName);
+        setVoiceName(serverVoice);
+        if (serverVoice) setSpeakMode(isValidCloneVoiceId(serverVoice) ? "clone" : "builtin");
         if (Array.isArray(data.customVoices)) setCustomVoices(data.customVoices);
         if (data.xaiCloneApiBlocked) setXaiCloneBlocked(true);
         if (data.silenceDurationMs) setSilenceDurationMs(data.silenceDurationMs);
@@ -9339,7 +9383,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         phone_number: phoneNumber,
         api_key: apiKey,
         account_sid: accountSid,
-        voice_name: voiceName,
+        voice_name: cleanVoice(voiceName) || undefined,
         silence_duration_ms: Number(silenceDurationMs),
         temperature: Number(temperature),
         webhook_url: webhookUrl,
@@ -9513,7 +9557,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
           </div>
           <div>
             <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>Voice AI Engine</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: hubData?.status === "connected" ? C.textInk : C.slate, marginTop: 4 }}>{hubData.activeEngine} ({hubData.voiceName})</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: hubData?.status === "connected" ? C.textInk : C.slate, marginTop: 4 }}>{hubData.activeEngine} ({cleanVoice(hubData.voiceName) || "no voice picked"})</div>
           </div>
           {engineChoice !== "livekit" && (
             <div>
@@ -9728,7 +9772,8 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                   Webhook Signing Secret (Svix HMAC Secret)
                 </label>
                 <input
-                  type="text"
+                  type="password"
+                  autoComplete="off"
                   value={signingSecret}
                   onChange={(e) => setSigningSecret(e.target.value)}
                   placeholder={hubData.hasSigningSecret ? hubData.signingSecretMasked : "Auto-generated upon registration (whsec_...)"}
@@ -9929,14 +9974,10 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
                     {cloneErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{cloneErr}</div>}
                   </div>
 
-                  {isValidCloneVoiceId(voiceName) && (
-                    <div style={{ marginTop: 4, padding: "8px 12px", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, fontSize: 12.5, color: "#065F46", fontWeight: 600, display: "flex", alignItems: "center", gap: 7 }}>
-                      <CheckCircle2 size={15} color="#059669" />
-                      <div>
-                        Active speaking voice: <b>{customVoices.find((v) => v.voice_id === voiceName)?.name || voiceName}</b>
-                      </div>
-                    </div>
-                  )}
+                  <VoiceStatusPill
+                    voice={isValidCloneVoiceId(voiceName) || looksLikeApiKeyNotVoiceId(voiceName) ? voiceName : ""}
+                    label={customVoices.find((v) => v.voice_id === voiceName)?.name}
+                  />
                 </div>
               )}
             </div>
