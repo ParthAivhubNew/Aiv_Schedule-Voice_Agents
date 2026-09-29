@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.future import select
 
@@ -161,10 +161,18 @@ def looks_like_api_key(vid: str) -> bool:
     ))
 
 
+# Status texts that older screens stored in voice fields. They are never a voice.
+VOICE_PLACEHOLDERS = {"not configured", "none", "null", "undefined", "n/a", "-", "not set", "select a voice", "no voice"}
+
+
+def is_voice_placeholder(vid: Any) -> bool:
+    return str(vid or "").strip().lower() in VOICE_PLACEHOLDERS
+
+
 def looks_like_external_voice_id(vid: str) -> bool:
     """True for external voice models / clones (Telnyx, Cartesia, ElevenLabs, Deepgram, OpenAI, custom) — not xAI builtins or raw API keys."""
     v = (vid or "").strip()
-    if not v or len(v) < 2:
+    if not v or len(v) < 2 or is_voice_placeholder(v):
         return False
     if looks_like_api_key(v):
         return False
@@ -185,7 +193,26 @@ def _resolve_llm_model(provider: str, candidate_model: Optional[str], conn_model
 
 
 def _strip_voice(v: Any) -> str:
-    return str(v or "").strip()
+    text = str(v or "").strip()
+    return "" if is_voice_placeholder(text) else text
+
+
+def engine_of_conn(c: Any) -> str:
+    """Engine id (xai, openai, livekit, modular, vapi, retell) a Voice Orchestration row is for."""
+    cfg = c.config if isinstance(getattr(c, "config", None), dict) else {}
+    name = f"{cfg.get('engine') or ''} {c.name or ''}".lower()
+    for eid in ("livekit", "openai", "modular", "vapi", "retell", "xai"):
+        if eid in name:
+            return eid
+    return ""
+
+
+def pick_engine_conn(conns: List[Any], target_engine: str) -> Optional[Any]:
+    """The Voice Orchestration row for the active engine, else the first one. Every reader and
+    writer of engine settings (voice, speed, style) uses this, so they agree on the row."""
+    rows = [c for c in conns if "voice orchestration" in (c.group_name or "").lower() and c.id != "c_telnyx_assistant_settings"]
+    target = (target_engine or "").lower()
+    return next((c for c in rows if target and engine_of_conn(c) == target), None) or (rows[0] if rows else None)
 
 
 async def resolve_voice_plan() -> VoicePlan:
@@ -213,18 +240,7 @@ async def resolve_voice_plan() -> VoicePlan:
         return next((c for c in matches if c.status == "connected"), matches[0])
 
     # 1. Resolve Engine connection matching active stack
-    for c in conns:
-        group = (c.group_name or "").lower()
-        if "voice orchestration" in group:
-            c_name = (c.name or "").lower()
-            if target_engine in c_name or (target_engine == "livekit" and "livekit" in c_name) or (target_engine == "xai" and "xai" in c_name):
-                engine_conn = c
-                break
-    if not engine_conn:
-        for c in conns:
-            if "voice orchestration" in (c.group_name or "").lower():
-                engine_conn = c
-                break
+    engine_conn = pick_engine_conn(conns, target_engine)
 
     # 2. Resolve Carrier connection matching active stack with verified key
     for c in conns:

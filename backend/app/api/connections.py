@@ -697,7 +697,7 @@ class TelephonyHubProvisionRequest(BaseModel):
     api_key: Optional[str] = None
     account_sid: Optional[str] = None
     agent_id: Optional[str] = None
-    voice_name: Optional[str] = "rex"  # rex = male (Sam)
+    voice_name: Optional[str] = None  # empty: keep the voice already picked
     silence_duration_ms: Optional[int] = 380  # Snappy human turn-taking
     temperature: Optional[float] = 0.80  # Natural vocal inflection and warmth
     webhook_url: Optional[str] = None
@@ -707,12 +707,12 @@ class TelephonyHubProvisionRequest(BaseModel):
 class SelectVoiceRequest(BaseModel):
     voice_id: str
     label: Optional[str] = None
-    provider: Optional[str] = "xai"
+    provider: Optional[str] = None
     accent: Optional[str] = None
 
 
 def _split_voice_choice(voice_id: str, accent: Optional[str] = None) -> tuple[str, str]:
-    vid = (voice_id or "rex").strip()
+    vid = (voice_id or "").strip()
     acc = (accent or "").strip().lower()
     low = vid.lower()
     uk_aliases = {
@@ -768,7 +768,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     llm_model = None
     external_tts = False
     tts_voice_id = None
-    ui_voice = "Not configured"
+    ui_voice = None  # a real voice or None, never a status text
 
     try:
         plan = await resolve_voice_plan()
@@ -777,7 +777,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         active_engine = ENGINE_LABELS.get(plan.engine, plan.engine)
         live_engine = plan.engine
         live_note = plan.note
-        ui_voice = plan.voice_name or "Not configured"
+        ui_voice = plan.voice_name or None
         external_tts = bool(getattr(plan, "external_tts", False))
 
         stt_provider = plan.stt.provider if plan.stt else None
@@ -789,10 +789,12 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
             tts_name = ((plan.tts.extra or {}).get("display_name") if plan.tts else None) or tts_provider or "Not configured"
             tts_voice_id = plan.tts.voice_id or None
         else:
-            if plan.engine == "xai" or not tts_provider:
+            if plan.engine == "xai":
                 tts_provider = "xai"
-                tts_name = f"xAI built-in ({ui_voice})"
-                tts_model = f"xai-{ui_voice}"
+                tts_name = f"xAI built-in ({ui_voice})" if ui_voice else "xAI built-in (no voice picked)"
+                tts_model = f"xai-{ui_voice}" if ui_voice else None
+            elif not tts_provider:
+                tts_name = "Not configured"
             else:
                 tts_name = ((plan.tts.extra or {}).get("display_name") if plan.tts else None) or tts_provider or "Not configured"
             tts_voice_id = None
@@ -858,7 +860,7 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         llm_model = None
         external_tts = False
         tts_voice_id = None
-        ui_voice = "Not configured"
+        ui_voice = None
         logger.info(f"[TelephonyHub] Not configured: {plan_err}")
 
     # Detect public webhook URL
@@ -873,10 +875,12 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
     clean_secret = active_secret if (active_secret and not active_secret.startswith("whsec_••••")) else ""
 
     # Engine settings from Voice Orchestration connection if present
-    engine_conn_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
-    engine_conn = engine_conn_res.scalars().first()
+    from app.services.voice_clone import _orchestration_conn
+    from app.services.voice_plugin_plan import _strip_voice, looks_like_api_key
+
+    engine_conn = await _orchestration_conn(db)
     if engine_conn and engine_conn.config and isinstance(engine_conn.config, dict):
-        configured_voice = engine_conn.config.get("voice_name") or engine_conn.config.get("voice") or ui_voice
+        configured_voice = _strip_voice(engine_conn.config.get("voice_name") or engine_conn.config.get("voice")) or ui_voice
         configured_silence = engine_conn.config.get("silence_duration_ms", 380)
         configured_temp = engine_conn.config.get("temperature", 0.80)
         configured_accent = engine_conn.config.get("accent") or "neutral"
@@ -891,13 +895,21 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         configured_accent = "neutral"
         stored_custom = []
 
+    # One rule for the voice pill everywhere: missing (yellow), ok (green), invalid (red).
+    if not configured_voice:
+        voice_status, voice_problem = "missing", "No voice picked yet."
+    elif looks_like_api_key(configured_voice):
+        voice_status, voice_problem = "invalid", "An API key was saved where the voice ID belongs."
+    else:
+        voice_status, voice_problem = "ok", ""
+
     live_labels = {
         "engine": active_engine,
         "llm": llm_name,
         "stt": stt_name,
         "tts": tts_name,
         "carrier": active_carrier,
-        "voice": ui_voice,
+        "voice": ui_voice or "Not configured",
         "note": live_note,
         "llmModel": llm_model or "",
         "sttModel": stt_model or "",
@@ -944,7 +956,9 @@ async def get_telephony_hub_status(db: AsyncSession = Depends(get_db)):
         "phoneNumber": active_phone,
         "agentId": getattr(settings, "XAI_AGENT_ID", None) or "",
         "voiceName": ui_voice,
-        "voiceEngineName": configured_voice,
+        "voiceEngineName": configured_voice or None,
+        "voiceStatus": voice_status,
+        "voiceProblem": voice_problem,
         "accent": configured_accent,
         "clonedVoiceLabel": (engine_conn.config.get("cloned_voice_label") if engine_conn and isinstance(engine_conn.config, dict) else None),
         "xaiCloneApiBlocked": bool((engine_conn.config or {}).get("xai_clone_api_blocked")) if engine_conn and isinstance(engine_conn.config, dict) else False,
@@ -1241,11 +1255,11 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
         upsert_voice_list,
     )
     from app.services.secret_box import seal_config
-    from app.services.voice_plugin_plan import looks_like_external_voice_id, looks_like_api_key
+    from app.services.voice_plugin_plan import is_voice_placeholder, looks_like_external_voice_id, looks_like_api_key
 
     vid_raw = (req.voice_id or "").strip()
-    if not vid_raw:
-        raise HTTPException(status_code=400, detail="voice_id is required.")
+    if not vid_raw or is_voice_placeholder(vid_raw):
+        raise HTTPException(status_code=400, detail="Pick a voice first.")
     if looks_like_api_key(vid_raw):
         raise HTTPException(
             status_code=400,
@@ -1281,38 +1295,55 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
             "name": display_label,
             "provider": provider,
         })
-    await save_orchestration_config(db, {
-        "custom_voices": voices,
-        "voice_name": vid,
-        "accent": accent,
-        "cloned_voice_id": vid if is_clone else None,
-        "cloned_voice_label": display_label,
-    })
-    settings.XAI_VOICE_NAME = vid
-
-    # Mirror clone onto the matching Text-to-Speech plugin so live plan is plugin-driven
+    # An external voice is spoken by its TTS provider, so that provider's key must be saved.
+    # Picking a voice never marks a provider connected by itself.
+    target = None
     if is_clone:
         tts_res = await db.execute(select(Connection).where(Connection.group_name == "Text-to-Speech"))
         tts_conns = list(tts_res.scalars().all())
-        target = None
         needle = "telnyx" if provider == "telnyx" else ("cartesia" if provider == "cartesia" or ("-" in vid and len(vid) >= 32) else "eleven")
         for c in tts_conns:
             name = (c.name or "").lower()
             if needle in name or (provider and provider in name):
                 target = c
                 break
-        # No fallback onto an unrelated TTS provider: an ElevenLabs voice id written
-        # onto the Cartesia/Telnyx row would break that provider's calls.
-        if target is not None:
-            cfg = open_config(target.config) if isinstance(target.config, dict) else {}
-            cfg["voice_id"] = vid
-            cfg["provider"] = provider if provider in ("cartesia", "elevenlabs", "telnyx") else (
-                "cartesia" if "cartesia" in (target.name or "").lower() else cfg.get("provider")
+        if target is None or not config_get_secret(target.config if isinstance(target.config, dict) else {}, "api_key", "auth_token"):
+            shown = (target.name if target is not None else provider.capitalize()) or "the voice provider"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Save your {shown} key in Connections → Text-to-Speech first, then pick this voice.",
             )
-            target.config = seal_config(cfg)
-            target.status = "connected"
-            await db.commit()
-            logger.info(f"[SelectVoice] Mirrored voice_id={vid} onto TTS connection {target.name} (provider={provider})")
+
+    await save_orchestration_config(db, {
+        "custom_voices": voices,
+        "voice_name": vid,
+        "accent": accent,
+        "cloned_voice_id": vid if is_clone else "",
+        "cloned_voice_label": display_label,
+    })
+    if not is_clone:
+        settings.XAI_VOICE_NAME = vid
+
+    # Mirror the voice onto its TTS plugin so the live plan speaks with it.
+    if target is not None:
+        cfg = open_config(target.config) if isinstance(target.config, dict) else {}
+        cfg["voice_id"] = vid
+        cfg["provider"] = provider if provider in ("cartesia", "elevenlabs", "telnyx") else (
+            "cartesia" if "cartesia" in (target.name or "").lower() else cfg.get("provider")
+        )
+        target.config = seal_config(cfg)
+        await db.commit()
+        logger.info(f"[SelectVoice] Mirrored voice_id={vid} onto TTS connection {target.name} (provider={provider})")
+
+    # Keep the active stack in step: the live plan reads the TTS choice from it, so a stale
+    # "xAI built-in (rex)" there would override the voice picked here.
+    from app.services.voice_plugin_plan import get_active_stack, set_active_stack
+
+    stack = get_active_stack()
+    if target is not None:
+        set_active_stack({"tts": target.name})
+    elif (stack.get("engine") or "") == "xai" or "xai built-in" in (stack.get("tts") or "").lower():
+        set_active_stack({"tts": f"xAI built-in ({vid})"})
 
     logger.info(f"[SelectVoice] Successfully set active voice to '{display_label}' (voice_id={vid}, provider={provider}, is_clone={is_clone})")
 
@@ -1324,6 +1355,30 @@ async def select_cloned_voice(req: SelectVoiceRequest, db: AsyncSession = Depend
         "voices": voices,
         "message": f"Active voice set to {display_label}.",
     }
+
+
+def engine_of_conn_safe(row: Connection) -> str:
+    from app.services.voice_plugin_plan import engine_of_conn
+
+    return engine_of_conn(row)
+
+
+async def _saved_engine_key(db: AsyncSession, engine_id: str, engine_row: Optional[Connection]) -> str:
+    """Key for this engine when the form left it blank: the engine row's own key, then the
+    same provider's key saved in Connections, then the server environment."""
+    if engine_row is not None and isinstance(engine_row.config, dict):
+        own = config_get_secret(engine_row.config, "api_key", "auth_token")
+        if own:
+            return own
+    if engine_id not in ("xai", "openai"):
+        return ""
+    rows = (await db.execute(select(Connection).where(Connection.group_name == "LLM"))).scalars().all()
+    for r in rows:
+        if identify_provider(r.name or "") == engine_id and isinstance(r.config, dict):
+            k = config_get_secret(r.config, "api_key", "auth_token")
+            if k:
+                return k
+    return (settings.XAI_API_KEY if engine_id == "xai" else settings.OPENAI_API_KEY) or ""
 
 
 @router.post("/telephony-hub/provision")
@@ -1342,22 +1397,36 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
         if not phone_clean or len(phone_clean) < 7:
             raise HTTPException(status_code=400, detail="Please provide a valid phone number with country code (e.g. +44... or +1...).")
         key_clean = (req.api_key or "").strip()
+        from app.services.voice_clone import _orchestration_conn
+        from app.services.voice_plugin_plan import _strip_voice, pick_engine_conn, set_active_stack
 
-        # Load existing stored configs to prevent credential loss or undefined variable errors
+        carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Custom"
+        engine_id = next((e for e in ("xai", "openai", "livekit", "modular") if e in engine), engine)
+        engine_name = "xAI Realtime" if engine_id == "xai" else "OpenAI Realtime" if engine_id == "openai" else "LiveKit (self-hosted)" if engine_id == "livekit" else "Modular Pipeline" if engine_id == "modular" else "Custom"
+
+        # Voice settings live on the active engine's row; a switch of engine carries them over.
         prev_voices = []
         prev_label = None
-        prev_orch_res = await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration", Connection.id != "c_telnyx_assistant_settings"))
-        prev_c = prev_orch_res.scalars().first()
+        prev_voice = ""
+        prev_accent = None
+        prev_c = await _orchestration_conn(db)
         if prev_c and isinstance(prev_c.config, dict):
             orch_cfg = open_config(prev_c.config)
             prev_voices = orch_cfg.get("custom_voices") or []
             prev_label = orch_cfg.get("cloned_voice_label")
+            prev_voice = _strip_voice(orch_cfg.get("voice_name"))
+            prev_accent = orch_cfg.get("accent")
+        orch_rows = (await db.execute(select(Connection).where(Connection.group_name == "Voice Orchestration"))).scalars().all()
+        engine_row = pick_engine_conn(list(orch_rows), engine_id)
+        if engine_row is not None and engine_of_conn_safe(engine_row) not in ("", engine_id):
+            engine_row = None  # only another engine's row exists: add one for this engine
 
         prev_sid = None
         prev_auth = None
         prev_tele_masked = None
-        prev_tele_res = await db.execute(select(Connection).where(Connection.group_name == "Telephony"))
-        prev_tele = prev_tele_res.scalars().first()
+        tele_rows = (await db.execute(select(Connection).where(Connection.group_name == "Telephony"))).scalars().all()
+        # This carrier's own row only: never borrow another carrier's credentials.
+        prev_tele = next((r for r in tele_rows if _same_saved_provider(r.name, carrier_name)), None)
         if prev_tele:
             prev_tele_masked = prev_tele.api_key_masked
             tele_cfg = open_config(prev_tele.config if isinstance(prev_tele.config, dict) else {})
@@ -1380,12 +1449,10 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
         if not prev_auth and getattr(settings, "TWILIO_AUTH_TOKEN", None):
             prev_auth = settings.TWILIO_AUTH_TOKEN
 
-        # If key is left blank, reuse previously stored API key
+        # Blank key: reuse this engine's own saved key, then the same provider's key from
+        # Connections (LLM group). Never another engine's key.
         if not key_clean:
-            if settings.XAI_API_KEY:
-                key_clean = settings.XAI_API_KEY
-            elif prev_c and prev_c.config and isinstance(prev_c.config, dict):
-                key_clean = config_get_secret(prev_c.config, "api_key", "auth_token")
+            key_clean = await _saved_engine_key(db, engine_id, engine_row)
 
         # Only treat key_clean as carrier token when it is NOT an xAI key
         if (
@@ -1600,8 +1667,6 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
                 settings.OPENAI_API_KEY = key_clean
                 os.environ["OPENAI_API_KEY"] = key_clean
 
-        carrier_name = "Telnyx" if "telnyx" in carrier else "Twilio" if "twilio" in carrier else "Generic SIP" if "sip" in carrier else "Custom"
-        engine_name = "xAI Realtime" if "xai" in engine else "OpenAI Realtime" if "openai" in engine else "LiveKit (self-hosted)" if "livekit" in engine else "Modular Pipeline" if "modular" in engine else "Custom"
         masked_key = (key_clean[:4] + "••••" + key_clean[-4:]) if len(key_clean) > 8 else "••••••••"
 
         try:
@@ -1614,59 +1679,88 @@ async def provision_telephony_hub(req: TelephonyHubProvisionRequest, request: Re
                 db.add(CompanyProfile(id="default", caller_id=phone_clean))
             await db.flush()
 
-            voice_choice, voice_accent = _split_voice_choice(req.voice_name or "rex", None)
+            requested_voice = _strip_voice(req.voice_name)
+            if requested_voice:
+                voice_choice, voice_accent = _split_voice_choice(requested_voice, None)
+            else:
+                voice_choice, voice_accent = prev_voice, (prev_accent or "neutral")
             from app.services.voice_plugin_plan import looks_like_external_voice_id
             voice_is_clone = looks_like_external_voice_id(voice_choice)
 
-            # Clean and re-insert Telephony and Voice Orchestration connections
-            await db.execute(delete(Connection).where(Connection.group_name.in_(["Telephony", "Voice Orchestration"])))
+            # Update this carrier's and this engine's rows in place. Other carriers, other
+            # engines (e.g. a saved LiveKit key) and the Telnyx Assistant settings stay untouched.
+            tele_cfg = open_config(prev_tele.config if prev_tele is not None and isinstance(prev_tele.config, dict) else {})
+            tele_cfg.update({"phoneNumber": phone_clean, "phone": phone_clean, "carrier": carrier_name})
+            if prev_sid:
+                tele_cfg["account_sid"] = prev_sid
+            if prev_auth:
+                tele_cfg["api_key"] = prev_auth
+                tele_cfg["auth_token"] = prev_auth
+            tele_has_key = bool(config_get_secret(tele_cfg, "api_key", "auth_token"))
+            if prev_tele is not None:
+                prev_tele.config = seal_config(tele_cfg)
+                if prev_auth:
+                    prev_tele.api_key_masked = mask_secret(prev_auth)
+                if tele_has_key:
+                    prev_tele.status = "connected"
+            else:
+                db.add(Connection(
+                    id=f"conn_{uuid.uuid4().hex[:6]}",
+                    group_name="Telephony",
+                    name=carrier_name,
+                    status="connected" if tele_has_key else "not_configured",
+                    api_key_masked=mask_secret(prev_auth) if prev_auth else (prev_tele_masked or None),
+                    config=seal_config(tele_cfg),
+                ))
 
-            tele_masked = mask_secret(prev_auth) if prev_auth else (prev_tele_masked or "••••••••")
-            db.add(Connection(
-                id=f"conn_{uuid.uuid4().hex[:6]}",
-                group_name="Telephony",
-                name=carrier_name,
-                status="connected",
-                api_key_masked=tele_masked,
-                config=seal_config({
-                    "phoneNumber": phone_clean,
-                    "carrier": carrier_name,
-                    "account_sid": prev_sid,
-                    "api_key": prev_auth,
-                    "auth_token": prev_auth,
-                })
-            ))
-            db.add(Connection(
-                id=f"conn_{uuid.uuid4().hex[:6]}",
-                group_name="Voice Orchestration",
-                name=engine_name,
-                status="connected",
-                api_key_masked=masked_key,
-                config=seal_config({
-                    "api_key": key_clean,
-                    "signing_secret": signing_secret,
-                    "phoneNumber": phone_clean,
-                    "engine": engine,
-                    "engine_label": engine_name,
-                    "voice_name": voice_choice,
-                    "accent": voice_accent,
-                    "custom_voices": prev_voices,
-                    "cloned_voice_id": voice_choice if voice_is_clone else None,
-                    "cloned_voice_label": (prev_label if voice_is_clone else None) or (
-                        f"{voice_choice}-uk" if voice_accent == "british" else voice_choice
-                    ),
-                    "external_tts": voice_is_clone,
-                    "silence_duration_ms": req.silence_duration_ms or 380,
-                    "temperature": req.temperature or 0.80
-                })
-            ))
+            eng_cfg = open_config(engine_row.config if engine_row is not None and isinstance(engine_row.config, dict) else {})
+            eng_cfg.update({
+                "phoneNumber": phone_clean,
+                "engine": engine_id,
+                "engine_label": engine_name,
+                "voice_name": voice_choice,
+                "accent": voice_accent,
+                "custom_voices": prev_voices or eng_cfg.get("custom_voices") or [],
+                "cloned_voice_id": voice_choice if voice_is_clone else "",
+                "cloned_voice_label": (prev_label if voice_is_clone else None) or (
+                    f"{voice_choice}-uk" if voice_accent == "british" and voice_choice else voice_choice
+                ),
+                "external_tts": voice_is_clone,
+                "silence_duration_ms": req.silence_duration_ms or eng_cfg.get("silence_duration_ms") or 380,
+                "temperature": req.temperature or eng_cfg.get("temperature") or 0.80,
+            })
+            if signing_secret:
+                eng_cfg["signing_secret"] = signing_secret
+            if key_clean:
+                eng_cfg["api_key"] = key_clean
+            if engine_row is not None:
+                engine_row.config = seal_config(eng_cfg)
+                if key_clean:
+                    engine_row.api_key_masked = masked_key
+                    engine_row.status = "connected"
+            else:
+                db.add(Connection(
+                    id=f"conn_{uuid.uuid4().hex[:6]}",
+                    group_name="Voice Orchestration",
+                    name=engine_name,
+                    status="connected" if key_clean or engine_id in ("livekit", "modular") else "not_configured",
+                    api_key_masked=masked_key if key_clean else None,
+                    config=seal_config(eng_cfg),
+                ))
             await db.commit()
         except Exception as db_err:
-            logger.warning(f"Database persistence warning in provision_telephony_hub: {db_err}")
+            logger.exception(f"Saving the line settings failed: {db_err}")
             try:
                 await db.rollback()
             except Exception:
                 pass
+            raise HTTPException(status_code=500, detail=f"Could not save the line settings: {str(db_err)[:300]}")
+
+        # The live call plan reads the active stack: keep it in step with what was just saved.
+        stack_patch = {"engine": engine_id, "engine_label": engine_name, "carrier": carrier_name}
+        if engine_id == "xai" and voice_choice and not voice_is_clone:
+            stack_patch["tts"] = f"xAI built-in ({voice_choice})"
+        set_active_stack(stack_patch)
 
         try:
             await log_process_event(
