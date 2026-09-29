@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db, engine
 from app.services.org_settings import org_instant_ms, org_timezone
-from app.services import approval_mail, post_versions
+from app.services import approval_mail, post_versions, schedule_engine
 from app.services import generation_queue as gen_queue
 from app.services.generation_queue import IMAGE_SLOTS, PRIORITY_INTERACTIVE, TEXT_SLOTS
 from app.services.timezone_service import tzinfo
-from app.models.models import SocialPost, SocialGenJob, SocialAccount, CompanyProfile, SchedulerSetting, Connection
+from app.models.models import SocialPost, SocialGenJob, SocialAccount, SocialSchedule, CompanyProfile, SchedulerSetting, Connection
 from app.services.post_writer import (
     create_topic_image_prompt,
     generate_image_with_provider,
@@ -70,6 +70,31 @@ _SOCIAL_POST_EXTRA_COLS = [
     ("approved_by", "VARCHAR"),
     ("approved_at", "TIMESTAMP"),
     ("review_note", "TEXT"),
+    ("occurrence", "VARCHAR"),
+    ("detached", "BOOLEAN"),
+    ("asap", "BOOLEAN"),
+    ("publish_attempts", "INTEGER"),
+    ("retry_at_ms", "FLOAT"),
+]
+
+# social_schedules predates the Schedule window (weekday/time/theme/focus/channels only).
+_SOCIAL_SCHEDULE_EXTRA_COLS = [
+    ("frequency", "VARCHAR"),
+    ("pattern", "VARCHAR"),
+    ("start_date", "VARCHAR"),
+    ("end_date", "VARCHAR"),
+    ("month_day", "INTEGER"),
+    ("custom_dates", "JSON"),
+    ("make_image", "BOOLEAN"),
+    ("approver_emails", "JSON"),
+    ("result_emails", "JSON"),
+    ("retry_count", "INTEGER"),
+    ("retry_delay_min", "INTEGER"),
+    ("status", "VARCHAR"),
+    ("ended_reason", "VARCHAR"),
+    ("reminder_sent_at", "TIMESTAMP"),
+    ("created_at", "TIMESTAMP"),
+    ("updated_at", "TIMESTAMP"),
 ]
 
 # A post in one of these states must never be edited back to draft/approved by a client
@@ -110,12 +135,10 @@ async def _drop_retired_table(table: str) -> None:
 
 async def _repair_social_posts_schema() -> None:
     async with engine.begin() as conn:
-        for col, col_type in _SOCIAL_POST_EXTRA_COLS:
-            try:
-                await conn.execute(text(f"ALTER TABLE social_posts ADD COLUMN IF NOT EXISTS {col} {col_type}"))
-            except Exception:
+        for table, cols in (("social_posts", _SOCIAL_POST_EXTRA_COLS), ("social_schedules", _SOCIAL_SCHEDULE_EXTRA_COLS)):
+            for col, col_type in cols:
                 try:
-                    await conn.execute(text(f"ALTER TABLE social_posts ADD COLUMN {col} {col_type}"))
+                    await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
                 except Exception:
                     pass
 
@@ -158,6 +181,11 @@ def _serialize_post(p: SocialPost) -> Dict[str, Any]:
         "approvedBy": getattr(p, "approved_by", None),
         "approvedAt": _iso(getattr(p, "approved_at", None)),
         "reviewNote": getattr(p, "review_note", None),
+        "occurrence": getattr(p, "occurrence", None),
+        "detached": bool(getattr(p, "detached", False)),
+        "asap": bool(getattr(p, "asap", False)),
+        "retryAtMs": getattr(p, "retry_at_ms", None),
+        "publishAttempts": getattr(p, "publish_attempts", None) or 0,
         "lastError": _last_error(p),
         "createdAt": p.created_at.isoformat() if p.created_at else None,
     }
@@ -748,6 +776,9 @@ async def edit_post(post_id: str, payload: Dict[str, Any], request: Request, db:
             post.status = approval_mail.WAITING
             _after_status_change(post, approval_mail.MISSED, content_changed=False)
 
+    if post.schedule_id and (("date" in payload or "time" in payload) or (content_keys and not _same_content(before, post_versions.content_of(post)))):
+        # Changed by hand: the schedule no longer replaces or moves it.
+        post.detached = True
     if content_keys and not _same_content(before, post_versions.content_of(post)):
         post.edited_by_user = True
         await post_versions.record_version(db, post, "you", before=before)
@@ -770,6 +801,8 @@ def _after_status_change(post: SocialPost, before_status: Optional[str], content
             post.approved_by = "app"  # approved in the scheduler (the creator may approve)
             post.approved_at = datetime.utcnow()
             post.review_note = None
+            post.publish_attempts = 0
+            post.retry_at_ms = None
     elif post.status == approval_mail.WAITING and (before_status != approval_mail.WAITING or content_changed):
         # Back in review (new, edited after approval, rejected then changed, rescheduled after
         # a missed slot) or changed while the approvers look at it: they get a fresh email.
@@ -811,6 +844,133 @@ async def post_version_restore(post_id: str, version_id: str, db: AsyncSession =
     await db.commit()
     await db.refresh(post)
     return {"status": "ok", "post": _serialize_post(post)}
+
+
+# ── Schedules (right now / once / recurring) ────────────────────────────────
+
+async def _schedule_view(db: AsyncSession, rows: List[SocialSchedule]) -> List[Dict[str, Any]]:
+    tz = await org_timezone(db)
+    today = schedule_engine.org_today(tz)
+    counts: Dict[str, int] = {}
+    for sid, in (await db.execute(select(SocialPost.schedule_id).where(SocialPost.schedule_id.isnot(None)))).all():
+        counts[sid] = counts.get(sid, 0) + 1
+    now_ms = time.time() * 1000
+    return [schedule_engine.schedule_dict(r, schedule_engine.first_open_day(r, today, tz, now_ms), counts) for r in rows]
+
+
+async def _cleaned_schedule(db: AsyncSession, payload: Dict[str, Any], existing: Optional[SocialSchedule] = None) -> Dict[str, Any]:
+    tz = await org_timezone(db)
+    try:
+        return schedule_engine.clean(payload, schedule_engine.org_today(tz), existing)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@router.get("/schedules")
+async def list_schedules(db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(SocialSchedule).order_by(SocialSchedule.created_at.desc()))).scalars().all()
+    return {"status": "ok", "schedules": await _schedule_view(db, rows)}
+
+
+@router.post("/schedules/preview")
+async def preview_schedule(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    """Which dates a schedule would post on, before saving it."""
+    values = await _cleaned_schedule(db, payload)
+    draft = SocialSchedule(id="preview", status="active", **values)
+    tz = await org_timezone(db)
+    today = schedule_engine.org_today(tz)
+    first = schedule_engine.first_open_day(draft, today, tz, time.time() * 1000)
+    return {"status": "ok", "schedule": schedule_engine.schedule_dict(draft, first)}
+
+
+@router.post("/schedules")
+async def create_schedule(payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
+    values = await _cleaned_schedule(db, payload)
+    sched = SocialSchedule(id=f"sch_{uuid.uuid4().hex[:12]}", status="active", **values)
+    db.add(sched)
+    await db.commit()
+    await schedule_engine.tick(db, time.time() * 1000, _public_base(request))
+    await db.refresh(sched)
+    return {"status": "ok", "schedule": (await _schedule_view(db, [sched]))[0]}
+
+
+@router.put("/schedules/{schedule_id}")
+async def update_schedule(schedule_id: str, payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
+    """Change a schedule. Its upcoming posts that nobody approved or edited by hand are
+    replaced to match; approved and hand-edited posts stay as they are."""
+    sched = (await db.execute(select(SocialSchedule).where(SocialSchedule.id == schedule_id))).scalars().first()
+    if not sched:
+        raise HTTPException(status_code=404, detail="Schedule not found.")
+    values = await _cleaned_schedule(db, payload, existing=sched)
+    if values.get("end_date") != sched.end_date:
+        sched.reminder_sent_at = None
+    for key, val in values.items():
+        setattr(sched, key, val)
+    sched.status = "active"
+    sched.ended_reason = None
+    tz = await org_timezone(db)
+    replaced = await schedule_engine.remove_open_posts(db, sched, schedule_engine.org_today(tz))
+    await db.commit()
+    await schedule_engine.tick(db, time.time() * 1000, _public_base(request))
+    await db.refresh(sched)
+    return {"status": "ok", "replaced": replaced, "schedule": (await _schedule_view(db, [sched]))[0]}
+
+
+@router.post("/schedules/{schedule_id}/status")
+async def set_schedule_status(schedule_id: str, payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
+    """Pause (no new posts; upcoming unapproved ones are removed) or resume a schedule."""
+    sched = (await db.execute(select(SocialSchedule).where(SocialSchedule.id == schedule_id))).scalars().first()
+    if not sched:
+        raise HTTPException(status_code=404, detail="Schedule not found.")
+    status = str(payload.get("status") or "")
+    if status not in ("active", "paused"):
+        raise HTTPException(status_code=400, detail="Status must be active or paused.")
+    tz = await org_timezone(db)
+    today = schedule_engine.org_today(tz)
+    removed = 0
+    if status == "paused":
+        removed = await schedule_engine.remove_open_posts(db, sched, today)
+    elif sched.frequency == "recurring" and (schedule_engine.parse_date(sched.end_date) or today) < today:
+        raise HTTPException(status_code=400, detail="This schedule's end date has passed. Change the end date to run it again.")
+    sched.status = status
+    sched.ended_reason = None
+    await db.commit()
+    if status == "active":
+        await schedule_engine.tick(db, time.time() * 1000, _public_base(request))
+    await db.refresh(sched)
+    return {"status": "ok", "removed": removed, "schedule": (await _schedule_view(db, [sched]))[0]}
+
+
+@router.delete("/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a schedule and its upcoming posts nobody approved or edited. Posted, approved and
+    hand-edited posts stay on the calendar."""
+    sched = (await db.execute(select(SocialSchedule).where(SocialSchedule.id == schedule_id))).scalars().first()
+    if not sched:
+        raise HTTPException(status_code=404, detail="Schedule not found.")
+    tz = await org_timezone(db)
+    removed = await schedule_engine.remove_open_posts(db, sched, schedule_engine.org_today(tz))
+    await db.execute(
+        update(SocialPost).where(SocialPost.schedule_id == schedule_id)
+        .values(detached=True).execution_options(synchronize_session=False)
+    )
+    await db.delete(sched)
+    await db.commit()
+    return {"status": "ok", "removed": removed}
+
+
+@router.get("/schedule-extend", response_class=HTMLResponse)
+async def schedule_extend_page(t: str = "", db: AsyncSession = Depends(get_db)):
+    """Page behind the link in the "schedule ends soon" email. Viewing never changes anything."""
+    return HTMLResponse(await approval_mail.extend_page(db, t))
+
+
+@router.post("/schedule-extend", response_class=HTMLResponse)
+async def schedule_extend_submit(request: Request, db: AsyncSession = Depends(get_db)):
+    form = await request.form()
+    token = str(form.get("t") or "")
+    notice = await approval_mail.extend_action(db, token)
+    return HTMLResponse(await approval_mail.extend_page(db, token, notice=notice))
 
 
 @router.get("/review", response_class=HTMLResponse)
@@ -1160,20 +1320,28 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     """Publish approved posts whose due time has arrived.
 
     Shared by the /publish-due route and the background auto-publish loop in main.py,
-    so posts go out with no browser open. Each post is claimed atomically first, and a
-    failure marks it 'failed' (shown in the UI with the reason) instead of retrying
-    against the networks every minute.
+    so posts go out with no browser open. Each post is claimed atomically first. A failure
+    is retried as its schedule says (default once, 5 minutes later), and only when no
+    channel took it, so a retry can never post twice; after that it stays 'failed'.
     """
     now_ms = time.time() * 1000
     tz = await org_timezone(db)
     due_of = lambda p: _due_ms(p, tz)  # noqa: E731
 
-    # Nobody approved it before its slot: it does not go out late on its own.
+    try:
+        await schedule_engine.tick(db, now_ms, _public_base(request))
+    except Exception:
+        logger.exception("Schedule tick failed")
+        await db.rollback()
+
+    # Nobody approved it before its slot: it does not go out late on its own. A "right now"
+    # post has no slot; it waits a day for approval.
     waiting = (await db.execute(select(SocialPost).where(SocialPost.status == approval_mail.WAITING))).scalars().all()
     missed_posts = []
     for post in waiting:
         due_at = due_of(post)
-        if due_at and due_at < now_ms - approval_mail.MISSED_GRACE_MS:
+        grace = ASAP_WAIT_MS if post.asap else approval_mail.MISSED_GRACE_MS
+        if due_at and due_at < now_ms - grace:
             post.status = approval_mail.MISSED
             missed_posts.append(post)
     if missed_posts:
@@ -1191,8 +1359,9 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     failed = []
     skipped = []
     done_posts = []
+    retrying = []
     for post in posts:
-        due_at = _due_ms(post, tz)
+        due_at = max(_due_ms(post, tz), post.retry_at_ms or 0)
         if due_at and due_at > now_ms:
             skipped.append(post.id)
             continue
@@ -1208,6 +1377,9 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
         if hosted:
             post.image_url = hosted
         bundled = await _publish_claimed(db, post, request)
+        if not bundled.get("ok") and await _schedule_retry(db, post, now_ms):
+            retrying.append(post.id)
+            continue
         done_posts.append(post)
         if bundled.get("ok"):
             published.append(_serialize_post(post))
@@ -1225,7 +1397,29 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
         logger.exception("Sending results email failed")
         await db.rollback()
     return {"status": "ok", "published": published, "failed": failed, "skipped": skipped,
-            "missed": [p.id for p in missed_posts]}
+            "missed": [p.id for p in missed_posts], "retrying": retrying}
+
+
+ASAP_WAIT_MS = 24 * 3600 * 1000
+
+
+async def _schedule_retry(db: AsyncSession, post: SocialPost, now_ms: float) -> bool:
+    """Put a failed post back for another try later, if its retries allow. Never when any
+    channel already took it (that would post twice)."""
+    if any(isinstance(r, dict) and r.get("ok") for r in post.publish_results or []):
+        return False
+    sched = None
+    if post.schedule_id:
+        sched = (await db.execute(select(SocialSchedule).where(SocialSchedule.id == post.schedule_id))).scalars().first()
+    count, delay_min = schedule_engine.retry_policy(sched)
+    if (post.publish_attempts or 0) >= count:
+        return False
+    post.publish_attempts = (post.publish_attempts or 0) + 1
+    post.retry_at_ms = now_ms + delay_min * 60 * 1000
+    post.status = "approved"
+    await db.commit()
+    logger.info(f"Publishing {post.id} failed; retry {post.publish_attempts}/{count} in {delay_min} min.")
+    return True
 
 
 _PLAN_FENCE_RE = re.compile(r"```(?:plan|json)\s*([\s\S]*?)```", re.I)
