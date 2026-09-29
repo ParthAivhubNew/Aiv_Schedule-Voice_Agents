@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
+from app.services.endpoints import is_self_hosted
 from app.database import get_db
 from app.config import settings
 from app.models.models import Connection, Mission, CallLog, Meeting, Prospect, CompanyProfile
@@ -185,7 +186,7 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
             if saved_key:
                 key = saved_key
 
-    if not key:
+    if not key and not is_self_hosted(req.resolved_base_url):
         raise HTTPException(
             status_code=400,
             detail="API Key is required to perform validation test."
@@ -205,7 +206,8 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
     return {
         "success": True,
         "valid": True,
-        "details": validation.get("details", "Verified & Active")
+        "details": validation.get("details", "Verified & Active"),
+        "baseUrl": validation.get("base_url"),
     }
 
 @router.post("/test-and-save")
@@ -238,8 +240,8 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         )
         existing = next((c for c in result.scalars().all() if _same_saved_provider(c.name, req.provider)), None)
 
-    burl_req = (req.resolved_base_url or "").lower()
-    local_endpoint = "localhost" in burl_req or "127.0.0.1" in burl_req
+    # Any custom URL (self-hosted model, company gateway) may have no key.
+    local_endpoint = is_self_hosted(req.resolved_base_url)
     is_retest_existing = False
     if not key or key in ("dummy_configured", "dummy_key") or is_masked(key):
         if existing and (existing.name.lower() == req.provider.lower() or identify_provider(existing.name) == identify_provider(req.provider)):
@@ -250,7 +252,7 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         if not is_retest_existing and not (local_endpoint and not key):
             raise HTTPException(
                 status_code=400,
-                detail="Please paste your raw API key (masked dots cannot be authenticated)."
+                detail="Please paste your raw API key (masked dots cannot be authenticated)." if key else "API Key is required."
             )
 
     if not key and not local_endpoint:
@@ -273,6 +275,9 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             status_code=400,
             detail=validation.get("error", f"Authentication failed for {req.provider}.")
         )
+    if validation.get("base_url"):
+        # Reachable only under another address (the Docker host): save the one that works.
+        req.base_url = validation["base_url"]
     
     # 2. If it's a retest of an existing key in DB, preserve config but still apply any
     # non-secret field changes (phone, voice_id, model) submitted alongside the retest —
@@ -312,7 +317,7 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     # 3. Mask the key for safe storage
     clean_key = key or ""
     if not clean_key:
-        masked = "No key required (Local)"
+        masked = "No key needed"
     else:
         masked = clean_key[:3] + "••••••••" + clean_key[-4:] if len(clean_key) > 8 else "••••••••"
     
@@ -478,6 +483,63 @@ async def clear_connection_key(req: ClearKeyRequest, db: AsyncSession = Depends(
         "layer": existing.group_name,
         "status": "not_configured",
     }
+
+
+async def connection_uses(db: AsyncSession, conn: Connection) -> List[str]:
+    """What stops working if this connection's key is removed, in plain words."""
+    from app.services.voice_plugin_plan import get_active_stack
+
+    cfg = open_config(conn.config if isinstance(conn.config, dict) else {})
+    kind = identify_provider(conn.name)
+    name = (conn.name or "").strip().lower()
+    stack = get_active_stack()
+
+    def same(label: Optional[str]) -> bool:
+        lab = str(label or "").strip().lower()
+        if not lab:
+            return False
+        return lab == name or (kind != "custom" and identify_provider(lab) == kind)
+
+    uses: List[str] = []
+    group = conn.group_name
+    if group == "LLM":
+        from app.api.scheduler import _resolve_text_ai
+
+        ai = await _resolve_text_ai(db, {})
+        base = str(cfg.get("base_url") or "").rstrip("/")
+        if same(ai.get("provider")) or (base and str(ai.get("base_url") or "").rstrip("/") == base):
+            uses.append("Post scheduler: writes captions, plans and Plan AI replies")
+        if same(stack.get("llm")):
+            uses.append("Voice calls: the AI that talks on calls")
+    elif group == "IMAGE":
+        from app.api.scheduler import _resolve_image_prefs
+
+        prefs = await _resolve_image_prefs(db, {})
+        if not prefs.get("provider") or same(prefs.get("provider")):
+            uses.append("Post scheduler: post images")
+    elif group == "Text-to-Speech" and same(stack.get("tts")):
+        uses.append("Voice calls: the speaking voice")
+    elif group == "Speech-to-Text" and same(stack.get("stt")):
+        uses.append("Voice calls: hearing what the caller says")
+    elif group == "Telephony" and same(stack.get("carrier")):
+        uses.append("Voice calls: phone numbers, calling and answering")
+    elif group == "Voice Orchestration" and same(stack.get("engine")):
+        uses.append("Voice calls: runs each call")
+    elif group == "Communication Accounts":
+        uses.append("Post approval and results emails")
+        uses.append("Meeting booking emails")
+    elif group == "Calendar":
+        uses.append("Meeting booking on calls")
+    return uses
+
+
+@router.get("/usage")
+async def connection_usage(id: Optional[str] = None, layer: Optional[str] = None, provider: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Shown before Remove: which features use this key."""
+    conn = await _find_connection(db, id, layer, provider)
+    if not conn:
+        return {"usedBy": []}
+    return {"usedBy": await connection_uses(db, conn)}
 
 
 class UpdateConnectionConfigRequest(BaseModel):
