@@ -10,7 +10,7 @@ from sqlalchemy.future import select
 
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.models.models import Connection
+from app.models.models import Connection, Voice
 
 logger = logging.getLogger("voice_plugin_plan")
 
@@ -227,6 +227,16 @@ async def resolve_voice_plan() -> VoicePlan:
         conns = [c for c in res.scalars().all() if c.id != "c_telnyx_assistant_settings"]
 
     active_stack = get_active_stack()
+    # The call voice is one choice in the stack, written only by voice_library: an engine
+    # built-in voice, or a library voice (spoken by its provider's TTS plugin, or natively
+    # when the provider is the engine itself, e.g. an xAI custom voice).
+    voice_kind = active_stack.get("voice_kind") or ""
+    voice_ref = _strip_voice(active_stack.get("voice_ref"))
+    lib_voice = None
+    if voice_kind == "library" and voice_ref:
+        async with AsyncSessionLocal() as vdb:
+            lib_voice = (await vdb.execute(select(Voice).where(Voice.id == voice_ref))).scalars().first()
+    lib_tts_provider = lib_voice.provider if lib_voice is not None and lib_voice.provider != "xai" else ""
     target_engine = (active_stack.get("engine") or "livekit").lower()
     target_tts = (active_stack.get("tts") or "").lower()
     target_llm = (active_stack.get("llm") or "").lower()
@@ -279,9 +289,15 @@ async def resolve_voice_plan() -> VoicePlan:
         stt_conn = _pick(("speech-to-text", "stt"), stt_conn)
 
     # 5. Resolve TTS connection matching active stack
-    is_xai_builtin_tts = "xai built-in" in target_tts or target_tts in ("rex", "ara", "eve", "leo")
+    # Engine speaks by itself: a built-in voice, or an engine-native library voice.
+    is_xai_builtin_tts = voice_kind == "builtin" or (lib_voice is not None and not lib_tts_provider)
     if is_xai_builtin_tts:
         tts_conn = None
+    elif lib_tts_provider:
+        from app.services.voice_library import provider_of
+
+        tts_conn = next((c for c in conns if (c.group_name or "") == "Text-to-Speech"
+                         and provider_of(c.name) == lib_tts_provider and _key_from(c)), None)
     elif target_tts:
         for c in conns:
             group = (c.group_name or "").lower()
@@ -290,21 +306,14 @@ async def resolve_voice_plan() -> VoicePlan:
                 if any(k in c_name for k in target_tts.split()) and _key_from(c):
                     tts_conn = c
                     break
-    if not tts_conn and not is_xai_builtin_tts:
+    if not tts_conn and not is_xai_builtin_tts and not lib_tts_provider:
         tts_conn = _pick(("text-to-speech", "tts"), tts_conn)
 
     engine_cfg = _cfg(engine_conn)
     engine = target_engine if target_engine in ("livekit", "xai", "vapi", "retell", "openai", "modular") else _norm_engine(engine_conn.name if engine_conn else "", engine_cfg)
     
-    # Determine voice name
-    voice_name = ""
-    if is_xai_builtin_tts:
-        match_v = re.search(r"\(([^)]+)\)", target_tts)
-        if match_v:
-            voice_name = match_v.group(1).strip()
-    if not voice_name:
-        voice_name = engine_cfg.get("voice_name") or engine_cfg.get("voice") or settings.XAI_VOICE_NAME or ""
-    voice_name = _strip_voice(voice_name)
+    # Voice the engine is told to use (built-in or engine-native), or the library voice id.
+    voice_name = voice_ref if voice_kind == "builtin" else (lib_voice.voice_id if lib_voice is not None else "")
     if not voice_name:
         if engine == "xai":
             raise ValueError("No voice selected for xAI Realtime. Please choose an explicit voice (e.g. Ara, Rex, Eve, Leo) in AI Config.")
@@ -317,7 +326,6 @@ async def resolve_voice_plan() -> VoicePlan:
     )
     if not carrier:
         raise ValueError("No telephony carrier configured — save a Twilio/Telnyx/SIP key in Connections (Telephony) or set telephony credentials in .env")
-    orch_clone = _strip_voice(engine_cfg.get("cloned_voice_id") or "")
 
     stt = None
     if stt_conn and _key_from(stt_conn):
@@ -338,26 +346,16 @@ async def resolve_voice_plan() -> VoicePlan:
     elif settings.DEEPGRAM_API_KEY:
         stt = PluginCreds(provider="deepgram", api_key=settings.DEEPGRAM_API_KEY.strip(), model="nova-2", extra={"display_name": "Deepgram Nova-2"})
 
-    cartesia_vid = _strip_voice(getattr(settings, "CARTESIA_VOICE_ID", None))
-    eleven_vid = _strip_voice(getattr(settings, "ELEVENLABS_VOICE_ID", None))
-    # orch_clone already resolved above from Voice Orchestration plugin
+    # The voice a TTS plugin speaks: the picked library voice when it is from that plugin.
+    # Deepgram and Telnyx have a usable default voice; others need one picked.
+    def _lib_vid(provider_key: str) -> str:
+        return lib_voice.voice_id if lib_voice is not None and lib_tts_provider and lib_tts_provider in provider_key else ""
 
     tts = None
     if tts_conn and _key_from(tts_conn):
         tts_cfg = _cfg(tts_conn)
         provider = _match_provider(tts_conn.name) or "elevenlabs"
-        vid = _strip_voice(tts_cfg.get("voice_id") or "")
-        if not vid:
-            if "cartesia" in provider and cartesia_vid:
-                vid = cartesia_vid
-            elif "eleven" in provider and eleven_vid:
-                vid = eleven_vid
-            elif "deepgram" in provider:
-                vid = "aura-orion-en"
-            elif orch_clone and looks_like_external_voice_id(orch_clone):
-                vid = orch_clone
-            elif looks_like_external_voice_id(voice_name):
-                vid = voice_name
+        vid = _lib_vid(provider) or ("aura-orion-en" if "deepgram" in provider else "")
         tts = PluginCreds(
             provider=provider,
             api_key=_key_from(tts_conn),
@@ -373,27 +371,23 @@ async def resolve_voice_plan() -> VoicePlan:
             model="telnyx/natural",
             extra={"display_name": "Telnyx Natural TTS"},
         )
-    elif settings.CARTESIA_API_KEY:
-        vid = cartesia_vid or (orch_clone if looks_like_external_voice_id(orch_clone) else "") or (
-            voice_name if looks_like_external_voice_id(voice_name) else ""
-        )
+    elif settings.CARTESIA_API_KEY and not is_xai_builtin_tts:
+        vid = _lib_vid("cartesia")
         tts = PluginCreds(
             provider="cartesia",
             api_key=settings.CARTESIA_API_KEY.strip(),
             voice_id=vid,
             extra={"display_name": "Cartesia"},
         )
-    elif settings.ELEVENLABS_API_KEY:
-        vid = eleven_vid or (orch_clone if looks_like_external_voice_id(orch_clone) else "") or (
-            voice_name if looks_like_external_voice_id(voice_name) else ""
-        )
+    elif settings.ELEVENLABS_API_KEY and not is_xai_builtin_tts:
+        vid = _lib_vid("eleven")
         tts = PluginCreds(
             provider="elevenlabs",
             api_key=settings.ELEVENLABS_API_KEY.strip(),
             voice_id=vid,
             extra={"display_name": "ElevenLabs"},
         )
-    elif stt and stt.provider == "deepgram" and stt.api_key:
+    elif stt and stt.provider == "deepgram" and stt.api_key and not is_xai_builtin_tts:
         tts = PluginCreds(
             provider="deepgram",
             api_key=stt.api_key,
@@ -447,8 +441,7 @@ async def resolve_voice_plan() -> VoicePlan:
         if tts and tts.provider in ("cartesia", "elevenlabs") and not (tts.voice_id or "").strip():
             req_tts = target_tts or (tts_conn.name if tts_conn else tts.provider.capitalize())
             raise ValueError(
-                f"TTS provider '{req_tts}' requires a Voice ID. Configure your Voice ID under Connections "
-                f"(Text-to-Speech -> {req_tts}) or select your voice clone in Voice AI Operator."
+                f"TTS provider '{req_tts}' needs a voice. Pick a {req_tts} voice under AI config → Line setup → Voice."
             )
         if not (llm and llm.api_key):
             req_llm = target_llm or (llm_conn.name if llm_conn else "LLM")
@@ -504,17 +497,17 @@ async def resolve_voice_plan() -> VoicePlan:
             f"Configure XAI_API_KEY in .env or add xAI Realtime connection in Connections panel."
         )
 
-    # Hybrid TTS only when the ACTIVE saved voice is an external clone ID.
-    # Selecting ara/rex/eve (or other builtins) turns hybrid OFF even if a Cartesia
-    # key + old UUID remain on the Text-to-Speech plugin.
+    # Hybrid TTS only when the picked voice belongs to a TTS plugin. A built-in or
+    # engine-native voice turns it off even if a TTS key is saved.
     active_voice = _strip_voice(voice_name)
-    active_is_clone = looks_like_external_voice_id(active_voice)
-    if tts and active_is_clone:
-        # Keep plugin key; force speak-id to the active clone selection
-        tts.voice_id = active_voice
-    elif tts and not active_is_clone:
-        # Builtin xAI/OpenAI persona selected — ignore plugin clone id for routing
-        pass
+    active_is_clone = bool(lib_tts_provider)
+    if active_is_clone and tts is not None and not (lib_tts_provider in tts.provider or tts.provider in lib_tts_provider):
+        tts = None  # a fallback plugin must never speak in place of the picked voice's provider
+    if active_is_clone and not (tts and tts.api_key):
+        raise ValueError(
+            f"The call voice '{lib_voice.label or lib_voice.voice_id}' is spoken by {lib_tts_provider}, "
+            f"but no {lib_tts_provider} key is saved. Save it in Connections (Text-to-Speech) or pick another voice."
+        )
 
     external_tts = bool(
         engine == "xai"
