@@ -32,7 +32,6 @@ import {
   FONT_DISPLAY,
   HUB_PAPER,
 } from "../tokens";
-import { isClassicRevertPhrase, setSchedulerEdition } from "./schedulerEdition";
 import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
 import { SchedulerAiPanel } from "./SchedulerAiPanel";
 
@@ -1396,14 +1395,14 @@ class SimpleBoundary extends React.Component {
     if (this.state.err) {
       return (
         <div style={{ padding: 32, fontFamily: FONT_BODY, color: C.ink }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Simple workspace hit an error</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Post scheduler hit an error</div>
           <div style={{ color: C.slate, marginBottom: 16 }}>{String(this.state.err.message || this.state.err)}</div>
           <button
             type="button"
-            onClick={this.props.onRevert}
+            onClick={() => this.setState({ err: null })}
             style={{ height: 40, padding: "0 16px", border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 600, cursor: "pointer" }}
           >
-            Use classic scheduler
+            Try again
           </button>
         </div>
       );
@@ -1873,7 +1872,6 @@ export function SocialWorkspace({
   knowledgeSources,
   setKnowledgeSources,
   commonAi,
-  onUseClassic,
 }) {
   const [posts, setPosts] = useState(() => {
     const saved = readJson(LS_POSTS, []);
@@ -2726,11 +2724,6 @@ export function SocialWorkspace({
   const generateFromComposer = () => {
     if (typing) return;
     const typed = (topicDraft || draft).trim();
-    if (isClassicRevertPhrase(typed)) {
-      setSchedulerEdition("classic");
-      if (onUseClassic) onUseClassic();
-      return;
-    }
     if (!typed) {
       showToast("Write the plan for this post first.");
       return;
@@ -2814,12 +2807,6 @@ export function SocialWorkspace({
     if (e && e.preventDefault) e.preventDefault();
     const text = ((override && override.text) || draft || topicDraft).trim();
     if (!text || typing) return;
-    if (isClassicRevertPhrase(text)) {
-      setDraft("");
-      setSchedulerEdition("classic");
-      if (onUseClassic) onUseClassic();
-      return;
-    }
     setDraft("");
     setTopicDraft("");
     const namedSend = channelsNamedInText(text);
@@ -3226,13 +3213,6 @@ export function SocialWorkspace({
         </button>
         <div style={{ flex: 1 }} />
 
-        <button
-          type="button"
-          onClick={() => { setSchedulerEdition("classic"); if (onUseClassic) onUseClassic(); }}
-          style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 4px 4px", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-        >
-          <History size={14} /> Use classic scheduler
-        </button>
         <button
           type="button"
           onClick={onLogout}
@@ -3917,13 +3897,9 @@ const priBtn = {
 };
 
 export function SocialWorkspaceGate(props) {
-  const revert = () => {
-    setSchedulerEdition("classic");
-    if (props.onUseClassic) props.onUseClassic();
-  };
   return (
-    <SimpleBoundary onRevert={revert}>
-      <SocialWorkspace {...props} onUseClassic={revert} />
+    <SimpleBoundary>
+      <SocialWorkspace {...props} />
     </SimpleBoundary>
   );
 }

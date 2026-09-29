@@ -215,10 +215,6 @@ export const api = {
     body: typeof payload === 'string' ? { text: payload } : payload,
     ...options
   }),
-  updatePostStatus: (postId, status, copy, imageUrl, imagePrompt) => apiRequest(`/scheduler/posts/${postId}/status`, { 
-    method: 'POST', 
-    body: { status, copy, imageUrl, imagePrompt } 
-  }),
   generateImage: (payload) => apiRequest('/scheduler/generate-image', { 
     method: 'POST', 
     body: typeof payload === 'string' ? { prompt: payload } : payload 
@@ -227,14 +223,9 @@ export const api = {
     method: 'POST',
     body: payload
   }),
-  getEmails: () => apiRequest('/scheduler/emails'),
-  createEmail: (payload) => apiRequest('/scheduler/emails', { method: 'POST', body: payload }),
   getSocialAccounts: (refresh = false) => apiRequest(`/scheduler/accounts${refresh ? '?refresh=true' : ''}`),
-  saveSocialAccount: (payload) => apiRequest('/scheduler/accounts', { method: 'POST', body: payload }),
-  testSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}/test`, { method: 'POST' }),
   deleteSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}`, { method: 'DELETE' }),
   publishPost: (postId, payload) => apiRequest(`/scheduler/posts/${postId}/publish`, { method: 'POST', body: payload || {} }),
-  publishDuePosts: () => apiRequest('/scheduler/publish-due', { method: 'POST' }),
   getSocialOauthApps: () => apiRequest('/scheduler/oauth/apps'),
   saveSocialOauthApp: (payload) => apiRequest('/scheduler/oauth/apps', { method: 'POST', body: payload }),
   startSocialOauth: (platform, frontend) => apiRequest(`/scheduler/oauth/${platform}/start${frontend ? `?frontend=${encodeURIComponent(frontend)}` : ''}`),

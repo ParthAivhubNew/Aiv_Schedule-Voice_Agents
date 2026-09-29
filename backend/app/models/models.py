@@ -370,20 +370,6 @@ class SocialSchedule(Base):
     focus = Column(Text, default="")
     channels = Column(JSON, default=lambda: ["linkedin", "facebook", "x"])
 
-class SocialTopic(Base):
-    __tablename__ = "social_topics"
-    
-    id = Column(String, primary_key=True, index=True)
-    schedule_id = Column(String, nullable=True)
-    title = Column(String, nullable=False)
-    angle = Column(Text, default="")
-    hook = Column(Text, default="")
-    source_type = Column(String, default="Knowledge Base")
-    source_name = Column(String, default="Company Profile")
-    keywords = Column(JSON, default=list)
-    image_url = Column(Text, nullable=True)
-    image_prompt = Column(Text, nullable=True)
-
 class SocialPost(Base):
     __tablename__ = "social_posts"
     

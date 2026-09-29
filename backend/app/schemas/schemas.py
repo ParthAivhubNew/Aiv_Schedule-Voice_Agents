@@ -260,18 +260,6 @@ class SocialScheduleSchema(BaseModel):
     focus: str = ""
     channels: List[str] = ["linkedin", "x"]
 
-class SocialTopicSchema(BaseModel):
-    id: Optional[str] = None
-    schedule_id: Optional[str] = None
-    title: str
-    angle: str = ""
-    hook: str = ""
-    source_type: str = "Knowledge Base"
-    source_name: str = "Company Profile"
-    keywords: List[str] = []
-    image_url: Optional[str] = None
-    image_prompt: Optional[str] = None
-
 class SocialPostSchema(BaseModel):
     id: Optional[str] = None
     topic_id: Optional[str] = None
