@@ -108,6 +108,29 @@ function companyPayload(profile) {
   };
 }
 
+// Progress shown for posts the server-side AI queue is working on.
+function queueProgress(p) {
+  if (!p) return null;
+  if (p.genState === "queued") return { pct: 8, label: "Queued: waiting for a free writer" };
+  if (p.genState === "writing") return { pct: 45, label: "Writing the caption…" };
+  if (p.genState === "imaging") return { pct: 80, label: "Creating the image…" };
+  return null;
+}
+
+function GenFailed({ post, onRetry }) {
+  if (!post || post.genState !== "failed") return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, fontSize: 11.5, color: C.red }}>
+      <span style={{ flex: 1, minWidth: 0 }}>AI could not finish this post: {post.genError || "unknown error"}</span>
+      {onRetry ? (
+        <button type="button" onClick={(e) => { e.stopPropagation(); onRetry([post.id]); }} style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.red}`, background: "#fff", color: C.red, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
+          Retry
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function GenProgressBar({ pct, label, compact }) {
   const n = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
   if (!n && !label) return null;
@@ -242,6 +265,7 @@ function ApprovalsBoard({
   initialDate,
   requestedScope,
   genProgress,
+  retryGeneration,
 }) {
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
@@ -324,7 +348,7 @@ function ApprovalsBoard({
   const expandedPost = expandedId ? allPosts.find((p) => p.id === expandedId) : null;
   const expandedDone = expandedPost && !needsAction(expandedPost.status);
   const canEdit = expandedPost && !isLocked(expandedPost.status);
-  const expandedProg = expandedPost && genProgress ? genProgress[expandedPost.id] : null;
+  const expandedProg = expandedPost ? ((genProgress && genProgress[expandedPost.id]) || queueProgress(expandedPost)) : null;
   const chMeta = expandedPost
     ? (CHANNELS.find((c) => c.id === String(expandedPost.channel || "").toLowerCase()) || { label: expandedPost.channel, color: C.ink, soft: HUB_PAPER, mark: "?" })
     : null;
@@ -573,7 +597,7 @@ function ApprovalsBoard({
                   {ch.posts.map((p) => {
                     const open = expandedId === p.id;
                     const dimmed = !wide && !!expandedId && !open;
-                    const prog = (genProgress && genProgress[p.id]) || null;
+                    const prog = (genProgress && genProgress[p.id]) || queueProgress(p);
                     const busy = !!(prog || p.enriching || imageBusy === p.id || copyBusy === p.id);
                     return (
                       <div
@@ -651,6 +675,7 @@ function ApprovalsBoard({
                           ) : null}
                         </div>
                         {prog ? <GenProgressBar pct={prog.pct} label={prog.label} compact /> : null}
+                        <GenFailed post={p} onRetry={retryGeneration} />
                       </div>
                     );
                   })}
@@ -740,6 +765,11 @@ function ApprovalsBoard({
               <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
                 {/* Live post preview only */}
                 <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 14, background: HUB_PAPER }}>
+                  {expandedPost.genState === "failed" ? (
+                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}` }}>
+                      <GenFailed post={expandedPost} onRetry={retryGeneration} />
+                    </div>
+                  ) : null}
                   {expandedPost.status === "failed" ? (
                     <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
                       <strong>Publishing failed.</strong> {expandedPost.lastError || "The network rejected the post."}
@@ -1095,25 +1125,7 @@ function ApprovalsBoard({
   );
 }
 
-function pkg_warning(res) {
-  const pkg = res && res.package;
-  return (pkg && pkg.imageWarning && /no .* key saved|Add the key/i.test(pkg.imageWarning)) ? pkg.imageWarning : "";
-}
 
-function assembleCaption(pkg, fallback) {
-  if (!pkg) return fallback || "";
-  const hook = stripAiSlop(pkg.hook || "");
-  const body = stripAiSlop(pkg.copy || pkg.linkedin_copy || "");
-  let text = body;
-  if (hook && body && !body.toLowerCase().startsWith(hook.slice(0, 40).toLowerCase())) {
-    text = hook + "\n\n" + body;
-  } else if (!body) text = hook;
-  text = String(text || "").replace(/(?:\s*#\w+)+\s*$/g, "").trim();
-  const tags = Array.isArray(pkg.hashtags) ? pkg.hashtags : [];
-  const tagLine = tags.map((t) => (String(t).startsWith("#") ? t : "#" + t)).slice(0, 30).join(" ");
-  if (tagLine && text && !text.includes(tagLine)) text = String(text).trim() + "\n\n" + tagLine;
-  return (text || fallback || "").trim();
-}
 
 function readJson(key, fallback) {
   try {
@@ -1226,24 +1238,6 @@ function keepEditableStatus(status) {
   return "draft";
 }
 
-function copyChatReply(before, after, src) {
-  if (src && src !== "llm") {
-    return "Couldn’t get a new draft from the writer. Try again in a moment.";
-  }
-  const sameCaption = String(before.caption || "").trim() === String(after.caption || "").trim();
-  const sameHeadline = String(before.headline || "").trim() === String(after.headline || "").trim();
-  const countTags = (s) => (String(s || "").match(/#[A-Za-z0-9_]+/g) || []).length;
-  const beforeTags = countTags(before.caption);
-  const afterTags = countTags(after.caption);
-  if (sameCaption && sameHeadline) {
-    return "Left it as-is. Tell me the exact change you want.";
-  }
-  const bits = [];
-  if (!sameHeadline) bits.push("tweaked the headline");
-  if (afterTags !== beforeTags) bits.push("adjusted hashtags");
-  else if (!sameCaption) bits.push("rewrote the caption");
-  return bits.length ? ("Got it — " + bits.join(" and ") + ".") : "Updated.";
-}
 
 function reuseAskText(existing, dates, channels) {
   const day = [...new Set((dates || []).map(dayLabel))].join(", ");
@@ -1306,6 +1300,8 @@ function fromServerPost(p, local) {
     publishResults: p.publishResults || [],
     publishedAt: p.publishedAt || "",
     lastError: p.lastError || "",
+    genState: p.genState || "",
+    genError: p.genError || "",
     synced: true,
     syncError: false,
     enriching: false,
@@ -1340,35 +1336,6 @@ function newPostId() {
   return "v2_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
 }
 
-function extractPlanFromText(text) {
-  const raw = coerceChatText(text);
-  const fence = raw.match(/```(?:plan|json)\s*([\s\S]*?)```/i);
-  let blob = fence ? fence[1].trim() : "";
-  if (!blob) {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start >= 0 && end > start && /"posts"\s*:/.test(raw.slice(start, end + 1))) {
-      blob = raw.slice(start, end + 1);
-    }
-  }
-  if (!blob) return null;
-  try {
-    const data = JSON.parse(blob);
-    if (data && Array.isArray(data.posts) && data.posts.length) return data;
-  } catch (_) {}
-  return null;
-}
-
-function stripAiSlop(text) {
-  let t = String(text || "");
-  t = t.replace(/Not because they[\s\S]*?(?:—|–|--)\s*because[^.!\n]*[.!]?/gi, "");
-  t = t.replace(/The fix isn['’]t another[^.!\n]*[.!]?\s*It['’]s[^.!\n]*[.!]?/gi, "");
-  t = t.replace(/Scattered data in\.\s*Real-time decisions out\.?/gi, "");
-  t = t.replace(/The floor already moved\.?\s*The pack did not\.?/gi, "");
-  t = t.replace(/That hour is not[^.!\n]*[.!]?\s*It is[^.!\n]*[.!]?/gi, "");
-  t = t.replace(/\n{3,}/g, "\n\n").trim();
-  return t;
-}
 
 function dayLabel(iso) {
   try {
@@ -2202,70 +2169,86 @@ export function SocialWorkspace({
     }));
   };
 
-  const applyPlan = (incoming, replaceAll, share = true) => {
-    if (!incoming || !Array.isArray(incoming.posts) || !incoming.posts.length) return [];
+  // Apply a Plan AI outline: new posts are created and queued for writing; existing posts
+  // get only the fields the AI changed (and a queued rewrite when it asked for one); posts it
+  // did not mention are never touched.
+  const applyPlan = (incoming, share = true) => {
+    if (!incoming) return { created: [], updated: [], deleted: [] };
     const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || todayIso();
     const stamp = "b_" + Date.now();
-    const nextPosts = incoming.posts.map((raw) => {
-      const channel = String(raw.channel || (incoming.channels && incoming.channels[0]) || (channelDrafts[0]) || "linkedin").toLowerCase();
-      return {
+    const created = [];
+    const updated = [];
+    const revisions = [];
+    (incoming.posts || []).forEach((raw) => {
+      if (raw.existing) {
+        const ex = postsRef.current.find((p) => p.id === raw.id);
+        if (!ex || isLocked(ex.status)) return;
+        const next = {
+          ...ex,
+          ...(raw.date ? { date: raw.date } : {}),
+          ...(raw.time ? { time: raw.time } : {}),
+          ...(raw.channel ? { channel: raw.channel, channels: [raw.channel] } : {}),
+          ...(raw.headline ? { headline: raw.headline } : {}),
+          ...(raw.plan ? { plan: raw.plan } : {}),
+          status: keepEditableStatus(ex.status),
+        };
+        updated.push(next);
+        if (raw.revision) revisions.push({ post: next, note: raw.revision });
+        return;
+      }
+      const channel = String(raw.channel || (incoming.channels && incoming.channels[0]) || channelDrafts[0] || "linkedin").toLowerCase();
+      const key = share ? normPlan((raw.headline || "") + " " + (raw.plan || "")) : raw.id;
+      created.push({
         id: raw.id && String(raw.id).startsWith("v2_") ? raw.id : newPostId(),
         date: raw.date || pinFallback,
         time: raw.time || "09:00",
         channel,
-        channels: raw.channels || [channel],
-        headline: raw.headline || raw.title || "Draft post",
-        plan: raw.plan || raw.headline || raw.caption || "",
-        caption: stripAiSlop(raw.caption || raw.captionDraft || raw.copy || ""),
-        imagePrompt: raw.imagePrompt || raw.image_prompt || raw.headline || "",
-        imageUrl: raw.imageUrl || "",
-        batchId: raw.batchId || incoming.batchId || stamp,
+        channels: [channel],
+        headline: raw.headline || "Draft post",
+        plan: raw.plan || raw.headline || "",
+        caption: "",
+        imagePrompt: raw.headline || "",
+        imageUrl: "",
+        batchId: stamp + "_" + key,
         uniqueForChannel: !share,
         status: "draft",
-        enriching: false,
-      };
+        genState: "queued",
+      });
     });
+    const deleted = (incoming.deleteIds || []).filter((id) => postsRef.current.some((p) => p.id === id && !isLocked(p.status)));
     setPosts((prev) => {
-      const fullSwap = replaceAll && !pinnedDates.length && nextPosts.length >= 3;
-      if (fullSwap) return nextPosts;
       const byId = {};
       prev.forEach((p) => { byId[p.id] = p; });
-      nextPosts.forEach((np) => {
-        const ex = byId[np.id];
-        if (ex && ex.status === "posted") {
-          byId[np.id] = ex;
-          return;
-        }
-        byId[np.id] = ex ? {
-          ...ex,
-          ...np,
-          caption: np.caption || ex.caption,
-          imageUrl: np.imageUrl || ex.imageUrl,
-          status: "draft",
-        } : np;
-      });
+      updated.forEach((u) => { byId[u.id] = u; });
+      created.forEach((c) => { byId[c.id] = c; });
       return Object.values(byId);
     });
-    setPlan({
-      rangeLabel: incoming.rangeLabel || incoming.label || monthLabel(cal.year, cal.month),
-      channels: incoming.channels || [...new Set(nextPosts.map((p) => p.channel))],
-    });
-    if (nextPosts[0] && nextPosts[0].date) {
-      const d = new Date(parseIsoDate(nextPosts[0].date));
-      setCal({ year: d.getFullYear(), month: d.getMonth() });
-      setDateDraft(nextPosts[0].date);
+    deleted.forEach((id) => deletePost(id));
+    if (incoming.rangeLabel || created.length) {
+      setPlan({
+        rangeLabel: incoming.rangeLabel || monthLabel(cal.year, cal.month),
+        channels: incoming.channels || [...new Set(created.map((p) => p.channel))],
+      });
     }
-    nextPosts.forEach(persistPost);
-    const toFill = nextPosts.filter((p) => !p.imageUrl || (p.caption || "").trim().length < 60);
-    fillPackages(toFill, { share });
-    if (nextPosts[0]) {
-      setSelectedId(nextPosts[0].id);
+    const first = created[0] || updated[0];
+    if (first && first.date) {
+      const d = new Date(parseIsoDate(first.date));
+      setCal({ year: d.getFullYear(), month: d.getMonth() });
+      setDateDraft(first.date);
+    }
+    updated.filter((u) => !revisions.some((r) => r.post.id === u.id)).forEach(persistPost);
+    if (created.length) fillPackages(created, { share });
+    revisions.forEach((r) => fillPackages([r.post], { skipImage: true, revisionNote: r.note, share: false }));
+    if (first) {
+      setSelectedId(first.id);
       setApprovalOpen(true);
     }
-    return nextPosts;
+    return { created, updated, deleted };
   };
 
-  const fillPackages = (items, opts = {}) => {
+  // Queue AI writing on the server (at most 2 AI calls at once, 5 posts per call, organisation-wide).
+  // Posts sharing a batch (same content on several channels/days) are written once.
+  const fillPackages = async (items, opts = {}) => {
     const skipImage = !!opts.skipImage;
     const revisionNote = String(opts.revisionNote || "").trim();
     const shareOpt = opts.share !== false;
@@ -2275,106 +2258,66 @@ export function SocialWorkspace({
     const used = new Set();
     seeds.forEach((p) => {
       if (used.has(p.id)) return;
-      const mates = p.batchId && !p.uniqueForChannel
-        ? seeds.filter((q) => q.batchId && q.batchId === p.batchId && !q.uniqueForChannel)
+      const pool = [...seeds, ...postsRef.current.filter((q) => !seeds.some((sd) => sd.id === q.id))];
+      const mates = shareOpt && p.batchId && !p.uniqueForChannel
+        ? pool.filter((q) => q.batchId === p.batchId && !q.uniqueForChannel && !isLocked(q.status))
         : [p];
-      mates.forEach((m) => used.add(m.id));
-      groups.push(mates);
+      const ids = [...new Set([p.id, ...mates.map((m) => m.id)])];
+      ids.forEach((id) => used.add(id));
+      groups.push({ lead: p, ids });
     });
-    groups.forEach((group, gIdx) => {
-      const lead = group[0];
-      const ids = group.map((g) => g.id);
-      if (ids.some((id) => enriching.current.has(id))) return;
-      ids.forEach((id) => enriching.current.add(id));
-      setPosts((ps) => ps.map((p) => (ids.includes(p.id) ? { ...p, enriching: true } : p)));
-      startGenProgress(ids, { kind: skipImage ? "copy" : "package", skipImage });
-      window.setTimeout(async () => {
-        let p = lead.id && !lead.plan ? null : lead;
-        if (!p || !p.plan) {
-          try { p = JSON.parse(localStorage.getItem(LS_POSTS) || "[]").find((row) => row.id === lead.id) || lead; } catch (_) { p = lead; }
-        }
-        if (!p) {
-          ids.forEach((id) => enriching.current.delete(id));
-          failGenProgress(ids);
-          setPosts((ps) => ps.map((row) => (ids.includes(row.id) ? { ...row, enriching: false } : row)));
-          return;
-        }
-        try {
-          const res = await api.generateSocialPackage({
-            topic: p.plan || p.headline,
-            existingCopy: [p.headline, p.caption].filter(Boolean).join("\n\n"),
-            existingHeadline: p.headline || "",
-            revisionNote,
-            skipImage,
-            linkedinDirective: (commonAi && commonAi.channelDirectives && commonAi.channelDirectives.linkedin) || "",
-            adaptPerChannel: false,
-            ...companyPayload(profile),
-          });
-          if (pkg_warning(res)) showToast(pkg_warning(res));
-          const pkg = res && res.package;
-          const share = shareOpt && !p.uniqueForChannel;
-          const src = pkg ? pkg.generationSource : (revisionNote ? "missing" : "");
-          const sharedImageUrl = skipImage ? null : ((pkg && pkg.imageUrl) || null);
-          const sharedImagePrompt = skipImage ? null : ((pkg && (pkg.imagePrompt || pkg.image_prompt)) || null);
-          setPosts((rows) => {
-            const nextRows = rows.map((row) => {
-              const hit = ids.includes(row.id) || (share && p.batchId && row.batchId === p.batchId && !row.uniqueForChannel && row.status !== "posted");
-              if (!hit) return row;
-              const usePkg = !revisionNote || src === "llm";
-              const assembled = usePkg ? assembleCaption(pkg, row.caption) : "";
-              const caption = (usePkg && assembled) ? assembled : (row.caption || "");
-              const nextHeadline = (usePkg && pkg && (pkg.postTitle || pkg.hook)) ? (pkg.postTitle || pkg.hook) : row.headline;
-              const next = {
-                ...row,
-                enriching: false,
-                caption,
-                headline: nextHeadline,
-                hook: (usePkg && pkg && pkg.hook) || row.hook,
-                hashtags: (usePkg && pkg && pkg.hashtags) || row.hashtags,
-                imageConcept: (pkg && (pkg.imageConcept || pkg.image_concept)) || row.imageConcept,
-                imageHeadline: (pkg && (pkg.imageHeadline || pkg.image_headline)) || row.imageHeadline,
-                imageUrl: skipImage ? row.imageUrl : (sharedImageUrl || row.imageUrl),
-                imagePrompt: skipImage ? row.imagePrompt : (sharedImagePrompt || row.imagePrompt),
-                status: keepEditableStatus(row.status),
-                copyChat: revisionNote
-                  ? [...(row.copyChat || []), { id: "cpa_" + Date.now() + "_" + row.id, who: "ai", text: copyChatReply(row, { caption, headline: nextHeadline }, src) }]
-                  : (row.copyChat || []),
-              };
-              persistPost(next);
-              return next;
-            });
-            return nextRows;
-          });
-          finishGenProgress(ids);
-          if (share && p.batchId && sharedImageUrl) {
-            window.setTimeout(() => syncBatchImage(p.batchId, sharedImageUrl, sharedImagePrompt), 0);
-          }
-        } catch (e) {
-          failGenProgress(ids);
-          if (!revisionNote) {
-            const msg = e.message || "The writer failed.";
-            showToast(/key/i.test(msg) ? msg : "Could not draft this post: " + msg);
-            if (/key saved|Accounts & AI/i.test(msg)) setPage("accounts");
-          }
-          setPosts((rows) => rows.map((row) => {
-            if (!ids.includes(row.id)) return row;
-            const fail = {
-              ...row,
-              enriching: false,
-              copyChat: revisionNote
-                ? [...(row.copyChat || []), { id: "cpx_" + Date.now() + "_" + row.id, who: "ai", text: "Could not update caption: " + (e.message || "writer failed") }]
-                : (row.copyChat || []),
-            };
-            persistPost(fail);
-            return fail;
-          }));
-        } finally {
-          ids.forEach((id) => enriching.current.delete(id));
-          setCopyBusy((cur) => (ids.includes(cur) ? "" : cur));
-        }
-      }, 80 * gIdx);
-    });
+    const allIds = groups.flatMap((g) => g.ids);
+    setPosts((ps) => ps.map((row) => (allIds.includes(row.id) ? { ...row, enriching: false, genState: "queued", genError: "" } : row)));
+    const rows = allIds.map((id) => postsRef.current.find((r) => r.id === id) || seeds.find((r) => r.id === id)).filter(Boolean);
+    await Promise.all(rows.map((r) => persistPost({ ...r, genState: "queued" })));
+    try {
+      await api.queueGeneration({
+        interactive: !!revisionNote || seeds.length === 1,
+        linkedinDirective: (commonAi && commonAi.channelDirectives && commonAi.channelDirectives.linkedin) || "",
+        groups: groups.map(({ lead, ids }) => ({
+          postIds: ids,
+          plan: lead.plan || lead.headline || "",
+          headline: lead.headline || "",
+          channel: lead.channel || "linkedin",
+          date: lead.date || "",
+          revisionNote,
+          existingCopy: revisionNote ? [lead.headline, lead.caption].filter(Boolean).join("\n\n") : "",
+          skipImage,
+        })),
+      });
+      if (revisionNote) {
+        setPosts((ps) => ps.map((row) => (row.id === seeds[0].id
+          ? { ...row, copyChat: [...(row.copyChat || []), { id: "cpa_" + Date.now(), who: "ai", text: "Rewriting now. The caption updates here in a few seconds." }] }
+          : row)));
+      }
+      refreshPosts();
+    } catch (e) {
+      const msg = e.message || "Could not queue the writer.";
+      showToast(msg);
+      if (/key saved|Accounts & AI/i.test(msg)) setPage("accounts");
+      setPosts((ps) => ps.map((row) => (allIds.includes(row.id) ? { ...row, genState: "failed", genError: msg } : row)));
+    } finally {
+      setCopyBusy((cur) => (allIds.includes(cur) ? "" : cur));
+    }
   };
+
+  const retryGeneration = async (ids) => {
+    try {
+      await api.retryGeneration({ postIds: ids });
+      setPosts((ps) => ps.map((row) => (ids.includes(row.id) ? { ...row, genState: "queued", genError: "" } : row)));
+      refreshPosts();
+    } catch (e) {
+      showToast(e.message || "Could not retry.");
+    }
+  };
+
+  // While anything is queued or being written, pull fresh copies from the server.
+  const genActive = posts.some((p) => ["queued", "writing", "imaging"].includes(p.genState));
+  useEffect(() => {
+    if (!genActive) return undefined;
+    const t = window.setInterval(() => { refreshPosts(); }, 2500);
+    return () => window.clearInterval(t);
+  }, [genActive, refreshPosts]);
 
   const unpinDate = (key, e) => {
     if (e) {
@@ -2895,21 +2838,24 @@ export function SocialWorkspace({
         setChat((cs) => [...cs, { id: "a_" + Date.now(), who: "ai", kind: "needsKey", text: res.reply }]);
         return;
       }
-      let incoming = (res && res.plan) || extractPlanFromText(res && res.reply) || extractPlanFromText(text);
-      if (incoming && Array.isArray(incoming.posts) && incoming.posts.length && namedSend.length) {
-        const filtered = incoming.posts.filter((p) => namedSend.includes(String(p.channel || "").toLowerCase()));
+      let incoming = res && res.plan;
+      const newPosts = incoming && Array.isArray(incoming.posts) ? incoming.posts.filter((p) => !p.existing) : [];
+      if (incoming && newPosts.length && namedSend.length) {
+        const filtered = newPosts.filter((p) => namedSend.includes(String(p.channel || "").toLowerCase()));
         incoming = {
           ...incoming,
           channels: namedSend,
-          posts: filtered.length
-            ? filtered
-            : namedSend.map((ch) => ({ ...(incoming.posts[0] || {}), channel: ch, id: undefined })),
+          posts: [
+            ...incoming.posts.filter((p) => p.existing),
+            ...(filtered.length ? filtered : namedSend.map((ch, i) => ({ ...newPosts[0], channel: ch, id: newPosts[0].id + "_" + i }))),
+          ],
         };
       }
-      if (incoming && Array.isArray(incoming.posts) && incoming.posts.length) {
+      const incomingNew = incoming && Array.isArray(incoming.posts) ? incoming.posts.filter((p) => !p.existing) : [];
+      if (incomingNew.length) {
         const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || todayIso();
-        const dates = [...new Set(incoming.posts.map((p) => p.date || pinFallback))];
-        const channels = namedSend.length ? namedSend : [...new Set(incoming.posts.map((p) => String(p.channel || "linkedin").toLowerCase()))];
+        const dates = [...new Set(incomingNew.map((p) => p.date || pinFallback))];
+        const channels = namedSend.length ? namedSend : [...new Set(incomingNew.map((p) => String(p.channel || "linkedin").toLowerCase()))];
         const reuseKey = dates.slice().sort().join(",") + "|" + channels.slice().sort().join(",") + "|" + normPlan(text);
         const existing = sameTaskDrafts(posts, dates, channels, text);
         if (existing.length && repeatGenerate.current !== reuseKey) {
@@ -2924,21 +2870,24 @@ export function SocialWorkspace({
         }
         repeatGenerate.current = "";
       }
-      const created = (incoming && Array.isArray(incoming.posts) && incoming.posts.length)
-        ? applyPlan(incoming, true, !wantsPerChannelDiff(text))
-        : [];
-      const spoken = created.length
-        ? (created.length > 1 && !wantsPerChannelDiff(text)
-          ? ("Same caption and image for " + created.length + " slots. Open Approvals to edit copy or image, or ask for a different version per channel.")
-          : ("Draft is in Approvals. Edit image or caption there — that is the post that will go out, not this chat."))
-        : humanizeAiReply((res && res.reply) || "", false);
+      const result = applyPlan(incoming, !wantsPerChannelDiff(text));
+      const bits = [];
+      if (result.created.length) {
+        bits.push("Planned " + result.created.length + " post" + (result.created.length === 1 ? "" : "s")
+          + (incoming.cappedAt ? " (the first " + incoming.cappedAt + "; ask again for the rest)" : "")
+          + ". Writing captions and images now, a few at a time. Each card fills in when ready, then waits for approval.");
+      }
+      if (result.updated.length) bits.push("Updated " + result.updated.length + " post" + (result.updated.length === 1 ? "" : "s") + ".");
+      if (result.deleted.length) bits.push("Removed " + result.deleted.length + " post" + (result.deleted.length === 1 ? "" : "s") + ".");
+      const touched = result.created[0] || result.updated[0];
+      const spoken = bits.length ? bits.join(" ") : humanizeAiReply((res && res.reply) || "", false);
       setChat((cs) => [
         ...cs,
         {
           id: "a_" + Date.now(),
           who: "ai",
-          kind: created.length ? "draft" : "ai",
-          postId: created[0] && created[0].id,
+          kind: touched ? "draft" : "ai",
+          postId: touched && touched.id,
           text: spoken,
         },
       ]);
@@ -3421,7 +3370,7 @@ export function SocialWorkspace({
                           <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, overflow: "hidden" }}>
                             <span style={{ width: 6, height: 6, borderRadius: 99, background: statusColor(p.status), flexShrink: 0 }} />
                             <span style={{ fontSize: 10, fontWeight: 700, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                              {formatOrgTime(p.time, org.timeFormat)} · {p.channel}
+                              {formatOrgTime(p.time, org.timeFormat)} · {p.channel}{queueProgress(p) ? " · writing…" : p.genState === "failed" ? " · AI failed" : ""}
                             </span>
                           </div>
                           <div
@@ -3833,6 +3782,7 @@ export function SocialWorkspace({
                 updateSchedule={updateSchedule}
                 deletePost={deletePost}
                 genProgress={genProgress}
+                retryGeneration={retryGeneration}
               />
             </div>
           </div>

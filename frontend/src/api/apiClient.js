@@ -221,10 +221,8 @@ export const api = {
     method: 'POST', 
     body: typeof payload === 'string' ? { prompt: payload } : payload 
   }),
-  generateSocialPackage: (payload) => apiRequest('/scheduler/generate-package', {
-    method: 'POST',
-    body: payload
-  }),
+  queueGeneration: (payload) => apiRequest('/scheduler/generate', { method: 'POST', body: payload }),
+  retryGeneration: (payload) => apiRequest('/scheduler/generate/retry', { method: 'POST', body: payload }),
   getSocialAccounts: (refresh = false) => apiRequest(`/scheduler/accounts${refresh ? '?refresh=true' : ''}`),
   deleteSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}`, { method: 'DELETE' }),
   publishPost: (postId, payload) => apiRequest(`/scheduler/posts/${postId}/publish`, { method: 'POST', body: payload || {} }),

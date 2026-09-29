@@ -799,8 +799,6 @@ async def generate_complete_social_package(
     headline = (existing_headline or "").strip()
     note = (revision_note or "").strip()
     want_n = requested_hashtag_count(note)
-    max_n = want_n or 6
-    no_pad = want_n is not None
     draft_block = ""
     if headline:
         draft_block += f"\nExisting headline (this is the visible post title — revise it when the request mentions headline/title, or when a rewrite would make it stale):\n{headline}\n"
@@ -909,6 +907,35 @@ Return ONLY valid JSON:
             llm_payload["copy"] = strip_ai_slop(draft)
             llm_payload["hook"] = draft.split("\n")[0][:180]
 
+    finalize_text_package(
+        llm_payload, clean_topic=clean_topic, brand=brand, headline=headline,
+        want_n=want_n, adapt_per_channel=adapt_per_channel, generation_source=generation_source,
+    )
+    if skip_image:
+        llm_payload["imageUrl"] = None
+        llm_payload["skipImage"] = True
+        return llm_payload
+    await render_package_image(
+        llm_payload, clean_topic=clean_topic, brand=brand,
+        image_provider=image_provider, image_api_key=image_api_key, image_model=image_model,
+        image_base_url=image_base_url, style=style, aspect_ratio=aspect_ratio, db=db,
+    )
+    return llm_payload
+
+
+def finalize_text_package(
+    llm_payload: Dict[str, Any],
+    *,
+    clean_topic: str,
+    brand: str,
+    headline: str = "",
+    want_n: Optional[int] = None,
+    adapt_per_channel: bool = False,
+    generation_source: str = "llm",
+) -> Dict[str, Any]:
+    """Clean and assemble a writer reply into the post package the scheduler stores."""
+    max_n = want_n or 6
+    no_pad = want_n is not None
     for k in ("copy", "linkedin_copy", "facebook_copy", "instagram_copy", "threads_copy", "x_copy", "hook", "cta", "postTitle", "imageHeadline", "imageConcept"):
         if llm_payload.get(k):
             llm_payload[k] = strip_ai_slop(str(llm_payload.get(k)))
@@ -945,19 +972,29 @@ Return ONLY valid JSON:
         llm_payload["linkedin_copy"] = assemble_linkedin_post({**llm_payload, "copy": llm_payload.get("linkedin_copy") or canonical_body})
         llm_payload["copy"] = assembled
     llm_payload["adaptPerChannel"] = bool(adapt_per_channel)
+    llm_payload["imagePrompt"] = llm_payload.get("image_prompt") or llm_payload.get("imagePrompt") or ""
+    llm_payload["image_prompt"] = llm_payload["imagePrompt"]
+    llm_payload["generationSource"] = generation_source
+    llm_payload["needsHumanReview"] = generation_source != "llm"
+    llm_payload["topic"] = clean_topic
+    return llm_payload
 
-    if skip_image:
-        llm_payload["imageUrl"] = None
-        llm_payload["imagePrompt"] = llm_payload.get("image_prompt") or llm_payload.get("imagePrompt") or ""
-        llm_payload["image_prompt"] = llm_payload["imagePrompt"]
-        llm_payload["generationSource"] = generation_source
-        llm_payload["needsHumanReview"] = generation_source != "llm"
-        llm_payload["topic"] = clean_topic
-        llm_payload["skipImage"] = True
-        return llm_payload
 
-    # Generate image. The text-model key is never reused for images: the image engine
-    # resolves its own key (see resolve_image_credentials).
+async def render_package_image(
+    llm_payload: Dict[str, Any],
+    *,
+    clean_topic: str,
+    brand: str,
+    image_provider: Optional[str] = None,
+    image_api_key: Optional[str] = None,
+    image_model: Optional[str] = None,
+    image_base_url: Optional[str] = None,
+    style: str = "modern_saas",
+    aspect_ratio: str = "4:5",
+    db: Any = None,
+) -> Dict[str, Any]:
+    """Render the post image. The text-model key is never reused for images: the image
+    engine resolves its own key (see resolve_image_credentials)."""
     img_prompt = linkedin_image_prompt(llm_payload, clean_topic, brand)
     width, height = ASPECT_RATIOS.get(aspect_ratio, (1080, 1350))
     img_res = await generate_image_with_provider(
@@ -972,7 +1009,6 @@ Return ONLY valid JSON:
         height=height,
         db=db,
     )
-
     llm_payload["imageUrl"] = img_res.get("imageUrl")
     llm_payload["imagePrompt"] = img_prompt
     llm_payload["image_prompt"] = img_prompt
@@ -982,10 +1018,100 @@ Return ONLY valid JSON:
     llm_payload["aspect_ratio"] = aspect_ratio
     llm_payload["width"] = img_res.get("width", width)
     llm_payload["height"] = img_res.get("height", height)
-    llm_payload["topic"] = clean_topic
-    llm_payload["generationSource"] = generation_source
-    llm_payload["needsHumanReview"] = generation_source != "llm"
     if img_res.get("warning"):
         llm_payload["imageWarning"] = img_res["warning"]
-
     return llm_payload
+
+
+class BatchWriteError(Exception):
+    """The batched writer reply was cut off or unreadable; retry with fewer posts."""
+
+
+_ARRAY_RE = re.compile(r"\[[\s\S]*\]")
+
+
+async def write_post_batch(
+    items: List[Dict[str, Any]],
+    company_name: str = "",
+    company_pitch: str = "",
+    company_context: str = "",
+    linkedin_directive: str = "",
+    api_key: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    db: Any = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Write up to 5 new posts in ONE model call. items: [{key, plan, headline, channel, date}].
+
+    Returns {key: finalized package without image}. Raises BatchWriteError when the reply is
+    cut off or does not contain every post, so the caller can retry with smaller batches.
+    """
+    from app.services.llm_gateway import call_open_chat_llm, output_token_limit
+
+    brand = (company_name or "").strip()
+    kb_bits = [f"Company: {brand}" if brand else "", f"Offering: {company_pitch.strip()}" if (company_pitch or "").strip() else "", (company_context or "").strip()]
+    kb_block = "\n".join(b for b in kb_bits if b)
+    li_rules = (linkedin_directive or "").strip() or linkedin_craft_brief(brand, company_pitch, company_context)
+
+    lines = []
+    for it in items:
+        plan = (it.get("plan") or it.get("headline") or company_pitch or "Write about this company's actual offering.").strip()
+        lines.append(
+            f'- key: {it["key"]} | channel: {it.get("channel") or "linkedin"} | date: {it.get("date") or ""}\n'
+            f'  headline idea: {(it.get("headline") or "").strip()[:140]}\n'
+            f'  post plan: {plan[:1200]}'
+        )
+
+    system_prompt = f"""{li_rules}
+
+You ghostwrite for this company using ONLY the profile facts. Sound like a practitioner a peer would stop scrolling to read.
+
+Company profile (use only these facts; do not invent metrics, customers, systems, URLs, or offerings):
+{kb_block or "No extra facts supplied."}
+
+Write one complete, distinct post for EACH item below. Each post follows its own plan; do not reuse hooks or openings across posts. If a plan is a short thought, expand it using the profile. Never switch industry.
+Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today's fast-paced world, slogan closers, fake statistics.
+
+Return ONLY a valid JSON array with exactly one object per item, in the same order:
+[{{"key": "item key", "postTitle": "Visible headline, max 8 words", "hook": "1-2 line hook", "copy": "Body 120-220 words, short mobile paragraphs, no hashtags", "hashtags": ["#Tag1", "#Tag2", "#Tag3"], "cta": "Closing question in the post", "first_comment": "Useful follow-up", "imageConcept": "One paragraph describing the visual", "imageHeadline": "Max 8 words on the image", "image_prompt": "Production-ready 4:5 prompt, 1080x1350, no fake UI", "alt_text": "Plain image description"}}]"""
+
+    res = await call_open_chat_llm(
+        messages=[{"role": "user", "content": "Items:\n" + "\n".join(lines)}],
+        system_prompt=system_prompt,
+        api_key=api_key,
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        temperature=0.7,
+        max_tokens=output_token_limit(provider, 1100 * len(items) + 400),
+        db=db,
+    )
+    if not res or not res.get("success"):
+        raise RuntimeError((res or {}).get("error") or "The writing AI did not answer.")
+    if res.get("truncated"):
+        raise BatchWriteError("reply cut off")
+    reply = (res.get("reply") or "").strip()
+    m = _ARRAY_RE.search(reply)
+    try:
+        rows = json.loads(m.group(0) if m else reply)
+    except Exception as err:
+        raise BatchWriteError(f"unreadable reply: {err}")
+    if not isinstance(rows, list):
+        raise BatchWriteError("reply is not a list")
+
+    by_key = {str(r.get("key")): r for r in rows if isinstance(r, dict) and r.get("key") is not None}
+    if len(items) == 1 and not by_key and rows and isinstance(rows[0], dict):
+        by_key = {str(items[0]["key"]): rows[0]}
+    missing = [it["key"] for it in items if str(it["key"]) not in by_key]
+    if missing:
+        raise BatchWriteError(f"missing posts {missing}")
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for it in items:
+        payload = dict(by_key[str(it["key"])])
+        plan = (it.get("plan") or it.get("headline") or "").strip()
+        out[str(it["key"])] = finalize_text_package(
+            payload, clean_topic=plan or brand, brand=brand, headline=(it.get("headline") or ""),
+        )
+    return out

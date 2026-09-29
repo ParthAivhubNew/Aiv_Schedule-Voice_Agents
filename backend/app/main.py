@@ -476,10 +476,13 @@ async def lifespan(app: FastAPI):
         logger.warning(f"[Social] Schema check failed: {social_schema_err}")
 
     publish_due_task = asyncio.create_task(_social_publish_due_loop())
+    from app.services.generation_queue import generation_loop
+    generation_task = asyncio.create_task(generation_loop())
 
     yield
 
     publish_due_task.cancel()
+    generation_task.cancel()
     logger.info("Shutting down AIVHub Voice Agent API...")
 
 app = FastAPI(
