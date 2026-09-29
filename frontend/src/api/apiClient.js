@@ -164,6 +164,8 @@ export const api = {
   // Profile & Knowledge (RAG & Crawler)
   getProfile: () => apiRequest('/profile'),
   updateProfile: (profile) => apiRequest('/profile', { method: 'PUT', body: profile }),
+  getOrgSettings: () => apiRequest('/profile/org'),
+  saveOrgSettings: (payload) => apiRequest('/profile/org', { method: 'PUT', body: payload }),
   getSources: () => apiRequest('/profile/sources'),
   addSource: (source) => apiRequest('/profile/sources', { method: 'POST', body: source }),
   resyncSource: (sourceId) => apiRequest(`/profile/sources/${sourceId}/resync`, { method: 'POST' }),

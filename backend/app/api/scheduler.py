@@ -4,6 +4,8 @@ from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db, engine
+from app.services.org_settings import org_instant_ms, org_timezone
+from app.services.timezone_service import tzinfo
 from app.models.models import SocialPost, SocialAccount, CompanyProfile, SchedulerSetting, Connection
 from app.services.post_writer import (
     create_topic_image_prompt,
@@ -154,7 +156,16 @@ def _last_error(p: SocialPost) -> str:
     return " · ".join(errs)
 
 
-def _apply_due(post: SocialPost, payload: Dict[str, Any]) -> None:
+def _apply_due(post: SocialPost, payload: Dict[str, Any], tz: str) -> None:
+    """Publish instant = date + time in the organisation timezone, computed here (never by
+    the browser, whose clock may be in another country). dueAtMs is only a legacy fallback."""
+    date_str = str(payload.get("date") or "").strip()
+    if date_str:
+        due_ms = org_instant_ms(date_str, payload.get("time") or post.time or "09:00", tz)
+        if due_ms:
+            post.due_at_ms = due_ms
+            post.slot_date_ms = due_ms
+            return
     due = payload.get("dueAtMs") if payload.get("dueAtMs") is not None else payload.get("due_at_ms")
     if due is None:
         return
@@ -596,6 +607,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
     theme = payload.get("theme", "Operations")
     image_url = _host_image(payload.get("imageUrl"), request)
     image_prompt = payload.get("imagePrompt")
+    tz = await org_timezone(db)
 
     async def _upsert():
         res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
@@ -616,7 +628,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             if image_prompt is not None:
                 existing_post.image_prompt = image_prompt
             _apply_package_fields(existing_post, payload)
-            _apply_due(existing_post, payload)
+            _apply_due(existing_post, payload, tz)
             return existing_post
         new_post = SocialPost(
             id=post_id,
@@ -631,7 +643,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             image_prompt=image_prompt,
         )
         _apply_package_fields(new_post, payload)
-        _apply_due(new_post, payload)
+        _apply_due(new_post, payload, tz)
         db.add(new_post)
         return new_post
 
@@ -877,7 +889,7 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
             image_prompt=payload.get("imagePrompt"),
         )
         _apply_package_fields(post, payload)
-        _apply_due(post, payload)
+        _apply_due(post, payload, await org_timezone(db))
         db.add(post)
         try:
             await db.commit()
@@ -946,11 +958,11 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
     }
 
 
-def _due_ms(post) -> float:
+def _due_ms(post, tz: str) -> float:
     exact = getattr(post, "due_at_ms", None)
     if exact:
         return float(exact)
-    # Legacy rows: slot day + "HH:MM" interpreted in the server's local timezone.
+    # Legacy rows: slot day + "HH:MM" in the organisation timezone.
     base = float(post.slot_date_ms or 0)
     if not base:
         return 0.0
@@ -961,9 +973,8 @@ def _due_ms(post) -> float:
         mm = int(parts[1]) if len(parts) > 1 else 0
     except Exception:
         hh, mm = 9, 0
-    dt = datetime.fromtimestamp(base / 1000.0)
-    dt = datetime(dt.year, dt.month, dt.day, hh, mm, 0)
-    return dt.timestamp() * 1000.0
+    day = datetime.fromtimestamp(base / 1000.0, tzinfo(tz))
+    return day.replace(hour=hh, minute=mm, second=0, microsecond=0).timestamp() * 1000.0
 
 
 async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -> Dict[str, Any]:
@@ -975,13 +986,14 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     against the networks every minute.
     """
     now_ms = time.time() * 1000
+    tz = await org_timezone(db)
     result = await db.execute(select(SocialPost).where(SocialPost.status.in_(["approved", "scheduled"])))
     posts = result.scalars().all()
     published = []
     failed = []
     skipped = []
     for post in posts:
-        due_at = _due_ms(post)
+        due_at = _due_ms(post, tz)
         if due_at and due_at > now_ms:
             skipped.append(post.id)
             continue

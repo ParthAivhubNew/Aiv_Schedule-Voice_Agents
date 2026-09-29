@@ -19,6 +19,7 @@ from app.services.xai_voice_service import (
 from app.services.process_logger import log_process_event
 from app.services.call_names import apply_names_to_log, clean_person_label, resolve_call_people
 from app.config import settings
+from app.services.org_settings import org_timezone
 from datetime import datetime, timedelta
 import logging
 import uuid
@@ -410,7 +411,7 @@ async def confirm_booking_from_call(call_id: str, db: AsyncSession = Depends(get
         attendee_email = emails[-1]
 
     setting = await calendar_service.get_or_create_settings(db)
-    host_tz = setting.timezone or "Europe/London"
+    host_tz = await org_timezone(db)
     host_now = now_in(host_tz)
 
     # Prefer explicit clock times mentioned by prospect ("3 PM", "15:00", "three o'clock")

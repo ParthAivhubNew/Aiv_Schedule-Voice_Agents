@@ -15,6 +15,8 @@ from app.database import AsyncSessionLocal, get_db
 from app.models.models import CallLog
 from app.services.telnyx_signature import verify_telnyx_ed25519_signature
 from app.services.process_logger import log_process_event
+from app.services.org_settings import org_timezone
+from app.services.timezone_service import tzinfo
 
 logger = logging.getLogger("telnyx_assistant_webhook")
 
@@ -251,7 +253,9 @@ async def handle_telnyx_assistant_call_event(request: Request):
         caller_phone = str(payload.get("telnyx_end_user_target") or payload.get("from") or "").strip()
         transcript_raw = payload.get("transcript") or payload.get("messages") or []
         duration_secs = payload.get("call_duration_secs") or payload.get("duration") or 0
-        now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M")
+        async with AsyncSessionLocal() as tz_db:
+            org_tz = tzinfo(await org_timezone(tz_db))
+        now_str = datetime.now(org_tz).strftime("%d %b %Y, %H:%M")
 
         transcript = []
         for m in transcript_raw if isinstance(transcript_raw, list) else []:

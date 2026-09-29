@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.database import get_db
 from app.models.models import Meeting, MeetingEventType, CalcomSetting
 from app.services.calendar_service import calendar_service
+from app.services.org_settings import org_timezone, save_org
 
 router = APIRouter(prefix="/calcom", tags=["Calcom Scheduler"])
 
@@ -74,7 +75,6 @@ def _settings_public(st) -> Dict[str, Any]:
         "default_event_type_slug": st.default_event_type_slug,
         "default_duration": st.default_duration,
         "default_platform": st.default_platform,
-        "timezone": st.timezone,
         "working_hours_start": st.working_hours_start,
         "working_hours_end": st.working_hours_end,
         "working_days": st.working_days,
@@ -184,15 +184,21 @@ async def cancel_booking(booking_id: str, payload: CancelBookingPayload, db: Asy
 @router.get("/settings")
 async def get_settings(db: AsyncSession = Depends(get_db)):
     st = await calendar_service.get_or_create_settings(db)
-    return _settings_public(st)
+    return {**_settings_public(st), "timezone": await org_timezone(db)}
 
 @router.post("/settings")
 async def update_settings(payload: SettingsPayload, db: AsyncSession = Depends(get_db)):
     data = payload.dict(exclude_unset=True)
+    # The calendar shows the organisation timezone; editing it here edits it everywhere.
+    if data.get("timezone"):
+        try:
+            await save_org(db, {"timezone": data.pop("timezone")})
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
     st = await calendar_service.save_settings(db, data)
     response: Dict[str, Any] = {
         "success": True,
-        "settings": _settings_public(st),
+        "settings": {**_settings_public(st), "timezone": await org_timezone(db)},
     }
     # A freshly saved key on a blank Cal.com account should just start working:
     # auto-sync links/provisions the meeting types so bookings can go to Cal.com.

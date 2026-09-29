@@ -8,6 +8,7 @@ from app.schemas.schemas import CompanyProfileSchema, KnowledgeSourceSchema, Ser
 from app.services.secret_box import open_config, seal_config
 from app.services.crawler_service import crawl_and_index_source_task
 from app.services.rag_service import search_knowledge
+from app.services.org_settings import load_org, org_dict, save_org
 from typing import Dict, Any, List
 import uuid
 
@@ -39,7 +40,7 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
         "icoRef": profile.ico_ref,
         "dpoContact": profile.dpo_contact,
         "dncNotes": profile.dnc_notes,
-        "timezone": profile.timezone,
+        **org_dict(profile),
         "lunchStart": profile.lunch_start,
         "lunchEnd": profile.lunch_end,
         "callHoursPolicy": profile.call_hours_policy,
@@ -51,6 +52,22 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
         "customRules": getattr(profile, "custom_rules", None) or "",
         "demoScript": getattr(profile, "demo_script", None) or "",
     }
+
+@router.get("/org")
+async def get_org_settings(db: AsyncSession = Depends(get_db)):
+    """Organisation time settings every screen formats dates with."""
+    return await load_org(db)
+
+
+@router.put("/org")
+async def update_org_settings(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    try:
+        org = await save_org(db, payload)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    await db.commit()
+    return org
+
 
 @router.put("", response_model=dict)
 async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
@@ -94,7 +111,14 @@ async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get
         profile.dpo_contact = payload.get("dpoContact") or payload.get("dpo_contact", profile.dpo_contact)
     if "dncNotes" in payload or "dnc_notes" in payload:
         profile.dnc_notes = payload.get("dncNotes") or payload.get("dnc_notes", profile.dnc_notes)
-    if "timezone" in payload: profile.timezone = payload["timezone"]
+    org_patch = {k: payload[k] for k in ("timezone", "weekStart", "week_start", "timeFormat", "time_format", "approverEmails", "approver_emails") if k in payload}
+    if org_patch.get("timezone") == "":
+        org_patch.pop("timezone")
+    if org_patch:
+        try:
+            await save_org(db, org_patch)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
     if "lunchStart" in payload or "lunch_start" in payload:
         profile.lunch_start = payload.get("lunchStart") or payload.get("lunch_start", profile.lunch_start)
     if "lunchEnd" in payload or "lunch_end" in payload:
