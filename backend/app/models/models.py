@@ -502,6 +502,15 @@ class SocialGenJob(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AppSetting(Base):
+    """Small app-wide settings documents stored by key (e.g. the live voice stack)."""
+    __tablename__ = "app_settings"
+
+    id = Column(String, primary_key=True)
+    data = Column(JSON, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class SchedulerSetting(Base):
     """Post Scheduler preferences (which text/image AI to use). Keys live in Connection rows."""
     __tablename__ = "scheduler_settings"

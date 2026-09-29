@@ -443,9 +443,9 @@ async def lifespan(app: FastAPI):
         pass
 
     try:
-        from app.services.voice_plugin_plan import get_active_stack, resolve_voice_plan
-        active_stack = get_active_stack()
-        logger.info(f"[Startup Voice Stack] Loaded active_voice_stack.json: {active_stack}")
+        from app.services.voice_plugin_plan import load_active_stack, resolve_voice_plan
+        active_stack = await load_active_stack()
+        logger.info(f"[Startup Voice Stack] Loaded active voice stack: {active_stack}")
         try:
             plan = await resolve_voice_plan()
             logger.info(
