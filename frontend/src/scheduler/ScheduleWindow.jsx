@@ -40,6 +40,7 @@ function blankForm(today) {
     weekdays: [],
     monthDay: "",
     customDates: [],
+    sameBrief: true,
     dateTopics: {},
     date: today,
     time: "10:00",
@@ -64,6 +65,7 @@ function formFromSchedule(s) {
     weekdays: s.weekdays || [],
     monthDay: s.monthDay || "",
     customDates: s.customDates || [],
+    sameBrief: !Object.keys(s.dateTopics || {}).length,
     dateTopics: s.dateTopics || {},
     date: s.startDate || "",
     time: s.time || "10:00",
@@ -87,7 +89,8 @@ function payloadOf(form) {
     weekdays: form.weekdays,
     monthDay: form.monthDay ? Number(form.monthDay) : null,
     customDates: form.customDates,
-    dateTopics: form.dateTopics,
+    // Topics are kept while "same brief" is ticked (untick to get them back) but not sent.
+    dateTopics: form.frequency === "recurring" && !form.sameBrief ? form.dateTopics : {},
     date: form.date,
     time: form.time,
     startDate: form.frequency === "once" ? form.date : form.startDate,
@@ -145,6 +148,8 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
   const [topicToAdd, setTopicToAdd] = useState("");
   const [pasteList, setPasteList] = useState("");
   const [pasteNote, setPasteNote] = useState(null);
+  const [topicPaste, setTopicPaste] = useState("");
+  const [topicNote, setTopicNote] = useState("");
 
   useEscapeLayer(open, 1, onClose);
 
@@ -169,10 +174,39 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
   const addDates = (pairs) => {
     setForm((f) => {
       const topics = { ...(f.dateTopics || {}) };
-      pairs.forEach(([d, t]) => { if (String(t || "").trim()) topics[d] = String(t).trim(); });
-      return { ...f, customDates: [...new Set([...f.customDates, ...pairs.map(([d]) => d)])].sort(), dateTopics: topics };
+      let gotTopic = false;
+      pairs.forEach(([d, t]) => {
+        if (String(t || "").trim()) {
+          topics[d] = String(t).trim();
+          gotTopic = true;
+        }
+      });
+      return {
+        ...f,
+        customDates: [...new Set([...f.customDates, ...pairs.map(([d]) => d)])].sort(),
+        dateTopics: topics,
+        sameBrief: gotTopic ? false : f.sameBrief,
+      };
     });
   };
+  // Pasted topics fill the dates that have none yet, in date order.
+  const fillTopicsInOrder = (dates) => {
+    const lines = topicPaste.split("\n").map((l) => l.trim()).filter(Boolean);
+    const topics = { ...(form.dateTopics || {}) };
+    let used = 0;
+    dates.forEach((d) => {
+      if (used < lines.length && !String(topics[d] || "").trim()) {
+        topics[d] = lines[used];
+        used += 1;
+      }
+    });
+    set({ dateTopics: topics });
+    setTopicPaste(lines.slice(used).join("\n"));
+    setTopicNote(used < lines.length
+      ? "Filled " + used + ". " + (lines.length - used) + " left over: every date already has a topic."
+      : "Filled " + used + " date" + (used === 1 ? "" : "s") + ".");
+  };
+
   const removeDate = (d) => {
     setForm((f) => {
       const topics = { ...(f.dateTopics || {}) };
@@ -198,10 +232,10 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
   // Show which dates the schedule would post on, as the user fills it in.
   useEffect(() => {
     if (!open) return undefined;
-    // Custom dates may go without a brief when each date has its own topic; the server says
-    // which is missing.
-    const customDates = form.frequency === "recurring" && form.pattern === "dates";
-    if (!form.name.trim() || (!form.plan.trim() && !customDates)) {
+    // With a topic per date the brief is optional; the preview still lists the dates so each
+    // can get its topic.
+    const topicsMode = form.frequency === "recurring" && !form.sameBrief;
+    if (!form.name.trim() || (!form.plan.trim() && !topicsMode)) {
       setPreview(null);
       setPreviewError("");
       return undefined;
@@ -282,15 +316,22 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
   const weekOrder = WEEK_ORDER[org.weekStart] || WEEK_ORDER.monday;
   const current = list.find((x) => x.id === form.id);
 
-  const topicCount = form.pattern === "dates" && form.frequency === "recurring"
-    ? form.customDates.filter((d) => String((form.dateTopics || {})[d] || "").trim()).length
-    : 0;
+  const topicsMode = form.frequency === "recurring" && !form.sameBrief;
+  // The dates that can get their own topic: the picked custom dates, or every date to come.
+  const topicDates = !topicsMode ? [] : form.pattern === "dates"
+    ? form.customDates.filter((d) => d >= today)
+    : ((preview && preview.allDates) || []);
+  const topicCount = topicDates.filter((d) => String((form.dateTopics || {})[d] || "").trim()).length;
+  const topicsMissing = topicsMode && !form.plan.trim() ? topicDates.length - topicCount : 0;
   const summary = useMemo(() => {
     if (previewError) return { tone: "warn", text: previewError };
     if (!preview) return { tone: "idle", text: "Name the schedule and say what to post about to see the dates." };
     if (form.frequency === "now") return { tone: "ok", text: "One post, written now and posted as soon as it is approved." };
     const n = preview.upcomingCount;
     if (!n) return { tone: "warn", text: "No dates fall between the start and end date." };
+    if (topicsMissing) {
+      return { tone: "warn", text: topicsMissing + " of " + topicDates.length + " dates still need a topic. Give each one a topic, or write a background brief that covers them." };
+    }
     const first = (preview.upcoming || []).map(dayText).join(", ");
     const channels = (form.channels || []).length;
     const perDate = channels > 1 ? " × " + channels + " channels" : "";
@@ -300,7 +341,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
         + (form.frequency === "recurring" ? " · ends " + longDay(preview.endDate) : "")
         + (topicCount ? " · " + topicCount + " with their own topic" : ""),
     };
-  }, [preview, previewError, form.frequency, form.channels, topicCount]);
+  }, [preview, previewError, form.frequency, form.channels, topicCount, topicsMissing, topicDates.length]);
 
   if (!open) return null;
 
@@ -372,9 +413,66 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                   <Field label="Name">
                     <input aria-label="Schedule name" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Weekly operations tips" style={input} />
                   </Field>
-                  <Field label="What should the posts be about?" hint="Each post gets its own topic within this. The AI avoids repeating earlier posts. With custom dates you can instead give each date its own topic (Schedule tab).">
-                    <textarea aria-label="What to post about" value={form.plan} onChange={(e) => set({ plan: e.target.value })} rows={5} placeholder="e.g. Practical tips that help small teams run operations with less admin. Mix how-tos, lessons and one product mention a month." style={{ ...input, height: "auto", padding: 10, resize: "vertical" }} />
+                  {form.frequency === "recurring" ? (
+                    <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, color: C.ink, cursor: "pointer", marginBottom: 12 }}>
+                      <input type="checkbox" aria-label="Same brief for every post" checked={form.sameBrief} onChange={(e) => set({ sameBrief: e.target.checked })} style={{ marginTop: 2 }} />
+                      <span>
+                        <b>Same brief for every post</b>
+                        <span style={{ display: "block", fontSize: 12, color: C.slate }}>The AI writes a new angle each time. Untick to give each date its own topic.</span>
+                      </span>
+                    </label>
+                  ) : null}
+                  <Field
+                    label={topicsMode ? "Background for all posts (optional)" : "What should the posts be about?"}
+                    hint={topicsMode
+                      ? "Used as context for every post, and as the topic for any date you leave empty."
+                      : "Each post gets its own angle within this. The AI avoids repeating earlier posts."}
+                  >
+                    <textarea aria-label="What to post about" value={form.plan} onChange={(e) => set({ plan: e.target.value })} rows={topicsMode ? 3 : 5} placeholder="e.g. Practical tips that help small teams run operations with less admin. Mix how-tos, lessons and one product mention a month." style={{ ...input, height: "auto", padding: 10, resize: "vertical" }} />
                   </Field>
+                  {topicsMode ? (
+                    form.pattern === "dates" ? (
+                      <Note>Set each date's topic next to it on the Schedule tab (Custom dates).</Note>
+                    ) : (
+                      <Field label={"Topic for each date · " + topicCount + " of " + topicDates.length + " set"}>
+                        {!topicDates.length ? (
+                          <div style={{ fontSize: 12.5, color: C.slate }}>Set the pattern and dates on the Schedule tab; the dates show up here.</div>
+                        ) : (
+                          <>
+                            <details style={{ marginBottom: 8 }}>
+                              <summary style={{ fontSize: 12.5, color: C.teal, fontWeight: 700, cursor: "pointer" }}>Paste topics in order</summary>
+                              <textarea
+                                aria-label="Paste topics in order"
+                                value={topicPaste}
+                                onChange={(e) => setTopicPaste(e.target.value)}
+                                rows={5}
+                                placeholder={"One topic per line. They fill the dates without a topic, in date order.\nOnboarding checklist\nWhy spreadsheets break"}
+                                style={{ ...input, height: "auto", padding: 10, marginTop: 6, fontSize: 12.5, resize: "vertical" }}
+                              />
+                              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                                <button type="button" disabled={!topicPaste.trim()} onClick={() => fillTopicsInOrder(topicDates)} style={secBtn}>Fill dates</button>
+                                {topicNote ? <span style={{ fontSize: 12, color: C.teal }}>{topicNote}</span> : null}
+                              </div>
+                            </details>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
+                              {topicDates.map((d) => (
+                                <div key={d} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ width: 96, flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: C.ink }}>{dayText(d)}</span>
+                                  <input
+                                    aria-label={"Topic for " + d}
+                                    value={(form.dateTopics || {})[d] || ""}
+                                    onChange={(e) => set({ dateTopics: { ...(form.dateTopics || {}), [d]: e.target.value } })}
+                                    placeholder={form.plan.trim() ? "Follows the background brief" : "Topic for this post"}
+                                    style={{ ...input, height: 34 }}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </Field>
+                    )
+                  ) : null}
                   <Field label="Channels" hint="With more than one, each date gets the same post on every channel.">
                     <Chips options={CHANNELS} value={form.channels} onChange={(v) => set({ channels: v })} />
                   </Field>
@@ -426,7 +524,9 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                         <Field label="Dates and topics" hint="Each date can have its own topic. Dates left without one follow the brief on the Content tab.">
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                             <input type="date" aria-label="Date to add" min={today} value={dateToAdd} onChange={(e) => setDateToAdd(e.target.value)} style={{ ...input, width: 170 }} />
-                            <input aria-label="Topic for that date" value={topicToAdd} onChange={(e) => setTopicToAdd(e.target.value)} placeholder="Topic for that post (optional)" style={{ ...input, flex: "1 1 200px", width: "auto" }} />
+                            {topicsMode ? (
+                              <input aria-label="Topic for that date" value={topicToAdd} onChange={(e) => setTopicToAdd(e.target.value)} placeholder="Topic for that post (optional)" style={{ ...input, flex: "1 1 200px", width: "auto" }} />
+                            ) : null}
                             <button type="button" disabled={!dateToAdd} onClick={() => { addDates([[dateToAdd, topicToAdd]]); setDateToAdd(""); setTopicToAdd(""); }} style={secBtn}>
                               Add date
                             </button>
@@ -450,13 +550,15 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                             {form.customDates.map((d) => (
                               <div key={d} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <span style={{ width: 96, flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: C.ink }}>{dayText(d)}</span>
-                                <input
-                                  aria-label={"Topic for " + d}
-                                  value={(form.dateTopics || {})[d] || ""}
-                                  onChange={(e) => set({ dateTopics: { ...(form.dateTopics || {}), [d]: e.target.value } })}
-                                  placeholder={form.plan.trim() ? "Follows the brief" : "Topic for this post"}
-                                  style={{ ...input, height: 34 }}
-                                />
+                                {topicsMode ? (
+                                  <input
+                                    aria-label={"Topic for " + d}
+                                    value={(form.dateTopics || {})[d] || ""}
+                                    onChange={(e) => set({ dateTopics: { ...(form.dateTopics || {}), [d]: e.target.value } })}
+                                    placeholder={form.plan.trim() ? "Follows the brief" : "Topic for this post"}
+                                    style={{ ...input, height: 34 }}
+                                  />
+                                ) : <span style={{ flex: 1 }} />}
                                 <button type="button" aria-label={"Remove " + d} onClick={() => removeDate(d)} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4, display: "flex", color: C.slate }}>
                                   <X size={14} />
                                 </button>

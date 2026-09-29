@@ -80,8 +80,12 @@ def _emails(raw: Any, label: str) -> List[str]:
     return clean_emails(items)
 
 
-def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedule] = None) -> Dict[str, Any]:
-    """Validate a schedule from the Schedule window. Raises ValueError with a message for the user."""
+def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedule] = None,
+          first_day: Optional[date] = None, require_topics: bool = True) -> Dict[str, Any]:
+    """Validate a schedule from the Schedule window. Raises ValueError with a message for the user.
+    first_day: the first date that still gets a post (today's slot may have passed).
+    require_topics=False skips the "every date needs a topic or a brief" rule (for previews,
+    so the window can list the dates while they are being filled in)."""
     name = str(payload.get("name") or "").strip()
     if not name:
         raise ValueError("Give the schedule a name.")
@@ -132,8 +136,8 @@ def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedul
     out["retry_count"] = retry_count
     out["retry_delay_min"] = retry_delay
 
-    # Only custom dates can go without a brief, and only when every date has its own topic.
-    if not plan and not (frequency == "recurring" and str(payload.get("pattern") or "").lower() == "dates"):
+    # A repeating schedule may go without a brief when every date has its own topic.
+    if not plan and frequency != "recurring":
         raise ValueError("Say what the posts should be about.")
     if frequency == "now":
         out["start_date"] = out["end_date"] = today.isoformat()
@@ -160,15 +164,9 @@ def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedul
         if (dates[-1] - dates[0]).days > MAX_RUN_DAYS:
             raise ValueError("Keep custom dates within one year.")
         out["custom_dates"] = [d.isoformat() for d in dates]
-        raw_topics = payload.get("dateTopics") if isinstance(payload.get("dateTopics"), dict) else {}
-        # Each date may have its own topic; dates without one follow the brief.
-        topics = {d: str(raw_topics.get(d) or "").strip()[:500] for d in out["custom_dates"]}
-        out["date_topics"] = {d: t for d, t in topics.items() if t}
-        if not plan and len(out["date_topics"]) < len(out["custom_dates"]):
-            raise ValueError("Give every date a topic, or say what the posts should be about.")
         out["start_date"] = dates[0].isoformat()
         out["end_date"] = dates[-1].isoformat()
-        return out
+        return _with_topics(out, payload, first_day or today, require_topics)
 
     start = parse_date(payload.get("startDate")) or today
     if start < today and not (existing and existing.start_date == start.isoformat()):
@@ -194,6 +192,33 @@ def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedul
         if not 1 <= md <= 31:
             raise ValueError("Day of the month must be 1 to 31.")
         out["month_day"] = md
+    return _with_topics(out, payload, first_day or today, require_topics)
+
+
+MAX_TOPICS = 400
+
+
+def _with_topics(out: Dict[str, Any], payload: Dict[str, Any], first_day: date, require_topics: bool) -> Dict[str, Any]:
+    """Keep each date's own topic (any repeating pattern). Dates without one follow the brief;
+    with no brief, every upcoming date needs a topic."""
+    draft = SocialSchedule(**out)
+    all_dates = [d.isoformat() for d in occurrences(draft, parse_date(out["start_date"]), parse_date(out["end_date"]))]
+    raw = payload.get("dateTopics") if isinstance(payload.get("dateTopics"), dict) else {}
+    topics = {}
+    for d in all_dates:
+        t = str(raw.get(d) or "").strip()[:500]
+        if t:
+            topics[d] = t
+    if len(topics) > MAX_TOPICS:
+        raise ValueError(f"At most {MAX_TOPICS} dates can have their own topic.")
+    out["date_topics"] = topics
+    if require_topics and not out["focus"]:
+        missing = [d for d in all_dates if d >= first_day.isoformat() and d not in topics]
+        if missing:
+            raise ValueError(
+                f"Give every date a topic ({len(missing)} still without one), "
+                "or write a brief for all posts on the Content tab."
+            )
     return out
 
 
@@ -257,6 +282,8 @@ def schedule_dict(s: SocialSchedule, first_day: date, post_counts: Optional[Dict
         "status": s.status or "active",
         "endedReason": s.ended_reason,
         "upcoming": [d.isoformat() for d in upcoming[:6]],
+        # Every date still to come, so the window can list them with a topic box each.
+        "allDates": [d.isoformat() for d in upcoming[:MAX_TOPICS]],
         "upcomingCount": len(upcoming),
         "posts": (post_counts or {}).get(s.id, 0),
     }

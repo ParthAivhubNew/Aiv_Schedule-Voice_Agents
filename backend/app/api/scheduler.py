@@ -859,10 +859,15 @@ async def _schedule_view(db: AsyncSession, rows: List[SocialSchedule]) -> List[D
     return [schedule_engine.schedule_dict(r, schedule_engine.first_open_day(r, today, tz, now_ms), counts) for r in rows]
 
 
-async def _cleaned_schedule(db: AsyncSession, payload: Dict[str, Any], existing: Optional[SocialSchedule] = None) -> Dict[str, Any]:
+async def _cleaned_schedule(db: AsyncSession, payload: Dict[str, Any], existing: Optional[SocialSchedule] = None,
+                            require_topics: bool = True) -> Dict[str, Any]:
     tz = await org_timezone(db)
+    today = schedule_engine.org_today(tz)
+    # Today only counts when its slot is still ahead (otherwise no post is made for it).
+    due_today = org_instant_ms(today.isoformat(), str(payload.get("time") or "10:00"), tz)
+    first_day = today + timedelta(days=1) if due_today and due_today <= time.time() * 1000 else today
     try:
-        return schedule_engine.clean(payload, schedule_engine.org_today(tz), existing)
+        return schedule_engine.clean(payload, today, existing, first_day=first_day, require_topics=require_topics)
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
 
@@ -875,8 +880,9 @@ async def list_schedules(db: AsyncSession = Depends(get_db)):
 
 @router.post("/schedules/preview")
 async def preview_schedule(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-    """Which dates a schedule would post on, before saving it."""
-    values = await _cleaned_schedule(db, payload)
+    """Which dates a schedule would post on, before saving it. Missing topics are allowed here:
+    the window needs the dates to show a topic box for each."""
+    values = await _cleaned_schedule(db, payload, require_topics=False)
     draft = SocialSchedule(id="preview", status="active", **values)
     tz = await org_timezone(db)
     today = schedule_engine.org_today(tz)
