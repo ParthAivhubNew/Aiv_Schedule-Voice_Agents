@@ -195,8 +195,11 @@ export const api = {
   getActiveStack: () => apiRequest('/connections/telephony-hub/select-stack'),
   selectActiveStack: (payload) => apiRequest('/connections/telephony-hub/select-stack', { method: 'POST', body: payload }),
   testTelephonyPing: () => apiRequest('/connections/telephony-hub/test-ping', { method: 'POST' }),
-  cloneVoice: (formData) => apiRequest('/connections/telephony-hub/voices/clone', { method: 'POST', body: formData }),
-  selectVoice: (payload) => apiRequest('/connections/telephony-hub/voices/select', { method: 'POST', body: payload }),
+  getVoiceLibrary: () => apiRequest('/voices/library'),
+  addLibraryVoice: (payload) => apiRequest('/voices', { method: 'POST', body: payload }),
+  removeLibraryVoice: (id) => apiRequest(`/voices/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setCallVoice: (kind, ref) => apiRequest('/voices/active', { method: 'POST', body: { kind, ref } }),
+  getVoiceCatalog: (provider) => apiRequest(`/voices/catalog/${encodeURIComponent(provider)}`, { timeoutMs: 20000 }),
 
   // AI Lead Radar & Enrichment
   enrichProspect: (payload) => apiRequest('/enrichment/enrich-prospect', { method: 'POST', body: payload }),

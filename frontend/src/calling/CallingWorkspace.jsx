@@ -47,6 +47,7 @@ import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDispl
 import { setCallingEdition } from "./callingEdition";
 import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
+import { VoicePicker } from "../voice/VoicePicker";
 import { ConversationTemplatesView } from "../views/ConversationTemplatesView";
 import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
 
@@ -805,21 +806,6 @@ function savedTwilioCreds() {
   }
 }
 
-function voiceSelectLabel(id) {
-  if (id === "rex-uk") return "Rex UK — Sam (British, male)";
-  if (id === "rex") return "Rex — Sam (male)";
-  if (id === "leo") return "Leo (male)";
-  if (id === "ara-uk") return "Ara UK (British, female)";
-  if (id === "eve-uk") return "Eve UK (British, female)";
-  if (id === "ara") return "Ara (female)";
-  if (id === "eve") return "Eve (female)";
-  return id;
-}
-
-function voiceAccentFor(id) {
-  return String(id || "").includes("-uk") || String(id || "").includes("_uk") ? "british" : undefined;
-}
-
 export function CallingWorkspace({
   operator,
   onBackToHub,
@@ -862,8 +848,6 @@ export function CallingWorkspace({
   const [listeningId, setListeningId] = useState(null);
   const [takenId, setTakenId] = useState(null);
   const [endingId, setEndingId] = useState(null);
-  const [voiceName, setVoiceName] = useState("ara-uk");
-  const [customVoices, setCustomVoices] = useState([]);
   const [direct, setDirect] = useState({ phone: "", name: "" });
   const [callVia, setCallViaState] = useState(() => {
     try { return localStorage.getItem(LS_CALL_VIA) === "assistant" ? "assistant" : "engine"; } catch (_) { return "engine"; }
@@ -1202,9 +1186,6 @@ export function CallingWorkspace({
 
   useEffect(() => {
     api.getTelephonyHub().then((res) => {
-      const vid = res?.voiceName || res?.voice?.voice_id;
-      if (vid) setVoiceName(vid);
-      if (Array.isArray(res?.customVoices)) setCustomVoices(res.customVoices);
       const phone = (res?.phoneNumber || "").trim();
       if (phone && setProfile) {
         setProfile((p) => (p && p.callerId ? p : { ...(p || {}), callerId: phone }));
@@ -2333,22 +2314,11 @@ export function CallingWorkspace({
   const saveSetup = async () => {
     setBusy("save");
     try {
-      if (!companyPanel) {
-        const next = { ...(profile || {}), ...draft };
-        await api.updateProfile(next);
-        if (setProfile) setProfile(next);
-      }
-      const custom = (customVoices || []).find((cv) => (cv.voice_id || cv.id) === voiceName);
-      const voice = String(voiceName || "").trim();
-      if (voice && !/^(not configured|none|null|undefined)$/i.test(voice)) {
-        await api.selectVoice({
-          voice_id: voice,
-          label: custom ? (custom.name || voice) : voiceSelectLabel(voice),
-          provider: custom ? (custom.provider || undefined) : undefined,
-          accent: voiceAccentFor(voice),
-        });
-      }
-      showToast(companyPanel ? "Voice saved." : "Setup saved.");
+      // The call voice saves itself in the voice picker; this saves the company details.
+      const next = { ...(profile || {}), ...draft };
+      await api.updateProfile(next);
+      if (setProfile) setProfile(next);
+      showToast("Setup saved.");
     } catch (e) {
       showToast(e.message || "Save failed");
     } finally {
@@ -3663,28 +3633,12 @@ export function CallingWorkspace({
           {page === "company" && (
             <div>
               {isValidElement(companyPanel)
-                ? cloneElement(companyPanel, { notifications, setNotifications, voiceName, setVoiceName, onDirtyChange: setCompanyDirty })
+                ? cloneElement(companyPanel, { notifications, setNotifications, onDirtyChange: setCompanyDirty })
                 : (
                 <div style={{ display: "grid", gap: 14, maxWidth: 640 }}>
                   <div style={card()}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Call voice</div>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>
-                      Voice
-                      <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} style={{ ...fieldStyle(), marginTop: 6 }}>
-                        {customVoices.map((cv) => (
-                          <option key={cv.voice_id || cv.id} value={cv.voice_id || cv.id}>
-                            ★ {cv.name || cv.voice_id || cv.id} (Cloned Voice)
-                          </option>
-                        ))}
-                        <option value="ara-uk">Ara UK (British, female)</option>
-                        <option value="eve-uk">Eve UK (British, female)</option>
-                        <option value="ara">Ara (female)</option>
-                        <option value="eve">Eve (female)</option>
-                        <option value="rex-uk">Rex UK — Sam (British, male)</option>
-                        <option value="rex">Rex — Sam (male)</option>
-                        <option value="leo">Leo (male)</option>
-                      </select>
-                    </label>
+                    <VoicePicker variant="compact" />
                   </div>
                   <div style={{ ...card(), display: "grid", gap: 12 }}>
                   {[
