@@ -161,6 +161,24 @@ async def test_schedule_makes_posts_ahead_and_keeps_hand_edits(client, db):
     assert [p.id for p in left] == [first.id]
 
 
+async def test_custom_dates_write_each_dates_own_topic(client, db):
+    from app.models.models import SocialGenJob, SocialPost
+
+    await client.put("/api/profile/org", json={"timezone": "UTC"})
+    d1, d2 = (date.today() + timedelta(days=2)).isoformat(), (date.today() + timedelta(days=4)).isoformat()
+    res = await client.post("/api/scheduler/schedules", json={
+        "name": "Launch week", "plan": "", "channels": ["linkedin"], "pattern": "dates", "time": "09:00",
+        "customDates": [d1, d2], "dateTopics": {d1: "Onboarding checklist", d2: "Why spreadsheets break"},
+    })
+    assert res.status_code == 200, res.text
+    assert res.json()["schedule"]["dateTopics"][d1] == "Onboarding checklist"
+    posts = (await db.execute(select(SocialPost).where(SocialPost.occurrence.in_([d1, d2])))).scalars().all()
+    assert len(posts) == 2
+    jobs = (await db.execute(select(SocialGenJob))).scalars().all()
+    assert sorted(j.headline for j in jobs) == ["Onboarding checklist", "Why spreadsheets break"]
+    assert all(j.plan.startswith(j.headline) for j in jobs)
+
+
 # ── Chat protection of hand-edited posts ────────────────────────────────────
 
 async def test_bulk_chat_rewrite_skips_hand_edited_posts(client, db):

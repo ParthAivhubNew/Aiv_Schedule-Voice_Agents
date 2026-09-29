@@ -86,6 +86,7 @@ _SOCIAL_SCHEDULE_EXTRA_COLS = [
     ("end_date", "VARCHAR"),
     ("month_day", "INTEGER"),
     ("custom_dates", "JSON"),
+    ("date_topics", "JSON"),
     ("make_image", "BOOLEAN"),
     ("approver_emails", "JSON"),
     ("result_emails", "JSON"),

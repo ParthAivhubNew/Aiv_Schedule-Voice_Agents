@@ -397,6 +397,7 @@ class SocialSchedule(Base):
     end_date = Column(String, nullable=True)
     month_day = Column(Integer, nullable=True)
     custom_dates = Column(JSON, default=list)
+    date_topics = Column(JSON, default=dict)  # custom dates: {"YYYY-MM-DD": "topic for that post"}
     make_image = Column(Boolean, default=True)
     approver_emails = Column(JSON, default=list)  # empty: the organisation's approvers
     result_emails = Column(JSON, default=list)  # empty: the organisation's approvers

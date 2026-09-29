@@ -86,8 +86,6 @@ def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedul
     if not name:
         raise ValueError("Give the schedule a name.")
     plan = str(payload.get("plan") or "").strip()
-    if not plan:
-        raise ValueError("Say what the posts should be about.")
     channels = []
     for ch in payload.get("channels") or []:
         c = str(ch).strip().lower()
@@ -115,6 +113,7 @@ def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedul
         "weekday": "",
         "month_day": None,
         "custom_dates": [],
+        "date_topics": {},
         "start_date": None,
         "end_date": None,
         "make_image": payload.get("makeImage") is not False,
@@ -133,6 +132,9 @@ def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedul
     out["retry_count"] = retry_count
     out["retry_delay_min"] = retry_delay
 
+    # Only custom dates can go without a brief, and only when every date has its own topic.
+    if not plan and not (frequency == "recurring" and str(payload.get("pattern") or "").lower() == "dates"):
+        raise ValueError("Say what the posts should be about.")
     if frequency == "now":
         out["start_date"] = out["end_date"] = today.isoformat()
         return out
@@ -158,6 +160,12 @@ def clean(payload: Dict[str, Any], today: date, existing: Optional[SocialSchedul
         if (dates[-1] - dates[0]).days > MAX_RUN_DAYS:
             raise ValueError("Keep custom dates within one year.")
         out["custom_dates"] = [d.isoformat() for d in dates]
+        raw_topics = payload.get("dateTopics") if isinstance(payload.get("dateTopics"), dict) else {}
+        # Each date may have its own topic; dates without one follow the brief.
+        topics = {d: str(raw_topics.get(d) or "").strip()[:500] for d in out["custom_dates"]}
+        out["date_topics"] = {d: t for d, t in topics.items() if t}
+        if not plan and len(out["date_topics"]) < len(out["custom_dates"]):
+            raise ValueError("Give every date a topic, or say what the posts should be about.")
         out["start_date"] = dates[0].isoformat()
         out["end_date"] = dates[-1].isoformat()
         return out
@@ -238,6 +246,7 @@ def schedule_dict(s: SocialSchedule, first_day: date, post_counts: Optional[Dict
         "weekdays": [d for d in (s.weekday or "").split(",") if d],
         "monthDay": s.month_day,
         "customDates": s.custom_dates or [],
+        "dateTopics": s.date_topics or {},
         "startDate": s.start_date,
         "endDate": s.end_date,
         "makeImage": s.make_image is not False,
@@ -323,12 +332,18 @@ async def materialize(db: AsyncSession, s: SocialSchedule, today: date, tz: str,
             ))
             ids.append(pid)
         made += len(ids)
-        avoid = ("\nDo not repeat these earlier posts in this series: " + "; ".join(earlier)) if earlier else ""
+        topic = (s.date_topics or {}).get(d.isoformat())
+        if topic:
+            # The user set this date's topic: write exactly that, with the brief as background.
+            plan = topic + (f"\n\nBackground for the series \"{s.theme}\": {s.focus}" if s.focus else "")
+        else:
+            avoid = ("\nDo not repeat these earlier posts in this series: " + "; ".join(earlier)) if earlier else ""
+            plan = (f"{s.focus}\n\nOne post in the series \"{s.theme}\" for {d.strftime('%A %d %B %Y')}. "
+                    f"Give it its own topic and angle.{avoid}")
         groups.append({
             "post_ids": ids,
-            "plan": f"{s.focus}\n\nOne post in the series \"{s.theme}\" for {d.strftime('%A %d %B %Y')}. "
-                    f"Give it its own topic and angle.{avoid}",
-            "headline": "",
+            "plan": plan,
+            "headline": (topic or "")[:180],
             "channel": channels[0],
             "date": d.isoformat(),
             "skip_image": s.make_image is False,
