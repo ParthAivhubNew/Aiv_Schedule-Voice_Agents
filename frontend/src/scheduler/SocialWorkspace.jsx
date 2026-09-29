@@ -62,7 +62,8 @@ const CHANNELS = [
 // so registration order alone would put the outer window on top.
 const escLayers = [];
 function onEscapeKey(e) {
-  if (e.key !== "Escape" || !escLayers.length) return;
+  // A field that used Esc itself (e.g. to cancel typing) marks the event handled.
+  if (e.key !== "Escape" || !escLayers.length || e.defaultPrevented) return;
   const top = escLayers.reduce((a, b) => (b.depth >= a.depth ? b : a));
   e.preventDefault();
   e.stopPropagation();
@@ -239,6 +240,193 @@ function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, pl
   );
 }
 
+// Text the user can change in place. Saves by itself a moment after typing stops and when
+// the field loses focus; Esc puts back the saved text.
+function EditableText({ value, onSave, disabled, placeholder, multiline, textStyle, label }) {
+  const [draft, setDraftState] = useState(value || "");
+  // Blur can fire inside the same event as a change (Esc), before React re-renders.
+  const draftRef = useRef(value || "");
+  const setDraft = (text) => {
+    draftRef.current = text;
+    setDraftState(text);
+  };
+  const [state, setState] = useState(""); // "" | saving | saved | error
+  const [look, setLook] = useState(""); // "" | hover | focus
+  const focused = useRef(false);
+  const timer = useRef(null);
+  const saved = useRef(value || "");
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    saved.current = value || "";
+    if (!focused.current) setDraft(value || "");
+  }, [value]);
+
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || !multiline) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }, [draft, multiline]);
+
+  const save = async (text) => {
+    window.clearTimeout(timer.current);
+    if (text === saved.current) return;
+    if (!multiline && !text.trim()) {
+      setDraft(saved.current);
+      return;
+    }
+    setState("saving");
+    const ok = await onSave(text);
+    if (ok) saved.current = text;
+    setState(ok ? "saved" : "error");
+    if (ok) timer.current = window.setTimeout(() => setState(""), 1800);
+  };
+
+  const onChange = (e) => {
+    const text = e.target.value;
+    setDraft(text);
+    setState("");
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => save(text), 1200);
+  };
+
+  const Tag = multiline ? "textarea" : "input";
+  return (
+    <div style={{ position: "relative" }}>
+      <Tag
+        ref={boxRef}
+        aria-label={label}
+        value={draft}
+        disabled={disabled}
+        placeholder={placeholder}
+        rows={multiline ? 3 : undefined}
+        onFocus={() => { focused.current = true; setLook("focus"); }}
+        onBlur={() => { focused.current = false; setLook(""); save(draftRef.current); }}
+        onMouseEnter={() => { if (!disabled && !focused.current) setLook("hover"); }}
+        onMouseLeave={() => { if (!focused.current) setLook(""); }}
+        onChange={onChange}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            window.clearTimeout(timer.current);
+            setDraft(saved.current);
+            setState("");
+            e.currentTarget.blur();
+          } else if (e.key === "Enter" && !multiline) {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
+        style={{
+          width: "calc(100% + 14px)",
+          boxSizing: "border-box",
+          border: `1px solid ${look === "focus" ? C.teal : look === "hover" ? C.border : "transparent"}`,
+          borderRadius: 8,
+          padding: "4px 6px",
+          margin: "-5px -7px",
+          background: look === "focus" ? "#fff" : "transparent",
+          resize: "none",
+          overflow: "hidden",
+          fontFamily: FONT_BODY,
+          outline: "none",
+          cursor: disabled ? "default" : "text",
+          ...textStyle,
+        }}
+      />
+      {state ? (
+        <div style={{ position: "absolute", right: 0, top: -18, fontSize: 10.5, fontWeight: 700, color: state === "error" ? C.red : state === "saved" ? C.teal : C.slate }}>
+          {state === "saving" ? "Saving…" : state === "saved" ? "Saved ✓" : "Not saved"}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const VERSION_LABELS = { original: "Original", you: "Edited by you", ai: "Written by AI", restore: "Restored", update: "Updated" };
+
+function versionTime(iso) {
+  try {
+    return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  } catch (_) {
+    return "";
+  }
+}
+
+// Last 10 versions of a post's text and image. Newest first; the top one is what is live now.
+function VersionHistory({ post, reloadKey, onRestore, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const boxRef = useRef(null);
+  useEffect(() => {
+    if (boxRef.current && boxRef.current.scrollIntoView) boxRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [rows]);
+  useEffect(() => {
+    let alive = true;
+    setError("");
+    api.listPostVersions(post.id)
+      .then((res) => { if (alive) setRows((res && res.versions) || []); })
+      .catch((e) => { if (alive) { setRows([]); setError(e.message || "Could not load versions."); } });
+    return () => { alive = false; };
+  }, [post.id, reloadKey]);
+
+  const restore = async (v) => {
+    setBusy(v.id);
+    await onRestore(post.id, v.id);
+    setBusy("");
+  };
+
+  return (
+    <div ref={boxRef} style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: "#fff" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+        <History size={14} color={C.teal} />
+        <div style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>Versions</div>
+        <button type="button" onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 2 }} title="Close versions">
+          <X size={14} color={C.slate} />
+        </button>
+      </div>
+      {error ? <div style={{ fontSize: 12, color: C.red }}>{error}</div> : null}
+      {rows === null ? <div style={{ fontSize: 12, color: C.slate }}>Loading…</div> : null}
+      {rows && rows.length > 1 ? (
+        <button type="button" disabled={!!busy} onClick={() => restore(rows[1])} style={{ ...secBtn, height: 30, fontSize: 11.5, marginBottom: 6 }}>
+          {busy === rows[1].id ? "Undoing…" : "Undo last change"}
+        </button>
+      ) : null}
+      {rows && !rows.length && !error ? (
+        <div style={{ fontSize: 12, color: C.slate }}>No earlier versions yet. Every change from now on is kept (last 10).</div>
+      ) : null}
+      {(rows || []).map((v, i) => (
+        <div key={v.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderTop: i ? `1px solid ${C.border}` : "none" }}>
+          {v.imageUrl ? (
+            <img src={v.imageUrl} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0, background: HUB_PAPER }} />
+          ) : (
+            <div style={{ width: 40, height: 40, borderRadius: 6, background: HUB_PAPER, flexShrink: 0 }} />
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink }}>
+              {VERSION_LABELS[v.source] || "Updated"} · <span style={{ color: C.slate, fontWeight: 600 }}>{versionTime(v.createdAt)}</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {v.title ? v.title + " — " : ""}{(v.copy || "").split("\n")[0]}
+            </div>
+          </div>
+          {i === 0 ? (
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.teal }}>Current</span>
+          ) : (
+            <button type="button" disabled={!!busy} onClick={() => restore(v)} style={{ ...secBtn, height: 28, fontSize: 11 }}>
+              {busy === v.id ? "Restoring…" : "Restore"}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ApprovalsBoard({
   waitingList,
   doneList,
@@ -261,6 +449,8 @@ function ApprovalsBoard({
   publishing,
   revertTouched,
   updateSchedule,
+  editPostFields,
+  restoreVersion,
   deletePost,
   initialDate,
   requestedScope,
@@ -286,6 +476,11 @@ function ApprovalsBoard({
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [schedDraft, setSchedDraft] = useState({ date: "", time: "" });
   const [lightbox, setLightbox] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [versionsKey, setVersionsKey] = useState(0);
+  const [promptDraft, setPromptDraft] = useState("");
+  const handEditAt = useRef(0);
+  const uploadRef = useRef(null);
   const [flash, setFlash] = useState({ caption: false, headline: false, image: false });
   const [previewPos, setPreviewPos] = useState({ x: 0, y: 0 });
   const [previewDragging, setPreviewDragging] = useState(false);
@@ -348,6 +543,9 @@ function ApprovalsBoard({
   const expandedPost = expandedId ? allPosts.find((p) => p.id === expandedId) : null;
   const expandedDone = expandedPost && !needsAction(expandedPost.status);
   const canEdit = expandedPost && !isLocked(expandedPost.status);
+  // While the AI queue is (re)writing the post its text is about to be replaced.
+  const aiWriting = expandedPost && (expandedPost.genState === "queued" || expandedPost.genState === "writing");
+  const canType = canEdit && !aiWriting;
   const expandedProg = expandedPost ? ((genProgress && genProgress[expandedPost.id]) || queueProgress(expandedPost)) : null;
   const chMeta = expandedPost
     ? (CHANNELS.find((c) => c.id === String(expandedPost.channel || "").toLowerCase()) || { label: expandedPost.channel, color: C.ink, soft: HUB_PAPER, mark: "?" })
@@ -357,6 +555,8 @@ function ApprovalsBoard({
     setEditMode(false);
     setScheduleOpen(false);
     setLightbox(false);
+    setHistoryOpen(false);
+    setPromptDraft(expandedPost ? expandedPost.imagePrompt || "" : "");
     setEditTab("copy");
     setFlash({ caption: false, headline: false, image: false });
     setPreviewPos({ x: 0, y: 0 });
@@ -370,6 +570,11 @@ function ApprovalsBoard({
       };
     }
   }, [expandedId]);
+
+  const expandedPrompt = expandedPost ? expandedPost.imagePrompt || "" : "";
+  useEffect(() => {
+    setPromptDraft(expandedPrompt);
+  }, [expandedPrompt]);
 
   useEffect(() => {
     if (!previewDragging) return undefined;
@@ -423,6 +628,8 @@ function ApprovalsBoard({
       imageUrl: expandedPost.imageUrl,
     };
     if (!next.caption && !next.headline && !next.image) return undefined;
+    // Only highlight changes the AI made; the user can see what they typed.
+    if (Date.now() - handEditAt.current < 4000) return undefined;
     setFlash(next);
     const t = window.setTimeout(() => setFlash({ caption: false, headline: false, image: false }), 2800);
     return () => window.clearTimeout(t);
@@ -456,6 +663,38 @@ function ApprovalsBoard({
   };
 
   const schedIsPast = isPastSlot(schedDraft.date, schedDraft.time);
+
+  const saveField = async (changes) => {
+    if (!expandedPost || !editPostFields) return false;
+    handEditAt.current = Date.now();
+    const ok = await editPostFields(expandedPost.id, changes);
+    if (ok) setVersionsKey((k) => k + 1);
+    return ok;
+  };
+
+  const onRestore = async (id, versionId) => {
+    handEditAt.current = 0;
+    const ok = await restoreVersion(id, versionId);
+    if (ok) setVersionsKey((k) => k + 1);
+    return ok;
+  };
+
+  const onUploadPicked = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
+      window.alert("Use a PNG, JPG or WebP picture.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      window.alert("That picture is over 8 MB. Pick a smaller one.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => saveField({ imageUrl: String(reader.result || "") });
+    reader.readAsDataURL(file);
+  };
 
   const flashStyle = (on) => (on ? {
     boxShadow: "0 0 0 2px " + C.teal,
@@ -755,6 +994,11 @@ function ApprovalsBoard({
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                  {expandedPost.editedByUser ? (
+                    <span title="Changed by hand. Chat requests that change many posts leave it alone." style={{ fontSize: 10.5, fontWeight: 700, color: C.ink, background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 99, padding: "2px 8px" }}>
+                      Edited by you
+                    </span>
+                  ) : null}
                   <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(expandedPost.status) }}>{statusLabel(expandedPost.status)}</span>
                   <button type="button" onClick={closePreview} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }} title="Close">
                     <X size={16} color={C.slate} />
@@ -786,17 +1030,40 @@ function ApprovalsBoard({
                     <div style={{ padding: "12px 14px 8px", display: "flex", gap: 10, alignItems: "center" }}>
                       <div style={{ width: 36, height: 36, borderRadius: 99, background: chMeta.soft, color: chMeta.color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>{chMeta.mark}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{chMeta.label}</div>
+                        {canEdit ? (
+                          <select
+                            aria-label="Channel"
+                            value={String(expandedPost.channel || "linkedin").toLowerCase()}
+                            onChange={(e) => saveField({ channel: e.target.value })}
+                            style={{ fontWeight: 700, fontSize: 13, color: C.ink, border: "none", background: "transparent", padding: 0, fontFamily: FONT_BODY, cursor: "pointer" }}
+                          >
+                            {CHANNELS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                          </select>
+                        ) : (
+                          <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{chMeta.label}</div>
+                        )}
                         <div style={{ fontSize: 11, color: C.slate }}>{dayLabel(expandedPost.date)} · {expandedPost.time || "09:00"}</div>
                       </div>
                     </div>
 
                     <div style={{ padding: "0 14px 10px", ...flashStyle(flash.headline) }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, lineHeight: 1.35 }}>
-                        {expandedPost.headline || "Untitled"}
-                      </div>
+                      {canEdit ? (
+                        <EditableText
+                          label="Headline"
+                          value={expandedPost.headline || ""}
+                          disabled={!canType}
+                          placeholder="Headline"
+                          onSave={(v) => saveField({ headline: v })}
+                          textStyle={{ fontWeight: 700, fontSize: 15, color: C.ink, lineHeight: 1.35 }}
+                        />
+                      ) : (
+                        <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, lineHeight: 1.35 }}>
+                          {expandedPost.headline || "Untitled"}
+                        </div>
+                      )}
                     </div>
 
+                    <input ref={uploadRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onUploadPicked} style={{ display: "none" }} />
                     <div style={{ position: "relative", background: "#0f1115", ...flashStyle(flash.image) }}>
                       {expandedPost.imageUrl ? (
                         <>
@@ -839,6 +1106,16 @@ function ApprovalsBoard({
                           >
                             <Maximize2 size={12} /> Enlarge
                           </button>
+                          {canEdit ? (
+                            <button
+                              type="button"
+                              onClick={() => uploadRef.current && uploadRef.current.click()}
+                              title="Use your own picture"
+                              style={{ position: "absolute", left: 10, bottom: 10, height: 32, padding: "0 10px", borderRadius: 8, border: "none", background: "rgba(0,0,0,0.72)", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}
+                            >
+                              <ImageIcon size={12} /> Replace
+                            </button>
+                          ) : null}
                         </>
                       ) : (
                         <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af", fontSize: 13, padding: 16, gap: 10 }}>
@@ -853,7 +1130,14 @@ function ApprovalsBoard({
                               />
                             </div>
                           ) : (
-                            "No image yet"
+                            <>
+                              <span>No image yet</span>
+                              {canEdit ? (
+                                <button type="button" onClick={() => uploadRef.current && uploadRef.current.click()} style={{ ...secBtn, height: 30, fontSize: 11 }}>
+                                  <ImageIcon size={12} /> Upload a picture
+                                </button>
+                              ) : null}
+                            </>
                           )}
                         </div>
                       )}
@@ -878,11 +1162,37 @@ function ApprovalsBoard({
                           <GenProgressBar pct={expandedProg.pct} label={expandedProg.label} />
                         </div>
                       ) : null}
-                      <div style={{ fontSize: 13.5, color: C.textInk, whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
-                        {expandedPost.caption || (expandedProg ? "" : "—")}
-                      </div>
+                      {canEdit && (expandedPost.caption || !expandedProg) ? (
+                        <EditableText
+                          multiline
+                          label="Caption"
+                          value={expandedPost.caption || ""}
+                          disabled={!canType}
+                          placeholder="Write the caption…"
+                          onSave={(v) => saveField({ caption: v })}
+                          textStyle={{ fontSize: 13.5, color: C.textInk, lineHeight: 1.55 }}
+                        />
+                      ) : (
+                        <div style={{ fontSize: 13.5, color: C.textInk, whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
+                          {expandedPost.caption || (expandedProg ? "" : "—")}
+                        </div>
+                      )}
+                      {canEdit ? (
+                        <div style={{ fontSize: 11, color: C.slateLight || C.slate, marginTop: 8 }}>
+                          {aiWriting ? "The AI is writing this post. You can edit it when it finishes." : "Click the headline or caption to change it. Changes save by themselves."}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
+
+                  {historyOpen ? (
+                    <VersionHistory
+                      post={expandedPost}
+                      reloadKey={versionsKey}
+                      onRestore={onRestore}
+                      onClose={() => setHistoryOpen(false)}
+                    />
+                  ) : null}
 
                   {scheduleOpen ? (
                     <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${schedIsPast ? C.amber : C.border}`, background: schedIsPast ? (C.amberSoft || "#FCEFDA") : "#fff" }}>
@@ -997,6 +1307,28 @@ function ApprovalsBoard({
                           placeholder="Describe the image change…"
                         />
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <label style={labelStyle}>Image prompt</label>
+                          <textarea
+                            aria-label="Image prompt"
+                            value={promptDraft}
+                            onChange={(e) => setPromptDraft(e.target.value)}
+                            rows={4}
+                            style={{ width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical" }}
+                          />
+                          <button
+                            type="button"
+                            disabled={imageBusy === expandedPost.id || !promptDraft.trim()}
+                            onClick={async () => {
+                              if (promptDraft !== (expandedPost.imagePrompt || "") && !(await saveField({ imagePrompt: promptDraft }))) return;
+                              regenImage({ ...expandedPost, imagePrompt: promptDraft });
+                            }}
+                            style={{ ...secBtn, width: "100%", justifyContent: "center" }}
+                          >
+                            <Sparkles size={14} /> Draw from this prompt
+                          </button>
+                          <button type="button" onClick={() => uploadRef.current && uploadRef.current.click()} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
+                            <ImageIcon size={14} /> Upload my own picture
+                          </button>
                           <button type="button" onClick={() => regenImage(expandedPost)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> {imageBusy === expandedPost.id
                               ? (expandedProg ? ("Generating… " + Math.round(expandedProg.pct) + "%") : "Generating…")
@@ -1035,12 +1367,17 @@ function ApprovalsBoard({
                       borderColor: editMode ? C.ink : C.border,
                     }}
                   >
-                    <Pencil size={13} /> {editMode ? "Done editing" : "Edit"}
+                    <Sparkles size={13} /> {editMode ? "Close AI help" : "Change with AI"}
                   </button>
                 ) : null}
                 {canEdit ? (
                   <button type="button" onClick={() => { setScheduleOpen((v) => !v); setSchedDraft({ date: expandedPost.date || "", time: expandedPost.time || "09:00" }); }} style={secBtn}>
                     <Clock size={13} /> Schedule
+                  </button>
+                ) : null}
+                {expandedPost.synced ? (
+                  <button type="button" onClick={() => setHistoryOpen((v) => !v)} style={secBtn} title="Earlier versions of this post (last 10)">
+                    <History size={13} /> Versions
                   </button>
                 ) : null}
                 {deletePost && !isLocked(expandedPost.status) ? (
@@ -1302,6 +1639,7 @@ function fromServerPost(p, local) {
     lastError: p.lastError || "",
     genState: p.genState || "",
     genError: p.genError || "",
+    editedByUser: !!p.editedByUser,
     synced: true,
     syncError: false,
     enriching: false,
@@ -2116,7 +2454,8 @@ export function SocialWorkspace({
 
   // Save one post to the server. Resolves true/false; never throws. On failure the row is
   // flagged "not saved to server" and retried by the sync loop.
-  const persistPost = async (np) => {
+  // editSource "ai": the content in this save came from the AI (image redraw), for the version list.
+  const persistPost = async (np, editSource) => {
     if (!np || !np.id || isLocked(np.status)) return true;
     // The background publisher only picks up "approved" posts once they are due.
     // Simple "scheduled" = approved and waiting for its slot.
@@ -2141,6 +2480,7 @@ export function SocialWorkspace({
         theme: np.headline,
         imageUrl: np.imageUrl,
         imagePrompt: np.imagePrompt,
+        ...(editSource === "ai" ? { editSource } : {}),
       });
       const serverPost = res && res.post;
       setPosts((ps) => ps.map((row) => {
@@ -2164,7 +2504,7 @@ export function SocialWorkspace({
       if (row.batchId !== batchId || row.uniqueForChannel || row.status === "posted") return row;
       if (row.imageUrl === imageUrl) return row;
       const shared = { ...row, imageUrl, imagePrompt: imagePrompt || row.imagePrompt };
-      persistPost(shared);
+      persistPost(shared, "ai");
       return shared;
     }));
   };
@@ -2421,12 +2761,12 @@ export function SocialWorkspace({
           if (row.id === p.id) return next;
           if (!p.uniqueForChannel && !wantsPerChannelDiff(change) && p.batchId && row.batchId === p.batchId && !row.uniqueForChannel && row.status !== "posted") {
             const shared = { ...row, imageUrl: next.imageUrl, imagePrompt: next.imagePrompt, status: keepEditableStatus(row.status) };
-            persistPost(shared);
+            persistPost(shared, "ai");
             return shared;
           }
           return row;
         }));
-        persistPost(next);
+        persistPost(next, "ai");
         finishGenProgress([p.id]);
         if (p.batchId && !p.uniqueForChannel && !wantsPerChannelDiff(change)) {
           syncBatchImage(p.batchId, next.imageUrl, next.imagePrompt, p.id);
@@ -2466,6 +2806,69 @@ export function SocialWorkspace({
     setCopyBusy(p.id);
     setPosts((ps) => ps.map((row) => (row.id === p.id ? seeded : row)));
     fillPackages([seeded], { skipImage: true, revisionNote: text, share: !split && !p.uniqueForChannel });
+  };
+
+  // Hand edits go straight to the server (PATCH), which keeps a version for undo and marks
+  // the post "edited by you". A content edit also takes the post out of its shared batch, so
+  // later changes to the other channels' copy leave this one alone.
+  const editPostFields = async (id, changes) => {
+    const row = postsRef.current.find((p) => p.id === id);
+    if (!row || isLocked(row.status)) return false;
+    const contentEdit = ["headline", "caption", "imageUrl", "imagePrompt"].some((k) => k in changes);
+    const body = {};
+    if ("headline" in changes) body.title = changes.headline;
+    if ("caption" in changes) body.copy = changes.caption;
+    if ("imageUrl" in changes) body.imageUrl = changes.imageUrl;
+    if ("imagePrompt" in changes) body.imagePrompt = changes.imagePrompt;
+    if ("channel" in changes) body.channel = changes.channel;
+    if ("date" in changes || "time" in changes) {
+      body.date = changes.date || row.date;
+      body.time = changes.time || row.time || "09:00";
+    }
+    const local = { ...changes };
+    if (typeof local.imageUrl === "string" && local.imageUrl.startsWith("data:")) delete local.imageUrl;
+    if ("channel" in changes) local.channels = [changes.channel];
+    setPosts((ps) => ps.map((p) => (p.id === id
+      ? { ...p, ...local, ...(contentEdit ? { uniqueForChannel: true, editedByUser: true } : {}) }
+      : p)));
+    if (!row.synced || row.syncError) {
+      if (!(await persistPost(row))) {
+        showToast("Not saved: the server is not reachable. Try again in a moment.");
+        return false;
+      }
+    }
+    pendingSaves.current.add(id);
+    try {
+      const res = await api.editPost(id, body);
+      if (res && res.post) {
+        setPosts((ps) => ps.map((p) => (p.id === id
+          ? { ...fromServerPost(res.post, p), ...(contentEdit ? { uniqueForChannel: true } : {}) }
+          : p)));
+      }
+      return true;
+    } catch (e) {
+      showToast(e.message || "Could not save the change.");
+      // Put the server copy back (the row must not count as mid-save for that refresh).
+      pendingSaves.current.delete(id);
+      refreshPosts();
+      return false;
+    } finally {
+      pendingSaves.current.delete(id);
+    }
+  };
+
+  const restoreVersion = async (id, versionId) => {
+    pendingSaves.current.add(id);
+    try {
+      const res = await api.restorePostVersion(id, versionId);
+      if (res && res.post) setPosts((ps) => ps.map((p) => (p.id === id ? { ...fromServerPost(res.post, p), uniqueForChannel: true } : p)));
+      return true;
+    } catch (e) {
+      showToast(e.message || "Could not restore that version.");
+      return false;
+    } finally {
+      pendingSaves.current.delete(id);
+    }
   };
 
   const revertTouched = (id, patch) => {
@@ -2819,6 +3222,7 @@ export function SocialWorkspace({
         caption: p.caption,
         imagePrompt: p.imagePrompt,
         status: p.status,
+        editedByUser: !!p.editedByUser,
       })),
     };
 
@@ -3780,6 +4184,8 @@ export function SocialWorkspace({
                 publishing={publishing}
                 revertTouched={revertTouched}
                 updateSchedule={updateSchedule}
+                editPostFields={editPostFields}
+                restoreVersion={restoreVersion}
                 deletePost={deletePost}
                 genProgress={genProgress}
                 retryGeneration={retryGeneration}

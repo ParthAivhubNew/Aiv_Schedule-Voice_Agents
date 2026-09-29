@@ -212,6 +212,9 @@ export const api = {
   getPosts: () => apiRequest('/scheduler/posts'),
   createPost: (payload) => apiRequest('/scheduler/posts/create', { method: 'POST', body: payload }),
   deletePost: (postId) => apiRequest(`/scheduler/posts/${postId}`, { method: 'DELETE' }),
+  editPost: (postId, changes) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}`, { method: 'PATCH', body: changes }),
+  listPostVersions: (postId) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}/versions`),
+  restorePostVersion: (postId, versionId) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}/versions/${encodeURIComponent(versionId)}/restore`, { method: 'POST' }),
   chatPlan: (payload, options = {}) => apiRequest('/scheduler/chat-plan', { 
     method: 'POST', 
     body: typeof payload === 'string' ? { text: payload } : payload,

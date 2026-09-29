@@ -22,6 +22,7 @@ from sqlalchemy.future import select
 
 from app.database import AsyncSessionLocal
 from app.models.models import CompanyProfile, SocialGenJob, SocialPost
+from app.services.post_versions import content_of, record_version
 
 logger = logging.getLogger("generation_queue")
 
@@ -214,6 +215,7 @@ async def _apply_text(job: Dict[str, Any], pkg: Dict[str, Any], brand: str) -> N
         for post in posts:
             if post.status in LOCKED_POST_STATUSES:
                 continue
+            before = content_of(post)
             post.title = (pkg.get("postTitle") or post.title or "")[:300]
             post.copy = pkg.get("copy") or post.copy
             for col in ("hook", "linkedin_copy", "x_copy", "facebook_copy", "instagram_copy", "threads_copy", "cta", "first_comment", "alt_text"):
@@ -222,6 +224,9 @@ async def _apply_text(job: Dict[str, Any], pkg: Dict[str, Any], brand: str) -> N
             post.hashtags = pkg.get("hashtags") or post.hashtags
             if not job["skip_image"]:
                 post.image_prompt = image_prompt
+            # The AI rewrote it on request: the hand-written text is gone, so is the protection.
+            post.edited_by_user = False
+            await record_version(db, post, "ai", before=before)
         await db.commit()
 
 
@@ -307,6 +312,8 @@ async def _run_image(job: Dict[str, Any]) -> None:
                 raise RuntimeError(img.get("warning") or "The image AI returned no image.")
             async with AsyncSessionLocal() as db:
                 await _set_posts(db, job["post_ids"], image_url=url)
+                for post in (await db.execute(select(SocialPost).where(SocialPost.id.in_(job["post_ids"])))).scalars().all():
+                    await record_version(db, post, "ai", amend_ai=True)
                 await db.commit()
         await _finish(job, "done", None, None)
     except Exception as err:

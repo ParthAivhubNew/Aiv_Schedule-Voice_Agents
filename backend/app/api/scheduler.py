@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db, engine
 from app.services.org_settings import org_instant_ms, org_timezone
+from app.services import post_versions
 from app.services import generation_queue as gen_queue
 from app.services.generation_queue import IMAGE_SLOTS, PRIORITY_INTERACTIVE, TEXT_SLOTS
 from app.services.timezone_service import tzinfo
@@ -64,6 +65,7 @@ _SOCIAL_POST_EXTRA_COLS = [
     ("due_at_ms", "FLOAT"),
     ("gen_state", "VARCHAR"),
     ("gen_error", "TEXT"),
+    ("edited_by_user", "BOOLEAN"),
 ]
 
 # A post in one of these states must never be edited back to draft/approved by a client
@@ -147,6 +149,7 @@ def _serialize_post(p: SocialPost) -> Dict[str, Any]:
         "dueAtMs": getattr(p, "due_at_ms", None),
         "genState": getattr(p, "gen_state", None),
         "genError": getattr(p, "gen_error", None),
+        "editedByUser": bool(getattr(p, "edited_by_user", False)),
         "lastError": _last_error(p),
         "createdAt": p.created_at.isoformat() if p.created_at else None,
     }
@@ -599,6 +602,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             # Already live (or going live). The server copy wins; the client adopts it.
             return existing_post
         if existing_post:
+            before = post_versions.content_of(existing_post)
             # While the AI queue is writing this post, the server copy of the text/image is the
             # newest; a browser save made before it refreshed must not blank it.
             writing = existing_post.gen_state in ("queued", "writing", "imaging")
@@ -616,6 +620,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
                 existing_post.image_prompt = image_prompt
             _apply_package_fields(existing_post, payload)
             _apply_due(existing_post, payload, tz)
+            await post_versions.record_version(db, existing_post, "ai" if payload.get("editSource") == "ai" else "update", before=before)
             return existing_post
         new_post = SocialPost(
             id=post_id,
@@ -658,6 +663,110 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
     }
 
 
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+_UPLOAD_TYPES = ("image/png", "image/jpeg", "image/jpg", "image/webp")
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_WRITING_STATES = ("queued", "writing")
+
+
+def _checked_upload(data_uri: str) -> str:
+    """A picture chosen from the user's computer arrives as a data URI; accept real images only."""
+    header, _, b64 = data_uri.partition(",")
+    mime = header[5:].split(";")[0].strip().lower()
+    if mime not in _UPLOAD_TYPES or ";base64" not in header:
+        raise HTTPException(status_code=400, detail="Use a PNG, JPG or WebP picture.")
+    if len(b64) * 3 // 4 > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="That picture is over 8 MB. Pick a smaller one.")
+    return data_uri
+
+
+@router.patch("/posts/{post_id}")
+async def edit_post(post_id: str, payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
+    """Change a post by hand: headline, caption, image, date, time, channel.
+    Text or image edits mark the post "edited by you" and are saved as a version (undo)."""
+    post = (await db.execute(select(SocialPost).where(SocialPost.id == post_id))).scalars().first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found. Save it first.")
+    if post.status in LOCKED_STATUSES:
+        raise HTTPException(status_code=409, detail="This post is live (or going live) and can no longer be edited.")
+    content_keys = [k for k in ("title", "copy", "imageUrl", "imagePrompt") if k in payload]
+    if content_keys and post.gen_state in _WRITING_STATES:
+        raise HTTPException(status_code=409, detail="The AI is still writing this post. Edit it when it finishes.")
+
+    before = post_versions.content_of(post)
+    if "title" in payload:
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="The headline can't be empty.")
+        post.title = title[:300]
+    if "copy" in payload:
+        post.copy = str(payload.get("copy") or "")[:20000]
+    if "imageUrl" in payload:
+        raw = str(payload.get("imageUrl") or "").strip()
+        if raw.startswith("data:"):
+            raw = _checked_upload(raw)
+        post.image_url = _host_image(raw, request) if raw else None
+    if "imagePrompt" in payload:
+        post.image_prompt = str(payload.get("imagePrompt") or "")[:4000] or None
+    if "channel" in payload:
+        channel = normalize_platform(payload.get("channel"))
+        if channel not in PLATFORM_TITLES:
+            raise HTTPException(status_code=400, detail=f"Unknown channel: {payload.get('channel')}")
+        post.channels = [channel]
+    if "date" in payload or "time" in payload:
+        time_str = str(payload.get("time") or post.time or "09:00").strip()
+        if not _TIME_RE.match(time_str):
+            raise HTTPException(status_code=400, detail="Time must look like 09:30.")
+        date_str = str(payload.get("date") or "").strip()
+        if not date_str:
+            raise HTTPException(status_code=400, detail="Pick a date.")
+        if not org_instant_ms(date_str, time_str, "UTC"):
+            raise HTTPException(status_code=400, detail="Date must look like 2026-10-01.")
+        post.time = time_str
+        _apply_due(post, {"date": date_str, "time": time_str}, await org_timezone(db))
+
+    if content_keys and not _same_content(before, post_versions.content_of(post)):
+        post.edited_by_user = True
+        await post_versions.record_version(db, post, "you", before=before)
+    await db.commit()
+    await db.refresh(post)
+    return {"status": "ok", "post": _serialize_post(post)}
+
+
+def _same_content(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    return all((a.get(k) or None) == (b.get(k) or None) for k in ("title", "copy", "image_url", "image_prompt"))
+
+
+@router.get("/posts/{post_id}/versions")
+async def post_versions_list(post_id: str, db: AsyncSession = Depends(get_db)):
+    rows = await post_versions.list_versions(db, post_id)
+    return {"status": "ok", "versions": [post_versions.version_dict(v) for v in rows]}
+
+
+@router.post("/posts/{post_id}/versions/{version_id}/restore")
+async def post_version_restore(post_id: str, version_id: str, db: AsyncSession = Depends(get_db)):
+    post = (await db.execute(select(SocialPost).where(SocialPost.id == post_id))).scalars().first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found.")
+    if post.status in LOCKED_STATUSES:
+        raise HTTPException(status_code=409, detail="This post is live (or going live) and can no longer be changed.")
+    if post.gen_state in _WRITING_STATES:
+        raise HTTPException(status_code=409, detail="The AI is still writing this post. Try again when it finishes.")
+    version = next((v for v in await post_versions.list_versions(db, post_id) if v.id == version_id), None)
+    if not version:
+        raise HTTPException(status_code=404, detail="That version is no longer kept (only the last 10 are).")
+    content = post_versions.content_of_version(version)
+    post.title = content["title"] or post.title
+    post.copy = content["copy"]
+    post.image_url = content["image_url"]
+    post.image_prompt = content["image_prompt"]
+    post.edited_by_user = version.source == "you"
+    await post_versions.record_version(db, post, "restore")
+    await db.commit()
+    await db.refresh(post)
+    return {"status": "ok", "post": _serialize_post(post)}
+
+
 @router.delete("/posts/{post_id}")
 async def delete_post_endpoint(post_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
@@ -665,6 +774,7 @@ async def delete_post_endpoint(post_id: str, db: AsyncSession = Depends(get_db))
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     await db.delete(post)
+    await post_versions.delete_versions(db, post_id)
     await db.commit()
     return {"status": "ok", "message": f"Post {post_id} deleted."}
 
@@ -1158,6 +1268,40 @@ def _extract_plan_from_text(text: str, today: str, known_ids: Optional[set] = No
     }
 
 
+def _last_user_text(chat_msgs: List[Dict[str, Any]]) -> str:
+    for m in reversed(chat_msgs or []):
+        if isinstance(m, dict) and m.get("role") == "user":
+            return str(m.get("content") or "")
+    return ""
+
+
+async def _protect_hand_edits(db: AsyncSession, plan: Optional[Dict[str, Any]], focus_id: str, user_text: str) -> int:
+    """A chat request that rewrites several posts skips posts edited by hand, unless the user
+    is working on that post or names its headline. Returns how many were left alone."""
+    if not plan:
+        return 0
+    text_keys = ("revision", "headline", "plan")
+    revising = [p for p in plan.get("posts") or [] if p.get("existing") and any(p.get(k) for k in text_keys)]
+    if len(revising) < 2:
+        return 0
+    ids = [p["id"] for p in revising]
+    rows = (await db.execute(
+        select(SocialPost.id, SocialPost.title).where(SocialPost.id.in_(ids), SocialPost.edited_by_user.is_(True))
+    )).all()
+    said = (user_text or "").lower()
+    kept = 0
+    for pid, title in rows:
+        named = pid == focus_id or (title and len(title) >= 4 and title.lower()[:40] in said)
+        if named:
+            continue
+        for p in revising:
+            if p["id"] == pid:
+                for k in text_keys:
+                    p.pop(k, None)
+                kept += 1
+    return kept
+
+
 def _calendar_lines(current_plan: Dict[str, Any], focus_id: str) -> str:
     """Compact view of the calendar for the model: one short line per post, full text only
     for the post being revised. Never a cut-off JSON dump."""
@@ -1167,6 +1311,7 @@ def _calendar_lines(current_plan: Dict[str, Any], focus_id: str) -> str:
         lines.append(
             f"{p.get('id')} | {p.get('date')} {p.get('time') or ''} | {p.get('channel')} | "
             f"{p.get('status') or 'draft'} | {str(p.get('headline') or '')[:70]}"
+            + (" | edited by hand" if p.get("editedByUser") else "")
         )
     if len(posts) > 200:
         lines.append(f"... and {len(posts) - 200} more posts")
@@ -1288,6 +1433,7 @@ Otherwise list the posts:
 Rules:
 - weekdays use MO TU WE TH FR SA SU; use "count" instead of "weeks" for a fixed number of posts. Give one theme per post when you can (they rotate).
 - To change existing posts include ONLY the posts that change, each with its "id" and only the changed fields. To reword a post add "revision": "what to change". To remove posts add "delete": ["id", ...]. Never repeat unchanged posts.
+- Posts marked "edited by hand" were written by the user: only reword them when the user asks about that post.
 - At most {MAX_POSTS_PER_REQUEST} new posts per request. If asked for more, plan the first {MAX_POSTS_PER_REQUEST} and say so.
 - Write about what the user asked, using only company profile facts. 70% educational, 20% thought leadership, 10% product. No fake statistics.
 - Spoken reply: 1–3 short sentences. Never paste JSON, SQL errors, trace dumps, or DevTools objects. Ignore knowledge that looks like an error log.
@@ -1334,9 +1480,16 @@ Current calendar (id | date time | channel | status | headline):
             "model": llm_res.get("model", model),
             "provider": llm_res.get("provider", provider),
         }
+    kept = await _protect_hand_edits(db, structured_plan, focus_post_id, _last_user_text(chat_msgs))
     reply_text = _spoken_reply(reply_raw, bool(structured_plan and structured_plan.get("posts")))
     if not reply_text:
         reply_text = f"Tell me the topic and the date to post for {company_name}."
+    if kept:
+        reply_text += (
+            (" I left 1 post you edited by hand as it is. Open it and ask there, or name it, to change it too."
+             if kept == 1 else
+             f" I left {kept} posts you edited by hand as they are. Open one and ask there, or name it, to change it too.")
+        )
     return {
         "status": "ok" if llm_res.get("success", True) else "error",
         "reply": reply_text,
