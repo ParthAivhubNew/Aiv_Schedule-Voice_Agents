@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  CalendarClock,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -34,6 +35,8 @@ import {
 } from "../tokens";
 import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
 import { SchedulerAiPanel } from "./SchedulerAiPanel";
+import { ScheduleWindow } from "./ScheduleWindow";
+import { useEscapeLayer } from "./escapeLayers";
 import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../org/orgSettings";
 
 const LS_POSTS = "aivhub_social_v2_posts";
@@ -56,35 +59,6 @@ const CHANNELS = [
   { id: "instagram", label: "Instagram", color: "#E4405F", soft: "#FDECEE", mark: "Ig" },
   { id: "threads", label: "Threads", color: "#000000", soft: "#F4F4F5", mark: "@" },
 ];
-
-// Esc closes only the top-most open window. Layers register a depth (approvals 1 <
-// post preview 2 < enlarged image 3) because child effects run before parent effects,
-// so registration order alone would put the outer window on top.
-const escLayers = [];
-function onEscapeKey(e) {
-  // A field that used Esc itself (e.g. to cancel typing) marks the event handled.
-  if (e.key !== "Escape" || !escLayers.length || e.defaultPrevented) return;
-  const top = escLayers.reduce((a, b) => (b.depth >= a.depth ? b : a));
-  e.preventDefault();
-  e.stopPropagation();
-  top.close.current();
-}
-
-function useEscapeLayer(active, depth, onClose) {
-  const close = useRef(onClose);
-  close.current = onClose;
-  useEffect(() => {
-    if (!active) return undefined;
-    const layer = { depth, close };
-    if (!escLayers.length) window.addEventListener("keydown", onEscapeKey);
-    escLayers.push(layer);
-    return () => {
-      const i = escLayers.indexOf(layer);
-      if (i >= 0) escLayers.splice(i, 1);
-      if (!escLayers.length) window.removeEventListener("keydown", onEscapeKey);
-    };
-  }, [active, depth]);
-}
 
 function useElementWidth() {
   const ref = useRef(null);
@@ -549,6 +523,7 @@ function ApprovalsBoard({
   requestedScope,
   genProgress,
   retryGeneration,
+  scheduleNames,
 }) {
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
@@ -1105,6 +1080,19 @@ function ApprovalsBoard({
                   {expandedPost.genState === "failed" ? (
                     <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}` }}>
                       <GenFailed post={expandedPost} onRetry={retryGeneration} />
+                    </div>
+                  ) : null}
+                  {expandedPost.retryAtMs && (expandedPost.status === "approved" || expandedPost.status === "scheduled") ? (
+                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.amberSoft || "#FCEFDA", border: `1px solid ${C.amber}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
+                      <strong>Publishing failed, trying again at {formatOrgTime(orgDateTime(expandedPost.retryAtMs, orgTz).time, orgTimeFormat)}.</strong> {expandedPost.lastError || ""}
+                    </div>
+                  ) : null}
+                  {expandedPost.scheduleId ? (
+                    <div style={{ marginBottom: 12, fontSize: 12, color: C.slate, display: "flex", alignItems: "center", gap: 6 }}>
+                      <CalendarClock size={13} />
+                      {expandedPost.detached
+                        ? "Changed by hand, so its schedule" + (scheduleNames && scheduleNames[expandedPost.scheduleId] ? " “" + scheduleNames[expandedPost.scheduleId] + "”" : "") + " no longer replaces it."
+                        : "From the schedule" + (scheduleNames && scheduleNames[expandedPost.scheduleId] ? " “" + scheduleNames[expandedPost.scheduleId] + "”" : "") + ". Editing it here keeps your changes."}
                     </div>
                   ) : null}
                   {expandedPost.status === "rejected" ? (
@@ -1752,6 +1740,11 @@ function fromServerPost(p, local) {
     genState: p.genState || "",
     genError: p.genError || "",
     editedByUser: !!p.editedByUser,
+    scheduleId: p.scheduleId || "",
+    detached: !!p.detached,
+    asap: !!p.asap,
+    retryAtMs: Number(p.retryAtMs) || 0,
+    publishAttempts: Number(p.publishAttempts) || 0,
     serverStatus: p.status || "",
     approvedBy: p.approvedBy || "",
     reviewNote: p.reviewNote || "",
@@ -2331,6 +2324,18 @@ export function SocialWorkspace({
   const [editingId, setEditingId] = useState("");
   const [editText, setEditText] = useState("");
   const [approvalOpen, setApprovalOpen] = useState(false);
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const [scheduleNames, setScheduleNames] = useState({});
+  const loadScheduleNames = useCallback(() => {
+    api.listSchedules()
+      .then((res) => {
+        const map = {};
+        ((res && res.schedules) || []).forEach((sc) => { map[sc.id] = sc.name; });
+        setScheduleNames(map);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { loadScheduleNames(); }, [loadScheduleNames]);
   const [expandedApprovalId, setExpandedApprovalId] = useState("");
   const [approvalTargetDate, setApprovalTargetDate] = useState("");
   const [approvalScope, setApprovalScope] = useState({ scope: "waiting" });
@@ -3746,8 +3751,13 @@ export function SocialWorkspace({
         <>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink }}>
-              {plan.rangeLabel || monthLabel(cal.year, cal.month)}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink }}>
+                {plan.rangeLabel || monthLabel(cal.year, cal.month)}
+              </div>
+              <button type="button" onClick={() => setSchedulesOpen(true)} title="Post right now, once, or on a repeating schedule" style={{ ...secBtn, height: 30, fontSize: 12 }}>
+                <CalendarClock size={14} /> Schedule
+              </button>
             </div>
             <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
               {companyName(profile)} · Times in {tzLabel(org.timezone)}
@@ -4243,6 +4253,15 @@ export function SocialWorkspace({
         )}
       </div>
 
+      <ScheduleWindow
+        open={schedulesOpen}
+        onClose={() => setSchedulesOpen(false)}
+        onChanged={(msg) => {
+          if (msg) showToast(msg);
+          refreshPosts();
+          loadScheduleNames();
+        }}
+      />
       {approvalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 20 }} onClick={closeApprovals}>
           <div
@@ -4322,6 +4341,7 @@ export function SocialWorkspace({
                 restoreVersion={restoreVersion}
                 deletePost={deletePost}
                 genProgress={genProgress}
+                scheduleNames={scheduleNames}
                 retryGeneration={retryGeneration}
               />
             </div>

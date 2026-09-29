@@ -365,14 +365,32 @@ class Notification(Base):
 
 # Post Scheduler Models
 class SocialSchedule(Base):
+    """A posting plan: right now, once, or repeating. Its posts are created a little ahead of
+    time, written by the AI queue, approved like any post and published by the publish loop."""
     __tablename__ = "social_schedules"
-    
+
     id = Column(String, primary_key=True, index=True)
-    weekday = Column(String, nullable=False)
+    theme = Column(String, nullable=False)  # schedule name
+    focus = Column(Text, default="")  # what the posts are about
+    channels = Column(JSON, default=lambda: ["linkedin"])
     time = Column(String, default="10:00")
-    theme = Column(String, nullable=False)
-    focus = Column(Text, default="")
-    channels = Column(JSON, default=lambda: ["linkedin", "facebook", "x"])
+    weekday = Column(String, nullable=False, default="")  # weekly pattern, e.g. "MO,TH"
+    frequency = Column(String, default="recurring")  # now | once | recurring
+    pattern = Column(String, default="weekly")  # daily | weekly | monthly | dates
+    start_date = Column(String, nullable=True)  # YYYY-MM-DD, organisation timezone
+    end_date = Column(String, nullable=True)
+    month_day = Column(Integer, nullable=True)
+    custom_dates = Column(JSON, default=list)
+    make_image = Column(Boolean, default=True)
+    approver_emails = Column(JSON, default=list)  # empty: the organisation's approvers
+    result_emails = Column(JSON, default=list)  # empty: the organisation's approvers
+    retry_count = Column(Integer, default=1)
+    retry_delay_min = Column(Integer, default=5)
+    status = Column(String, default="active")  # active | paused | ended
+    ended_reason = Column(String, nullable=True)
+    reminder_sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class SocialPost(Base):
     __tablename__ = "social_posts"
@@ -418,6 +436,14 @@ class SocialPost(Base):
     approved_by = Column(String, nullable=True)
     approved_at = Column(DateTime, nullable=True)
     review_note = Column(Text, nullable=True)
+    # Schedule posts: the schedule date this post fills; detached once edited or moved by hand
+    # (the schedule no longer changes or replaces it); asap = "right now" (goes out on approval).
+    occurrence = Column(String, nullable=True)
+    detached = Column(Boolean, default=False)
+    asap = Column(Boolean, default=False)
+    # Automatic publish retries used, and when the next one is due (epoch ms).
+    publish_attempts = Column(Integer, default=0)
+    retry_at_ms = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
