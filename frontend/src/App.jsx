@@ -6798,6 +6798,15 @@ const FAMOUS_PROVIDERS_BY_LAYER = {
   "Other": ["Other (Custom Base URL)"]
 };
 
+// Shown under Base URL fields for custom / self-hosted AI.
+function SelfHostedHint() {
+  return (
+    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, marginTop: 6, lineHeight: 1.45 }}>
+      Self-hosted model (Ollama, LM Studio, vLLM)? The key is optional. If this app runs in Docker and the model runs on the same machine, use <code>http://host.docker.internal:PORT</code> instead of localhost (the app tries that for you when localhost does not answer).
+    </div>
+  );
+}
+
 function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" }) {
   const [category, setCategory] = useState(initialCategory && FAMOUS_PROVIDERS_BY_LAYER[initialCategory] ? initialCategory : "LLM");
   const [providerChoice, setProviderChoice] = useState(
@@ -6858,8 +6867,8 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
     setErrorMsg("");
     setSuccessMsg("");
 
-    if (!apiKey.trim()) {
-      setErrorMsg("API key cannot be empty.");
+    if (!apiKey.trim() && !(isOther && baseUrl.trim())) {
+      setErrorMsg(isOther ? "Enter the Base URL. The key is optional for self-hosted models." : "API key cannot be empty.");
       return;
     }
 
@@ -7118,7 +7127,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
           {/* API Key */}
           <div>
             <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
-              {isTwilio ? "Auth Token" : isTelnyx ? "Telnyx API V2 Key" : isWhatsApp ? "Meta WhatsApp Access Token (EAAG...)" : "API Key / Token"}
+              {isTwilio ? "Auth Token" : isTelnyx ? "Telnyx API V2 Key" : isWhatsApp ? "Meta WhatsApp Access Token (EAAG...)" : isOther ? "API Key / Token (optional for self-hosted)" : "API Key / Token"}
             </label>
             <div style={{ position: "relative", width: "100%" }}>
               <input
@@ -7168,6 +7177,7 @@ function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "LLM" })
                 placeholder={providerChoice.includes("Cal.com") ? "https://api.cal.com/v2" : "https://api.your-custom-llm.com/v1"}
                 style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
               />
+              {isOther ? <SelfHostedHint /> : null}
             </div>
           )}
 
@@ -10884,7 +10894,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
   const handleTest = async (groupName, itemName, rowKey) => {
     const row = rowState[rowKey] || {};
     const key = (row.keyValue || "").trim();
-    if (!key) { setRow(rowKey, { errorMsg: "API key cannot be empty." }); return; }
+    if (!key && !(row.baseUrlValue || "").trim()) { setRow(rowKey, { errorMsg: "Paste the API key, or enter a Base URL for a self-hosted model (key optional)." }); return; }
     const isTwilio = String(itemName || "").toLowerCase().includes("twilio");
     const isWhatsApp = String(itemName || "").toLowerCase().includes("whatsapp");
     const sidCandidate = (row.accountSidValue || row.agentIdValue || "").trim();
@@ -11072,7 +11082,10 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 
   const requestDeleteKey = (groupName, item, rowKey) => {
     if (!item || item.status !== "connected") return;
-    setDeleteKeyConfirm({ groupName, item, rowKey, deleting: false });
+    setDeleteKeyConfirm({ groupName, item, rowKey, deleting: false, usedBy: null });
+    api.connectionUsage({ id: item.id || undefined, layer: groupName, provider: item.name })
+      .then((res) => setDeleteKeyConfirm((s) => (s && s.item === item ? { ...s, usedBy: (res && res.usedBy) || [] } : s)))
+      .catch(() => setDeleteKeyConfirm((s) => (s && s.item === item ? { ...s, usedBy: [] } : s)));
   };
 
   const confirmDeleteKey = async () => {
@@ -11505,6 +11518,7 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
                                     placeholder="https://... or http://localhost:11434/v1"
                                     style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
                                   />
+                                  <SelfHostedHint />
                                 </div>
                               </div>
                             )}
@@ -11683,8 +11697,20 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
               </button>
             </div>
             <p style={{ margin: "0 0 18px", fontSize: 13.5, lineHeight: 1.5, color: C.slate }}>
-              Permanently remove the saved credentials for <b style={{ color: C.textInk }}>{deleteKeyConfirm.item?.name}</b> in <b>{deleteKeyConfirm.groupName}</b>? This action is irreversible. Live calls relying on {deleteKeyConfirm.item?.name} will fail until a valid key is provided again.
+              Permanently remove the saved credentials for <b style={{ color: C.textInk }}>{deleteKeyConfirm.item?.name}</b> in <b>{deleteKeyConfirm.groupName}</b>? This cannot be undone.
             </p>
+            {deleteKeyConfirm.usedBy === null ? (
+              <p style={{ margin: "-8px 0 18px", fontSize: 12.5, color: C.slate }}>Checking what uses it…</p>
+            ) : deleteKeyConfirm.usedBy.length ? (
+              <div style={{ margin: "-6px 0 18px", padding: "10px 12px", borderRadius: 10, background: C.amberSoft, border: `1px solid ${C.border}`, fontSize: 12.5, color: C.textInk, lineHeight: 1.5 }}>
+                <b>In use. These stop working until you add another key:</b>
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                  {deleteKeyConfirm.usedBy.map((u) => <li key={u}>{u}</li>)}
+                </ul>
+              </div>
+            ) : (
+              <p style={{ margin: "-8px 0 18px", fontSize: 12.5, color: C.slate }}>Nothing is using it right now.</p>
+            )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"

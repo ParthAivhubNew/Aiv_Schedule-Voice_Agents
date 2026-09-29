@@ -117,9 +117,10 @@ async def _do_validate_api_key(
     account_sid: Optional[str] = None,
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
+    from app.services.endpoints import docker_host_alternative, is_self_hosted
+
     api_key = (api_key or "").strip()
-    is_local = bool(base_url and ("localhost" in str(base_url) or "127.0.0.1" in str(base_url)))
-    if not api_key and not is_local:
+    if not api_key and not is_self_hosted(base_url):
         return {"valid": False, "error": "API Key cannot be empty."}
 
     prov_type = identify_provider(provider)
@@ -133,7 +134,18 @@ async def _do_validate_api_key(
     except httpx.ConnectTimeout:
         return {"valid": False, "error": f"Connection to {provider} timed out. Please check network connection."}
     except httpx.ConnectError as ce:
-        return {"valid": False, "error": f"Could not reach {provider} host: {str(ce)}"}
+        alt = docker_host_alternative(base_url)
+        if alt:
+            # Inside Docker "localhost" is this container. Try the machine it runs on.
+            res = await _do_validate_api_key(provider, api_key, alt, account_sid, model=model)
+            if res.get("valid"):
+                res["base_url"] = alt
+                res["details"] = (res.get("details") or "Verified") + f" (reached at {alt}: this app runs in Docker, where localhost means the container)"
+                return res
+            if not res.get("unreachable"):
+                return {"valid": False, "error": f"{res.get('error')} (tried {alt}: this app runs in Docker, where localhost means the container)"}
+            return {"valid": False, "unreachable": True, "error": f"Could not reach {base_url}. This app runs in Docker, so localhost is the container itself; {alt} did not answer either. Check the model server is running and listening on all interfaces (for Ollama: OLLAMA_HOST=0.0.0.0)."}
+        return {"valid": False, "unreachable": True, "error": f"Could not reach {provider} host: {str(ce)}"}
     except Exception as e:
         logger.error(f"Error validating {provider} key: {e}")
         return {"valid": False, "error": f"Validation error: {str(e)}"}
@@ -366,14 +378,18 @@ async def _validate_perplexity(client: httpx.AsyncClient, api_key: str, base_url
 
 
 async def _validate_ollama(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
-    target_url = (base_url or "http://localhost:11434").rstrip("/") + "/api/tags"
-    try:
-        res = await client.get(target_url)
-        if res.status_code == 200:
-            return {"valid": True, "provider": "Ollama", "details": "Local Ollama host reachable and active."}
-    except Exception:
-        pass
-    return {"valid": True, "provider": "Ollama", "details": "Configured for local Ollama host."}
+    root = (base_url or "http://localhost:11434").rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3]  # OpenAI-compatible URL; the model list lives at the root
+    target_url = root + "/api/tags"
+    # ConnectError propagates so the caller can try the Docker host instead of localhost.
+    res = await client.get(target_url)
+    if res.status_code == 200:
+        names = [m.get("name") for m in (res.json().get("models") or []) if isinstance(m, dict)]
+        found = f" Models: {', '.join(names[:5])}." if names else " No models pulled yet (run: ollama pull <model>)."
+        return {"valid": True, "provider": "Ollama", "details": f"Ollama reachable at {root}.{found}"}
+    # Not Ollama's own API: maybe an OpenAI-compatible server under an "Ollama" name.
+    return await _validate_custom(client, api_key, base_url or root + "/v1", account_sid, model, provider)
 
 
 async def _validate_livekit(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
@@ -475,6 +491,8 @@ async def _validate_custom(client: httpx.AsyncClient, api_key: str, base_url: Op
             return {"valid": False, "error": f"{prov_name} endpoint not found (HTTP 404) at {target_url}. Please check the base URL."}
         else:
             return {"valid": False, "error": f"{prov_name} returned error status HTTP {res.status_code} at {target_url}."}
+    except httpx.ConnectError:
+        raise  # the caller may retry at the Docker host
     except Exception as ex:
         return {"valid": False, "error": f"Could not reach {target_url}: {str(ex)}"}
 

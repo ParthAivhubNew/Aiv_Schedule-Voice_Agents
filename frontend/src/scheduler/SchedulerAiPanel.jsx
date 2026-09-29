@@ -137,7 +137,15 @@ export function SchedulerAiPanel({ showToast }) {
   };
 
   const deleteKey = async (kind, keyObj) => {
-    if (!window.confirm(`Are you sure you want to remove the saved key for ${keyObj.name}?`)) return;
+    let usedBy = [];
+    try {
+      const res = await api.connectionUsage({ id: keyObj.id, layer: kind === "text" ? "LLM" : "IMAGE", provider: keyObj.name });
+      usedBy = (res && res.usedBy) || [];
+    } catch (_) {
+      // Unknown usage: still ask.
+    }
+    const warn = usedBy.length ? "\n\nIn use. These stop working until you add another key:\n- " + usedBy.join("\n- ") : "";
+    if (!window.confirm(`Remove the saved key for ${keyObj.name}?${warn}`)) return;
     setKeyBusy(kind);
     try {
       await api.clearConnectionKey({
@@ -619,7 +627,7 @@ function CustomProviderWindow({
 
               {/* Row 1, Col 2: API Key with Toggle View Eye Icon */}
               <div>
-                <label style={labelStyle}>API KEY (LEAVE EMPTY IF LOCAL/FREE)</label>
+                <label style={labelStyle}>API KEY (OPTIONAL FOR SELF-HOSTED)</label>
                 <div style={{ position: "relative" }}>
                   <input
                     type={showKey ? "text" : "password"}
@@ -652,7 +660,7 @@ function CustomProviderWindow({
                     </button>
                   ) : null}
                 </div>
-                <div style={hintStyle}>Stored encrypted. Not required for local endpoints</div>
+                <div style={hintStyle}>Stored encrypted. Leave empty for a self-hosted model with a Base URL.</div>
               </div>
 
               {/* Row 2, Col 1: Base URL / Region */}
@@ -664,7 +672,7 @@ function CustomProviderWindow({
                   placeholder={placeholderUrl}
                   style={input}
                 />
-                <div style={hintStyle}>e.g. {kind === "text" ? "https://api.deepseek.com or https://api.openai.com/v1" : "https://api.stability.ai or https://api.fal.ai/v1"}</div>
+                <div style={hintStyle}>e.g. {kind === "text" ? "https://api.deepseek.com or http://host.docker.internal:11434/v1" : "https://api.stability.ai or https://api.fal.ai/v1"}. In Docker, a model on the same machine is at host.docker.internal, not localhost.</div>
               </div>
 
               {/* Row 2, Col 2: Model Name */}

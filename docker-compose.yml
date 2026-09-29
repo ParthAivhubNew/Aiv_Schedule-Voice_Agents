@@ -41,6 +41,10 @@ services:
       dockerfile: Dockerfile
     container_name: aivhub_backend
     restart: unless-stopped
+    # Lets the backend reach AI models running on this machine (Ollama, LM Studio, vLLM):
+    # use http://host.docker.internal:<port> instead of localhost in Connections.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
       - /etc/localtime:/etc/localtime:ro
