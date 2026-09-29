@@ -65,6 +65,19 @@ npm run dev
 ```
 *Frontend runs on [http://localhost:5173](http://localhost:5173) with automatic proxying to the FastAPI backend.*
 
+### Tests
+```bash
+# Backend: unit tests run as is. Flow tests (approval, schedules, voices, ...) need an
+# empty PostgreSQL database; it is wiped on each run.
+cd backend
+pip install -r requirements-dev.txt
+TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost/aiv_pytest pytest
+
+# Frontend
+cd frontend
+npm test
+```
+
 ---
 
 ## 📂 Project Architecture
