@@ -10,24 +10,6 @@ import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../tokens";
 // 3. Delete & Edit options for connected providers.
 // 4. Symmetrical 2x2 grid with eye view icon while typing API key.
 
-function mirrorForClassic(s) {
-  try {
-    const prev = JSON.parse(localStorage.getItem("aivhub_scheduler_ai") || "{}") || {};
-    const next = {
-      ...prev,
-      imageModel: s.imageModel || prev.imageModel,
-    };
-    if (s.textProvider && s.textProvider !== "auto") {
-      next.provider = s.textProvider;
-      if (s.textModel) next.model = s.textModel;
-    }
-    if (s.imageProvider && s.imageProvider !== "auto") next.imageProvider = s.imageProvider;
-    delete next.apiKey;
-    delete next.imageApiKey;
-    localStorage.setItem("aivhub_scheduler_ai", JSON.stringify(next));
-  } catch (_) {}
-}
-
 function matchKey(keys, selected) {
   const s = String(selected || "").trim().toLowerCase();
   if (!s) return null;
@@ -92,7 +74,6 @@ export function SchedulerAiPanel({ showToast }) {
     try {
       const res = await api.saveSchedulerAiSettings(next);
       setSettings(res.settings || next);
-      mirrorForClassic(res.settings || next);
       setSaveState("saved");
       window.setTimeout(() => setSaveState((s) => (s === "saved" ? "" : s)), 1800);
     } catch (e) {

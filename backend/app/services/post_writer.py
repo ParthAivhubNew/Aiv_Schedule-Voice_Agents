@@ -747,36 +747,6 @@ async def generate_image_with_provider(
     return resp
 
 
-def parse_chat_intent(text: str) -> Dict[str, Any]:
-    t = (text or "").lower()
-    days = []
-    for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
-        if day in t or day[:3] in t:
-            days.append(day.capitalize())
-            
-    horizon = "month"
-    if "2 day" in t or "two day" in t:
-        horizon = "2-day"
-    elif "week" in t:
-        horizon = "week"
-    elif "month" in t:
-        horizon = "month"
-        
-    channels = []
-    for ch in ["linkedin", "facebook", "instagram", "x", "twitter"]:
-        if ch in t:
-            channels.append("x" if ch == "twitter" else ch)
-    if not channels:
-        channels = ["linkedin", "x"]
-        
-    return {
-        "intent": "plan_schedule" if days or "schedule" in t or "plan" in t else "help",
-        "horizon": horizon,
-        "days": days or ["Monday", "Wednesday", "Friday"],
-        "channels": channels,
-        "raw": text,
-    }
-
 async def generate_complete_social_package(
     topic: str,
     company_name: str = "",

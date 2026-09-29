@@ -4,9 +4,8 @@ from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db, engine
-from app.models.models import SocialPost, SocialEmail, SocialAccount, CompanyProfile, SchedulerSetting, Connection
+from app.models.models import SocialPost, SocialAccount, CompanyProfile, SchedulerSetting, Connection
 from app.services.post_writer import (
-    parse_chat_intent,
     create_topic_image_prompt,
     generate_image_with_provider,
     generate_complete_social_package,
@@ -80,6 +79,22 @@ async def ensure_social_schema() -> None:
             ))
     except Exception as e:
         logger.warning(f"Could not release stuck publishing posts: {e}")
+    await _drop_retired_table("social_topics")
+
+
+async def _drop_retired_table(table: str) -> None:
+    """Drop a table no code uses any more, but only while it is empty: rows are user data."""
+    try:
+        async with engine.begin() as conn:
+            count = (await conn.execute(text(f"SELECT COUNT(*) FROM {table}"))).scalar() or 0
+            if count:
+                logger.warning(f"Retired table {table} still has {count} rows; kept. Remove it by hand once reviewed.")
+                return
+            await conn.execute(text(f"DROP TABLE {table}"))
+            logger.info(f"Dropped retired empty table {table}.")
+    except Exception:
+        # Table already gone (fresh install) or not readable; nothing to do.
+        pass
 
 
 async def _repair_social_posts_schema() -> None:
@@ -644,36 +659,6 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
     }
 
 
-@router.post("/posts/{post_id}/status")
-async def update_post_status(post_id: str, payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
-    post = res.scalars().first()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
-    if post.status in LOCKED_STATUSES:
-        return {"status": "ok", "locked": True, "postId": post_id, "newStatus": post.status, "post": _serialize_post(post)}
-
-    if payload.get("status") is not None:
-        post.status = payload.get("status")
-    if "copy" in payload and payload["copy"] is not None:
-        post.copy = payload["copy"]
-    if "imageUrl" in payload:
-        post.image_url = _host_image(payload["imageUrl"], request)
-    if "imagePrompt" in payload:
-        post.image_prompt = payload["imagePrompt"]
-    if "slotDateMs" in payload and payload["slotDateMs"] is not None:
-        post.slot_date_ms = float(payload["slotDateMs"])
-    if "time" in payload:
-        post.time = payload["time"]
-    if "channels" in payload:
-        post.channels = payload["channels"]
-    _apply_package_fields(post, payload)
-    _apply_due(post, payload)
-
-    await db.commit()
-    return {"status": "ok", "postId": post_id, "newStatus": post.status, "post": _serialize_post(post)}
-
-
 @router.delete("/posts/{post_id}")
 async def delete_post_endpoint(post_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(SocialPost).where(SocialPost.id == post_id))
@@ -683,48 +668,6 @@ async def delete_post_endpoint(post_id: str, db: AsyncSession = Depends(get_db))
     await db.delete(post)
     await db.commit()
     return {"status": "ok", "message": f"Post {post_id} deleted."}
-
-
-@router.get("/emails")
-async def list_emails(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SocialEmail).order_by(SocialEmail.created_at.desc()))
-    emails = result.scalars().all()
-    return [
-        {
-            "id": e.id,
-            "postId": e.post_id,
-            "subject": e.subject,
-            "from": e.from_addr,
-            "to": e.to_addr,
-            "date": e.date,
-            "sentAt": e.date,
-            "status": e.status,
-            "preview": (e.post_data or {}).get("preview") or e.subject,
-            "body": (e.post_data or {}).get("body") or "",
-            "post_data": e.post_data or {},
-        }
-        for e in emails
-    ]
-
-
-@router.post("/emails")
-async def create_email_endpoint(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-    email = SocialEmail(
-        id=payload.get("id") or f"em_{uuid.uuid4().hex[:8]}",
-        post_id=payload.get("postId") or payload.get("post_id") or "",
-        subject=payload.get("subject") or "Approve social post",
-        from_addr=payload.get("from") or payload.get("from_addr") or "scheduler@aivhub.io",
-        to_addr=payload.get("to") or payload.get("to_addr") or "admin@aivhub.io",
-        date=payload.get("date") or payload.get("sentAt") or "just now",
-        status=payload.get("status") or "unread",
-        post_data=payload.get("post_data") or {
-            "body": payload.get("body") or "",
-            "preview": payload.get("preview") or "",
-        },
-    )
-    db.add(email)
-    await db.commit()
-    return {"status": "ok", "id": email.id}
 
 
 PLATFORM_TITLES = {
@@ -837,101 +780,6 @@ async def oauth_callback(
         frontend=result.get("frontend") or "",
     )
     return HTMLResponse(html)
-
-
-def _apply_account_payload(acc: SocialAccount, payload: Dict[str, Any]):
-    if payload.get("platform"):
-        acc.platform = normalize_platform(payload.get("platform"))
-    if payload.get("label") is not None:
-        acc.label = payload.get("label") or ""
-    if payload.get("handle") is not None:
-        acc.handle = payload.get("handle") or ""
-    if payload.get("accountId") is not None or payload.get("account_id") is not None:
-        acc.account_id = payload.get("accountId") or payload.get("account_id") or ""
-    if payload.get("accessToken") is not None or payload.get("access_token") is not None:
-        token = payload.get("accessToken") or payload.get("access_token") or ""
-        if token and not token.startswith("••"):
-            acc.access_token = token
-    if payload.get("refreshToken") is not None or payload.get("refresh_token") is not None:
-        acc.refresh_token = payload.get("refreshToken") or payload.get("refresh_token") or ""
-    if payload.get("tokenSecret") is not None or payload.get("token_secret") is not None:
-        acc.token_secret = payload.get("tokenSecret") or payload.get("token_secret") or ""
-    extra = acc.extra if isinstance(acc.extra, dict) else {}
-    incoming = payload.get("extra") if isinstance(payload.get("extra"), dict) else {}
-    for k in ("apiKey", "apiSecret", "pageId", "orgId", "authorType", "consumerKey", "consumerSecret", "accessTokenSecret"):
-        if payload.get(k) is not None:
-            val = payload.get(k)
-            if isinstance(val, str) and val.startswith("••"):
-                continue
-            extra[k] = val
-        if incoming.get(k) is not None:
-            val = incoming.get(k)
-            if isinstance(val, str) and val.startswith("••"):
-                continue
-            extra[k] = val
-    acc.extra = extra
-    try:
-        from app.services.social_publisher import seal_account_secrets
-        seal_account_secrets(acc)
-    except Exception:
-        pass
-    if payload.get("isDefault") is not None:
-        acc.is_default = bool(payload.get("isDefault"))
-
-
-@router.post("/accounts")
-async def upsert_account(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-    platform = normalize_platform(payload.get("platform") or "linkedin")
-    acc_id = payload.get("id") or f"soc_{platform}_{uuid.uuid4().hex[:8]}"
-    res = await db.execute(select(SocialAccount).where(SocialAccount.id == acc_id))
-    acc = res.scalars().first()
-    created = False
-    if not acc:
-        acc = SocialAccount(id=acc_id, platform=platform, extra={})
-        db.add(acc)
-        created = True
-    _apply_account_payload(acc, payload)
-
-    if acc.is_default:
-        others = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == acc.platform, SocialAccount.id != acc.id)
-        )
-        for other in others.scalars().all():
-            other.is_default = False
-
-    test = await test_account(acc)
-    acc.last_tested_at = datetime.utcnow().isoformat()
-    if test.get("ok"):
-        acc.status = "connected"
-        acc.last_error = ""
-        if test.get("handle"):
-            acc.handle = acc.handle or test["handle"]
-        if test.get("accountId") and not acc.account_id:
-            acc.account_id = test["accountId"]
-    else:
-        acc.status = "error" if (acc.access_token or "").strip() else "disconnected"
-        acc.last_error = test.get("error") or ""
-
-    await db.commit()
-    await db.refresh(acc)
-    return {
-        "status": "ok" if test.get("ok") else "error",
-        "created": created,
-        "account": account_public_dict(acc),
-        "test": test,
-    }
-
-
-@router.post("/accounts/{account_id}/test")
-async def test_account_endpoint(account_id: str, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
-    acc = res.scalars().first()
-    if not acc:
-        raise HTTPException(status_code=404, detail="Account not found")
-    test = await test_account(acc)
-    _apply_live_profile(acc, test)
-    await db.commit()
-    return {"status": "ok" if test.get("ok") else "error", "test": test, "account": account_public_dict(acc)}
 
 
 @router.delete("/accounts/{account_id}")
@@ -1156,11 +1004,6 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     return {"status": "ok", "published": published, "failed": failed, "skipped": skipped}
 
 
-@router.post("/publish-due")
-async def publish_due_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
-    return await run_publish_due(db, request)
-
-
 _PLAN_FENCE_RE = re.compile(r"```(?:plan|json)\s*([\s\S]*?)```", re.I)
 _JUNK_KB_RE = re.compile(
     r"SQL_ERROR|fillBuffer|errorType|\"format\"\s*:\s*\"sjson\"|hierarchies|traceid",
@@ -1261,15 +1104,12 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
     provider = text_ai["provider"]
     model = text_ai["model"]
     base_url = text_ai["base_url"]
-    image_style = payload.get("imageStyle", "modern_saas")
     if text_ai["error"]:
         return {
             "status": "error",
             "reply": text_ai["error"],
             "plan": None,
-            "topics": [],
             "posts": [],
-            "postsCreated": [],
             "model": model,
             "provider": provider,
             "error": text_ai["error"],
@@ -1306,9 +1146,7 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
 
     from app.services.llm_gateway import call_open_chat_llm
 
-    return_plan = bool(payload.get("returnPlan") or payload.get("return_plan"))
     current_plan = payload.get("currentPlan") or payload.get("current_plan") or {}
-    chat_only = bool(payload.get("chatOnly", False))
     target_date = str(payload.get("targetDate") or payload.get("target_date") or "").strip()
     focus_post_id = str(payload.get("focusPostId") or payload.get("focus_post_id") or "").strip()
     selected_channels = payload.get("selectedChannels") or payload.get("selected_channels") or []
@@ -1337,23 +1175,22 @@ If they pin a date, do not ask for a file, meeting, or system. Use their post pl
 If they ask a question (strategy, mix, caption feedback), answer plainly in chat. Do not invent calendar posts unless they asked to plan, draft, generate, schedule, or change posts.
 If they want a calendar / plan / captions, write captions that could ship today."""
 
-    if return_plan:
+    kb_note = ""
+    try:
+        from app.services.rag_service import search_knowledge
+        hits = await search_knowledge(db, prompt or company_pitch, top_k=3, min_score=0.38)
+        if hits:
+            bits = []
+            for h in hits:
+                content = (h.get("content") or "").strip().replace("\n", " ")[:280]
+                if _usable_kb_text(content):
+                    bits.append(f"- {(h.get('title') or 'Note')}: {content}")
+            if bits:
+                kb_note = "Company knowledge (do not invent beyond this):\n" + "\n".join(bits)
+    except Exception:
         kb_note = ""
-        try:
-            from app.services.rag_service import search_knowledge
-            hits = await search_knowledge(db, prompt or company_pitch, top_k=3, min_score=0.38)
-            if hits:
-                bits = []
-                for h in hits:
-                    content = (h.get("content") or "").strip().replace("\n", " ")[:280]
-                    if _usable_kb_text(content):
-                        bits.append(f"- {(h.get('title') or 'Note')}: {content}")
-                if bits:
-                    kb_note = "Company knowledge (do not invent beyond this):\n" + "\n".join(bits)
-        except Exception:
-            kb_note = ""
 
-        system_prompt += f"""
+    system_prompt += f"""
 
 Today is {today}. When the user wants a posting calendar, a month/week plan, or to change dates/captions/channels, you MUST end your reply with a fenced JSON block tagged plan.
 
@@ -1398,50 +1235,15 @@ Current calendar JSON: {json.dumps(current_plan)[:8000]}
         }
 
     reply_raw = llm_res.get("reply", "")
-    structured_plan = _extract_plan_from_text(reply_raw) if return_plan else None
+    structured_plan = _extract_plan_from_text(reply_raw)
     reply_text = _spoken_reply(reply_raw, bool(structured_plan and structured_plan.get("posts")))
     if not reply_text:
         reply_text = f"Tell me the topic and the date to post for {company_name}."
-    topics_data = []
-
-    if not chat_only and not return_plan:
-        parsed = parse_chat_intent(prompt)
-        if parsed["intent"] == "plan_schedule" or "schedule" in prompt.lower() or "post" in prompt.lower():
-            try:
-                days = parsed["days"]
-                channels = parsed["channels"]
-                seed = (prompt or company_pitch or company_name or "Company update").strip()
-                for i in range(min(3, len(days))):
-                    channel = channels[i % len(channels)]
-                    title = seed[:120]
-                    img_prompt = create_topic_image_prompt(title, seed, "General", image_style)
-                    t_id = f"top_{uuid.uuid4().hex[:8]}"
-                    topics_data.append({
-                        "id": t_id,
-                        "theme": "General",
-                        "title": title,
-                        "headline": title,
-                        "angle": seed[:280],
-                        "hook": title,
-                        "source": "AI Strategist",
-                        "freshness": "Today",
-                        "query": seed[:80],
-                        "saved": True,
-                        "imagePrompt": img_prompt,
-                        "imageUrl": "",
-                        "day": days[i] if i < len(days) else f"Day {i+1}",
-                        "channel": channel,
-                    })
-            except Exception as gen_err:
-                logger.error(f"[Scheduler Chat] Error generating topics: {gen_err}")
-
     return {
         "status": "ok" if llm_res.get("success", True) else "error",
         "reply": reply_text,
         "plan": structured_plan,
-        "topics": topics_data,
         "posts": (structured_plan or {}).get("posts") or [],
-        "postsCreated": [],
         "model": llm_res.get("model", model),
         "provider": llm_res.get("provider", provider),
         "error": llm_res.get("error"),
