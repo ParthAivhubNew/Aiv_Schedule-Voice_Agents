@@ -21,6 +21,24 @@ def _get_llm_client() -> httpx.AsyncClient:
         )
     return _llm_http_client
 
+def _read_timeout(max_tokens: int) -> float:
+    # Long outputs (batched posts, big plans) legitimately take longer than a chat reply.
+    return 45.0 if (max_tokens or 0) <= 2048 else 150.0
+
+
+# Output ceilings most models on these providers accept; asking for more is rejected.
+_OUTPUT_CAPS = (
+    ("anthropic", 8192), ("claude", 8192), ("deepseek", 8192), ("groq", 8192),
+    ("xai", 8192), ("grok", 8192), ("gemini", 8192), ("openai", 16384), ("gpt", 16384),
+)
+
+
+def output_token_limit(provider: Optional[str], wanted: int) -> int:
+    p = (provider or "").lower()
+    cap = next((n for key, n in _OUTPUT_CAPS if key in p), 4096)
+    return max(256, min(int(wanted), cap))
+
+
 def _same_provider(requested: Optional[str], actual: Optional[str]) -> bool:
     """True when no provider was requested, or the fallback key belongs to the requested provider."""
     r = (requested or "").strip().lower()
@@ -333,7 +351,7 @@ async def _call_anthropic(
         payload["system"] = system_text.strip()
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(_read_timeout(max_tokens), connect=10.0)) as client:
             res = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
             if res.status_code == 200:
                 data = res.json()
@@ -342,7 +360,8 @@ async def _call_anthropic(
                     "success": True,
                     "reply": text.strip(),
                     "model": data.get("model", model),
-                    "provider": "anthropic"
+                    "provider": "anthropic",
+                    "truncated": data.get("stop_reason") == "max_tokens",
                 }
             else:
                 err_text = res.text[:300]
@@ -430,16 +449,18 @@ async def _call_openai_compatible(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(_read_timeout(max_tokens), connect=10.0)) as client:
             res = await client.post(endpoint, headers=headers, json=payload)
             if res.status_code == 200:
                 data = res.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                choice = (data.get("choices") or [{}])[0]
+                content = (choice.get("message") or {}).get("content", "") or ""
                 return {
                     "success": True,
                     "reply": content.strip(),
                     "model": data.get("model", target_model),
-                    "provider": provider
+                    "provider": provider,
+                    "truncated": choice.get("finish_reason") == "length",
                 }
             else:
                 err_text = res.text[:300]

@@ -5,13 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db, engine
 from app.services.org_settings import org_instant_ms, org_timezone
+from app.services import generation_queue as gen_queue
+from app.services.generation_queue import IMAGE_SLOTS, PRIORITY_INTERACTIVE, TEXT_SLOTS
 from app.services.timezone_service import tzinfo
-from app.models.models import SocialPost, SocialAccount, CompanyProfile, SchedulerSetting, Connection
+from app.models.models import SocialPost, SocialGenJob, SocialAccount, CompanyProfile, SchedulerSetting, Connection
 from app.services.post_writer import (
     create_topic_image_prompt,
     generate_image_with_provider,
-    generate_complete_social_package,
-    strip_ai_slop,
     ASPECT_RATIOS,
 )
 from app.services.social_publisher import (
@@ -62,11 +62,14 @@ _SOCIAL_POST_EXTRA_COLS = [
     ("publish_results", "JSON"),
     ("published_at", "VARCHAR"),
     ("due_at_ms", "FLOAT"),
+    ("gen_state", "VARCHAR"),
+    ("gen_error", "TEXT"),
 ]
 
 # A post in one of these states must never be edited back to draft/approved by a client
 # save: that is how a stale browser tab re-queued already-published posts (double posting).
 LOCKED_STATUSES = ("published", "publishing")
+MAX_POSTS_PER_REQUEST = 90
 
 
 async def ensure_social_schema() -> None:
@@ -142,6 +145,8 @@ def _serialize_post(p: SocialPost) -> Dict[str, Any]:
         "publishResults": p.publish_results or [],
         "publishedAt": p.published_at,
         "dueAtMs": getattr(p, "due_at_ms", None),
+        "genState": getattr(p, "gen_state", None),
+        "genError": getattr(p, "gen_error", None),
         "lastError": _last_error(p),
         "createdAt": p.created_at.isoformat() if p.created_at else None,
     }
@@ -483,18 +488,19 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
     elif not prompt:
         prompt = f"Modern professional illustration representing {theme}, clean vector style, high quality"
 
-    img = await generate_image_with_provider(
-        prompt=prompt,
-        provider=provider,
-        api_key=api_key,
-        model=model,
-        base_url=base_url,
-        style=style,
-        aspect_ratio=aspect_ratio,
-        width=width,
-        height=height,
-        db=db,
-    )
+    async with IMAGE_SLOTS.slot(PRIORITY_INTERACTIVE):
+        img = await generate_image_with_provider(
+            prompt=prompt,
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            style=style,
+            aspect_ratio=aspect_ratio,
+            width=width,
+            height=height,
+            db=db,
+        )
     hosted = _host_image(img.get("imageUrl"), request)
     return {
         "status": img.get("status") or "ok",
@@ -510,89 +516,66 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
     }
 
 
-@router.post("/generate-package")
-async def generate_package_endpoint(payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
-    topic = (
-        payload.get("topic")
-        or payload.get("custom_angle")
-        or payload.get("angle")
-        or payload.get("title")
-        or payload.get("prompt")
-        or ""
-    )
-    text_ai = await _resolve_text_ai(db, payload)
-    if text_ai["error"]:
-        raise HTTPException(status_code=400, detail=text_ai["error"])
-    api_key = text_ai["api_key"]
-    provider = text_ai["provider"]
-    model = text_ai["model"]
-    base_url = text_ai["base_url"]
-    img_prefs = await _resolve_image_prefs(db, payload)
-    image_api_key = img_prefs["api_key"]
-    image_provider = img_prefs["provider"]
-    image_model = img_prefs["model"]
-    image_base_url = img_prefs["base_url"]
-    style = img_prefs["style"]
-    aspect_ratio = img_prefs["aspect_ratio"]
+@router.post("/generate")
+async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    """Queue AI writing for posts. groups: [{postIds, plan, headline, channel, date,
+    revisionNote, existingCopy, skipImage}]; posts sharing one group get the same content."""
+    groups_in = payload.get("groups") or []
+    groups = []
+    for g in groups_in if isinstance(groups_in, list) else []:
+        ids = [str(x) for x in (g.get("postIds") or g.get("post_ids") or []) if x]
+        if not ids:
+            continue
+        groups.append({
+            "post_ids": ids,
+            "plan": g.get("plan") or "",
+            "headline": g.get("headline") or "",
+            "channel": g.get("channel") or "linkedin",
+            "date": g.get("date") or "",
+            "revision_note": g.get("revisionNote") or g.get("revision_note") or "",
+            "existing_copy": g.get("existingCopy") or g.get("existing_copy") or "",
+            "skip_image": bool(g.get("skipImage") or g.get("skip_image")),
+        })
+    total = sum(len(g["post_ids"]) for g in groups)
+    if not groups:
+        raise HTTPException(status_code=400, detail="Nothing to write.")
+    if total > MAX_POSTS_PER_REQUEST:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_POSTS_PER_REQUEST} posts per request ({total} asked). Split the plan.")
+    existing = {row[0] for row in (await db.execute(
+        select(SocialPost.id).where(SocialPost.id.in_([pid for g in groups for pid in g["post_ids"]]))
+    )).all()}
+    missing = [pid for g in groups for pid in g["post_ids"] if pid not in existing]
+    if missing:
+        raise HTTPException(status_code=409, detail=f"Save these posts before writing them: {missing[:5]}")
+    priority = PRIORITY_INTERACTIVE if payload.get("interactive") else 0
+    options = {"linkedinDirective": payload.get("linkedinDirective") or ""}
+    job_ids = await gen_queue.enqueue(db, groups, priority=priority, options=options)
+    await db.commit()
+    return {"status": "ok", "jobs": job_ids, "posts": total}
 
-    company_name = (payload.get("companyName") or payload.get("company_name") or "").strip()
-    company_pitch = (payload.get("companyPitch") or payload.get("company_pitch") or "").strip()
-    company_context = (payload.get("companyContext") or payload.get("company_context") or "").strip()
-    linkedin_directive = (payload.get("linkedinDirective") or payload.get("linkedin_directive") or "").strip()
-    existing_copy = (payload.get("existingCopy") or payload.get("existing_copy") or payload.get("caption") or "").strip()
-    existing_headline = (payload.get("existingHeadline") or payload.get("existing_headline") or payload.get("headline") or "").strip()
-    try:
-        prof_res = await db.execute(select(CompanyProfile).limit(1))
-        profile = prof_res.scalars().first()
-        if profile:
-            company_name = profile.name or company_name
-            company_pitch = profile.pitch or company_pitch
-            bits = [profile.pitch or "", profile.industry or "", profile.website or ""]
-            company_context = "\n".join(x for x in bits if x).strip()
-    except Exception as e:
-        logger.warning(f"Could not load company profile for package: {e}")
 
-    try:
-        from app.services.rag_service import search_knowledge
-        hits = await search_knowledge(db, topic, top_k=3, min_score=0.38)
-        if hits:
-            kb_lines = []
-            for h in hits:
-                title = (h.get("title") or "Note").strip()
-                content = (h.get("content") or "").strip().replace("\n", " ")[:420]
-                if _usable_kb_text(content):
-                    kb_lines.append(f"- {title}: {content}")
-            if kb_lines:
-                company_context = (company_context + "\n\nKnowledge base:\n" + "\n".join(kb_lines)).strip()
-    except Exception as kb_err:
-        logger.warning(f"Knowledge lookup for package skipped: {kb_err}")
-
-    package = await generate_complete_social_package(
-        topic=topic,
-        company_name=company_name,
-        company_pitch=company_pitch,
-        company_context=company_context,
-        linkedin_directive=linkedin_directive,
-        existing_copy=existing_copy,
-        existing_headline=existing_headline,
-        api_key=api_key,
-        provider=provider,
-        model=model,
-        base_url=base_url,
-        image_api_key=image_api_key,
-        image_provider=image_provider,
-        image_model=image_model,
-        image_base_url=image_base_url,
-        style=style,
-        aspect_ratio=aspect_ratio,
-        adapt_per_channel=bool(payload.get("adaptPerChannel") or payload.get("adapt_per_channel")),
-        skip_image=bool(payload.get("skipImage") or payload.get("skip_image")),
-        revision_note=(payload.get("revisionNote") or payload.get("revision_note") or "").strip(),
-        db=db,
-    )
-    if package.get("imageUrl"):
-        package["imageUrl"] = _host_image(package.get("imageUrl"), request)
-    return {"status": "ok", "package": package}
+@router.post("/generate/retry")
+async def retry_generation(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    """Put failed writing/image jobs for these posts back in the queue."""
+    ids = {str(x) for x in (payload.get("postIds") or [])}
+    jobs = (await db.execute(select(SocialGenJob).where(SocialGenJob.state == "failed"))).scalars().all()
+    retried = 0
+    for job in jobs:
+        if ids & set(job.post_ids or []):
+            image_only = (job.error or "").startswith("Image:")
+            job.state = "image_queued" if image_only else "queued"
+            job.error = None
+            job.attempts = 0
+            job.priority = PRIORITY_INTERACTIVE
+            await db.execute(
+                update(SocialPost).where(SocialPost.id.in_(job.post_ids or []))
+                .values(gen_state="imaging" if image_only else "queued", gen_error=None)
+                .execution_options(synchronize_session=False)
+            )
+            retried += 1
+    await db.commit()
+    gen_queue.wake()
+    return {"status": "ok", "retried": retried}
 
 
 @router.post("/posts/create")
@@ -616,16 +599,20 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             # Already live (or going live). The server copy wins; the client adopts it.
             return existing_post
         if existing_post:
-            existing_post.title = title
-            existing_post.copy = copy
+            # While the AI queue is writing this post, the server copy of the text/image is the
+            # newest; a browser save made before it refreshed must not blank it.
+            writing = existing_post.gen_state in ("queued", "writing", "imaging")
+            if not (writing and not str(copy or "").strip()):
+                existing_post.title = title
+                existing_post.copy = copy
             existing_post.channels = channels
             existing_post.status = status
             existing_post.slot_date_ms = float(slot_date_ms)
             existing_post.time = time_str
             existing_post.theme = theme
-            if image_url is not None:
+            if image_url is not None and not (writing and not image_url):
                 existing_post.image_url = image_url
-            if image_prompt is not None:
+            if image_prompt is not None and not writing:
                 existing_post.image_prompt = image_prompt
             _apply_package_fields(existing_post, payload)
             _apply_due(existing_post, payload, tz)
@@ -1055,7 +1042,53 @@ def _spoken_reply(text: str, had_plan: bool) -> str:
     )
 
 
-def _extract_plan_from_text(text: str) -> Optional[Dict[str, Any]]:
+_WEEKDAYS = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _norm_channel(raw: Any) -> str:
+    ch = str(raw or "linkedin").strip().lower()
+    return "x" if ch in ("twitter", "tweet") else ch
+
+
+def _expand_rule(rule: Dict[str, Any], themes: List[Any], channels: List[str], today: str) -> List[Dict[str, Any]]:
+    """Dates for a repeating pattern are worked out here, not by the model."""
+    days = {_WEEKDAYS[d] for d in (str(x).upper()[:2] for x in (rule.get("weekdays") or [])) if d in _WEEKDAYS}
+    if not days:
+        days = set(range(7))
+    start_raw = str(rule.get("start") or today)
+    start = datetime.strptime(start_raw if _ISO_DATE_RE.match(start_raw) and start_raw >= today else today, "%Y-%m-%d")
+    count = int(rule.get("count") or 0) or None
+    weeks = int(rule.get("weeks") or 0) or (None if count else 4)
+    end = start + timedelta(days=7 * weeks) if weeks else None
+    times = rule.get("times") or [rule.get("time") or "09:00"]
+    chans = [_norm_channel(c) for c in (rule.get("channels") or channels or ["linkedin"])]
+    out: List[Dict[str, Any]] = []
+    day = start
+    while len(out) < MAX_POSTS_PER_REQUEST + 1:
+        if end and day >= end:
+            break
+        if day.weekday() in days:
+            for t in times:
+                for ch in chans:
+                    theme = themes[len(out) % len(themes)] if themes else {}
+                    theme = theme if isinstance(theme, dict) else {"headline": str(theme)}
+                    out.append({
+                        "date": day.strftime("%Y-%m-%d"), "time": str(t)[:5], "channel": ch,
+                        "headline": str(theme.get("headline") or theme.get("title") or "")[:180],
+                        "plan": str(theme.get("angle") or theme.get("plan") or theme.get("headline") or ""),
+                    })
+            if count and len(out) >= count:
+                out = out[:count]
+                break
+        day += timedelta(days=1)
+    return out
+
+
+def _extract_plan_from_text(text: str, today: str, known_ids: Optional[set] = None) -> Optional[Dict[str, Any]]:
+    """Read the plan outline from the chat reply. New posts carry an outline only (the
+    writer queue drafts captions); existing posts carry their id and what changes."""
+    known_ids = known_ids or set()
     raw = str(text or "")
     blob = None
     m = _PLAN_FENCE_RE.search(raw)
@@ -1064,7 +1097,7 @@ def _extract_plan_from_text(text: str) -> Optional[Dict[str, Any]]:
     else:
         start = raw.find("{")
         end = raw.rfind("}")
-        if start >= 0 and end > start and '"posts"' in raw[start:end + 1]:
+        if start >= 0 and end > start and ('"posts"' in raw[start:end + 1] or '"rule"' in raw[start:end + 1]):
             blob = raw[start:end + 1]
     if not blob:
         return None
@@ -1072,39 +1105,75 @@ def _extract_plan_from_text(text: str) -> Optional[Dict[str, Any]]:
         data = json.loads(blob)
     except Exception:
         return None
-    posts = data.get("posts") if isinstance(data, dict) else None
-    if not isinstance(posts, list) or not posts:
+    if not isinstance(data, dict):
         return None
+    channels = [_norm_channel(c) for c in data.get("channels") or [] if c]
+    raw_posts: List[Dict[str, Any]] = [p for p in (data.get("posts") or []) if isinstance(p, dict)]
+    if isinstance(data.get("rule"), dict):
+        themes = data.get("themes") if isinstance(data.get("themes"), list) else []
+        raw_posts += _expand_rule(data["rule"], themes, channels, today)
+    delete_ids = [str(x) for x in (data.get("delete") or []) if str(x) in known_ids]
     cleaned: List[Dict[str, Any]] = []
-    for i, p in enumerate(posts):
-        if not isinstance(p, dict):
-            continue
+    for i, p in enumerate(raw_posts):
+        pid = str(p.get("id") or "")
+        existing = pid in known_ids
         date = str(p.get("date") or "").strip()
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
-            date = (datetime.utcnow() + timedelta(days=i)).strftime("%Y-%m-%d")
-        channel = str(p.get("channel") or "linkedin").strip().lower()
-        if channel in ("twitter", "tweet"):
-            channel = "x"
-        cleaned.append({
-            "id": p.get("id") or f"v2_{uuid.uuid4().hex[:10]}",
-            "date": date,
-            "time": str(p.get("time") or "09:00")[:5],
-            "channel": channel,
-            "channels": p.get("channels") or [channel],
-            "headline": str(p.get("headline") or p.get("title") or "Draft post")[:180],
-            "caption": strip_ai_slop(str(p.get("caption") or p.get("captionDraft") or p.get("copy") or "")),
-            "imagePrompt": str(p.get("imagePrompt") or p.get("image_prompt") or p.get("headline") or ""),
-        })
-    if not cleaned:
+        if date and not _ISO_DATE_RE.match(date):
+            date = ""
+        if not existing and not date:
+            date = (datetime.strptime(today, "%Y-%m-%d") + timedelta(days=i)).strftime("%Y-%m-%d")
+        item: Dict[str, Any] = {
+            "id": pid if existing else f"v2_{uuid.uuid4().hex[:10]}",
+            "existing": existing,
+            "channel": _norm_channel(p.get("channel")) if (p.get("channel") or not existing) else None,
+            "headline": str(p.get("headline") or p.get("title") or "")[:180] or None,
+            "plan": str(p.get("angle") or p.get("plan") or "")[:1200] or None,
+            "date": date or None,
+            "time": str(p.get("time"))[:5] if p.get("time") else (None if existing else "09:00"),
+            "revision": str(p.get("revision") or "")[:600] or None,
+        }
+        if not existing and not item["headline"]:
+            item["headline"] = (item["plan"] or "Draft post")[:180]
+        cleaned.append({k: v for k, v in item.items() if v is not None})
+    if not cleaned and not delete_ids:
         return None
-    channels = data.get("channels") if isinstance(data.get("channels"), list) else []
+    too_many = len([c for c in cleaned if not c["existing"]]) > MAX_POSTS_PER_REQUEST
+    if too_many:
+        kept, new_count = [], 0
+        for c in cleaned:
+            if not c["existing"]:
+                new_count += 1
+                if new_count > MAX_POSTS_PER_REQUEST:
+                    continue
+            kept.append(c)
+        cleaned = kept
     if not channels:
-        channels = list({x["channel"] for x in cleaned})
+        channels = sorted({c["channel"] for c in cleaned if c.get("channel")})
     return {
         "rangeLabel": str(data.get("rangeLabel") or data.get("label") or ""),
         "channels": channels,
         "posts": cleaned,
+        "deleteIds": delete_ids,
+        "cappedAt": MAX_POSTS_PER_REQUEST if too_many else None,
     }
+
+
+def _calendar_lines(current_plan: Dict[str, Any], focus_id: str) -> str:
+    """Compact view of the calendar for the model: one short line per post, full text only
+    for the post being revised. Never a cut-off JSON dump."""
+    posts = [p for p in (current_plan.get("posts") or []) if isinstance(p, dict)]
+    lines = []
+    for p in posts[:200]:
+        lines.append(
+            f"{p.get('id')} | {p.get('date')} {p.get('time') or ''} | {p.get('channel')} | "
+            f"{p.get('status') or 'draft'} | {str(p.get('headline') or '')[:70]}"
+        )
+    if len(posts) > 200:
+        lines.append(f"... and {len(posts) - 200} more posts")
+    focus = next((p for p in posts if str(p.get("id")) == focus_id), None)
+    if focus:
+        lines.append(f"\nFull text of post {focus_id}:\n{str(focus.get('caption') or '')[:3000]}")
+    return "\n".join(lines) if lines else "(no posts yet)"
 
 
 @router.post("/chat-plan")
@@ -1156,7 +1225,7 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
     elif prompt:
         chat_msgs = [{"role": "user", "content": prompt}]
 
-    from app.services.llm_gateway import call_open_chat_llm
+    from app.services.llm_gateway import call_open_chat_llm, output_token_limit
 
     current_plan = payload.get("currentPlan") or payload.get("current_plan") or {}
     target_date = str(payload.get("targetDate") or payload.get("target_date") or "").strip()
@@ -1169,7 +1238,8 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
     if not isinstance(pinned_dates, list):
         pinned_dates = [pinned_dates] if pinned_dates else []
     pinned_dates = [str(d).strip() for d in pinned_dates if str(d).strip()]
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    org_tz = await org_timezone(db)
+    today = datetime.now(tzinfo(org_tz)).strftime("%Y-%m-%d")
 
     facts = "\n".join(x for x in (
         ("Company: " + company_name) if company_name else "",
@@ -1204,40 +1274,44 @@ If they want a calendar / plan / captions, write captions that could ship today.
 
     system_prompt += f"""
 
-Today is {today}. When the user wants a posting calendar, a month/week plan, or to change dates/captions/channels, you MUST end your reply with a fenced JSON block tagged plan.
+Today is {today} ({org_tz}). When the user wants posts planned, drafted, scheduled or changed, end your reply with a fenced JSON block tagged plan.
+It is an OUTLINE ONLY. Never write captions or hashtags: a writer drafts every caption afterwards, five posts at a time.
 
+For a repeating pattern ("every Monday and Thursday for 4 weeks", "daily this month") give a rule and let the system work out the dates:
 ```plan
-{{"rangeLabel": "September 2026", "channels": ["linkedin"], "posts": [{{"date": "2026-09-21", "time": "09:00", "channel": "linkedin", "headline": "short internal title", "caption": "120-220 word LinkedIn post, hook first, question last, 3-6 hashtags at end", "imagePrompt": "premium 4:5 LinkedIn visual, one idea, no fake UI"}}]}}
+{{"rangeLabel": "October 2026", "channels": ["linkedin"], "rule": {{"weekdays": ["MO", "TH"], "time": "09:00", "start": "{today}", "weeks": 4}}, "themes": [{{"headline": "short title", "angle": "1-2 sentences: what this post says"}}]}}
 ```
-
-Caption rules (every post in the JSON):
-- Write about what the user asked for, using only company profile facts. Never invent a brand, URL, offering, or statistic.
-- 70% educational, 20% thought leadership, 10% product. Mention the company once, naturally, only from the profile.
-- 120–220 words. Short mobile paragraphs. Strong 1–2 line hook. The user's problem. How THIS company helps. One practical takeaway. End with a comment question. 3–6 hashtags.
-- Do not rotate a stock topic bank. If the user gave a thought, that is the post.
-- No fake statistics. No generic corporate language. No exaggerated claims.
-- Banned: "delve", "game-changer", "revolutionary", slogan closers.
-- Return the FULL updated posts array on revisions (not a delta). Keep posts the user did not mention.
-- Real ISO dates (YYYY-MM-DD). One post is enough when they describe one scene.
-- Spoken reply: 1–3 short sentences. Never paste JSON, SQL errors, sjson, fillBuffer, trace dumps, or DevTools objects. Ignore knowledge that looks like an error log.
+Otherwise list the posts:
+```plan
+{{"rangeLabel": "October 2026", "channels": ["linkedin"], "posts": [{{"date": "{today}", "time": "09:00", "channel": "linkedin", "headline": "short internal title", "angle": "1-2 sentences: what this post says"}}]}}
+```
+Rules:
+- weekdays use MO TU WE TH FR SA SU; use "count" instead of "weeks" for a fixed number of posts. Give one theme per post when you can (they rotate).
+- To change existing posts include ONLY the posts that change, each with its "id" and only the changed fields. To reword a post add "revision": "what to change". To remove posts add "delete": ["id", ...]. Never repeat unchanged posts.
+- At most {MAX_POSTS_PER_REQUEST} new posts per request. If asked for more, plan the first {MAX_POSTS_PER_REQUEST} and say so.
+- Write about what the user asked, using only company profile facts. 70% educational, 20% thought leadership, 10% product. No fake statistics.
+- Spoken reply: 1–3 short sentences. Never paste JSON, SQL errors, trace dumps, or DevTools objects. Ignore knowledge that looks like an error log.
 {("Pinned calendar day: " + target_date + ". New or edited posts MUST use this date unless they name another.") if target_date else ""}
 {("Pinned dates: " + ", ".join(pinned_dates) + ". Prefer these dates.") if pinned_dates else ""}
 {("Selected channels: " + ", ".join(selected_channels) + ". Use these platforms unless the user names others.") if selected_channels else ""}
 {("Revise post id " + focus_post_id + " in place. Keep its id.") if focus_post_id else ""}
 {kb_note}
-Current calendar JSON: {json.dumps(current_plan)[:8000]}
+Current calendar (id | date time | channel | status | headline):
+{_calendar_lines(current_plan if isinstance(current_plan, dict) else {}, focus_post_id)}
 """
 
     try:
-        llm_res = await call_open_chat_llm(
-            messages=chat_msgs,
-            system_prompt=system_prompt,
-            api_key=api_key,
-            provider=provider,
-            model=model,
-            base_url=base_url,
-            db=db,
-        )
+        async with TEXT_SLOTS.slot(PRIORITY_INTERACTIVE):
+            llm_res = await call_open_chat_llm(
+                messages=chat_msgs,
+                system_prompt=system_prompt,
+                api_key=api_key,
+                provider=provider,
+                model=model,
+                base_url=base_url,
+                max_tokens=output_token_limit(provider, 6000),
+                db=db,
+            )
     except Exception as llm_err:
         logger.error(f"[Scheduler Chat] Exception in call_open_chat_llm: {llm_err}")
         llm_res = {
@@ -1247,7 +1321,19 @@ Current calendar JSON: {json.dumps(current_plan)[:8000]}
         }
 
     reply_raw = llm_res.get("reply", "")
-    structured_plan = _extract_plan_from_text(reply_raw)
+    known_ids = {str(p.get("id")) for p in (current_plan.get("posts") or []) if isinstance(p, dict) and p.get("id")} if isinstance(current_plan, dict) else set()
+    structured_plan = _extract_plan_from_text(reply_raw, today, known_ids)
+    if llm_res.get("success", True) and not structured_plan and (llm_res.get("truncated") or "```plan" in reply_raw):
+        # The outline was cut off or unreadable: say so instead of silently creating nothing.
+        return {
+            "status": "error",
+            "reply": "The plan came back cut off, so nothing was added. Try a shorter range (for example one month) or ask again.",
+            "plan": None,
+            "posts": [],
+            "error": "plan_cut_off",
+            "model": llm_res.get("model", model),
+            "provider": llm_res.get("provider", provider),
+        }
     reply_text = _spoken_reply(reply_raw, bool(structured_plan and structured_plan.get("posts")))
     if not reply_text:
         reply_text = f"Tell me the topic and the date to post for {company_name}."
