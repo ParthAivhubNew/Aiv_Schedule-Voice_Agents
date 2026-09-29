@@ -178,6 +178,12 @@ async def _finish(job: Dict[str, Any], state: str, error: Optional[str] = None, 
         await db.execute(update(SocialGenJob).where(SocialGenJob.id == job["id"]).values(**values).execution_options(synchronize_session=False))
         await _set_posts(db, job["post_ids"], gen_state=post_state, gen_error=(error if post_state == "failed" else None))
         await db.commit()
+    if state == "done":
+        from app.services import approval_mail
+
+        # Ready for review now: the approval email waits a little for the rest of the batch.
+        for pid in job["post_ids"]:
+            approval_mail.note_change(pid)
 
 
 async def _company(db) -> Dict[str, str]:
@@ -207,6 +213,7 @@ async def _knowledge(db, text: str) -> str:
 
 
 async def _apply_text(job: Dict[str, Any], pkg: Dict[str, Any], brand: str) -> None:
+    from app.api.scheduler import _after_status_change
     from app.services.post_writer import linkedin_image_prompt
 
     image_prompt = linkedin_image_prompt(pkg, job["plan"] or job["headline"], brand)
@@ -226,7 +233,9 @@ async def _apply_text(job: Dict[str, Any], pkg: Dict[str, Any], brand: str) -> N
                 post.image_prompt = image_prompt
             # The AI rewrote it on request: the hand-written text is gone, so is the protection.
             post.edited_by_user = False
-            await record_version(db, post, "ai", before=before)
+            if await record_version(db, post, "ai", before=before):
+                # New text needs a fresh approval, even if the old text was approved.
+                _after_status_change(post, post.status, content_changed=True)
         await db.commit()
 
 

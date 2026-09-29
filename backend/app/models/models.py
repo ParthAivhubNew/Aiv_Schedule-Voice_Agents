@@ -383,7 +383,8 @@ class SocialPost(Base):
     title = Column(String, nullable=False)
     copy = Column(Text, nullable=False)
     channels = Column(JSON, default=lambda: ["linkedin", "x"])
-    status = Column(String, default="draft")  # awaiting_approval, approved, publishing, published, failed
+    # awaiting_approval | approved | rejected | approval_missed | publishing | published | failed
+    status = Column(String, default="draft")
     slot_date_ms = Column(Float, nullable=True)
     time = Column(String, default="10:00")
     theme = Column(String, default="General")
@@ -411,6 +412,12 @@ class SocialPost(Base):
     gen_error = Column(Text, nullable=True)
     # Text or image changed by hand: chat edits that sweep many posts leave it alone.
     edited_by_user = Column(Boolean, default=False)
+    # Approval: when the approvers were emailed, who approved (email or "app"), and the
+    # reviewer's note on a rejection.
+    approval_requested_at = Column(DateTime, nullable=True)
+    approved_by = Column(String, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    review_note = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
