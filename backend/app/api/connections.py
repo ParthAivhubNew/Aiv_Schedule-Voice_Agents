@@ -97,8 +97,11 @@ class TelnyxAssistantSettingsRequest(BaseModel):
 
 @router.get("", response_model=list[dict])
 async def list_connections(db: AsyncSession = Depends(get_db)):
+    from app.core.tenancy import current_org
+
     result = await db.execute(select(Connection))
-    conns = result.scalars().all()
+    # Only this organisation's own rows: platform providers it may use are never listed.
+    conns = [c for c in result.scalars().all() if (c.org_id or current_org()) == current_org()]
     
     descriptions = {
         "LLM": "Powers the AI's conversation, pitch reasoning, and objection handling.",

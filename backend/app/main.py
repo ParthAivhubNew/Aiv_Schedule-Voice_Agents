@@ -18,6 +18,7 @@ from app.api.auth import router as auth_router
 from app.api.signup import router as signup_router
 from app.api.credits import router as credits_router
 from app.api.billing import router as billing_router
+from app.api.admin_portal import router as admin_portal_router
 from app.api.telnyx_numbers import router as telnyx_numbers_router
 from app.api.whatsapp_inbox import router as whatsapp_inbox_router
 from app.api.missions import router as missions_router
@@ -315,6 +316,8 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await ensure_tenancy(conn)
     await resolve_signing_key()
+    from app.core.staff import ensure_bootstrap_staff
+    await ensure_bootstrap_staff()
     if (settings.LIVEKIT_API_SECRET or "").startswith("secret1234567890") or (settings.LIVEKIT_API_KEY or "") == "devkey":
         logger.warning(
             "LiveKit is using the development key/secret that is published in the repository. "
@@ -578,6 +581,7 @@ app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(signup_router, prefix=settings.API_PREFIX)
 app.include_router(credits_router, prefix=settings.API_PREFIX)
 app.include_router(billing_router, prefix=settings.API_PREFIX)
+app.include_router(admin_portal_router, prefix=settings.API_PREFIX)
 app.include_router(telnyx_numbers_router, prefix=settings.API_PREFIX)
 app.include_router(whatsapp_inbox_router, prefix=settings.API_PREFIX)
 app.include_router(missions_router, prefix=settings.API_PREFIX)
