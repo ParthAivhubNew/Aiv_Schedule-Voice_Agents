@@ -14,6 +14,7 @@ import {
   LogOut,
   MapPin,
   Phone,
+  MessageCircle,
   PhoneCall,
   PhoneOff,
   Plug,
@@ -51,6 +52,8 @@ import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDispl
 import { AnalyticsTab } from "./AnalyticsTab";
 import { ImportMapper } from "./ImportMapper";
 import { WorkingHoursTab } from "./WorkingHoursTab";
+import { NumbersPage } from "./NumbersPage";
+import { WhatsappInbox } from "./WhatsappInbox";
 import { SystemLogsTab } from "./SystemLogsTab";
 import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../../../components/LiveKitBrowserCallModal";
@@ -64,12 +67,14 @@ const PAGES = [
   { id: "list", label: "List", icon: List, section: "calling" },
   { id: "live", label: "Live", icon: Radio, section: "calling" },
   { id: "logs", label: "Call history", icon: FileText, section: "calling" },
+  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle, section: "calling" },
   { id: "schedule", label: "Schedule", icon: PhoneCall, section: "calling" },
   { id: "analytics", label: "Analytics", icon: BarChart3, section: "analytics" },
   { id: "templates", label: "AI Templates", icon: Sparkles, section: "calling" },
   { id: "ai", label: "AI config", icon: Plug, section: "connections" },
   { id: "company", label: "Company", icon: Users, section: "company" },
   { id: "hours", label: "Working hours", icon: Clock, section: "company" },
+  { id: "numbers", label: "Numbers", icon: Phone, section: "admin" },
   { id: "systemlogs", label: "System logs", icon: ScrollText, section: "process_logs" },
 ];
 
@@ -2404,6 +2409,8 @@ export function CallingWorkspace({
     company: ["Company profile", "Identity, knowledge & FAQs, services, compliance. The agent uses this on every call."],
     analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],
     hours: ["Working hours", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
+    numbers: ["Numbers", "Verify your business, buy UK numbers and turn on WhatsApp."],
+    whatsapp: ["WhatsApp", "Conversations on your own numbers. AI replies until a person steps in."],
     systemlogs: ["System logs", "Technical activity of calls, providers and background jobs."],
   };
 
@@ -3743,6 +3750,9 @@ export function CallingWorkspace({
               <AnalyticsTab operator={operator} />
             </div>
           )}
+
+          {page === "numbers" && operator?.is_admin && <NumbersPage />}
+          {page === "whatsapp" && canSee(operator, "calling") && <WhatsappInbox />}
 
           {page === "hours" && canSee(operator, "company") && (
             <WorkingHoursTab operator={operator} />

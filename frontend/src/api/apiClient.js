@@ -155,6 +155,27 @@ export const api = {
   },
   getOnboarding: () => apiRequest('/auth/onboarding'),
   getCredits: () => apiRequest('/credits'),
+  getNumbersOverview: () => apiRequest('/telnyx/overview'),
+  getNumberRequirements: (country, numberType) => apiRequest(`/telnyx/requirements?country=${encodeURIComponent(country)}&number_type=${encodeURIComponent(numberType)}`),
+  submitVerification: ({ entityType, texts, addresses, files }) => {
+    const form = new FormData();
+    form.append('entity_type', entityType);
+    form.append('texts', JSON.stringify(texts || {}));
+    form.append('addresses', JSON.stringify(addresses || {}));
+    Object.entries(files || {}).forEach(([id, file]) => form.append(`doc_${id}`, file, file.name));
+    return apiRequest('/telnyx/verification', { method: 'POST', body: form, timeoutMs: 120000 });
+  },
+  searchNumbers: ({ locality = '', areaCode = '', country = 'GB', numberType = 'local' }) =>
+    apiRequest(`/telnyx/numbers/search?country=${country}&number_type=${numberType}&locality=${encodeURIComponent(locality)}&area_code=${encodeURIComponent(areaCode)}`),
+  orderNumber: (n) => apiRequest('/telnyx/numbers/order', { method: 'POST', body: { phoneNumber: n.phoneNumber, monthlyCost: n.monthlyCost, upfrontCost: n.upfrontCost, currency: n.currency } }),
+  releaseNumber: (id) => apiRequest(`/telnyx/numbers/${encodeURIComponent(id)}/release`, { method: 'POST' }),
+  requestWhatsapp: (id) => apiRequest(`/wa/numbers/${encodeURIComponent(id)}/request`, { method: 'POST' }),
+  getWaStatus: () => apiRequest('/wa/status'),
+  getWaThreads: () => apiRequest('/wa/threads'),
+  getWaThread: (id) => apiRequest(`/wa/threads/${encodeURIComponent(id)}`),
+  sendWa: (id, payload) => apiRequest(`/wa/threads/${encodeURIComponent(id)}/send`, { method: 'POST', body: payload }),
+  patchWaThread: (id, data) => apiRequest(`/wa/threads/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
+  startWaThread: (data) => apiRequest('/wa/threads', { method: 'POST', body: data }),
   setCreditSettings: (data) => apiRequest('/credits/settings', { method: 'PUT', body: data }),
   getPlatformOrgs: () => apiRequest('/credits/platform/orgs'),
   grantCredits: (org_id, amount, note) => apiRequest('/credits/platform/grant', { method: 'POST', body: { org_id, amount, note } }),
