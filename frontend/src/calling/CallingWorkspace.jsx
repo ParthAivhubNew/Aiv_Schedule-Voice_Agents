@@ -48,6 +48,7 @@ import { withToken } from "../api/authStore";
 import { AudioStreamPlayer } from "../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../tokens";
 import { AnalyticsTab } from "./AnalyticsTab";
+import { ImportMapper } from "./ImportMapper";
 import { SystemLogsTab } from "./SystemLogsTab";
 import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
@@ -409,7 +410,25 @@ function pickHeader(headers, re) {
 
 function parseSpreadsheetFile(file, onDone, onError) {
   const ext = String(file.name || "").split(".").pop().toLowerCase();
-  if (ext === "csv") {
+  if (ext === "json") {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(String(e.target.result || ""));
+        const records = Array.isArray(data) ? data : (Array.isArray(data.rows) ? data.rows : (Array.isArray(data.contacts) ? data.contacts : []));
+        const objs = records.filter((r) => r && typeof r === "object");
+        if (!objs.length) return onError("The JSON file has no list of contacts.");
+        const headers = Array.from(new Set(objs.flatMap((r) => Object.keys(r))));
+        onDone({ headers, records: objs, sheetNames: ["JSON"], sheets: { JSON: { headers, records: objs } } });
+      } catch (_) {
+        onError("Could not read the JSON file.");
+      }
+    };
+    reader.onerror = () => onError("Could not read file");
+    reader.readAsText(file);
+    return;
+  }
+  if (ext === "csv" || ext === "tsv" || ext === "txt") {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
@@ -427,7 +446,7 @@ function parseSpreadsheetFile(file, onDone, onError) {
     });
     return;
   }
-  if (ext === "xlsx" || ext === "xls") {
+  if (ext === "xlsx" || ext === "xls" || ext === "ods") {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -459,7 +478,7 @@ function parseSpreadsheetFile(file, onDone, onError) {
     reader.readAsArrayBuffer(file);
     return;
   }
-  onError("Unsupported file type — upload a .csv, .xlsx, or .xls file");
+  onError("Unsupported file type. Use .csv, .tsv, .txt, .xlsx, .xls, .ods or .json");
 }
 
 function extraHeaders(fileHeaders) {
@@ -1870,25 +1889,29 @@ export function CallingWorkspace({
     return n;
   };
 
+  const [pendingImport, setPendingImport] = useState(null);
+
   const onFile = (file) => {
     if (!file) return;
     parseSpreadsheetFile(
       file,
-      ({ headers: hs, records, sheets, sheetNames }) => {
-        setFileName(file.name);
-        setWorkbookSheets(sheets || null);
-        setAvailableSheets(sheetNames || []);
-        setActiveSheet(sheetNames && sheetNames.length ? sheetNames[0] : "");
-        setHeaders(hs);
-        setRows((records || []).map((rec, i) => rowFromRecord(hs, rec, i)).map(ensureRowPhone));
-        setSelectedIds(new Set());
-        const extraNote = sheetNames && sheetNames.length > 1
-          ? ` (${sheetNames.length} sheets in workbook: ${sheetNames.join(", ")})`
-          : "";
-        showToast(`${records.length} rows loaded from ${sheetNames && sheetNames.length > 1 ? `sheet "${sheetNames[0]}"` : "file"}.${extraNote}`);
-      },
+      ({ sheets, sheetNames }) => setPendingImport({ fileName: file.name, sheets, sheetNames }),
       (err) => showToast(err)
     );
+  };
+
+  // Rows use the matched (standard) column names from here on.
+  const finishImport = ({ headers: hs, records, sheet }) => {
+    const imp = pendingImport;
+    setPendingImport(null);
+    setFileName(imp ? imp.fileName : "");
+    setWorkbookSheets(null);
+    setAvailableSheets([]);
+    setActiveSheet(sheet || "");
+    setHeaders(hs);
+    setRows((records || []).map((rec, i) => rowFromRecord(hs, rec, i)).map(ensureRowPhone));
+    setSelectedIds(new Set());
+    showToast(`${records.length} rows imported${sheet && imp && imp.sheetNames && imp.sheetNames.length > 1 ? ` from sheet "${sheet}"` : ""}.`);
   };
 
   const switchSheet = (sheetName) => {
@@ -2520,7 +2543,7 @@ export function CallingWorkspace({
                       Drop CSV or Excel file to upload
                     </div>
                     <div style={{ fontSize: 13, color: C.slate, maxWidth: 380, textAlign: "center", lineHeight: 1.45 }}>
-                      Supports .xlsx, .xls, and .csv files. Contacts, phone numbers, and companies will be parsed automatically.
+                      Excel, CSV, TSV, text, OpenDocument or JSON. You will match the columns before import.
                     </div>
                   </div>
                 )}
@@ -2842,7 +2865,7 @@ export function CallingWorkspace({
                 </div>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8, flexShrink: 0 }}>
-                  <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" hidden onChange={(e) => onFile(e.target.files && e.target.files[0])} />
+                  <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods,.json" hidden onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ""; }} />
                   <button type="button" onClick={() => newList({})} style={{ height: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                     <Plus size={14} /> New list
                   </button>
@@ -2897,7 +2920,7 @@ export function CallingWorkspace({
                   <button
                     type="button"
                     onClick={() => fileRef.current && fileRef.current.click()}
-                    title="Upload CSV or Excel file (.csv, .xlsx, .xls) — or drag and drop anywhere onto this page"
+                    title="Upload a contact file (Excel, CSV, TSV, ODS, JSON) or drag and drop it anywhere on this page"
                     style={{
                       marginLeft: "auto",
                       height: 40,
@@ -3721,6 +3744,16 @@ export function CallingWorkspace({
           )}
         </div>
       </div>
+
+      {pendingImport && (
+        <ImportMapper
+          fileName={pendingImport.fileName}
+          sheets={pendingImport.sheets}
+          sheetNames={pendingImport.sheetNames}
+          onCancel={() => setPendingImport(null)}
+          onImport={finishImport}
+        />
+      )}
 
       {unsavedLeaveTarget && (
         <div
