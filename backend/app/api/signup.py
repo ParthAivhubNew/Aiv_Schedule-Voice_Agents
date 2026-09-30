@@ -242,7 +242,7 @@ async def signup(body: SignupBody, request: Request, db: AsyncSession = Depends(
     if problem:
         raise HTTPException(status_code=400, detail=problem)
     if await _email_taken(db, email):
-        raise HTTPException(status_code=400, detail="An account with this email already exists. Sign in instead.")
+        raise HTTPException(status_code=400, detail={"message": "You already have an account with this email. Sign in instead.", "code": "account_exists"})
 
     from app.core.mailer import configured
 
@@ -282,6 +282,72 @@ async def resend_verification(body: ResendBody, request: Request, db: AsyncSessi
         if org and org.status == PENDING:
             await _send_verification(op)
     return {"ok": True}  # same answer either way: does not reveal who has an account
+
+
+# ── Forgotten password (by email) ───────────────────────────────────────────
+RESET_TTL_S = 60 * 60
+LIMITS["forgot"] = (5, 3600)
+
+
+def _pw_fingerprint(op: Operator) -> str:
+    # Ties a reset link to the current password: once used (or the password changes) it stops working.
+    return hashlib.sha256((op.hashed_password or "").encode()).hexdigest()[:16]
+
+
+class ForgotBody(BaseModel):
+    email: str
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotBody, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.core.mailer import configured, render, send_system_email
+
+    _limit("forgot", request)
+    if not configured():
+        return {"ok": True, "mailboxReady": False}
+    e = body.email.strip().lower()
+    op = (await db.execute(select(Operator).where(
+        (func.lower(Operator.email) == e) | (func.lower(Operator.username) == e)))).scalars().first()
+    if op and op.is_active is not False and op.email:
+        token = _sign({"typ": "pw_reset", "sub": op.id, "fp": _pw_fingerprint(op)}, RESET_TTL_S)
+        link = f"{_base_url()}/reset-password?t={token}"
+        subject = "Reset your OutReach by Aivhub password"
+        msg = render(subject, [
+            f"Hi {html.escape(op.name or '')},",
+            "Someone asked to reset the password for your OutReach by Aivhub account.",
+            "The link works for 1 hour and only once. If this was not you, ignore this email: your password stays the same.",
+        ], {"label": "Choose a new password", "url": link})
+        await send_system_email(op.email, subject, msg["html"], msg["text"])
+    return {"ok": True, "mailboxReady": True}  # same answer either way
+
+
+class ResetBody(BaseModel):
+    token: str
+    password: str
+
+
+@router.post("/reset-password")
+async def reset_password_with_link(body: ResetBody, db: AsyncSession = Depends(get_db)):
+    from app.core.auth_middleware import forget
+    from app.models.models import AuthSession
+
+    claims = _read(body.token, "pw_reset")
+    op = None
+    if claims:
+        op = (await db.execute(select(Operator).where(Operator.id == claims["sub"]))).scalars().first()
+    if not op or op.is_active is False or claims.get("fp") != _pw_fingerprint(op):
+        raise HTTPException(status_code=400, detail={"message": "This reset link has expired or was already used. Ask for a new one.", "code": "reset_expired"})
+    problem = password_problem(body.password)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    op.hashed_password = hash_password(body.password)
+    op.must_change_password = False
+    op.password_changed_at = datetime.utcnow()
+    for ses in (await db.execute(select(AuthSession).where(AuthSession.operator_id == op.id, AuthSession.revoked_at.is_(None)))).scalars().all():
+        ses.revoked_at = datetime.utcnow()
+    await db.commit()
+    forget(op.id)
+    return {"ok": True, "username": op.username}
 
 
 # ── Sign in with Google ─────────────────────────────────────────────────────

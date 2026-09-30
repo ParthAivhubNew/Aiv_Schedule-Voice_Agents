@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useId } from "react";
 
 // The OutReach by Aivhub logo.
 export function BrandMark({ size = 36 }) {
+  // Each logo needs its own gradient id: a shared id breaks when the first copy is hidden.
+  const gid = `aiv-${useId().replace(/:/g, "")}`;
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -14,12 +16,12 @@ export function BrandMark({ size = 36 }) {
       }}
     >
       <defs>
-        <linearGradient id="aiv" x1="4" y1="2" x2="30" y2="32" gradientUnits="userSpaceOnUse">
+        <linearGradient id={gid} x1="4" y1="2" x2="30" y2="32" gradientUnits="userSpaceOnUse">
           <stop stopColor="#3457D5"/>
           <stop offset="1" stopColor="#0C8C7D"/>
         </linearGradient>
       </defs>
-      <rect width="32" height="32" rx="9" fill="url(#aiv)"/>
+      <rect width="32" height="32" rx="9" fill={`url(#${gid})`}/>
       <circle cx="11" cy="16" r="2.35" fill="#fff"/>
       <path d="M15.6 11.1c2.7 1.5 2.7 8.3 0 9.8" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
       <path d="M19.4 8.4c4.3 2.5 4.3 12.7 0 15.2" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
