@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../tokens";
 import { api } from "../api/apiClient";
+import { navigateHash, onRouteChange, replaceHash, routeHash } from "../utils/route";
 
 const INITIAL_DUMMY_LEADS = [
   {
@@ -160,7 +161,7 @@ export default function LeadGenerationPlugin({
 }) {
   const [view, setView] = useState(() => {
     try {
-      const hash = window.location.hash.replace(/^#\/?/, "");
+      const hash = routeHash().replace(/^#\/?/, "");
       const parts = hash.split("/");
       if (parts[0] === "leadgen" && parts[1]) return parts[1];
       return localStorage.getItem("aivhub_leadgen_view") || "copilot";
@@ -173,8 +174,8 @@ export default function LeadGenerationPlugin({
     try {
       localStorage.setItem("aivhub_leadgen_view", view);
       const target = `#/leadgen/${view}`;
-      if (window.location.hash !== target) {
-        window.history.replaceState(null, "", target);
+      if (routeHash() !== target) {
+        replaceHash(target);
       }
     } catch (_) {}
   }, [view]);
@@ -182,15 +183,14 @@ export default function LeadGenerationPlugin({
   useEffect(() => {
     const onHash = () => {
       try {
-        const hash = window.location.hash.replace(/^#\/?/, "");
+        const hash = routeHash().replace(/^#\/?/, "");
         const parts = hash.split("/");
         if (parts[0] === "leadgen" && parts[1] && parts[1] !== view) {
           setView(parts[1]);
         }
       } catch (_) {}
     };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    return onRouteChange(onHash);
   }, [view]);
   const [leads, setLeads] = useState(INITIAL_DUMMY_LEADS);
   const [searchQuery, setSearchQuery] = useState("");

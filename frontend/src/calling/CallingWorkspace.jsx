@@ -54,6 +54,7 @@ import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
 import { VoicePicker } from "../voice/VoicePicker";
 import { ConversationTemplatesView } from "../views/ConversationTemplatesView";
 import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
+import { navigateHash, onRouteChange, replaceHash, routeHash } from "../utils/route";
 
 // `section` = which permission section must be at least "view" to see the page.
 const PAGES = [
@@ -330,7 +331,7 @@ function intlDigits(raw) {
 function outreachMessage(name, company, caller) {
   const first = String(name || "").trim().split(/\s+/)[0] || "there";
   const who = caller || company || "our team";
-  const brand = company || "AIVHub";
+  const brand = company || "Your company";
   return `Hi ${first}, this is ${who} from ${brand}. Just reaching out — happy to chat when you have a moment.`;
 }
 
@@ -834,7 +835,7 @@ export function CallingWorkspace({
 }) {
   const [page, setPage] = useState(() => {
     try {
-      const hash = window.location.hash.replace(/^#\/?/, "");
+      const hash = routeHash().replace(/^#\/?/, "");
       const parts = hash.split("/");
       if (parts[0] === "voice") {
         const next = callingPageId(parts[1]);
@@ -1155,14 +1156,14 @@ export function CallingWorkspace({
     try {
       localStorage.setItem("aivhub_voice_view", page);
       const target = `#/voice/${page}`;
-      if (window.location.hash !== target) window.history.replaceState(null, "", target);
+      if (routeHash() !== target) replaceHash(target);
     } catch (_) {}
   }, [page]);
 
   useEffect(() => {
     const onHash = () => {
       try {
-        const hash = window.location.hash.replace(/^#\/?/, "");
+        const hash = routeHash().replace(/^#\/?/, "");
         const parts = hash.split("/");
         if (parts[0] === "voice") {
           const next = callingPageId(parts[1]) || "list";
@@ -1170,8 +1171,7 @@ export function CallingWorkspace({
         }
       } catch (_) {}
     };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    return onRouteChange(onHash);
   }, [page, companyDirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -1694,7 +1694,7 @@ export function CallingWorkspace({
 
   const clearSelection = () => setSelectedIds(new Set());
 
-  const brandForMsg = () => (profile && (profile.name || profile.company)) || "AIVHub";
+  const brandForMsg = () => (profile && (profile.name || profile.company)) || "Your company";
   const callerForMsg = () => (profile && profile.callerName) || "";
 
   const openChannel = (kind, phone, name, company) => {

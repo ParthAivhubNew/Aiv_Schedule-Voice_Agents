@@ -169,7 +169,7 @@ class CallContextResolver:
         company = prof_res.scalars().first()
 
         # Company metadata
-        comp_name = getattr(company, "name", None) or getattr(company, "spoken_name", None) or "AIVHub"
+        comp_name = getattr(company, "name", None) or getattr(company, "spoken_name", None) or "our company"
         comp_agent = getattr(company, "caller_name", None) or "Sam"
         comp_industry = getattr(company, "industry", None) or "Technology & AI Services"
         comp_pitch = getattr(company, "pitch", None) or "AI-powered voice automation and business consulting"
@@ -274,7 +274,7 @@ class CallContextResolver:
         prof_res = await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))
         company = prof_res.scalars().first()
 
-        comp_name = getattr(company, "name", None) or "AIVHub"
+        comp_name = getattr(company, "name", None) or "our company"
         comp_agent = getattr(company, "caller_name", None) or "Sam"
         comp_tz = validate_and_normalize_timezone(getattr(company, "timezone", None), "Europe/London")
         calendar_mode = getattr(company, "calendar_mode", None) or "internal"
@@ -418,7 +418,7 @@ class ConversationTemplateEngine:
             "{{prospect.phone}}": prospect.get("phone") or "",
             "{{prospect.timezone_short}}": prospect.get("timezone_short") or "Local Time",
             "{{prospect.industry_phrase}}": prospect.get("industry_phrase") or "companies like yours",
-            "{{company.name}}": company.get("name") or "AIVHub",
+            "{{company.name}}": company.get("name") or "our company",
             "{{company.agent_name}}": company.get("agent_name") or "Sam",
             "{{company.industry}}": company.get("industry") or "Technology & AI Consulting",
             "{{company.pitch}}": company.get("pitch") or "AI voice automation",
@@ -436,7 +436,7 @@ class ConversationTemplateEngine:
 
             # Underscore / flat notation (UI template tags)
             "{{prospect_name}}": prospect.get("name") or "there",
-            "{{company_name}}": company.get("name") or "AIVHub",
+            "{{company_name}}": company.get("name") or "our company",
             "{{caller_name}}": company.get("agent_name") or "Sam",
             "{{agent_name}}": company.get("agent_name") or "Sam",
             "{{prospect_company}}": prospect.get("company") or "your company",
@@ -480,7 +480,7 @@ class ConversationTemplateEngine:
         mission = context.get("mission") or {}
         temporal = context.get("temporal_context") or {}
 
-        comp_name = company.get("name") or "AIVHub"
+        comp_name = company.get("name") or "our company"
         agent_name = company.get("agent_name") or "Sam"
         p_name = prospect.get("name") or "the prospect"
         p_email = prospect.get("email") or ""

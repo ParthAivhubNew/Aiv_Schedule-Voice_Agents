@@ -396,7 +396,7 @@ async def start_livekit_room_agent(
     room_name: str,
     call_id: str,
     prospect_name: Optional[str] = "Browser Caller",
-    company_name: Optional[str] = "AIVHub",
+    company_name: Optional[str] = "our company",
     org_id: Optional[str] = "default",
 ) -> None:
     """
@@ -512,7 +512,7 @@ async def start_livekit_room_agent(
                     ai_reply = await query_livekit_agent_llm(
                         conversation_history,
                         prospect_name=prospect_name or "Caller",
-                        company_name=company_name or "AIVHub",
+                        company_name=company_name or "our company",
                     )
                     conversation_history.append({"role": "assistant", "content": ai_reply})
                     await speak_text(ai_reply)
@@ -549,7 +549,7 @@ async def start_livekit_room_agent(
         await asyncio.sleep(1.0)
 
         # 4. Speak initial welcoming greeting
-        greeting = f"Hello {prospect_name or 'there'}! I am your {company_name or 'AIVHub'} voice assistant on LiveKit WebRTC. How can I help you today?"
+        greeting = f"Hello {prospect_name or 'there'}! I am your {company_name or 'our company'} voice assistant on LiveKit WebRTC. How can I help you today?"
         conversation_history.append({"role": "assistant", "content": greeting})
         await speak_text(greeting)
 

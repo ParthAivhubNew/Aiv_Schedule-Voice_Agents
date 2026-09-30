@@ -1708,7 +1708,7 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
         company_context,
     ) if x)
 
-    system_prompt = f"""You are Plan AI, the editorial partner{" for " + company_name if company_name else ""} inside AIVHub Post Scheduler.
+    system_prompt = f"""You are Plan AI, the editorial partner{" for " + company_name if company_name else ""} inside OutReach by Aivhub Post Scheduler.
 You are a direct chat window with scheduler skills: plan dates, write captions, revise a focused post, describe images, answer strategy. You are connected to this company's profile, knowledge search, the current calendar, pinned dates, and selected channels.
 
 {facts or "Use only company facts supplied. Never invent a brand, URL, offering, or statistic."}

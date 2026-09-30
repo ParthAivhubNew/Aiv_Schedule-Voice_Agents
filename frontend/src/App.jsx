@@ -132,6 +132,7 @@ import { humanizeAiReply } from "./scheduler/chatClean";
 import { CallingWorkspace } from "./calling/CallingWorkspace";
 import { LiveKitBrowserCallModal } from "./components/LiveKitBrowserCallModal";
 import { ConversationTemplatesView } from "./views/ConversationTemplatesView";
+import { navigateHash, onRouteChange, replaceHash, routeHash } from "./utils/route";
 
 
 /* ---------------------------------- Common Platform AI & Provider Hub Configuration ---------------------------------- */
@@ -422,7 +423,7 @@ const INITIAL_COMMON_AI_CONFIG = {
 
   // Master Subscription & Token Quota (Live database metrics populated on load)
   subscription: {
-    tenantName: "Outreach by Aivhub Workspace",
+    tenantName: "OutReach by Aivhub Workspace",
     planTier: "Metered Workspace Subscription",
     monthlyTokenQuota: 0,
     tokensUsed: 0,
@@ -646,7 +647,7 @@ const INITIAL_KNOWLEDGE_SOURCES = [
 ];
 
 const INITIAL_FAQ = [
-  { id: "f1", q: "What does AIVHub actually do?", a: "We build AI-powered business intelligence dashboards that turn raw operational data into clear, real-time decisions for mid-market teams." },
+  { id: "f1", q: "What does your company do?", a: "We build AI-powered business intelligence dashboards that turn raw operational data into clear, real-time decisions for mid-market teams." },
   { id: "f2", q: "How much does it cost?", a: "Pricing depends on team size and data sources — I can have someone send exact numbers, or we can cover it on the call we're booking." },
   { id: "f3", q: "Who else uses this?", a: "We work with logistics, manufacturing, and retail operators across the UK — happy to share relevant examples on the call." },
 ];
@@ -657,7 +658,7 @@ const INITIAL_SERVICES = [
 ];
 
 const INITIAL_COMPANY_PROFILE = {
-  name: "AIVHub",
+  name: "Your company",
   spokenName: "",
   pitch: "AI-powered business intelligence dashboards for mid-market operations teams",
   industry: "Business intelligence / data consulting",
@@ -667,7 +668,7 @@ const INITIAL_COMPANY_PROFILE = {
   callerId: "",
   tone: "Professional, concise, friendly",
   disclosure: "This call may be recorded for quality and compliance purposes.",
-  legalName: "AIVHub Ltd",
+  legalName: "",
   icoRef: "ZA774219",
   dpoContact: "privacy@aivhub.io",
   dncNotes: "Opt-outs logged immediately and excluded from all future missions. Reviewed weekly by the ops admin.",
@@ -2883,8 +2884,8 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
       if (saved) return JSON.parse(saved);
     } catch (_) {}
     return [
-      { id: "sc_jm", name: "Jitendra Mehta", company: "AIVHub Ltd", phone: "+447577570050", role: "CEO / Director" },
-      { id: "sc_ops", name: "Operations Desk", company: "AIVHub", phone: "+447307216767", role: "Support" }
+      { id: "sc_jm", name: "Jitendra Mehta", company: "Example Ltd", phone: "+447577570050", role: "CEO / Director" },
+      { id: "sc_ops", name: "Operations Desk", company: "Example Ltd", phone: "+447307216767", role: "Support" }
     ];
   });
 
@@ -3538,7 +3539,7 @@ function DirectOutboundCallCard({ notifications, setNotifications, defaultFromNu
         onClose={() => setLiveKitModalOpen(false)}
         prospectName={prospectName.trim() || "Test Prospect"}
         prospectPhone={toNumber.trim() || "Browser WebRTC"}
-        companyName={missionTitle.trim() || "AIVHub"}
+        companyName={missionTitle.trim() || "Your company"}
         onCallEnded={() => {
           if (onViewLiveCalls) onViewLiveCalls();
         }}
@@ -5465,7 +5466,7 @@ function VoiceTrunkingHubTab({ notifications, setNotifications, profile, setProf
         onClose={() => setLiveKitModalOpen(false)}
         prospectName="Line Setup Test User"
         prospectPhone={phoneNumber || hubData?.phoneNumber || "Browser WebRTC"}
-        companyName={profile?.name || "AIVHub"}
+        companyName={profile?.name || "Your company"}
       />
     </div>
   );
@@ -6554,7 +6555,7 @@ function LoginScreen({ onLogin }) {
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
           <BrandMark size={44} />
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 28, color: C.ink, letterSpacing: "-0.03em", marginTop: 14 }}>Outreach by Aivhub</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 28, color: C.ink, letterSpacing: "-0.03em", marginTop: 14 }}>OutReach by Aivhub</div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.slate, marginTop: 6, textAlign: "center" }}>
             Sign in to open your plugins
           </div>
@@ -7765,7 +7766,7 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>
-                        {usageStats?.tenantName || operator?.name || "Outreach by Aivhub Workspace"}
+                        {usageStats?.tenantName || operator?.name || "OutReach by Aivhub Workspace"}
                       </div>
                       <span style={{
                         display: "inline-flex",
@@ -8459,7 +8460,7 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 36px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <BrandMark size={32} />
-          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink, letterSpacing: "-0.02em" }}>Outreach by Aivhub</span>
+          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink, letterSpacing: "-0.02em" }}>OutReach by Aivhub</span>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -8532,7 +8533,7 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
 function UniversalCallNotificationBanner({ activeCalls, currentPlugin, onJumpToVoice, onDismissCall }) {
   if (!activeCalls || activeCalls.length === 0) return null;
 
-  const isAlreadyOnLiveView = currentPlugin === "voice" && (window.location.hash || "").includes("/live");
+  const isAlreadyOnLiveView = currentPlugin === "voice" && (routeHash() || "").includes("/live");
   if (isAlreadyOnLiveView) return null;
 
   const primaryCall = activeCalls[0];
@@ -8823,7 +8824,7 @@ function MainApp({ onSignedOut }) {
 
   const parseRoute = () => {
     try {
-      const hash = window.location.hash.replace(/^#\/?/, "");
+      const hash = routeHash().replace(/^#\/?/, "");
       if (!hash) return { plugin: null, subView: null };
       const parts = hash.split("/");
       const p = parts[0];
@@ -9007,7 +9008,7 @@ function MainApp({ onSignedOut }) {
     // 3. Set target voice view to live
     try {
       localStorage.setItem("aivhub_voice_view", "live");
-      window.location.hash = "#/voice/live";
+      navigateHash("#/voice/live");
     } catch (_) {}
 
     // 4. Switch to voice plugin
@@ -9036,7 +9037,7 @@ function MainApp({ onSignedOut }) {
       if (p === "voice") {
         try {
           localStorage.setItem("aivhub_voice_view", "list");
-          window.location.hash = "#/voice/list";
+          navigateHash("#/voice/list");
         } catch (_) {}
         setTimeout(() => {
           try {
@@ -9063,12 +9064,12 @@ function MainApp({ onSignedOut }) {
             plugin === "calcom" ? localStorage.getItem("aivhub_calcom_view") : null
           );
           const target = sub ? `#/${plugin}/${sub}` : (plugin === "voice" ? "#/voice/list" : `#/${plugin}`);
-          window.location.hash = target;
+          navigateHash(target);
         }
       } else {
         localStorage.removeItem("aivhub_active_plugin");
-        if (window.location.hash && window.location.hash !== "#/" && window.location.hash !== "#") {
-          window.history.replaceState(null, "", window.location.pathname);
+        if (routeHash() && routeHash() !== "#/" && routeHash() !== "#") {
+          replaceHash("");
         }
       }
     } catch (_) {}
@@ -9082,8 +9083,7 @@ function MainApp({ onSignedOut }) {
         setPlugin(route.plugin);
       }
     };
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
+    return onRouteChange(onHashChange);
   }, [plugin]);
   const [profile, setProfile] = useState(() => {
     try {
@@ -9227,7 +9227,7 @@ function MainApp({ onSignedOut }) {
       sessionStorage.removeItem("aivhub_operator");
       sessionStorage.removeItem("aivhub_return_plugin");
       localStorage.removeItem("aivhub_active_plugin");
-      window.history.replaceState(null, "", window.location.pathname);
+      replaceHash("");
     } catch (_) {}
     setVisitedPlugins([]);
     setReturnPlugin(null);
@@ -9240,7 +9240,7 @@ function MainApp({ onSignedOut }) {
     try {
       localStorage.removeItem("aivhub_active_plugin");
       localStorage.setItem("aivhub_voice_view", "list");
-      window.history.pushState(null, "", window.location.pathname);
+      navigateHash("");
     } catch (_) {}
     setPlugin(null);
   };
@@ -9249,7 +9249,7 @@ function MainApp({ onSignedOut }) {
     if (p === "voice") {
       try {
         localStorage.setItem("aivhub_voice_view", "list");
-        window.location.hash = "#/voice/list";
+        navigateHash("#/voice/list");
       } catch (_) {}
       setTimeout(() => {
         try {
@@ -9409,7 +9409,7 @@ function MainApp({ onSignedOut }) {
           if (pId === "voice") {
             try {
               localStorage.setItem("aivhub_voice_view", "list");
-              window.location.hash = "#/voice/list";
+              navigateHash("#/voice/list");
             } catch (_) {}
             setTimeout(() => {
               try {
