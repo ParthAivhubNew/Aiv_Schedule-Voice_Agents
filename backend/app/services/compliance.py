@@ -146,16 +146,94 @@ def _in_window(local: _dt, policy: str, weekday_start: str, weekday_end: str, lu
 
 
 
-async def enforcement_mode(db) -> str:
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def _settings_key() -> str:
+    from app.core.tenancy import current_org
+
+    return f"compliance:{current_org()}"
+
+
+async def load_rules(db) -> dict:
+    """This organisation's calling rules document (mode + optional custom schedule)."""
     from sqlalchemy.future import select as _select
 
     from app.models.models import AppSetting
 
     try:
-        row = (await db.execute(_select(AppSetting).where(AppSetting.id == "compliance"))).scalars().first()
-        mode = ((row.data or {}).get("mode") if row else None) or _os.getenv("CALL_WINDOW_ENFORCEMENT", "warn")
+        row = (await db.execute(_select(AppSetting).where(AppSetting.id == _settings_key()))).scalars().first()
+        if not row:  # before rules were per organisation
+            row = (await db.execute(_select(AppSetting).where(AppSetting.id == "compliance"))).scalars().first()
+        return dict(row.data or {}) if row else {}
     except Exception:
-        mode = _os.getenv("CALL_WINDOW_ENFORCEMENT", "warn")
+        return {}
+
+
+async def save_rules(db, patch: dict) -> dict:
+    from sqlalchemy.future import select as _select
+
+    from app.models.models import AppSetting
+
+    row = (await db.execute(_select(AppSetting).where(AppSetting.id == _settings_key()))).scalars().first()
+    data = {**(await load_rules(db)), **patch}
+    if row:
+        row.data = data
+    else:
+        db.add(AppSetting(id=_settings_key(), data=data))
+    return data
+
+
+def clean_schedule(raw) -> dict:
+    """{days: {Monday: {open, start, end}, ...}, lunch: {on, start, end}} with safe values."""
+    import re as _re
+
+    def hhmm(v, dflt):
+        v = str(v or "").strip()
+        return v if _re.match(r"^([01]\d|2[0-3]):[0-5]\d$", v) else dflt
+
+    raw = raw if isinstance(raw, dict) else {}
+    days_in = raw.get("days") if isinstance(raw.get("days"), dict) else {}
+    days = {}
+    for i, name in enumerate(DAY_NAMES):
+        d = days_in.get(name) if isinstance(days_in.get(name), dict) else {}
+        start = hhmm(d.get("start"), "09:00")
+        end = hhmm(d.get("end"), "17:30")
+        if time_to_minutes(end) <= time_to_minutes(start):
+            end = "17:30" if time_to_minutes(start) < time_to_minutes("17:30") else "23:59"
+        # With no days given, Monday–Friday are open; once days are given, a missing day is closed.
+        days[name] = {"open": bool(d.get("open", i < 5 and not days_in)), "start": start, "end": end}
+    lunch_in = raw.get("lunch") if isinstance(raw.get("lunch"), dict) else {}
+    lunch = {"on": bool(lunch_in.get("on", True)), "start": hhmm(lunch_in.get("start"), "12:00"), "end": hhmm(lunch_in.get("end"), "13:00")}
+    return {"days": days, "lunch": lunch}
+
+
+def schedule_from_profile(prof) -> dict:
+    """The old single weekday window as a per-day schedule (weekends closed)."""
+    start = getattr(prof, "weekday_start", None) or "09:00"
+    end = getattr(prof, "weekday_end", None) or "17:30"
+    return clean_schedule({
+        "days": {n: {"open": i < 5, "start": start, "end": end} for i, n in enumerate(DAY_NAMES)},
+        "lunch": {"on": True, "start": getattr(prof, "lunch_start", None) or "12:00", "end": getattr(prof, "lunch_end", None) or "13:00"},
+    })
+
+
+def in_schedule(local: _dt, schedule: dict) -> tuple:
+    day = DAY_NAMES[local.weekday()]
+    spec = (schedule.get("days") or {}).get(day) or {}
+    if not spec.get("open"):
+        return False, f"{day} is closed for calls"
+    mins = time_to_minutes(local.strftime("%H:%M"))
+    if not (time_to_minutes(spec["start"]) <= mins < time_to_minutes(spec["end"])):
+        return False, f"outside {spec['start']}–{spec['end']} on {day} in the callee's time"
+    lunch = schedule.get("lunch") or {}
+    if lunch.get("on") and time_to_minutes(lunch["start"]) <= mins < time_to_minutes(lunch["end"]):
+        return False, "lunch time in the callee's time"
+    return True, ""
+
+
+async def enforcement_mode(db) -> str:
+    mode = (await load_rules(db)).get("mode") or _os.getenv("CALL_WINDOW_ENFORCEMENT", "warn")
     mode = str(mode).lower().strip()
     return mode if mode in ("block", "warn", "off") else "warn"
 
@@ -205,14 +283,18 @@ async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None) 
         local = now_utc.replace(tzinfo=zoneinfo.ZoneInfo("UTC")).astimezone(zoneinfo.ZoneInfo(tz))
         gate.callee_timezone = tz
         gate.callee_local_time = local.strftime("%a %H:%M")
-        ok, why = _in_window(
-            local,
-            getattr(prof, "call_hours_policy", "respectful"),
-            getattr(prof, "weekday_start", "09:00"),
-            getattr(prof, "weekday_end", "17:30"),
-            getattr(prof, "lunch_start", "12:00"),
-            getattr(prof, "lunch_end", "13:00"),
-        )
+        rules = await load_rules(db)
+        policy = (getattr(prof, "call_hours_policy", None) or "respectful").lower()
+        if policy == "custom" and rules.get("schedule"):
+            ok, why = in_schedule(local, clean_schedule(rules["schedule"]))
+        else:
+            ok, why = _in_window(
+                local, policy,
+                getattr(prof, "weekday_start", "09:00"),
+                getattr(prof, "weekday_end", "17:30"),
+                getattr(prof, "lunch_start", "12:00"),
+                getattr(prof, "lunch_end", "13:00"),
+            )
         if not ok:
             msg = f"It is {gate.callee_local_time} for this number ({tz}): {why}."
             if mode == "block":

@@ -392,6 +392,9 @@ class CalcomSetting(Base):
     working_hours_by_day = Column(JSON, nullable=True)
     slot_step_minutes = Column(Integer, default=15)
     flex_minutes = Column(Integer, default=0)
+    # Lunch break with no meetings; equal start and end = no lunch break.
+    lunch_start = Column(String, default="12:00")
+    lunch_end = Column(String, default="13:00")
     buffer_before = Column(Integer, default=5)
     buffer_after = Column(Integer, default=5)
     auto_email_attendee = Column(Boolean, default=True)
