@@ -1,3 +1,5 @@
+import { refreshSession, withToken } from "./authStore";
+
 export class WebSocketClient {
   constructor(url, onMessage, onOpen, onClose) {
     this.url = url || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/live`;
@@ -11,7 +13,8 @@ export class WebSocketClient {
 
   connect() {
     try {
-      this.socket = new WebSocket(this.url);
+      // Browsers cannot send headers on a WebSocket, so the sign-in token goes in the URL.
+      this.socket = new WebSocket(withToken(this.url));
 
       this.socket.onopen = () => {
         console.log('[WS] Connected to live event stream');
@@ -27,7 +30,9 @@ export class WebSocketClient {
         }
       };
 
-      this.socket.onclose = () => {
+      this.socket.onclose = (ev) => {
+        // 4401 = token expired: get a fresh one before reconnecting.
+        if (ev && ev.code === 4401) refreshSession();
         console.log('[WS] Disconnected. Reconnecting in 3s...');
         if (this.onClose) this.onClose();
         this.scheduleReconnect();

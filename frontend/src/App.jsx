@@ -115,6 +115,9 @@ import {
 
 import { api } from "./api/apiClient";
 import { WebSocketClient } from "./api/wsClient";
+import { AUTH_LOST_EVENT, PASSWORD_CHANGE_EVENT, hasSession } from "./api/authStore";
+import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
+import { TeamModal } from "./team/TeamModal";
 import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import { TelephonyDocsView } from "./views/TelephonyDocsView";
 import LeadGenerationPlugin from "./plugins/LeadGenerationPlugin";
@@ -13444,7 +13447,6 @@ function LoginScreen({ onLogin }) {
     try {
       const res = await api.login(username.trim(), password);
       if (res && res.operator) {
-        sessionStorage.setItem("aivhub_operator", JSON.stringify(res.operator));
         onLogin(res.operator);
       } else {
         setError("Invalid response from authentication server.");
@@ -13493,7 +13495,7 @@ function LoginScreen({ onLogin }) {
             autoFocus
             value={username}
             onChange={(e) => { setUsername(e.target.value); setError(""); }}
-            placeholder="e.g. Admin"
+            placeholder="Username or email"
             style={{ ...field, marginBottom: 16 }}
           />
           <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Password</label>
@@ -13563,7 +13565,7 @@ function LoginScreen({ onLogin }) {
             )}
           </button>
           <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 14, lineHeight: 1.45, textAlign: "center" }}>
-            Authorized access only. Primary profile: <span style={{ color: C.textInk, fontWeight: 600 }}>Admin</span> / <span style={{ color: C.textInk, fontWeight: 600 }}>password</span>
+            Authorized access only. Forgot your password? Ask your admin to reset it.
           </div>
         </div>
       </form>
@@ -14972,196 +14974,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
 
 
-function TeamUsersModal({ isOpen, onClose, currentUser }) {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: "", username: "", role: "Operator", email: "" });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const loadUsers = async () => {
-    setLoading(true);
-    try {
-      const res = await api.getUsers();
-      if (res && res.length) setUsers(res);
-      else setUsers([{ id: "op_admin", username: "jitendra", name: "Jitendra S.", role: "Admin", email: "admin@aivhub.io" }]);
-    } catch (_) {
-      setUsers([{ id: "op_admin", username: "jitendra", name: "Jitendra S.", role: "Admin", email: "admin@aivhub.io" }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) {
-      loadUsers();
-      setShowAdd(false);
-      setError("");
-    }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const isAdmin = currentUser?.role === "Admin";
-
-  const handleCreate = async (e) => {
-    e.preventDefault();
-    setError("");
-    if (!form.name.trim() || !form.username.trim()) {
-      setError("Name and username are required.");
-      return;
-    }
-    setSaving(true);
-    try {
-      await api.createUser({
-        name: form.name.trim(),
-        username: form.username.trim().toLowerCase(),
-        role: form.role,
-        email: form.email.trim() || `${form.username.trim().toLowerCase()}@aivhub.io`,
-      });
-      setForm({ name: "", username: "", role: "Operator", email: "" });
-      setShowAdd(false);
-      await loadUsers();
-    } catch (err) {
-      setError(err.message || "Failed to create user.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleToggleRole = async (u) => {
-    if (!isAdmin) return;
-    if (u.username === currentUser?.username) return;
-    const nextRole = u.role === "Admin" ? "Operator" : "Admin";
-    try {
-      await api.createUser({
-        username: u.username,
-        name: u.name,
-        role: nextRole,
-        email: u.email,
-      });
-      await loadUsers();
-    } catch (_) {}
-  };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 560, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.22)", border: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Users size={18} color={C.cobalt} />
-            </div>
-            <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Team & User Hierarchy</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Admin manages platform AI & keys; Operators run missions below.</div>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate }}><X size={18} /></button>
-        </div>
-
-        {/* User list */}
-        <div style={{ maxHeight: 280, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 12, background: C.paper, marginBottom: 16 }}>
-          {loading ? (
-            <div style={{ padding: 24, textAlign: "center", color: C.slate, fontSize: 13, fontFamily: FONT_BODY }}>Loading team members...</div>
-          ) : (
-            users.map((u, idx) => (
-              <div key={u.id || u.username} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderTop: idx === 0 ? "none" : `1px solid ${C.borderLight}`, background: "#fff" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 999, background: u.role === "Admin" ? C.cobalt : C.slate, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>
-                    {initialsFromName(u.name)}
-                  </div>
-                  <div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.textInk }}>
-                      {u.name} {u.username === currentUser?.username && <span style={{ fontSize: 11, color: C.slateLight }}>(you)</span>}
-                    </div>
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.slateLight }}>
-                      @{u.username} · {u.email || `${u.username}@aivhub.io`}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span
-                    onClick={() => handleToggleRole(u)}
-                    title={isAdmin && u.username !== currentUser?.username ? "Click to toggle role" : ""}
-                    style={{
-                      fontFamily: FONT_BODY,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: "3px 8px",
-                      borderRadius: 6,
-                      background: u.role === "Admin" ? C.cobaltSoft : C.paperSoft,
-                      color: u.role === "Admin" ? C.cobaltDeep : C.slate,
-                      cursor: isAdmin && u.username !== currentUser?.username ? "pointer" : "default",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                    }}
-                  >
-                    {u.role}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Add user form */}
-        {showAdd ? (
-          <form onSubmit={handleCreate} style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.paperSoft, display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.textInk }}>Add New Team Member</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Full Name (e.g. Alex M.)"
-                style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, background: "#fff" }}
-              />
-              <input
-                value={form.username}
-                onChange={(e) => setForm({ ...form, username: e.target.value })}
-                placeholder="Username (e.g. alex)"
-                style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, background: "#fff" }}
-              />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 10 }}>
-              <input
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                placeholder="Email (optional)"
-                style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, background: "#fff" }}
-              />
-              <select
-                value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value })}
-                style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, background: "#fff" }}
-              >
-                <option value="Operator">Operator (User)</option>
-                <option value="Admin">Admin (Full Access)</option>
-              </select>
-            </div>
-            {error && <div style={{ color: C.red, fontSize: 12, fontFamily: FONT_BODY }}>⚠️ {error}</div>}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
-              <button type="button" onClick={() => setShowAdd(false)} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12, cursor: "pointer" }}>Cancel</button>
-              <button type="submit" disabled={saving} style={{ padding: "6px 16px", borderRadius: 8, border: "none", background: C.cobalt, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{saving ? "Creating..." : "Create User"}</button>
-            </div>
-          </form>
-        ) : (
-          isAdmin && (
-            <button
-              onClick={() => setShowAdd(true)}
-              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 14px", borderRadius: 10, border: `1px dashed ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
-            >
-              <Plus size={14} /> Add Operator / User Account
-            </button>
-          )
-        )}
-      </div>
-    </div>
-  );
-}
-
 function ProfileSettingsModal({ isOpen, onClose, operator, setOperator }) {
   const [name, setName] = useState(operator?.name || "");
   const [email, setEmail] = useState(operator?.email || `${operator?.username || "user"}@aivhub.io`);
@@ -15432,7 +15244,8 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
                 )}
               </button>
 
-              {/* Team & Users */}
+              {/* Users & roles (admins and anyone given the Users & roles section) */}
+              {(operator?.is_admin || (operator?.permissions && operator.permissions.team && operator.permissions.team !== "none")) && (
               <button
                 onClick={() => { setOpen(false); onOpenTeamUsers(); }}
                 style={{
@@ -15452,10 +15265,11 @@ function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenT
               >
                 <Users size={15} color={C.cobalt} />
                 <div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Team & Users</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Manage operators & roles</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Users & roles</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Add people and choose what they can see</div>
                 </div>
               </button>
+              )}
 
               {/* Calendar & meetings (host mail, invite accounts, embeds) */}
               <button
@@ -17089,15 +16903,85 @@ function CallingEditionRoot(props) {
   );
 }
 
+function savedOperator() {
+  try {
+    const saved = sessionStorage.getItem("aivhub_operator");
+    // An operator without sign-in tokens (older app version) must sign in again.
+    return saved && hasSession() ? JSON.parse(saved) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Sign-in gate: nothing of the app mounts (or calls the API) until the user is signed in and
+// has a password of their own.
 export default function App() {
-  const [operator, setOperator] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem("aivhub_operator");
-      return saved ? JSON.parse(saved) : null;
-    } catch (_) {
-      return null;
-    }
+  const [session, setSession] = useState(() => {
+    const op = savedOperator();
+    return op ? { operator: op, key: op.id + ":" + Date.now() } : null;
   });
+  const [mustChangePassword, setMustChangePassword] = useState(() => Boolean(session && session.operator.must_change_password));
+
+  useEffect(() => {
+    const lost = () => {
+      setSession(null);
+      setMustChangePassword(false);
+    };
+    const needChange = () => setMustChangePassword(true);
+    window.addEventListener(AUTH_LOST_EVENT, lost);
+    window.addEventListener(PASSWORD_CHANGE_EVENT, needChange);
+    return () => {
+      window.removeEventListener(AUTH_LOST_EVENT, lost);
+      window.removeEventListener(PASSWORD_CHANGE_EVENT, needChange);
+    };
+  }, []);
+
+  const signOut = () => {
+    api.logout();
+    setSession(null);
+    setMustChangePassword(false);
+  };
+
+  if (!session) {
+    return (
+      <LoginScreen
+        onLogin={(op) => {
+          try { sessionStorage.setItem("aivhub_operator", JSON.stringify(op)); } catch (_) {}
+          setMustChangePassword(Boolean(op && op.must_change_password));
+          setSession({ operator: op, key: op.id + ":" + Date.now() });
+        }}
+      />
+    );
+  }
+  if (mustChangePassword) {
+    return (
+      <ChangePasswordScreen
+        operator={session.operator}
+        onDone={(me) => {
+          try { sessionStorage.setItem("aivhub_operator", JSON.stringify(me)); } catch (_) {}
+          setMustChangePassword(false);
+          setSession({ operator: me, key: me.id + ":" + Date.now() });
+        }}
+        onLogout={signOut}
+      />
+    );
+  }
+  return <MainApp key={session.key} onSignedOut={signOut} />;
+}
+
+function MainApp({ onSignedOut }) {
+  const [operator, setOperator] = useState(() => savedOperator());
+
+  // Refresh who I am and what I can see (roles may have changed since sign-in).
+  const operatorId = operator && operator.id;
+  useEffect(() => {
+    if (!operatorId) return;
+    api.getMe().then((me) => {
+      if (!me) return;
+      setOperator((prev) => ({ ...(prev || {}), ...me }));
+      try { sessionStorage.setItem("aivhub_operator", JSON.stringify(me)); } catch (_) {}
+    }).catch(() => {});
+  }, [operatorId]);
 
   const parseRoute = () => {
     try {
@@ -17511,6 +17395,7 @@ export default function App() {
     setReturnPlugin(null);
     setOperator(null);
     setPlugin(null);
+    onSignedOut();
   };
 
   const handleBackToHub = () => {
@@ -17551,7 +17436,7 @@ export default function App() {
     });
   };
 
-  if (!operator) return <LoginScreen onLogin={handleUpdateOperator} />;
+  if (!operator) return null;
   
   return (
     <OrgSettingsProvider>
@@ -17705,7 +17590,7 @@ export default function App() {
         initialTab={calcomInitialTab}
       />
 
-      <TeamUsersModal
+      <TeamModal
         isOpen={showTeamModal}
         onClose={() => setShowTeamModal(false)}
         currentUser={operator}

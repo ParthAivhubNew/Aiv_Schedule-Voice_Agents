@@ -43,6 +43,7 @@ import {
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, meetingTimeLabel } from "../tokens";
 import { api } from "../api/apiClient";
 import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
+import { withToken } from "../api/authStore";
 
 export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "accounts" }) {
   const [activeTab, setActiveTab] = useState(initialTab || "accounts");
@@ -1454,7 +1455,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                         )}
 
                         <a
-                          href={`/api/calcom/bookings/${b.id}/ics`}
+                          href={withToken(`/api/calcom/bookings/${b.id}/ics`)}
                           download
                           title="Download iCalendar file (.ics)"
                           style={{
