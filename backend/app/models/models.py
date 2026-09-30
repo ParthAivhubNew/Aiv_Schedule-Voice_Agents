@@ -750,3 +750,28 @@ class ConversationVariable(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+
+
+class OrgPhoneNumber(Base):
+    """A phone number owned by an organisation (bought on Telnyx or brought in)."""
+    __tablename__ = "org_phone_numbers"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    e164 = Column(String, nullable=False, index=True)
+    label = Column(String, default="")
+    provider = Column(String, default="telnyx")
+    provider_ref = Column(String, default="")  # e.g. Telnyx phone number id
+    assistant_id = Column(String, default="")  # Telnyx AI Assistant answering this number
+    capabilities = Column(JSON, default=lambda: ["voice"])  # voice, sms, whatsapp
+    status = Column(String, default="active")  # active, pending, disabled
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PhoneNumberAssignment(Base):
+    """Which users may call from a number. A number with no assignments is shared by everyone."""
+    __tablename__ = "phone_number_assignments"
+
+    number_id = Column(String, ForeignKey("org_phone_numbers.id", ondelete="CASCADE"), primary_key=True)
+    operator_id = Column(String, ForeignKey("operators.id", ondelete="CASCADE"), primary_key=True)

@@ -1109,6 +1109,20 @@ export function CallingWorkspace({
   };
 
   const visiblePages = useMemo(() => PAGES.filter((p) => canSee(operator, p.section)), [operator]);
+
+  // Numbers this user may call from; the first one is picked unless they choose another.
+  const [myNumbers, setMyNumbers] = useState([]);
+  const [callFrom, setCallFrom] = useState("");
+  useEffect(() => {
+    let alive = true;
+    api.getNumbers().then((list) => {
+      if (!alive || !Array.isArray(list)) return;
+      const usable = list.filter((n) => n.usableByMe);
+      setMyNumbers(usable);
+      setCallFrom((prev) => (prev && usable.some((n) => n.e164 === prev) ? prev : ""));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
   // A page this user may not open (e.g. an old bookmark to Analytics) falls back to the list.
   useEffect(() => {
     const def = PAGES.find((p) => p.id === page);
@@ -1739,7 +1753,7 @@ export function CallingWorkspace({
       slots -= 1;
       setAssistantQueued(queue.length);
       try {
-        const res = await api.dialViaTelnyxAssistant({ to: p.phone, prospect_name: p.contact || p.name || undefined, mission_title: queue.mission });
+        const res = await api.dialViaTelnyxAssistant({ to: p.phone, prospect_name: p.contact || p.name || undefined, mission_title: queue.mission, from_number: callFrom || undefined });
         if (!res || res.success === false) throw new Error(res?.error || "Telnyx Assistant dial failed");
       } catch (e) {
         showToast(`${p.name || p.phone}: ${e.message || "dial failed"}`);
@@ -1784,6 +1798,7 @@ export function CallingWorkspace({
       if (callVia === "assistant") {
         const res = await api.dialViaTelnyxAssistant({
           to: phone,
+          from_number: callFrom || undefined,
           prospect_name: prospectLabel !== phone ? prospectLabel : undefined,
           mission_title: (r.contact || r.company || r.name) ? `Direct — ${r.contact || r.company || r.name}` : undefined,
         });
@@ -1792,7 +1807,7 @@ export function CallingWorkspace({
       } else {
         const res = await api.dialOutbound({
           to_number: phone,
-          from_number: (profile && profile.callerId) || undefined,
+          from_number: callFrom || (profile && profile.callerId) || undefined,
           prospect_name: (r.contact || r.name || "").trim() || undefined,
           mission_title: (r.contact || r.company || r.name)
             ? `Direct — ${r.contact || r.company || r.name}`
@@ -2176,7 +2191,7 @@ export function CallingWorkspace({
         prospects,
         concurrency: cap,
         mission_title: fileName ? `List — ${fileName}` : `Outbound list — ${prospects.length} contacts`,
-        from_number: (profile && profile.callerId) || undefined,
+        from_number: callFrom || (profile && profile.callerId) || undefined,
         timezone: (profile && profile.timezone) || "Europe/London",
         ...savedTwilioCreds(),
       });
@@ -2217,6 +2232,7 @@ export function CallingWorkspace({
       if (callVia === "assistant") {
         const res = await api.dialViaTelnyxAssistant({
           to: phone,
+          from_number: callFrom || undefined,
           prospect_name: direct.name.trim() || undefined,
           mission_title: direct.name.trim() ? `Direct — ${direct.name.trim()}` : undefined,
         });
@@ -2225,7 +2241,7 @@ export function CallingWorkspace({
       } else {
         const res = await api.dialOutbound({
           to_number: phone,
-          from_number: (profile && profile.callerId) || undefined,
+          from_number: callFrom || (profile && profile.callerId) || undefined,
           prospect_name: direct.name.trim() || undefined,
           mission_title: direct.name.trim() ? `Direct — ${direct.name.trim()}` : "Direct Client Outreach",
           ...savedTwilioCreds(),
@@ -2511,6 +2527,22 @@ export function CallingWorkspace({
                 <div style={{ ...card(), marginBottom: 12, flexShrink: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>Call anyone</div>
+                    {myNumbers.length > 1 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>Call from:</span>
+                        <select
+                          value={callFrom}
+                          onChange={(e) => setCallFrom(e.target.value)}
+                          aria-label="Call from"
+                          style={{ height: 30, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", padding: "0 8px", fontSize: 12, fontWeight: 600, fontFamily: FONT_BODY, cursor: "pointer" }}
+                        >
+                          <option value="">My default number</option>
+                          {myNumbers.map((n) => (
+                            <option key={n.id} value={n.e164}>{n.label ? `${n.label} · ${n.e164}` : n.e164}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     {telnyxAssistantConfigured && (
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>Call using:</span>

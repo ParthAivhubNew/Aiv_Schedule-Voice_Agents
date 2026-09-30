@@ -51,6 +51,52 @@ if os.getenv("EXPOSE_API_DOCS", "").lower() in ("1", "true", "yes"):
 
 PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]  # carrier audio stream
 
+# Carrier webhooks: the organisation is found from the phone numbers in the request.
+CARRIER_WEBHOOK = re.compile(_OPT_API + r"(sip-webhook|sip/webhook|telnyx-assistant/|calls/(telnyx|twilio)/|twilio/)")
+_PHONE_RE = re.compile(r"\+\d{8,15}")
+
+
+async def _carrier_webhook_in_org(app, scope, receive, send):
+    """Read the body once, find which organisation owns a number in it, and run the handler
+    inside that organisation. Unknown numbers keep the default organisation."""
+    from urllib.parse import unquote
+
+    from app.core.tenancy import org_scope
+
+    chunks = []
+    more = True
+    while more:
+        msg = await receive()
+        if msg["type"] != "http.request":
+            break
+        chunks.append(msg.get("body", b""))
+        more = msg.get("more_body", False)
+    body = b"".join(chunks)
+    org = None
+    try:
+        text_body = unquote(body[:20000].decode("utf-8", errors="ignore"))
+        numbers = list(dict.fromkeys(_PHONE_RE.findall(text_body)))[:6]
+        if numbers:
+            from app.services.numbers import org_for_numbers
+
+            org = await org_for_numbers(*numbers)
+    except Exception as err:
+        logger.debug(f"[auth] webhook org lookup skipped: {err}")
+
+    sent = False
+
+    async def replay():
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return await receive()
+
+    if org:
+        with org_scope(org):
+            return await app(scope, replay, send)
+    return await app(scope, replay, send)
+
 # operator id -> (expires_at, context). Short cache so role changes apply within seconds.
 _CTX_CACHE: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
 _CTX_TTL_S = 20.0
@@ -138,6 +184,8 @@ class AuthMiddleware:
         websocket = kind == "websocket"
         method = "GET" if websocket else scope.get("method", "GET")
         if method == "OPTIONS" or is_public(path, websocket):
+            if not websocket and method == "POST" and CARRIER_WEBHOOK.search(path):
+                return await _carrier_webhook_in_org(self.app, scope, receive, send)
             return await self.app(scope, receive, send)
 
         token = _token_from(scope)

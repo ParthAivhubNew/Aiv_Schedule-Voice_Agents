@@ -87,6 +87,7 @@ async def dial_via_telnyx_assistant(
     mission_title: Optional[str] = None,
     prospect_id: Optional[str] = None,
     mission_id: Optional[str] = None,
+    from_number_override: Optional[str] = None,
 ) -> dict:
     """
     Places a real outbound call that connects the callee to our configured Telnyx
@@ -103,9 +104,21 @@ async def dial_via_telnyx_assistant(
     if not api_key:
         return {"success": False, "error": "No Telnyx API key saved. Add it in AI config → Connections → Telephony → Telnyx."}
 
-    from_number = await _resolve_telnyx_from_number(db)
+    # The organisation's chosen number when it has numbers saved; else the saved Telnyx number.
+    from_number = from_number_override or await _resolve_telnyx_from_number(db)
     if not from_number:
         return {"success": False, "error": "No Telnyx phone number saved (AI config → Connections → Telephony → Telnyx)."}
+
+    # A number can have its own assistant (e.g. a sales line and a support line).
+    try:
+        from app.models.models import OrgPhoneNumber
+        from app.services.numbers import normalize as _norm_number
+
+        line = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.e164 == _norm_number(from_number)))).scalars().first()
+        if line and (line.assistant_id or "").strip():
+            assistant_id = line.assistant_id.strip()
+    except Exception as line_err:
+        logger.debug(f"[TELNYX-ASSISTANT-DIAL] number lookup skipped: {line_err}")
 
     connection_id = await _resolve_call_control_app_id(db, api_key)
     if not connection_id:
