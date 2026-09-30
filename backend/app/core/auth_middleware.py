@@ -52,7 +52,13 @@ PUBLIC_HTTP = [re.compile(p) for p in (
 if os.getenv("EXPOSE_API_DOCS", "").lower() in ("1", "true", "yes"):
     PUBLIC_HTTP += [re.compile(r"^/(docs|redoc)(/|$)"), re.compile(r"^/openapi\.json$")]
 
-PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]  # carrier audio stream
+PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]
+
+STAFF_API = re.compile(_OPT_API + r"admin-api(/|$)")
+
+
+def platform_org() -> str:
+    return os.getenv("PLATFORM_ORG_ID", "org_default").strip() or "org_default"  # carrier audio stream
 
 # Carrier webhooks: the organisation is found from the phone numbers in the request.
 CARRIER_WEBHOOK = re.compile(_OPT_API + r"(sip-webhook|sip/webhook|telnyx-assistant/|telnyx/messaging-webhook|calls/(telnyx|twilio)/|twilio/)")
@@ -140,6 +146,12 @@ async def load_context(operator_id: str, session_id: str) -> Optional[Dict[str, 
         if not op or op.is_active is False:
             _CTX_CACHE[operator_id] = (now + _CTX_TTL_S, None)
             return None
+        from sqlalchemy import text as _text
+
+        org_status = (await db.execute(_text("SELECT status FROM organizations WHERE id = :i"), {"i": org_of(op)})).scalar()
+        if org_status == "suspended":  # staff suspended the organisation: everyone is signed out
+            _CTX_CACHE[operator_id] = (now + _CTX_TTL_S, None)
+            return None
         live = (await db.execute(
             select(AuthSession.id).where(
                 AuthSession.operator_id == operator_id,
@@ -154,6 +166,7 @@ async def load_context(operator_id: str, session_id: str) -> Optional[Dict[str, 
             "operator_id": op.id,
             "username": op.username,
             "name": op.name,
+            "email": op.email or "",
             "org_id": org_of(op),
             "is_admin": is_admin,
             "perms": perms,
@@ -179,6 +192,24 @@ class AuthMiddleware:
     def __init__(self, app):
         self.app = app
 
+    async def _staff(self, scope, receive, send, path: str, method: str):
+        """The admin portal API: staff tokens only (never client tokens), all organisations visible."""
+        from app.core.tenancy import system_scope
+
+        rel = api_path(path)
+        if method == "OPTIONS" or re.match(r"^/admin-api/(login|2fa/confirm)$", rel):
+            with system_scope():
+                return await self.app(scope, receive, send)
+        headers = dict(scope.get("headers") or [])
+        auth = headers.get(b"authorization", b"").decode()
+        token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        staff = await _staff_ctx(token)
+        if not staff:
+            return await _deny(scope, receive, send, 401, "Staff sign-in required.")
+        scope.setdefault("state", {})["staff"] = staff
+        with system_scope():
+            return await self.app(scope, receive, send)
+
     async def __call__(self, scope, receive, send):
         kind = scope.get("type")
         if kind not in ("http", "websocket"):
@@ -186,6 +217,8 @@ class AuthMiddleware:
         path = scope.get("path") or "/"
         websocket = kind == "websocket"
         method = "GET" if websocket else scope.get("method", "GET")
+        if not websocket and STAFF_API.match(path):
+            return await self._staff(scope, receive, send, path, method)
         if method == "OPTIONS" or is_public(path, websocket):
             if not websocket and method == "POST" and CARRIER_WEBHOOK.search(path):
                 return await _carrier_webhook_in_org(self.app, scope, receive, send)
@@ -210,12 +243,34 @@ class AuthMiddleware:
         if need and not P.allows(ctx["perms"], need[0], need[1]):
             return await _deny(scope, receive, send, 403, "You do not have access to this.", code="forbidden", section=need[0])
 
+        if rel.startswith("/connections") and ctx["org_id"] != platform_org() and (method != "GET" or rel.startswith("/connections/telephony-hub/")):
+            # Provider keys and engines are run by OutReach for client organisations.
+            return await _deny(scope, receive, send, 403, "This is managed by the OutReach team.", code="managed_by_outreach")
+
         scope.setdefault("state", {})["auth"] = ctx
         # Every database session in this request runs inside the user's organisation.
         from app.core.tenancy import org_scope
 
         with org_scope(ctx["org_id"]):
             return await self.app(scope, receive, send)
+
+
+async def _staff_ctx(token: str) -> Optional[Dict[str, Any]]:
+    from sqlalchemy.future import select
+
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import StaffUser
+
+    claims = decode_token(token, "staff") if token else None
+    if not claims:
+        return None
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            s = (await db.execute(select(StaffUser).where(StaffUser.id == claims["sub"]))).scalars().first()
+    if not s or not s.is_active or not s.totp_enabled:
+        return None
+    return {"staff_id": s.id, "email": s.email, "name": s.name, "role": s.role}
 
 
 def _has_bearer(scope) -> bool:
