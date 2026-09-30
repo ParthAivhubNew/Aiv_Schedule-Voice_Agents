@@ -113,6 +113,16 @@ async def dial_via_telnyx_assistant(
 
     to_clean = normalize_phone_number(to_number)
     from_clean = normalize_phone_number(from_number)
+
+    # UK calling rules: opted-out numbers are refused; out-of-hours calls are refused or
+    # warned about depending on the compliance mode.
+    from app.services.compliance import check_call_allowed
+
+    gate = await check_call_allowed(db, to_clean)
+    if not gate.allowed:
+        return {"success": False, "error": " ".join(gate.reasons), "compliance": {"blocked": True, "reasons": gate.reasons}}
+    compliance_warnings = list(gate.warnings)
+
     call_id = f"call_{uuid.uuid4().hex[:8]}"
     label = (prospect_name or "").strip() or f"Prospect ({to_clean[-4:]})"
     mission = (mission_title or "").strip() or "Telnyx AI Assistant — outbound"
@@ -188,4 +198,5 @@ async def dial_via_telnyx_assistant(
         level="SUCCESS",
         details={"to": to_clean, "from": from_clean, "assistantId": assistant_id, "callControlId": call_control_id, "callId": call_id},
     )
-    return {"success": True, "callId": call_id, "to": to_clean, "from": from_clean, "call_control_id": call_control_id}
+    return {"success": True, "callId": call_id, "to": to_clean, "from": from_clean, "call_control_id": call_control_id,
+            "complianceWarnings": compliance_warnings}
