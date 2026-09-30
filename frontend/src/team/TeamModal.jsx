@@ -43,12 +43,14 @@ const btn = (primary) => ({
 });
 const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: "#fff", width: "100%", boxSizing: "border-box" };
 
-function TempPassword({ value, who, onClose }) {
+function TempPassword({ value, who, emailed, onClose }) {
   const [copied, setCopied] = useState(false);
   return (
     <div style={{ border: `1px solid ${C.amber}`, background: C.amberSoft, borderRadius: 12, padding: 14, marginBottom: 14 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk }}>Temporary password for {who}</div>
-      <div style={{ fontSize: 12, color: C.slate, margin: "4px 0 8px" }}>Shown only now. Send it to them privately; they must pick their own at first sign-in.</div>
+      <div style={{ fontSize: 12, color: C.slate, margin: "4px 0 8px" }}>
+        {emailed ? "Also emailed to them. " : ""}Shown only now. {emailed ? "" : "Send it to them privately; "}They must pick their own at first sign-in.
+      </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <code style={{ fontFamily: FONT_MONO, fontSize: 14, background: "#fff", padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.border}` }}>{value}</code>
         <button type="button" style={btn(false)} onClick={() => { navigator.clipboard?.writeText(value); setCopied(true); }}>
@@ -94,7 +96,7 @@ function UsersTab({ me, roles, sections }) {
         name: form.name.trim(), username: form.username.trim().toLowerCase(), email: form.email.trim() || null,
         role_ids: form.role_ids.length ? form.role_ids : [roles.find((r) => r.name === "Operator")?.id].filter(Boolean),
       });
-      setTemp({ value: res.temporary_password, who: res.name });
+      setTemp({ value: res.temporary_password, who: res.name, emailed: res.emailed });
       setForm({ name: "", username: "", email: "", role_ids: [] });
       setAdding(false);
     });
@@ -104,7 +106,7 @@ function UsersTab({ me, roles, sections }) {
 
   return (
     <div>
-      {temp && <TempPassword value={temp.value} who={temp.who} onClose={() => setTemp(null)} />}
+      {temp && <TempPassword value={temp.value} who={temp.who} emailed={temp.emailed} onClose={() => setTemp(null)} />}
       {error && <div style={{ color: C.red, background: C.redSoft, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, marginBottom: 12 }}>{error}</div>}
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
         {users.map((u, i) => {
@@ -176,7 +178,7 @@ function UsersTab({ me, roles, sections }) {
                   <div style={{ display: "flex", gap: 8 }}>
                     <button type="button" style={btn(false)} onClick={() => act(async () => {
                       const r = await api.resetUserPassword(u.id);
-                      setTemp({ value: r.temporary_password, who: u.name });
+                      setTemp({ value: r.temporary_password, who: u.name, emailed: r.emailed });
                     })}>
                       <KeyRound size={14} /> Reset password
                     </button>
