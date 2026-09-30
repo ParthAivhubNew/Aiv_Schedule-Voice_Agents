@@ -52,6 +52,8 @@ class SettingsPayload(BaseModel):
     working_hours_by_day: Optional[Dict[str, Any]] = None
     slot_step_minutes: Optional[int] = None
     flex_minutes: Optional[int] = None
+    lunch_start: Optional[str] = None
+    lunch_end: Optional[str] = None
     buffer_before: Optional[int] = None
     buffer_after: Optional[int] = None
     auto_email_attendee: Optional[bool] = None
@@ -81,6 +83,8 @@ def _settings_public(st) -> Dict[str, Any]:
         "working_hours_by_day": st.working_hours_by_day or {},
         "slot_step_minutes": st.slot_step_minutes or 15,
         "flex_minutes": st.flex_minutes or 0,
+        "lunch_start": getattr(st, "lunch_start", None) or "12:00",
+        "lunch_end": getattr(st, "lunch_end", None) or "13:00",
         "buffer_before": st.buffer_before,
         "buffer_after": st.buffer_after,
         "auto_email_attendee": st.auto_email_attendee,

@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import {
   BarChart3,
   Calendar,
+  Clock,
   FileText,
   Headphones,
   History,
@@ -49,6 +50,7 @@ import { AudioStreamPlayer } from "../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../tokens";
 import { AnalyticsTab } from "./AnalyticsTab";
 import { ImportMapper } from "./ImportMapper";
+import { WorkingHoursTab } from "./WorkingHoursTab";
 import { SystemLogsTab } from "./SystemLogsTab";
 import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
@@ -67,6 +69,7 @@ const PAGES = [
   { id: "templates", label: "AI Templates", icon: Sparkles, section: "calling" },
   { id: "ai", label: "AI config", icon: Plug, section: "connections" },
   { id: "company", label: "Company", icon: Users, section: "company" },
+  { id: "hours", label: "Working hours", icon: Clock, section: "company" },
   { id: "systemlogs", label: "System logs", icon: ScrollText, section: "process_logs" },
 ];
 
@@ -2400,6 +2403,7 @@ export function CallingWorkspace({
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
     company: ["Company profile", "Identity, knowledge & FAQs, services, compliance. The agent uses this on every call."],
     analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],
+    hours: ["Working hours", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
     systemlogs: ["System logs", "Technical activity of calls, providers and background jobs."],
   };
 
@@ -3735,6 +3739,10 @@ export function CallingWorkspace({
             <div style={{ maxWidth: 1240 }}>
               <AnalyticsTab operator={operator} />
             </div>
+          )}
+
+          {page === "hours" && canSee(operator, "company") && (
+            <WorkingHoursTab operator={operator} />
           )}
 
           {page === "systemlogs" && canSee(operator, "process_logs") && (

@@ -288,6 +288,8 @@ export const api = {
   testSchedulerAiSettings: () => apiRequest('/scheduler/ai-settings/test', { method: 'POST', timeoutMs: 30000 }),
 
   // Dedicated Process Logs (Multi-Subsystem)
+  getCompliance: () => apiRequest('/profile/compliance'),
+  saveCompliance: (data) => apiRequest('/profile/compliance', { method: 'PUT', body: data }),
   getCallingAnalytics: (days = 30) => apiRequest(`/analytics/overview?days=${encodeURIComponent(days)}`),
   getProcessLogs: (params = {}) => {
     const query = new URLSearchParams(params).toString();

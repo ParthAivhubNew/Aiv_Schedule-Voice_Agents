@@ -596,6 +596,7 @@ class CalendarService:
             "default_event_type_slug", "default_duration", "default_platform",
             "working_hours_start", "working_hours_end",
             "working_days", "working_hours_by_day", "slot_step_minutes", "flex_minutes",
+            "lunch_start", "lunch_end",
             "buffer_before", "buffer_after",
             "auto_email_attendee", "auto_email_host",
             "prospect_timezone_override", "booking_policy",
@@ -2055,8 +2056,11 @@ class CalendarService:
             date_iso, time_hhmm = when_iso_date, when_time
         else:
             nxt = datetime.now(z) + timedelta(days=1)
-            # snap to next weekday-ish sample mid-morning
-            while nxt.weekday() >= 5:
+            # snap to the next day meetings are open (weekends count when the admin opens them)
+            open_days = setting.working_days or ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+            for _ in range(7):
+                if nxt.strftime("%A") in open_days:
+                    break
                 nxt += timedelta(days=1)
             date_iso = nxt.strftime("%Y-%m-%d")
             time_hhmm = setting.working_hours_start or "10:00"
