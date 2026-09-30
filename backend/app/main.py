@@ -287,6 +287,12 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await run_migrations(conn)
     await resolve_signing_key()
+    if (settings.LIVEKIT_API_SECRET or "").startswith("secret1234567890") or (settings.LIVEKIT_API_KEY or "") == "devkey":
+        logger.warning(
+            "LiveKit is using the development key/secret that is published in the repository. "
+            "Anyone can create LiveKit room tokens with it. Set LIVEKIT_API_KEY / LIVEKIT_API_SECRET "
+            "(and the same pair in livekit.yaml) to new random values."
+        )
     try:
         from app.database import AsyncSessionLocal
         from app.models.models import LiveCall

@@ -91,40 +91,20 @@ async def create_livekit_token(
     Multi-tenant: Automatically isolates organizations - each org only sees their own calls.
     Also registers the session into LiveCall so it appears in the live monitoring dashboard.
     """
-    call_id = f"lk_{uuid.uuid4().hex[:12]}"
-    room_name = (payload.room_name or f"room_{call_id}").strip()
-    identity = (payload.identity or f"user_{uuid.uuid4().hex[:6]}").strip()
-    display_name = payload.participant_name or payload.prospect_name or "Browser Caller"
+    # The signed-in user's organisation decides the room namespace. The room name is always
+    # made here: a browser can never pick (or guess its way into) another call's room.
+    from app.core.auth_middleware import current
 
+    ctx = current(request)
+    org_id = ctx["org_id"]
+    call_id = f"lk_{uuid.uuid4().hex[:12]}"
+    room_name = f"room_{call_id}"
+    identity = f"user_{ctx['operator_id']}_{uuid.uuid4().hex[:4]}"
+    display_name = payload.participant_name or payload.prospect_name or ctx.get("name") or "Browser Caller"
     client_ws_url = resolve_client_livekit_url(request)
 
-    # Extract org_id from request context (from JWT claims or headers)
-    org_id = None
-    try:
-        # Try to get org_id from request headers (X-Org-ID header)
-        org_id = request.headers.get("X-Org-ID")
-        
-        # If not in header, try to extract from JWT token in Authorization header
-        if not org_id:
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
-                import jwt as jwt_module
-                token = auth_header.replace("Bearer ", "").strip()
-                try:
-                    # Decode without verification to extract org_id claim
-                    decoded = jwt_module.decode(token, options={"verify_signature": False})
-                    org_id = decoded.get("org_id")
-                except Exception:
-                    pass
-    except Exception as org_extract_err:
-        logger.debug("Could not extract org_id from request: %s", org_extract_err)
-
-    # Fallback: Try to get from database if user context is available
-    if not org_id:
-        org_id = "default"
-
     # Safely query company profile if DB is connected
-    company_name = payload.company_name or "AIVHub"
+    company_name = payload.company_name or "Your company"
     prospect_tz = "Europe/London"
     try:
         profile_res = await db.execute(select(CompanyProfile).limit(1))
@@ -140,11 +120,11 @@ async def create_livekit_token(
         "call_id": call_id,
         "room_name": room_name,
         "org_id": org_id,
-        "role": payload.role,
+        "role": "user",
+        "operator_id": ctx["operator_id"],
         "prospect_name": payload.prospect_name or display_name,
         "prospect_phone": payload.prospect_phone or "Browser WebRTC",
         "company_name": company_name,
-        **(payload.metadata or {}),
     }
 
     try:
@@ -153,7 +133,7 @@ async def create_livekit_token(
             identity=identity,
             name=display_name,
             metadata=metadata,
-            is_agent=(payload.role == "agent"),
+            is_agent=False,
             can_publish=True,
             can_subscribe=True,
             ttl_seconds=7200,
@@ -204,7 +184,7 @@ async def create_livekit_token(
         logger.warning("Could not register LiveCall record for LiveKit: %s", e)
 
     # Auto-launch AI room agent for interactive conversation if a human user is joining
-    if payload.role != "agent":
+    if True:
         try:
             from app.services.livekit_service import start_livekit_room_agent
             asyncio.create_task(
@@ -238,9 +218,36 @@ async def handle_livekit_webhook(request: Request):
     """
     try:
         body_bytes = await request.body()
+        if not _webhook_signature_ok(body_bytes, request.headers.get("authorization", "")):
+            raise HTTPException(status_code=401, detail="Invalid LiveKit webhook signature")
         event_data = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
         result = await process_livekit_webhook_event(event_data)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning("Error processing LiveKit webhook: %s", e)
         return {"status": "error", "message": str(e)}
+
+
+def _webhook_signature_ok(body: bytes, auth_header: str) -> bool:
+    """LiveKit signs each webhook: the Authorization header is a JWT made with our API
+    secret whose "sha256" claim is the base64 SHA-256 of the body."""
+    import base64
+    import hashlib
+
+    from jose import JWTError, jwt as jose_jwt
+
+    token = (auth_header or "").strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:]
+    if not token or not settings.LIVEKIT_API_SECRET:
+        return False
+    try:
+        claims = jose_jwt.decode(token, settings.LIVEKIT_API_SECRET, algorithms=["HS256"], options={"verify_aud": False})
+    except JWTError:
+        return False
+    if claims.get("iss") and claims.get("iss") != settings.LIVEKIT_API_KEY:
+        return False
+    want = base64.b64encode(hashlib.sha256(body).digest()).decode()
+    return claims.get("sha256") == want
