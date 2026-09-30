@@ -283,6 +283,7 @@ export const api = {
   testSchedulerAiSettings: () => apiRequest('/scheduler/ai-settings/test', { method: 'POST', timeoutMs: 30000 }),
 
   // Dedicated Process Logs (Multi-Subsystem)
+  getCallingAnalytics: (days = 30) => apiRequest(`/analytics/overview?days=${encodeURIComponent(days)}`),
   getProcessLogs: (params = {}) => {
     const query = new URLSearchParams(params).toString();
     return apiRequest(`/logs${query ? `?${query}` : ''}`);
