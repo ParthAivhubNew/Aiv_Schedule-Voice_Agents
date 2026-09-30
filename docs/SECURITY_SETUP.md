@@ -53,6 +53,10 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | "Sign in with Google" (button appears once set). In Google Cloud → Credentials → OAuth client (Web application), add the redirect URI `https://outreach.aivhub.com/api/auth/google/callback` |
 | `ALLOW_SIGNUP` | `true` to let new companies register themselves (with the platform mailbox set, they must confirm their email first) |
 | `STARTER_CREDITS` | Credits a self-signup organisation starts with (default 500); those organisations stop at zero |
+| `TELNYX_API_KEY` | Our (manager) Telnyx key: number search/orders, verification, WhatsApp |
+| `TELNYX_ACCOUNT_MODE` | `billing_group` (default: one Telnyx account, a billing group per client) or `managed_account` (a Telnyx managed account per client, once Telnyx approves us as a manager) |
+| `TELNYX_CONNECTION_ID`, `TELNYX_MESSAGING_PROFILE_ID` | billing_group mode: the Call Control app and messaging profile new numbers attach to (managed accounts get their own automatically) |
+| `TELNYX_ASSISTANT_PUBLIC_KEY` | Telnyx public key (Mission Control → Keys & Credentials); every Telnyx webhook is checked against it |
 | `PLATFORM_ORG_ID` | Organisation whose admins are OutReach staff: they add credits and set rates (default `org_default`) |
 | `CALL_WINDOW_ENFORCEMENT` | Default calling-hours mode if an organisation has not chosen one |
 | `EXPOSE_API_DOCS` | `true` only if you want `/docs` public (off by default) |
@@ -65,3 +69,17 @@ npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
 ```
 
 This replaces `xlsx@0.18.5`, which has known security issues when opening untrusted files.
+
+## 5. Telnyx: numbers, verification and WhatsApp
+
+1. Set `TELNYX_API_KEY` and `TELNYX_ASSISTANT_PUBLIC_KEY` (and the mode, see above).
+2. In Mission Control, send webhooks for **number orders** and **requirement groups** to
+   `https://outreach.aivhub.com/api/telnyx/webhook`.
+3. On the messaging profile used for WhatsApp, set the webhook to
+   `https://outreach.aivhub.com/api/telnyx/messaging-webhook`.
+4. WhatsApp per number: the client presses *Turn on WhatsApp* on the Numbers page; complete the
+   Meta business signup for that number in the Telnyx portal, then switch the number on for them
+   (staff portal). Until then the number shows "WhatsApp requested".
+
+Webhooks only make the app re-read the order or verification from Telnyx, so a forged webhook
+cannot mark anything approved. The Numbers page also re-checks pending items every minute.

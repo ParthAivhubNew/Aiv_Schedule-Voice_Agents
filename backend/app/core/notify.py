@@ -20,6 +20,8 @@ EVENTS = [
     ("call_needs_review", "A call needs a person to follow up", "admins"),
     ("posts_awaiting_approval", "Posts are waiting for approval", "admins"),
     ("low_credits", "Credits are running low", "admins"),
+    ("numbers", "Phone numbers and business verification updates", "admins"),
+    ("whatsapp_message", "A WhatsApp message needs a person to reply", "admins"),
     ("security", "Security: password reset or account disabled", "everyone"),
 ]
 EVENT_KEYS = [e[0] for e in EVENTS]

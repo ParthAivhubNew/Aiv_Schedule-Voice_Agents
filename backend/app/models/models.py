@@ -792,6 +792,102 @@ class OrgPhoneNumber(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class OrgTelnyx(Base):
+    """An organisation's Telnyx setup: its managed account (or billing group on our account)
+    and the resources numbers are attached to. One row per organisation; id = org id."""
+    __tablename__ = "org_telnyx"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    mode = Column(String, default="billing_group")  # managed_account | billing_group
+    managed_account_id = Column(String, default="")
+    api_key_sealed = Column(Text, default="")  # managed account's own key (encrypted)
+    billing_group_id = Column(String, default="")
+    outbound_voice_profile_id = Column(String, default="")
+    connection_id = Column(String, default="")  # Call Control app new numbers attach to
+    messaging_profile_id = Column(String, default="")  # needed for WhatsApp / SMS
+    allowed_countries = Column(JSON, default=lambda: ["GB"])
+    status = Column(String, default="new")  # new, ready, error
+    last_error = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class VerificationSubmission(Base):
+    """Proof of identity and address a regulator needs before we can buy numbers (e.g. UK local)."""
+    __tablename__ = "verification_submissions"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    country = Column(String, default="GB")
+    number_type = Column(String, default="local")
+    entity_type = Column(String, default="company")  # company | sole_trader
+    fields = Column(JSON, default=dict)  # requirement id -> text value (and our own form fields)
+    documents = Column(JSON, default=list)  # [{requirement_id, filename, telnyx_document_id}]
+    requirement_group_id = Column(String, default="")
+    status = Column(String, default="draft")  # draft, pending-approval, approved, declined, expired, error
+    reason = Column(Text, default="")
+    submitted_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class NumberOrder(Base):
+    """A phone number bought on Telnyx for an organisation, until it becomes an OrgPhoneNumber."""
+    __tablename__ = "number_orders"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    telnyx_order_id = Column(String, default="", index=True)
+    phone_number = Column(String, nullable=False)
+    country = Column(String, default="GB")
+    number_type = Column(String, default="local")
+    requirement_group_id = Column(String, default="")
+    status = Column(String, default="pending")  # pending, success, failure
+    monthly_cost = Column(String, default="")
+    upfront_cost = Column(String, default="")
+    currency = Column(String, default="USD")
+    error = Column(Text, default="")
+    ordered_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WhatsappThread(Base):
+    """A WhatsApp conversation between one of our numbers and one contact."""
+    __tablename__ = "whatsapp_threads"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    our_number = Column(String, nullable=False, index=True)
+    contact_number = Column(String, nullable=False, index=True)
+    contact_name = Column(String, default="")
+    ai_enabled = Column(Boolean, default=True)
+    unread = Column(Integer, default=0)
+    last_inbound_at = Column(DateTime, nullable=True)  # starts the 24-hour free-reply window
+    last_message_at = Column(DateTime, default=datetime.utcnow, index=True)
+    last_preview = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class WhatsappMessage(Base):
+    __tablename__ = "whatsapp_messages"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    thread_id = Column(String, index=True, nullable=False)
+    direction = Column(String, default="inbound")  # inbound | outbound
+    sender = Column(String, default="contact")  # contact | ai | human
+    sender_name = Column(String, default="")
+    kind = Column(String, default="text")  # text | template | media
+    text = Column(Text, default="")
+    template = Column(JSON, nullable=True)
+    status = Column(String, default="received")  # received, queued, sent, delivered, read, failed
+    telnyx_message_id = Column(String, default="", index=True)
+    error = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class PhoneNumberAssignment(Base):
     """Which users may call from a number. A number with no assignments is shared by everyone."""
     __tablename__ = "phone_number_assignments"
