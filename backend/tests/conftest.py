@@ -63,5 +63,62 @@ async def db(schema):
     async with engine.begin() as conn:
         names = ", ".join(t.name for t in Base.metadata.sorted_tables)
         await conn.execute(text(f"TRUNCATE {names} CASCADE"))
+    from app.core import auth_middleware
+
+    auth_middleware.forget()
     async with AsyncSessionLocal() as session:
         yield session
+
+
+async def make_user(db, username, role="Operator", password="Str0ng-pass!", org_id="org_default", must_change=False):
+    """A signed-in user: returns (operator, access token)."""
+    import uuid
+    from datetime import datetime, timedelta
+
+    from app.core.accounts import assign_roles, ensure_system_roles
+    from app.core.security import create_access_token, hash_password
+    from app.models.models import AuthSession, Operator, Organization
+    from sqlalchemy.future import select
+
+    if not (await db.execute(select(Organization).where(Organization.id == org_id))).scalars().first():
+        db.add(Organization(id=org_id, name=org_id, slug=org_id))
+        await db.flush()
+    roles = await ensure_system_roles(db, org_id)
+    op = Operator(id=f"op_{username}", org_id=org_id, username=username, name=username.title(), role=role,
+                  hashed_password=hash_password(password), is_active=True, must_change_password=must_change)
+    db.add(op)
+    await db.flush()
+    await assign_roles(db, op, [roles[role].id])
+    sid = f"ses_{uuid.uuid4().hex}"
+    db.add(AuthSession(id=sid, operator_id=op.id, refresh_jti="x", expires_at=datetime.utcnow() + timedelta(days=1)))
+    await db.commit()
+    return op, create_access_token(op.id, org_id, role, sid)
+
+
+@pytest.fixture
+async def admin_token(db):
+    _, token = await make_user(db, "boss", "Admin")
+    return token
+
+
+@pytest.fixture
+async def client(db, admin_token):
+    """API client signed in as an admin."""
+    import httpx
+
+    from app.main import app
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test",
+                                 headers={"Authorization": f"Bearer {admin_token}"}) as c:
+        yield c
+
+
+@pytest.fixture
+async def anon(db):
+    """API client that is not signed in."""
+    import httpx
+
+    from app.main import app
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+        yield c

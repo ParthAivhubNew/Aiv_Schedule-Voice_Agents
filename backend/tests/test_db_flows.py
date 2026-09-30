@@ -10,14 +10,6 @@ pytestmark = pytest.mark.db
 
 
 @pytest.fixture
-async def client(db):
-    from app.main import app
-
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
-        yield c
-
-
-@pytest.fixture
 def sent_mail(monkeypatch):
     """Capture outgoing email instead of sending it."""
     from app.services import approval_mail

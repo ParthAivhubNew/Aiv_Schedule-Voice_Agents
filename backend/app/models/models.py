@@ -32,13 +32,67 @@ class Operator(Base):
     role = Column(String, default="Operator")
     email = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False)
+    password_changed_at = Column(DateTime, nullable=True)
+    last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     organization = relationship("Organization", back_populates="operators")
-    
+
     __table_args__ = (
         UniqueConstraint("org_id", "username", name="uq_operator_org_username"),
     )
+
+
+class AuthSession(Base):
+    """One signed-in browser. Its refresh token is only valid while this row is not revoked."""
+    __tablename__ = "auth_sessions"
+
+    id = Column(String, primary_key=True)
+    operator_id = Column(String, ForeignKey("operators.id", ondelete="CASCADE"), nullable=False, index=True)
+    refresh_jti = Column(String, nullable=False)
+    user_agent = Column(String, default="")
+    ip = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+
+
+class Role(Base):
+    """A named set of section levels (none / view / full) inside an organisation."""
+    __tablename__ = "roles"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, nullable=False, index=True, default="org_default")
+    name = Column(String, nullable=False)
+    description = Column(Text, default="")
+    is_admin = Column(Boolean, default=False)
+    is_system = Column(Boolean, default=False)
+    levels = Column(JSON, default=dict)  # section -> none | view | full
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_role_org_name"),)
+
+
+class OperatorRole(Base):
+    __tablename__ = "operator_roles"
+
+    operator_id = Column(String, ForeignKey("operators.id", ondelete="CASCADE"), primary_key=True)
+    role_id = Column(String, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True)
+
+
+class OperatorGrant(Base):
+    """A level for one section given straight to one user (on top of their roles)."""
+    __tablename__ = "operator_grants"
+
+    operator_id = Column(String, ForeignKey("operators.id", ondelete="CASCADE"), primary_key=True)
+    section = Column(String, primary_key=True)
+    level = Column(String, nullable=False, default="view")
+    granted_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class CompanyProfile(Base):
     __tablename__ = "company_profile"

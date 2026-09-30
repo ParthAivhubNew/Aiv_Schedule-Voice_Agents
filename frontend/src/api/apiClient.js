@@ -1,3 +1,12 @@
+import {
+  announceAuthLost,
+  announcePasswordChange,
+  getAccessToken,
+  refreshSession,
+  setSession,
+  clearSession,
+} from "./authStore";
+
 const API_BASE = "/api";
 
 // In-flight GET request deduplication map to prevent redundant concurrent fetches
@@ -21,18 +30,7 @@ export async function apiRequest(endpoint, options = {}) {
     ...(fetchOptions.headers || {}),
   };
 
-  // Add org_id header if available from operator context
-  try {
-    const operatorStr = sessionStorage.getItem("aivhub_operator");
-    if (operatorStr) {
-      const operator = JSON.parse(operatorStr);
-      if (operator.org_id) {
-        headers['X-Org-ID'] = operator.org_id;
-      }
-    }
-  } catch (_) {
-    // Silently fail if sessionStorage not available or parse error
-  }
+  const isAuthCall = /^\/auth\/(login|refresh)$/.test(endpoint.startsWith('/') ? endpoint : `/${endpoint}`);
 
   if (fetchOptions.body && typeof fetchOptions.body === 'object' && !(fetchOptions.body instanceof FormData)) {
     fetchOptions.body = JSON.stringify(fetchOptions.body);
@@ -58,11 +56,28 @@ export async function apiRequest(endpoint, options = {}) {
     }
 
     try {
-      const response = await fetch(url, {
-        ...fetchOptions,
-        headers,
-        signal: controller.signal,
-      });
+      const send = () => {
+        const token = getAccessToken();
+        const h = { ...headers };
+        if (token && !isAuthCall) h.Authorization = `Bearer ${token}`;
+        return fetch(url, { ...fetchOptions, headers: h, signal: controller.signal });
+      };
+      let response = await send();
+
+      // Expired access token: get a new one once and retry. No valid session: back to sign-in.
+      if (response.status === 401 && !isAuthCall) {
+        if (await refreshSession()) {
+          response = await send();
+        }
+        if (response.status === 401) {
+          announceAuthLost();
+          throw new Error("Your session ended. Please sign in again.");
+        }
+      }
+      if (response.status === 403 && !isAuthCall) {
+        const peek = await response.clone().json().catch(() => ({}));
+        if (peek && peek.code === "password_change_required") announcePasswordChange();
+      }
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -115,10 +130,29 @@ export async function apiRequest(endpoint, options = {}) {
 
 export const api = {
   // Auth & Team
-  login: (username, password) => apiRequest('/auth/login', { method: 'POST', body: { username, password } }),
-  getMe: (username) => apiRequest(`/auth/me?username=${encodeURIComponent(username)}`),
+  login: async (username, password) => {
+    const res = await apiRequest('/auth/login', { method: 'POST', body: { username, password } });
+    setSession(res);
+    return res;
+  },
+  logout: async () => {
+    try { await apiRequest('/auth/logout', { method: 'POST' }); } catch (_) {}
+    clearSession();
+  },
+  getMe: () => apiRequest('/auth/me'),
+  changePassword: (current_password, new_password) =>
+    apiRequest('/auth/change-password', { method: 'POST', body: { current_password, new_password } }),
+  getSections: () => apiRequest('/auth/sections'),
   getUsers: () => apiRequest('/auth/users'),
   createUser: (data) => apiRequest('/auth/users', { method: 'POST', body: data }),
+  updateUser: (id, data) => apiRequest(`/auth/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
+  resetUserPassword: (id) => apiRequest(`/auth/users/${encodeURIComponent(id)}/reset-password`, { method: 'POST' }),
+  getRoles: () => apiRequest('/auth/roles'),
+  createRole: (data) => apiRequest('/auth/roles', { method: 'POST', body: data }),
+  updateRole: (id, data) => apiRequest(`/auth/roles/${encodeURIComponent(id)}`, { method: 'PUT', body: data }),
+  deleteRole: (id) => apiRequest(`/auth/roles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getShare: (section) => apiRequest(`/auth/share/${encodeURIComponent(section)}`),
+  setShare: (section, user_levels) => apiRequest('/auth/share', { method: 'PUT', body: { section, user_levels } }),
 
   // Missions
   getMissions: () => apiRequest('/missions'),

@@ -235,3 +235,139 @@ async def get_usage_quotas(db: AsyncSession = Depends(get_db)):
         "plugins": plugins,
         "processBySubsystem": log_counts,
     }
+
+
+# ── Calling analytics (the Analytics tab) ──────────────────────────────────
+# Everything below is counted from real call history; no sample numbers.
+
+NOT_CONNECTED = {"no_answer", "failed", "busy", "voicemail", "canceled", "cancelled", "not_answered", "unreachable"}
+BOOKED = {"meeting_booked", "booked"}
+OUTCOME_LABELS = {
+    "meeting_booked": "Meeting booked",
+    "callback_requested": "Callback asked",
+    "contacted": "Talked, no result",
+    "human_review": "Needs review",
+    "rejected": "Not interested",
+    "no_answer": "No answer",
+    "voicemail": "Voicemail",
+    "busy": "Busy",
+    "failed": "Failed",
+}
+
+
+def _outcome(c) -> str:
+    return (c.outcome or "contacted").strip().lower() or "contacted"
+
+
+def _period_stats(calls) -> dict:
+    total = len(calls)
+    connected = [c for c in calls if _outcome(c) not in NOT_CONNECTED]
+    booked = [c for c in calls if _outcome(c) in BOOKED]
+    talk = [_parse_duration_minutes(c.duration) for c in connected]
+    return {
+        "calls": total,
+        "connected": len(connected),
+        "booked": len(booked),
+        "callbacks": len([c for c in calls if _outcome(c) == "callback_requested"]),
+        "connectRate": round(100 * len(connected) / total, 1) if total else 0.0,
+        "bookingRate": round(100 * len(booked) / len(connected), 1) if connected else 0.0,
+        "talkMinutes": round(sum(talk), 1),
+        "avgTalkMinutes": round(sum(talk) / len(talk), 2) if talk else 0.0,
+    }
+
+
+@router.get("/overview", response_model=dict)
+async def calling_overview(days: int = 30, db: AsyncSession = Depends(get_db)):
+    """KPIs with the change against the previous period, a daily trend, outcomes, the best
+    hours to call and campaign results for the last `days` days (in the organisation's zone)."""
+    import zoneinfo
+    from collections import Counter, defaultdict
+    from datetime import datetime, timedelta
+
+    from app.services.org_settings import load_org
+
+    days = max(1, min(int(days or 30), 365))
+    org = await load_org(db)
+    try:
+        tz = zoneinfo.ZoneInfo(org["timezone"])
+    except Exception:
+        tz = zoneinfo.ZoneInfo("Europe/London")
+    now = datetime.utcnow()
+    start = now - timedelta(days=days)
+    prev_start = start - timedelta(days=days)
+
+    rows = (await db.execute(select(CallLog).where(CallLog.created_at >= prev_start))).scalars().all()
+    current = [c for c in rows if c.created_at and c.created_at >= start]
+    previous = [c for c in rows if c.created_at and c.created_at < start]
+
+    def local(dt):
+        return dt.replace(tzinfo=zoneinfo.ZoneInfo("UTC")).astimezone(tz)
+
+    # Daily trend (every day in range, zero-filled)
+    by_day = defaultdict(lambda: {"calls": 0, "connected": 0, "booked": 0})
+    for c in current:
+        d = local(c.created_at).date().isoformat()
+        by_day[d]["calls"] += 1
+        if _outcome(c) not in NOT_CONNECTED:
+            by_day[d]["connected"] += 1
+        if _outcome(c) in BOOKED:
+            by_day[d]["booked"] += 1
+    first = local(start).date()
+    trend = []
+    for i in range(days + 1):
+        d = (first + timedelta(days=i)).isoformat()
+        trend.append({"date": d, **by_day[d]})
+
+    outcomes = Counter(_outcome(c) for c in current)
+    outcome_list = [
+        {"key": k, "label": OUTCOME_LABELS.get(k, k.replace("_", " ").capitalize()), "count": n}
+        for k, n in outcomes.most_common()
+    ]
+
+    # Weekday x hour: calls and how many connected, to show the best time to call.
+    heat = defaultdict(lambda: {"calls": 0, "connected": 0})
+    for c in current:
+        lt = local(c.created_at)
+        cell = heat[(lt.weekday(), lt.hour)]
+        cell["calls"] += 1
+        if _outcome(c) not in NOT_CONNECTED:
+            cell["connected"] += 1
+    heatmap = [
+        {"weekday": wd, "hour": hr, "calls": v["calls"], "connected": v["connected"],
+         "rate": round(100 * v["connected"] / v["calls"], 1) if v["calls"] else 0.0}
+        for (wd, hr), v in sorted(heat.items())
+    ]
+
+    campaigns = defaultdict(list)
+    for c in current:
+        campaigns[(c.mission or "").strip() or "Direct calls"].append(c)
+    campaign_rows = sorted(
+        ({"name": name, **_period_stats(cs)} for name, cs in campaigns.items()),
+        key=lambda r: (-r["booked"], -r["calls"]),
+    )[:12]
+
+    channels = Counter((c.channel or "voice") for c in current)
+
+    meetings = (await db.execute(select(Meeting))).scalars().all()
+    upcoming = [m for m in meetings if (m.status or "").lower() in ("upcoming", "confirmed", "scheduled")]
+    meeting_outcomes = Counter((m.status or "upcoming").lower() for m in meetings)
+
+    return {
+        "days": days,
+        "timezone": org["timezone"],
+        "current": _period_stats(current),
+        "previous": _period_stats(previous),
+        "trend": trend,
+        "outcomes": outcome_list,
+        "heatmap": heatmap,
+        "campaigns": campaign_rows,
+        "channels": [{"key": k, "count": n} for k, n in channels.most_common()],
+        "meetings": {
+            "upcoming": len(upcoming),
+            "converted": meeting_outcomes.get("converted", 0),
+            "notFit": meeting_outcomes.get("not_fit", 0),
+            "needsOutcome": meeting_outcomes.get("needs_outcome", 0),
+            "total": len(meetings),
+        },
+        "generatedAt": now.isoformat() + "Z",
+    }

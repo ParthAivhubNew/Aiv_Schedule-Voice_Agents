@@ -281,6 +281,12 @@ async def lifespan(app: FastAPI):
                 pass
 
     await seed_database()
+    # Numbered schema/data steps (auth columns, hashed passwords, roles), then the token key.
+    from app.core.migrations import run_migrations
+    from app.core.security import resolve_signing_key
+    async with engine.begin() as conn:
+        await run_migrations(conn)
+    await resolve_signing_key()
     try:
         from app.database import AsyncSessionLocal
         from app.models.models import LiveCall
@@ -501,6 +507,11 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+# Sign-in and permission check for every request (innermost, so CORS headers still apply to 401/403).
+from app.core.auth_middleware import AuthMiddleware, install_log_redaction
+app.add_middleware(AuthMiddleware)
+install_log_redaction()
 
 app.add_middleware(
     CORSMiddleware,
