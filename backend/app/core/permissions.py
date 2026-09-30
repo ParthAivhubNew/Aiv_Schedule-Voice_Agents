@@ -98,7 +98,7 @@ def allows(perms: Dict[str, str], section: str, need: str) -> bool:
 # ── Path → section ─────────────────────────────────────────────────────────
 # First match wins. None = any signed-in user. "admin" = admins only.
 _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
-    (re.compile(r"^/auth/(me|logout|change-password)$"), None),
+    (re.compile(r"^/auth/(me|me/notifications|logout|change-password)$"), None),
     (re.compile(r"^/auth/"), "team"),
     (re.compile(r"^/analytics/usage$"), None),  # plugin hub usage cards
     (re.compile(r"^/analytics"), "analytics"),
