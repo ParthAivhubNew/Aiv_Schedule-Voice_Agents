@@ -47,6 +47,10 @@ async def schema():
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     await ensure_social_schema()
+    from app.core.tenancy import ensure_tenancy
+
+    async with engine.begin() as conn:
+        await ensure_tenancy(conn)
     yield
     await engine.dispose()
 
@@ -63,6 +67,8 @@ async def db(schema):
     async with engine.begin() as conn:
         names = ", ".join(t.name for t in Base.metadata.sorted_tables)
         await conn.execute(text(f"TRUNCATE {names} CASCADE"))
+        # The default organisation always exists (the app creates it at startup).
+        await conn.execute(text("INSERT INTO organizations (id, name, slug, status) VALUES ('org_default', 'Default', 'default', 'active')"))
     from app.core import auth_middleware
 
     auth_middleware.forget()

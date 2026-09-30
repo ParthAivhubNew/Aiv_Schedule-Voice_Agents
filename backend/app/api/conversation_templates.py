@@ -125,7 +125,7 @@ async def create_template(payload: TemplatePayload, db: AsyncSession = Depends(g
     t_id = f"tpl_{uuid.uuid4().hex[:12]}"
     template = ConversationTemplate(
         id=t_id,
-        org_id="org_default",
+        # org_id comes from the signed-in organisation (database default)
         name=payload.name,
         description=payload.description,
         call_direction=payload.call_direction,

@@ -160,7 +160,11 @@ class AuthMiddleware:
             return await _deny(scope, receive, send, 403, "You do not have access to this.", code="forbidden", section=need[0])
 
         scope.setdefault("state", {})["auth"] = ctx
-        return await self.app(scope, receive, send)
+        # Every database session in this request runs inside the user's organisation.
+        from app.core.tenancy import org_scope
+
+        with org_scope(ctx["org_id"]):
+            return await self.app(scope, receive, send)
 
 
 def _has_bearer(scope) -> bool:

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, ForeignKey, Float, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, ForeignKey, Float, UniqueConstraint, FetchedValue
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -26,7 +26,7 @@ class Operator(Base):
     __tablename__ = "operators"
     
     id = Column(String, primary_key=True)
-    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True, server_default=FetchedValue())
     username = Column(String, index=True, nullable=False)
     name = Column(String, nullable=False)
     role = Column(String, default="Operator")
@@ -98,8 +98,8 @@ class CompanyProfile(Base):
     __tablename__ = "company_profile"
     
     id = Column(String, primary_key=True, default="default")
-    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
-    name = Column(String, default="AIVHub")
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True, server_default=FetchedValue())
+    name = Column(String, default="Your company")
     # How TTS should say the company name (optional). Empty → auto from name.
     spoken_name = Column(String, nullable=True)
     pitch = Column(Text, default="AI-powered business intelligence dashboards for mid-market operations teams")
@@ -137,6 +137,8 @@ class CompanyProfile(Base):
 
 class KnowledgeSource(Base):
     __tablename__ = "knowledge_sources"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
@@ -153,6 +155,8 @@ class KnowledgeSource(Base):
 
 class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunks"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     source_id = Column(String, ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -168,6 +172,8 @@ class KnowledgeChunk(Base):
 
 class Service(Base):
     __tablename__ = "services"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
@@ -176,6 +182,8 @@ class Service(Base):
 
 class FAQ(Base):
     __tablename__ = "faqs"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     question = Column(Text, nullable=False)
@@ -183,6 +191,8 @@ class FAQ(Base):
 
 class Connection(Base):
     __tablename__ = "connections"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     group_name = Column(String, nullable=False)  # "LLM", "Speech-to-Text", etc.
@@ -193,6 +203,8 @@ class Connection(Base):
 
 class ContactRegistry(Base):
     __tablename__ = "contact_registry"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     canonical_name = Column(String, index=True, nullable=False)
@@ -213,7 +225,7 @@ class Mission(Base):
     __tablename__ = "missions"
     
     id = Column(String, primary_key=True, index=True)
-    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True, server_default=FetchedValue())
     title = Column(String, nullable=False)
     sector = Column(String, default="General")
     region = Column(String, default="UK-wide")
@@ -237,6 +249,8 @@ class Mission(Base):
 
 class Prospect(Base):
     __tablename__ = "prospects"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     mission_id = Column(String, ForeignKey("missions.id", ondelete="CASCADE"), nullable=True)
@@ -262,7 +276,7 @@ class LiveCall(Base):
     __tablename__ = "live_calls"
     
     id = Column(String, primary_key=True, index=True)
-    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True, server_default=FetchedValue())
     carrier_sid = Column(String, nullable=True, index=True)  # Twilio CallSid for status callback matching
     carrier = Column(String, nullable=True)  # telephony provider used at dial time (twilio/telnyx/sipgate/…) for hangup
     mission_id = Column(String, nullable=True)
@@ -284,6 +298,8 @@ class LiveCall(Base):
 
 class CallLog(Base):
     __tablename__ = "call_logs"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     registry_id = Column(String, nullable=True)
@@ -304,6 +320,8 @@ class CallLog(Base):
 
 class Meeting(Base):
     __tablename__ = "meetings"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     prospect = Column(String, nullable=False)
@@ -339,6 +357,8 @@ class Meeting(Base):
 
 class MeetingEventType(Base):
     __tablename__ = "meeting_event_types"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     title = Column(String, nullable=False)
@@ -354,6 +374,8 @@ class MeetingEventType(Base):
 
 class CalcomSetting(Base):
     __tablename__ = "calcom_settings"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, default="default")
     host_email = Column(String, default="admin@aivhub.io")
@@ -384,6 +406,8 @@ class CalcomSetting(Base):
 
 class ScheduleItem(Base):
     __tablename__ = "schedule_items"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     day = Column(String, nullable=False)
@@ -409,6 +433,8 @@ class ScheduleItem(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     text = Column(Text, nullable=False)
@@ -423,6 +449,8 @@ class Voice(Base):
     Engine built-in voices (xAI Ara/Rex, OpenAI Alloy, ...) are not stored. The call voice is
     picked in the active voice stack (voice_kind / voice_ref)."""
     __tablename__ = "voices"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     __table_args__ = (UniqueConstraint("provider", "voice_id", name="uq_voices_provider_voice"),)
 
     id = Column(String, primary_key=True)
@@ -438,6 +466,8 @@ class SocialSchedule(Base):
     """A posting plan: right now, once, or repeating. Its posts are created a little ahead of
     time, written by the AI queue, approved like any post and published by the publish loop."""
     __tablename__ = "social_schedules"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
 
     id = Column(String, primary_key=True, index=True)
     theme = Column(String, nullable=False)  # schedule name
@@ -465,6 +495,8 @@ class SocialSchedule(Base):
 
 class SocialPost(Base):
     __tablename__ = "social_posts"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     topic_id = Column(String, nullable=True)
@@ -521,6 +553,8 @@ class SocialPost(Base):
 class SocialPostVersion(Base):
     """Saved content of a post after each change (the newest 10 per post are kept) for undo/restore."""
     __tablename__ = "social_post_versions"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
 
     id = Column(String, primary_key=True)
     post_id = Column(String, index=True, nullable=False)
@@ -536,6 +570,8 @@ class SocialGenJob(Base):
     """One piece of content to write (and illustrate) for one or more posts that share it.
     Stored so queued work survives restarts and runs with no browser open."""
     __tablename__ = "social_gen_jobs"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
 
     id = Column(String, primary_key=True)
     post_ids = Column(JSON, default=list)
@@ -568,6 +604,8 @@ class AppSetting(Base):
 class SchedulerSetting(Base):
     """Post Scheduler preferences (which text/image AI to use). Keys live in Connection rows."""
     __tablename__ = "scheduler_settings"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
 
     id = Column(String, primary_key=True, default="default")
     data = Column(JSON, default=dict)
@@ -576,6 +614,8 @@ class SchedulerSetting(Base):
 
 class SocialAccount(Base):
     __tablename__ = "social_accounts"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
 
     id = Column(String, primary_key=True, index=True)
     platform = Column(String, nullable=False, index=True)  # linkedin, x, facebook, instagram, threads
@@ -607,6 +647,8 @@ class SocialOAuthApp(Base):
 
 class SocialOAuthState(Base):
     __tablename__ = "social_oauth_states"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
 
     id = Column(String, primary_key=True)
     platform = Column(String, nullable=False)
@@ -617,6 +659,8 @@ class SocialOAuthState(Base):
 
 class SocialEmail(Base):
     __tablename__ = "social_emails"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     post_id = Column(String, nullable=False)
@@ -630,6 +674,8 @@ class SocialEmail(Base):
 
 class ProcessLog(Base):
     __tablename__ = "process_logs"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
     subsystem = Column(String, index=True, nullable=False)  # telephony, voice, crawler_rag, calendar, scheduler, system, auth
@@ -649,7 +695,7 @@ class ConversationTemplate(Base):
     __tablename__ = "conversation_templates"
 
     id = Column(String, primary_key=True)
-    org_id = Column(String, default="org_default", index=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     call_direction = Column(String, nullable=False, default="outbound")  # "outbound" | "inbound"
@@ -694,7 +740,7 @@ class ConversationVariable(Base):
     __tablename__ = "conversation_variables"
 
     id = Column(String, primary_key=True)
-    org_id = Column(String, default="org_default", index=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
     key = Column(String, nullable=False)  # "time_savings", "pain_point", etc.
     value = Column(Text, nullable=False)
     category = Column(String, default="custom")  # "company", "product", "mission", "custom"
