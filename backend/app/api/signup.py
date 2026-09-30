@@ -154,7 +154,30 @@ async def _create_org(db: AsyncSession, company: str, name: str, email: str, pas
     await assign_roles(db, op, [roles["Admin"].id])
     await db.commit()
     await _seed_company(org_id, company)
+    await _starter_credits(org_id)
     return op
+
+
+async def _starter_credits(org_id: str) -> None:
+    """New organisations pay as they go: credits are enforced, with a starter amount."""
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.services import credits as K
+
+    try:
+        with org_scope(org_id):
+            async with AsyncSessionLocal() as s:
+                await K.set_org_settings(s, {"enforce": True}, org_id)
+                doc = await K._get_doc(s, K._settings_id(org_id))
+                doc["tracking_since"] = datetime.utcnow().isoformat()
+                await K._put_doc(s, K._settings_id(org_id), doc)
+                if K.starter_credits():
+                    await K.grant(s, K.starter_credits(), note="Starter credits")
+                await s.commit()
+    except Exception as err:
+        import logging
+
+        logging.getLogger("signup").warning(f"[signup] starter credits for {org_id} failed: {err}")
 
 
 async def _seed_company(org_id: str, company: str) -> None:
@@ -168,8 +191,10 @@ async def _seed_company(org_id: str, company: str) -> None:
             async with AsyncSessionLocal() as s:
                 s.add(CompanyProfile(id="default", name=company, website="", social="", pitch="", industry=""))
                 await s.commit()
-    except Exception:
-        pass  # created lazily on first use otherwise
+    except Exception as err:
+        import logging
+
+        logging.getLogger("signup").warning(f"[signup] starter credits for {org_id} failed: {err}")  # created lazily on first use otherwise
 
 
 async def _send_verification(op: Operator) -> bool:

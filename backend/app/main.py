@@ -16,6 +16,7 @@ from app.websockets.call_hub import call_hub
 
 from app.api.auth import router as auth_router
 from app.api.signup import router as signup_router
+from app.api.credits import router as credits_router
 from app.api.missions import router as missions_router
 from app.api.prospects import router as prospects_router
 from app.api.calls import router as calls_router
@@ -63,6 +64,19 @@ async def _social_publish_due_loop():
             raise
         except Exception as loop_err:
             logger.warning(f"[Social Auto-Publish] Cycle failed: {loop_err}")
+
+
+async def _credits_settle_loop():
+    """Charge credits for finished calls and AI posts every few minutes (never during a call)."""
+    from app.services.credits import settle_all_orgs
+    while True:
+        try:
+            await asyncio.sleep(300)
+            await settle_all_orgs()
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Credits] Settle cycle failed: {loop_err}")
 
 
 @asynccontextmanager
@@ -508,6 +522,7 @@ async def lifespan(app: FastAPI):
         logger.warning(f"[Social] Schema check failed: {social_schema_err}")
 
     publish_due_task = asyncio.create_task(_social_publish_due_loop())
+    credits_task = asyncio.create_task(_credits_settle_loop())
     from app.services.generation_queue import generation_loop
     generation_task = asyncio.create_task(generation_loop())
 
@@ -515,6 +530,7 @@ async def lifespan(app: FastAPI):
 
     publish_due_task.cancel()
     generation_task.cancel()
+    credits_task.cancel()
     logger.info("Shutting down OutReach by Aivhub Voice Agent API...")
 
 app = FastAPI(
@@ -557,6 +573,7 @@ except Exception:
 # Mount REST API Routers
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(signup_router, prefix=settings.API_PREFIX)
+app.include_router(credits_router, prefix=settings.API_PREFIX)
 app.include_router(missions_router, prefix=settings.API_PREFIX)
 app.include_router(prospects_router, prefix=settings.API_PREFIX)
 app.include_router(calls_router, prefix=settings.API_PREFIX)
