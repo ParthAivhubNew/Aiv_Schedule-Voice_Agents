@@ -41,23 +41,23 @@ import {
   Play,
   Pause,
 } from "lucide-react";
-import { AppChrome } from "../components/AppChrome";
-import { NotificationBell } from "../components/TopBar";
-import { api } from "../api/apiClient";
-import { WebSocketClient } from "../api/wsClient";
-import { withToken } from "../api/authStore";
-import { AudioStreamPlayer } from "../api/audioStreamPlayer";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../tokens";
+import { AppChrome } from "../../../components/AppChrome";
+import { NotificationBell } from "../../../components/TopBar";
+import { api } from "../../../api/apiClient";
+import { WebSocketClient } from "../../../api/wsClient";
+import { withToken } from "../../../api/authStore";
+import { AudioStreamPlayer } from "../../../api/audioStreamPlayer";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../../../tokens";
 import { AnalyticsTab } from "./AnalyticsTab";
 import { ImportMapper } from "./ImportMapper";
 import { WorkingHoursTab } from "./WorkingHoursTab";
 import { SystemLogsTab } from "./SystemLogsTab";
 import { CallingSchedule } from "./CallingSchedule";
-import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
-import { VoicePicker } from "../voice/VoicePicker";
-import { ConversationTemplatesView } from "../views/ConversationTemplatesView";
+import { LiveKitBrowserCallModal } from "../../../components/LiveKitBrowserCallModal";
+import { VoicePicker } from "../VoicePicker";
+import { ConversationTemplatesView } from "../ConversationTemplatesView";
 import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
-import { navigateHash, onRouteChange, replaceHash, routeHash } from "../utils/route";
+import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../../utils/route";
 
 // `section` = which permission section must be at least "view" to see the page.
 const PAGES = [

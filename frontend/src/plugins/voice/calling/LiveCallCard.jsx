@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Calendar, CheckCircle2, ChevronDown, ChevronUp, Headphones, PhoneOff, Sparkles } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
+import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 
 const STATE_META = {
   calling: { label: "Ringing", fg: C.amber, bg: C.amberSoft, pulse: true },

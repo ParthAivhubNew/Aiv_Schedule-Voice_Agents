@@ -26,10 +26,10 @@ import {
   AlertCircle,
   X
 } from "lucide-react";
-import { TopBar } from "../components/TopBar";
-import { BookingPolicyEditor } from "../components/BookingPolicyEditor";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
-import { api } from "../api/apiClient";
+import { TopBar } from "../../components/TopBar";
+import { BookingPolicyEditor } from "../../components/BookingPolicyEditor";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../tokens";
+import { api } from "../../api/apiClient";
 
 const DEFAULT_OBJECTIONS = [
   { key: "not_interested", label: "Not Interested", defaultText: "I completely respect that, {{prospect_name}}. Before I go, can I ask if your main priority right now is reducing call handling time, or is your schedule completely booked up?" },

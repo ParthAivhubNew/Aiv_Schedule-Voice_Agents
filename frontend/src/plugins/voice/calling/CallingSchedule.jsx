@@ -14,9 +14,9 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { api } from "../api/apiClient";
-import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
-import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
+import { api } from "../../../api/apiClient";
+import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
+import { MeetingInvitePreview } from "../../../components/MeetingInvitePreview";
 
 const FALLBACK_KINDS = [
   { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone, color: C.cobalt },

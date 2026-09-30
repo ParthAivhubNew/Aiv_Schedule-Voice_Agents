@@ -29,9 +29,9 @@ import {
   LogOut,
   Building2
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, meetingTimeLabel } from "../tokens";
-import { api } from "../api/apiClient";
-import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
+import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, meetingTimeLabel } from "../../tokens";
+import { api } from "../../api/apiClient";
+import { MeetingInvitePreview } from "../../components/MeetingInvitePreview";
 
 export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile, commonAi, onOpenCommonAi }) {
   const [activeTab, setActiveTab] = useState("comms"); // email preview only — schedule lives in Calling
