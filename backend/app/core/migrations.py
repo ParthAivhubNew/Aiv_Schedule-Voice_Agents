@@ -87,12 +87,29 @@ async def _operator_profile_columns(conn: AsyncConnection) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_operators_google_sub ON operators (google_sub)"))
 
 
+async def _credit_wallets(conn: AsyncConnection) -> None:
+    """Credits move to per-plugin wallets. Each organisation's existing positive balance becomes
+    one never-expiring batch in its Voice wallet, so nobody loses credits."""
+    import uuid as _uuid
+
+    await conn.execute(text("ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS wallet VARCHAR DEFAULT 'voice'"))
+    await conn.execute(text("UPDATE credit_ledger SET wallet = 'voice' WHERE wallet IS NULL"))
+    rows = (await conn.execute(text("SELECT org_id, COALESCE(SUM(amount), 0) FROM credit_ledger GROUP BY org_id"))).all()
+    for org_id, total in rows:
+        if total and total > 0:
+            await conn.execute(text(
+                "INSERT INTO credit_grants (id, org_id, wallet, source, amount, remaining, expires_at, ref, note, created_at) "
+                "VALUES (:id, :o, 'voice', 'grant', :a, :a, NULL, 'migration', 'Balance before wallets', now())"
+            ), {"id": f"cg_{_uuid.uuid4().hex[:14]}", "o": org_id, "a": int(total)})
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
     ("2026_10_01_system_roles", _system_roles),
     ("2026_10_02_meeting_lunch_columns", _meeting_lunch_columns),
     ("2026_10_02_operator_profile_columns", _operator_profile_columns),
+    ("2026_10_03_credit_wallets", _credit_wallets),
 ]
 
 
