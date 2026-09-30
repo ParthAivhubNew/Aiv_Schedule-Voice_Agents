@@ -43,6 +43,8 @@ TENANT_TABLES: List[str] = [
     "whatsapp_threads", "whatsapp_messages", "credit_grants", "billing_subscriptions",
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
+# Provider groups every organisation runs on (ours); see ensure_tenancy.
+SHARED_PROVIDER_GROUPS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Embeddings", "Business Discovery", "Messaging"]
 PER_ORG_SINGLETONS = ["company_profile", "calcom_settings", "scheduler_settings", "conversation_templates"]
 
 ORG_DEFAULT_SQL = f"coalesce(nullif(current_setting('app.org_id', true), ''), '{DEFAULT_ORG}')"
@@ -138,6 +140,20 @@ async def ensure_tenancy(conn: AsyncConnection) -> None:
             f"CREATE POLICY org_isolation ON {table} "
             f"USING (org_id = current_setting('app.org_id', true)) "
             f"WITH CHECK (org_id = current_setting('app.org_id', true))"
+        ))
+
+    # Client organisations use OutReach's own AI and telephony providers without holding or
+    # seeing the keys: they may read (never change) the platform's provider connections.
+    # Mailboxes and calendars stay private to each organisation.
+    if await _table_exists(conn, "connections"):
+        import os as _os
+
+        platform = (_os.getenv("PLATFORM_ORG_ID") or DEFAULT_ORG).replace("'", "")
+        shared = ", ".join(f"'{g}'" for g in SHARED_PROVIDER_GROUPS)
+        await conn.execute(text("DROP POLICY IF EXISTS platform_providers ON connections"))
+        await conn.execute(text(
+            f"CREATE POLICY platform_providers ON connections FOR SELECT "
+            f"USING (org_id = '{platform}' AND group_name IN ({shared}))"
         ))
 
     # Fixed-id rows (id = "default") exist once per organisation.

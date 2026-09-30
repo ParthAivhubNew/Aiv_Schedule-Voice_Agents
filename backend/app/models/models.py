@@ -616,6 +616,23 @@ class CreditEntry(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class StaffUser(Base):
+    """Aivhub staff for the admin portal. Separate from client users (operators), so no client
+    role can ever become staff. Two-factor authentication is required."""
+    __tablename__ = "staff_users"
+
+    id = Column(String, primary_key=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    name = Column(String, default="")
+    role = Column(String, default="staff_support")  # staff_admin | staff_support
+    hashed_password = Column(String, nullable=False)
+    totp_secret_sealed = Column(Text, default="")
+    totp_enabled = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+    last_login_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class CreditGrant(Base):
     """A batch of credits in one plugin's wallet (a plan renewal, a top-up, or added by staff).
     Usage takes from the batch closest to expiry first."""
