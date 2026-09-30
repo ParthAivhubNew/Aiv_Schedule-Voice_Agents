@@ -1550,6 +1550,25 @@ class CalendarService:
         except Exception:
             pass
 
+        try:
+            import html as _h
+            from app.config import settings as _cfg
+            from app.core.notify import notify
+
+            await notify(
+                "meeting_booked",
+                f"Meeting booked with {prospect_name}",
+                [
+                    f"<b>{_h.escape(prospect_name or '')}</b> ({_h.escape(attendee_email or '')}) booked "
+                    f"<b>{_h.escape(display_title or '')}</b>.",
+                    f"{_h.escape(date_str)} at {_h.escape(time_str)} {_h.escape(short_label(host_tz))}, "
+                    f"{duration_minutes} min, host {_h.escape(resolved_host_name or '')}.",
+                ],
+                {"label": "Open OutReach", "url": (_cfg.PUBLIC_BASE_URL or "").rstrip("/") + "/"},
+            )
+        except Exception:
+            pass
+
         return {
             "success": True,
             "bookingId": meeting.id,

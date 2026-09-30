@@ -197,7 +197,7 @@ class AuthMiddleware:
             return await _deny(scope, receive, send, 401, "Sign in required.")
 
         rel = api_path(path)
-        if ctx["must_change_password"] and not re.search(r"^/auth/(me|change-password|logout)$", rel):
+        if ctx["must_change_password"] and not re.search(r"^/auth/(me|me/notifications|change-password|logout)$", rel):
             return await _deny(scope, receive, send, 403, "Choose a new password first.", code="password_change_required")
 
         if websocket:

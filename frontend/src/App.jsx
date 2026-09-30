@@ -117,6 +117,7 @@ import { api } from "./api/apiClient";
 import { WebSocketClient } from "./api/wsClient";
 import { AUTH_LOST_EVENT, PASSWORD_CHANGE_EVENT, hasSession } from "./api/authStore";
 import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
+import { ProfileSettingsModal } from "./hub/ProfileSettingsModal";
 import { TeamModal } from "./team/TeamModal";
 import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import { TelephonyDocsView } from "./views/TelephonyDocsView";
@@ -8052,82 +8053,6 @@ function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, initialTa
 
 
 
-
-function ProfileSettingsModal({ isOpen, onClose, operator, setOperator }) {
-  const [name, setName] = useState(operator?.name || "");
-  const [email, setEmail] = useState(operator?.email || `${operator?.username || "user"}@aivhub.io`);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    if (isOpen && operator) {
-      setName(operator.name || "");
-      setEmail(operator.email || `${operator.username || "user"}@aivhub.io`);
-      setSaved(false);
-    }
-  }, [isOpen, operator]);
-
-  if (!isOpen) return null;
-
-  const handleSave = (e) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setOperator((prev) => ({ ...prev, name: name.trim(), email: email.trim() }));
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      onClose();
-    }, 800);
-  };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 440, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.22)", border: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: C.paperSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <User size={18} color={C.slate} />
-            </div>
-            <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Profile Settings</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>Manage your account identity and email.</div>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate }}><X size={18} /></button>
-        </div>
-
-        <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div>
-            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Display Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }} />
-          </div>
-          <div>
-            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Username (Read Only)</label>
-            <input value={`@${operator?.username}`} disabled style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12.5, background: C.paperSoft, color: C.slate }} />
-          </div>
-          <div>
-            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Role Assigned</label>
-            <input value={operator?.role} disabled style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.paperSoft, color: C.slate }} />
-          </div>
-          <div>
-            <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Email</label>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }} />
-          </div>
-
-          {saved && (
-            <div style={{ padding: "8px 12px", background: C.tealSoft, color: C.teal, borderRadius: 8, fontSize: 12, fontFamily: FONT_BODY, display: "flex", alignItems: "center", gap: 6 }}>
-              <CheckCircle2 size={14} /> Profile updated successfully!
-            </div>
-          )}
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
-            <button type="button" onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-            <button type="submit" style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: C.ink, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save Changes</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
 
 function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin }) {
   const [open, setOpen] = useState(false);
