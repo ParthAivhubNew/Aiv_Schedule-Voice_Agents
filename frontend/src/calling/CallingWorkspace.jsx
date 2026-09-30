@@ -2,11 +2,13 @@ import React, { cloneElement, isValidElement, useCallback, useEffect, useMemo, u
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import {
+  BarChart3,
   Calendar,
   FileText,
   Headphones,
   History,
   LayoutGrid,
+  ScrollText,
   List,
   LogOut,
   MapPin,
@@ -45,22 +47,34 @@ import { WebSocketClient } from "../api/wsClient";
 import { withToken } from "../api/authStore";
 import { AudioStreamPlayer } from "../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../tokens";
-import { setCallingEdition } from "./callingEdition";
+import { AnalyticsTab } from "./AnalyticsTab";
+import { SystemLogsTab } from "./SystemLogsTab";
 import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../components/LiveKitBrowserCallModal";
 import { VoicePicker } from "../voice/VoicePicker";
 import { ConversationTemplatesView } from "../views/ConversationTemplatesView";
 import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
 
+// `section` = which permission section must be at least "view" to see the page.
 const PAGES = [
-  { id: "list", label: "List", icon: List },
-  { id: "live", label: "Live", icon: Radio },
-  { id: "logs", label: "Call history", icon: FileText },
-  { id: "schedule", label: "Schedule", icon: PhoneCall },
-  { id: "templates", label: "AI Templates", icon: Sparkles },
-  { id: "ai", label: "AI config", icon: Plug },
-  { id: "company", label: "Company", icon: Users },
+  { id: "list", label: "List", icon: List, section: "calling" },
+  { id: "live", label: "Live", icon: Radio, section: "calling" },
+  { id: "logs", label: "Call history", icon: FileText, section: "calling" },
+  { id: "schedule", label: "Schedule", icon: PhoneCall, section: "calling" },
+  { id: "analytics", label: "Analytics", icon: BarChart3, section: "analytics" },
+  { id: "templates", label: "AI Templates", icon: Sparkles, section: "calling" },
+  { id: "ai", label: "AI config", icon: Plug, section: "connections" },
+  { id: "company", label: "Company", icon: Users, section: "company" },
+  { id: "systemlogs", label: "System logs", icon: ScrollText, section: "process_logs" },
 ];
+
+function canSee(operator, section) {
+  if (!operator) return false;
+  if (operator.is_admin) return true;
+  const perms = operator.permissions;
+  if (!perms) return section === "calling" || section === "company" || section === "connections";
+  return Boolean(perms[section]) && perms[section] !== "none";
+}
 
 const EXTRA_SLOTS = ["Phone", "Email", "Website", "LinkedIn", "Contact"];
 const DEFAULT_LIST_HEADERS = ["Company", "Contact", "Phone", "Email", "Website", "LinkedIn"];
@@ -813,7 +827,6 @@ export function CallingWorkspace({
   onLogout,
   profile,
   setProfile,
-  onUseClassic,
   commonAi,
   aiKeysPanel,
   onOpenCommonAi,
@@ -1094,6 +1107,13 @@ export function CallingWorkspace({
     if (page && SIMPLE_PAGES.has(page)) goPage(page);
   };
 
+  const visiblePages = useMemo(() => PAGES.filter((p) => canSee(operator, p.section)), [operator]);
+  // A page this user may not open (e.g. an old bookmark to Analytics) falls back to the list.
+  useEffect(() => {
+    const def = PAGES.find((p) => p.id === page);
+    if (def && !canSee(operator, def.section)) setPage("list");
+  }, [operator, page]);
+
   const goPage = (next) => {
     if (!next || next === page) return;
     if (page === "company" && companyDirty && next !== "company") {
@@ -1115,11 +1135,6 @@ export function CallingWorkspace({
     if (!t) return;
     if (t.type === "page") setPage(t.next);
     else if (t.type === "hub") onBackToHub();
-    else if (t.type === "classic") {
-      setCallingEdition("classic");
-      try { window.history.replaceState(null, "", "#/voice/list"); } catch (_) {}
-      if (onUseClassic) onUseClassic();
-    }
   };
 
   const handleSaveAndLeaveWorkspace = () => {
@@ -1133,11 +1148,6 @@ export function CallingWorkspace({
     setTimeout(() => {
       if (t.type === "page") setPage(t.next);
       else if (t.type === "hub") onBackToHub();
-      else if (t.type === "classic") {
-        setCallingEdition("classic");
-        try { window.history.replaceState(null, "", "#/voice/list"); } catch (_) {}
-        if (onUseClassic) onUseClassic();
-      }
     }, 200);
   };
 
@@ -2349,7 +2359,9 @@ export function CallingWorkspace({
     schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
     templates: ["AI Templates", "Configure greeting, pitch, objection handling, and booking flow per call type."],
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
-    company: ["Company profile", "Identity, knowledge & FAQs, services, compliance. Same record classic uses on calls."],
+    company: ["Company profile", "Identity, knowledge & FAQs, services, compliance. The agent uses this on every call."],
+    analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],
+    systemlogs: ["System logs", "Technical activity of calls, providers and background jobs."],
   };
 
   return (
@@ -2393,7 +2405,7 @@ export function CallingWorkspace({
         }} style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px 12px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.inkLine}`, background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           <LayoutGrid size={14} /> All plugins
         </button>
-        {PAGES.map((p) => {
+        {visiblePages.map((p) => {
           const Icon = p.icon;
           return (
             <button key={p.id} type="button" onClick={() => goPage(p.id)} style={navBtn(page === p.id)}>
@@ -2408,21 +2420,6 @@ export function CallingWorkspace({
           );
         })}
         <div style={{ flex: 1 }} />
-        <button
-          type="button"
-          onClick={() => {
-            if (page === "company" && companyDirty) {
-              setUnsavedLeaveTarget({ type: "classic" });
-              return;
-            }
-            setCallingEdition("classic");
-            try { window.history.replaceState(null, "", "#/voice/list"); } catch (_) {}
-            if (onUseClassic) onUseClassic();
-          }}
-          style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 4px 4px", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-        >
-          <History size={14} /> Use classic calling
-        </button>
         <button type="button" onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "#8B90A0", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           <LogOut size={14} /> Log out
         </button>
@@ -3676,6 +3673,18 @@ export function CallingWorkspace({
                 setNotifications={setNotifications}
                 onDirtyChange={setTemplatesDirty}
               />
+            </div>
+          )}
+
+          {page === "analytics" && canSee(operator, "analytics") && (
+            <div style={{ maxWidth: 1240 }}>
+              <AnalyticsTab operator={operator} />
+            </div>
+          )}
+
+          {page === "systemlogs" && canSee(operator, "process_logs") && (
+            <div style={{ maxWidth: 1240 }}>
+              <SystemLogsTab />
             </div>
           )}
         </div>
