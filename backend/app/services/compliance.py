@@ -273,6 +273,13 @@ async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None) 
             return gate
     except Exception as err:
         gate.warnings.append(f"Opt-out list could not be checked: {err}")
+    from app.services.credits import can_start
+
+    ok, why = await can_start(db, "voice_minute")
+    if not ok:
+        gate.allowed = False
+        gate.reasons.append(why)
+        return gate
     try:
         mode = await enforcement_mode(db)
         if mode == "off":

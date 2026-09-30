@@ -149,6 +149,12 @@ export const api = {
     return res;
   },
   getOnboarding: () => apiRequest('/auth/onboarding'),
+  getCredits: () => apiRequest('/credits'),
+  setCreditSettings: (data) => apiRequest('/credits/settings', { method: 'PUT', body: data }),
+  getPlatformOrgs: () => apiRequest('/credits/platform/orgs'),
+  grantCredits: (org_id, amount, note) => apiRequest('/credits/platform/grant', { method: 'POST', body: { org_id, amount, note } }),
+  setOrgCreditEnforce: (orgId, enforce) => apiRequest(`/credits/platform/orgs/${encodeURIComponent(orgId)}`, { method: 'PUT', body: { enforce } }),
+  setCreditRates: (rates) => apiRequest('/credits/platform/rates', { method: 'PUT', body: { rates } }),
   updateMe: (data) => apiRequest('/auth/me', { method: 'PATCH', body: data }),
   getMyNotifications: () => apiRequest('/auth/me/notifications'),
   setMyNotifications: (events) => apiRequest('/auth/me/notifications', { method: 'PUT', body: { events } }),

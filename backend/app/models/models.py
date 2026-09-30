@@ -598,6 +598,23 @@ class SocialGenJob(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class CreditEntry(Base):
+    """One line of an organisation's credit ledger. The balance is the sum of amounts:
+    grants are positive, usage negative. ref ties usage to what used it (e.g. a call log)."""
+    __tablename__ = "credit_ledger"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    kind = Column(String, nullable=False)  # grant, usage, adjust
+    item = Column(String, default="")  # rate card key for usage, e.g. voice_minute
+    quantity = Column(Float, default=0)
+    amount = Column(Integer, nullable=False)
+    ref = Column(String, nullable=True, index=True)
+    note = Column(String, default="")
+    by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class AppSetting(Base):
     """Small app-wide settings documents stored by key (e.g. the live voice stack)."""
     __tablename__ = "app_settings"

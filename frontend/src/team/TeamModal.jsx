@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { X, Users, Shield, Plus, KeyRound, UserX, UserCheck, Copy, Trash2, Check, Phone } from "lucide-react";
+import { X, Users, Shield, Plus, KeyRound, UserX, UserCheck, Copy, Trash2, Check, Phone, Coins } from "lucide-react";
 import { NumbersTab } from "./NumbersTab";
+import { CreditsTab } from "./CreditsTab";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, initialsFromName } from "../tokens";
 import { api } from "../api/apiClient";
 
@@ -369,7 +370,7 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users" }
               <Users size={18} color={C.cobalt} />
             </div>
             <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Users, roles & numbers</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Users, roles, numbers & credits</div>
               <div style={{ fontSize: 12, color: C.slate }}>Who can sign in, and what each person can see or change.</div>
             </div>
           </div>
@@ -379,12 +380,14 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users" }
           {tabBtn("users", "Users", Users)}
           {tabBtn("roles", "Roles", Shield)}
           {tabBtn("numbers", "Phone numbers", Phone)}
+          {currentUser?.is_admin && tabBtn("credits", "Credits", Coins)}
         </div>
         <div style={{ padding: 20, overflowY: "auto" }}>
           {error && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10 }}>{error}</div>}
           {tab === "users" && <UsersTab me={currentUser} roles={roles} sections={sections} />}
           {tab === "roles" && <RolesTab roles={roles} sections={sections} reload={reload} isAdmin={Boolean(currentUser?.is_admin)} />}
           {tab === "numbers" && <NumbersTab />}
+          {tab === "credits" && <CreditsTab />}
         </div>
       </div>
     </div>

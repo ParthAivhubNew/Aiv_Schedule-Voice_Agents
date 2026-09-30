@@ -591,6 +591,11 @@ async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
     missing = [pid for g in groups for pid in g["post_ids"] if pid not in existing]
     if missing:
         raise HTTPException(status_code=409, detail=f"Save these posts before writing them: {missing[:5]}")
+    from app.services.credits import can_start
+
+    ok, why = await can_start(db, "ai_post")
+    if not ok:
+        raise HTTPException(status_code=402, detail=why)
     priority = PRIORITY_INTERACTIVE if payload.get("interactive") else 0
     options = {"linkedinDirective": payload.get("linkedinDirective") or ""}
     job_ids = await gen_queue.enqueue(db, groups, priority=priority, options=options)
