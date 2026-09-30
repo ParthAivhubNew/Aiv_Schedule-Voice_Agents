@@ -157,3 +157,34 @@ async def test_google_unknown_account_without_signup(anon, monkeypatch):
     cookie = start.headers["set-cookie"].split("g_state=")[1].split(";")[0]
     r = await anon.get(f"/api/auth/google/callback?code=c&state={state}", cookies={"g_state": cookie})
     assert "google_error=no_account" in r.headers["location"]
+
+
+async def test_forgot_and_reset_password(anon, db, monkeypatch):
+    monkeypatch.setenv("SYSTEM_MAIL_HOST", "smtp.test")
+    monkeypatch.setenv("SYSTEM_MAIL_USER", "u")
+    monkeypatch.setenv("SYSTEM_MAIL_PASSWORD", "p")
+    sent = {}
+
+    async def fake_send(to, subject, html_body, text_body, reply_to=None):
+        sent["to"], sent["html"] = to, html_body
+        return {"ok": True}
+
+    monkeypatch.setattr("app.core.mailer.send_system_email", fake_send)
+    op, _ = await make_user(db, "rita", "Operator", password="Old-pass-2026")
+    op.email = "rita@corp.test"
+    await db.commit()
+
+    r = await anon.post("/api/auth/forgot-password", json={"email": "nobody@corp.test"})
+    assert r.json() == {"ok": True, "mailboxReady": True} and "to" not in sent
+    await anon.post("/api/auth/forgot-password", json={"email": "RITA@corp.test"})
+    token = sent["html"].split("reset-password?t=")[1].split('"')[0]
+
+    assert (await anon.post("/api/auth/reset-password", json={"token": token, "password": "short"})).status_code == 400
+    r = await anon.post("/api/auth/reset-password", json={"token": token, "password": "New-pass-2026"})
+    assert r.status_code == 200, r.text
+    # The link works once.
+    r = await anon.post("/api/auth/reset-password", json={"token": token, "password": "Other-pass-2026"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "reset_expired"
+    assert (await anon.post("/api/auth/login", json={"username": "rita", "password": "New-pass-2026"})).status_code == 200
+    r = await anon.post("/api/auth/login", json={"username": "rita", "password": "Old-pass-2026"})
+    assert r.status_code == 401 and r.json()["detail"]["code"] == "bad_credentials"

@@ -90,11 +90,14 @@ export async function apiRequest(endpoint, options = {}) {
         } else if (Array.isArray(errData.detail)) {
           msg = errData.detail.map(d => (d.msg ? `${d.loc ? d.loc.slice(-1)[0] + ': ' : ''}${d.msg}` : JSON.stringify(d))).join('; ');
         } else if (errData.detail && typeof errData.detail === 'object') {
-          msg = JSON.stringify(errData.detail);
+          msg = errData.detail.message || JSON.stringify(errData.detail);
         } else if (errData.error) {
           msg = typeof errData.error === 'string' ? errData.error : JSON.stringify(errData.error);
         }
-        throw new Error(msg);
+        const apiErr = new Error(msg);
+        apiErr.status = response.status;
+        apiErr.code = (errData.detail && errData.detail.code) || errData.code || "";
+        throw apiErr;
       }
 
       return await response.json();
@@ -142,6 +145,8 @@ export const api = {
   getMe: () => apiRequest('/auth/me'),
   getSignupConfig: () => apiRequest('/auth/signup-config'),
   signup: (data) => apiRequest('/auth/signup', { method: 'POST', body: data }),
+  forgotPassword: (email) => apiRequest('/auth/forgot-password', { method: 'POST', body: { email } }),
+  resetPassword: (token, password) => apiRequest('/auth/reset-password', { method: 'POST', body: { token, password } }),
   resendVerification: (email) => apiRequest('/auth/resend-verification', { method: 'POST', body: { email } }),
   googleExchange: async (code) => {
     const res = await apiRequest('/auth/google/exchange', { method: 'POST', body: { code } });
