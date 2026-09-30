@@ -519,7 +519,7 @@ class SipgateCarrierAdapter(BaseCarrierAdapter):
     description = "Register-based SIP trunk with UK geographic & VoIP numbering (+44 56 0002 2627)."
 
     async def validate_credentials(self, credentials: Dict[str, Any]) -> Dict[str, Any]:
-        sip_id = (credentials.get("sip_id") or credentials.get("username") or settings.SIPGATE_SIP_ID or "4032431t0").strip()
+        sip_id = (credentials.get("sip_id") or credentials.get("username") or settings.SIPGATE_SIP_ID or "").strip()
         server = (credentials.get("server") or settings.SIPGATE_SERVER or "sipconnect.sipgate.co.uk").strip()
         return {
             "valid": True,
