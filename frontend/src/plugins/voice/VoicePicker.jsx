@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Search, Trash2 } from "lucide-react";
-import { api } from "../api/apiClient";
-import { C, FONT_BODY, FONT_MONO } from "../tokens";
+import { api } from "../../api/apiClient";
+import { C, FONT_BODY, FONT_MONO } from "../../tokens";
 
 // One voice library for the whole app. Every screen that shows or changes the call voice uses
 // this store and <VoicePicker>, so a change in one place shows everywhere and nothing keeps

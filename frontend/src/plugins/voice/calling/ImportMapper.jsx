@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { AlertTriangle, FileSpreadsheet, X } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
+import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { applyMapping, guessMapping, KEEP, mappingWarnings, rememberMapping, savedMappingFor, SKIP, STANDARD_FIELDS } from "./importMapping";
 
 const sel = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", padding: "0 8px", fontSize: 12.5, fontFamily: FONT_BODY, width: "100%" };

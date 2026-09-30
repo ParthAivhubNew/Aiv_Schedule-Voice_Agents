@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, Pause, Play, Plus, Trash2, X } from "lucide-react";
-import { api } from "../api/apiClient";
-import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../tokens";
-import { formatOrgTime, orgToday, tzLabel, useOrg } from "../org/orgSettings";
+import { api } from "../../api/apiClient";
+import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
+import { formatOrgTime, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
 import { useEscapeLayer } from "./escapeLayers";
 
 // Schedules: post right now, once, or on a repeating pattern. The server makes the posts a
