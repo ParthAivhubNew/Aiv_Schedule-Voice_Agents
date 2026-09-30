@@ -855,7 +855,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                     ❓ Does the incoming call banner appear even if I am working in another plugin?
                   </div>
                   <p style={{ fontSize: 13, color: C.slate, margin: 0, lineHeight: 1.6 }}>
-                    <strong>Yes!</strong> OutReach by Aivhub has a root-level universal listener. Whether you are typing a post in the <em>Post Scheduler</em>, searching filters in <em>Lead Gen</em>, or scheduling in <em>Cal.com</em>, a floating incoming call card appears at the top right with audio chime and caller details. Clicking <strong>Jump to Call & Take Over</strong> preserves 100% of your unsaved work in that plugin.
+                    <strong>Yes!</strong> OutReach by Aivhub has a root-level universal listener. Whether you are typing a post in the <em>Post Scheduler</em>, searching filters in <em>Lead Gen</em>, or scheduling in <em>Cal.com</em>, a floating incoming call card appears at the top right with audio chime and caller details. Clicking <strong>Jump to Call & Take Over</strong> preserves 100% of your unsaved work in that app.
                   </p>
                 </div>
 

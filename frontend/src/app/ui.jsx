@@ -24,30 +24,33 @@ export function AppChrome() {
       ::-webkit-scrollbar-thumb { background: #D8D5CD; border-radius: 4px; }
       select:focus, input:focus, textarea:focus { border-color: ${C.cobalt} !important; }
 
-      /* Global Floating and Enlarging Hover Effect for all buttons */
+      /* Buttons: a soft shadow on hover and a small press. They no longer jump and grow, which
+         made every screen feel restless and moved buttons out from under the pointer. */
       button {
-        transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+        transition: transform 0.12s ease, box-shadow 0.18s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
       }
       button:hover:not(:disabled) {
-        transform: translateY(-2px) scale(1.03) !important;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.13) !important;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.10) !important;
       }
       button:active:not(:disabled) {
-        transform: translateY(0) scale(0.98) !important;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+        transform: scale(0.98) !important;
+        box-shadow: none !important;
+      }
+      button:focus-visible {
+        outline: 2px solid ${C.cobalt};
+        outline-offset: 2px;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
       }
 
-      /* Hover Floating & Enlarging for Cards, Metrics, Lists & Options */
+      /* Cards, metrics, lists and options: the border takes the accent colour and the shadow deepens. */
       .hover-float {
-        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s ease !important;
+        transition: box-shadow 0.2s ease, border-color 0.18s ease !important;
       }
       .hover-float:hover {
-        transform: translateY(-3.5px) scale(1.018) !important;
-        box-shadow: 0 10px 26px rgba(18, 20, 28, 0.11), 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+        box-shadow: 0 10px 26px rgba(18, 20, 28, 0.10), 0 2px 8px rgba(0, 0, 0, 0.04) !important;
         border-color: ${C.cobalt} !important;
-      }
-      .hover-float:active {
-        transform: translateY(-1px) scale(0.995) !important;
       }
 
       @keyframes pulseBar {

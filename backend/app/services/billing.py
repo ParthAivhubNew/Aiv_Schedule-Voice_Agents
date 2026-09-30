@@ -8,7 +8,7 @@ are set; test keys and live keys work the same way).
   per plugin; top-ups are one-off items (in the same Checkout when plans are bought too).
   A plugin bought later gets its own subscription, so each can be changed or cancelled alone.
 - Credits are only ever granted from verified Stripe webhooks: top-ups on checkout completion
-  (expire after 30 days), plan credits on each paid invoice (expire at the period end).
+  (never expire), plan credits on each paid invoice (expire at the period end).
   Each Stripe event is handled once.
 - Admins manage a plugin's plan on its Subscription page: a dearer plan starts at once (the
   difference is charged and only the extra credits are added), a cheaper one at the next renewal
@@ -217,7 +217,7 @@ async def create_checkout(db, *, org_id: str, email: str, plan_ids: List[str], t
     if len(chosen_plans) + len(chosen_topups) != len(wanted):
         raise ValueError("One of those plans is no longer available. Reload and try again.")
     if len({p.wallet for p in chosen_plans}) != len(chosen_plans):
-        raise ValueError("Pick one plan per plugin.")
+        raise ValueError("Pick one plan per app.")
     missing = [p.name for p in chosen_plans + chosen_topups if not p.stripe_price_id]
     if missing:
         raise ValueError(f"Not ready for sale yet: {', '.join(missing)}.")
@@ -426,9 +426,9 @@ async def handle_event(event: Dict[str, Any]) -> str:
                         p = (await db.execute(select(BillingPlan).where(BillingPlan.id == pid))).scalars().first()
                         if p:
                             n = int(n or 1)
-                            await K.add_credits(db, p.wallet, p.credits * n, source="topup",
-                                                expires_at=datetime.utcnow() + timedelta(days=K.TOPUP_DAYS),
-                                                note=f"Top-up: {p.name}" + (f" × {n}" if n > 1 else ""), ref=f"{obj.get('id')}:{p.id}")
+                            await K.add_credits(db, p.wallet, p.credits * n, source="topup", expires_at=None,
+                                                note=f"Top-up: {p.name}" + (f" × {n}" if n > 1 else ""), ref=f"{obj.get('id')}:{p.id}",
+                                                paid_cents=p.price_usd_cents * n, paid_currency=p.currency or "usd")
                             done = "topup"
 
             elif etype == "invoice.paid":
@@ -443,17 +443,20 @@ async def handle_event(event: Dict[str, Any]) -> str:
                     from app.models.models import CreditGrant
 
                     old = replaced.get(p.wallet)
+                    # What was paid for this app's plan on this invoice (a plan change: net of the refund).
+                    paid = sum(int(ln.get("amount") or 0) for ln, lp in lines if lp and lp.wallet == p.wallet)
+                    currency = str(obj.get("currency") or p.currency or "usd")
                     if (await db.execute(select(CreditGrant).where(CreditGrant.ref == ref))).scalars().first():
                         pass
                     elif old:
                         # Only the difference, so switching plans back and forth never refills the wallet.
                         if p.credits > old.credits:
                             await K.add_credits(db, p.wallet, p.credits - old.credits, source="plan", expires_at=period_end,
-                                                note=f"Plan upgrade: {p.name}", ref=ref)
+                                                note=f"Plan upgrade: {p.name}", ref=ref, paid_cents=max(paid, 0), paid_currency=currency)
                     else:
                         await K.expire_plan_batches(db, p.wallet)
                         await K.add_credits(db, p.wallet, p.credits, source="plan", expires_at=period_end,
-                                            note=f"Plan: {p.name}", ref=ref)
+                                            note=f"Plan: {p.name}", ref=ref, paid_cents=max(paid, 0), paid_currency=currency)
                     sub.current_period_end = period_end
                     sub.status = "active"
                     done = "renewal"

@@ -17,7 +17,7 @@ export function PluginCredits({ wallet, operator, onOpen, refreshKey }) {
   if (!w) return null;
   const colour = w.empty ? "#F87171" : w.low ? "#FBBF24" : "#C8CCD6";
   return (
-    <button type="button" onClick={onOpen} title={w.empty ? "Out of credits: this plugin is paused" : "Plan and credits"}
+    <button type="button" onClick={onOpen} title={w.empty ? "Out of credits: this app is paused" : "Plan and credits"}
       style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px 8px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${w.empty || w.low ? colour : C.inkLine}`, background: "transparent", color: colour, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
       <Coins size={14} />
       <span style={{ flex: 1, textAlign: "left" }}>{Number(w.balance || 0).toLocaleString()} credits</span>

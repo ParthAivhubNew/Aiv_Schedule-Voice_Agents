@@ -77,14 +77,24 @@ class TelnyxClient:
     async def create_billing_group(self, name: str) -> Dict[str, Any]:
         return (await self._req("POST", "/billing_groups", json={"name": name[:100]})).get("data", {})
 
-    async def create_outbound_voice_profile(self, name: str, countries: List[str], billing_group_id: str = "") -> Dict[str, Any]:
+    async def create_outbound_voice_profile(self, name: str, countries: List[str], billing_group_id: str = "",
+                                            daily_spend_limit_usd: str = "", max_destination_rate: str = "") -> Dict[str, Any]:
+        """Outbound calls are billed to the profile's billing group and limited to its countries.
+        A daily spend limit makes Telnyx itself block outbound calls past that amount (USD, per day)."""
         payload: Dict[str, Any] = {"name": name[:100], "whitelisted_destinations": countries or ["GB"]}
         if billing_group_id:
             payload["billing_group_id"] = billing_group_id
+        if daily_spend_limit_usd:
+            payload["daily_spend_limit"] = str(daily_spend_limit_usd)
+            payload["daily_spend_limit_enabled"] = True
+        if max_destination_rate:
+            payload["max_destination_rate"] = float(max_destination_rate)
         return (await self._req("POST", "/outbound_voice_profiles", json=payload)).get("data", {})
 
-    async def create_call_control_application(self, name: str, webhook_url: str) -> Dict[str, Any]:
-        payload = {"application_name": name[:100], "webhook_event_url": webhook_url, "webhook_api_version": "2"}
+    async def create_call_control_application(self, name: str, webhook_url: str, outbound_voice_profile_id: str = "") -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"application_name": name[:100], "webhook_event_url": webhook_url, "webhook_api_version": "2"}
+        if outbound_voice_profile_id:
+            payload["outbound"] = {"outbound_voice_profile_id": outbound_voice_profile_id}
         return (await self._req("POST", "/call_control_applications", json=payload)).get("data", {})
 
     async def create_messaging_profile(self, name: str, webhook_url: str) -> Dict[str, Any]:
@@ -175,6 +185,26 @@ class TelnyxClient:
 
     async def get_requirement_group(self, group_id: str) -> Dict[str, Any]:
         return (await self._req("GET", f"/requirement_groups/{group_id}")).get("data", {})
+
+    # ── Usage reports (what Telnyx charged, broken down e.g. by billing group) ──
+    async def usage_report_options(self, product: str = "") -> List[Dict[str, Any]]:
+        """Each product with the dimensions and metrics it can be reported by."""
+        params = {"product": product} if product else None
+        return (await self._req("GET", "/usage_reports/options", params=params)).get("data", [])
+
+    async def usage_report(self, product: str, dimensions: List[str], metrics: List[str],
+                           start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Every row of a usage report (all pages). Dates: YYYY-MM-DDThh:mm:ss+00:00, at most 31 days apart."""
+        rows: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            params = {"product": product, "dimensions": ",".join(dimensions), "metrics": ",".join(metrics),
+                      "start_date": start_date, "end_date": end_date, "page[number]": page, "page[size]": 100}
+            body = await self._req("GET", "/usage_reports", params=params)
+            rows += body.get("data", [])
+            if page >= int((body.get("meta") or {}).get("total_pages") or 1):
+                return rows
+            page += 1
 
     # ── WhatsApp ──────────────────────────────────────────────────────────
     async def send_whatsapp(self, from_e164: str, to_e164: str, message: Dict[str, Any], webhook_url: str = "") -> Dict[str, Any]:

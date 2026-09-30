@@ -34,7 +34,8 @@ import {
   Layers,
   MessageSquare
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
+import { AppSwitcher } from "../../hub/AppSwitcher";
+import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 
@@ -424,10 +425,11 @@ export default function EmailOutreachPlugin({
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden" }}>
+    <div className="app-shell" style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden" }}>
       
       {/* ----------------- LEFT DARK SIDEBAR (MATCHING OTHER PLUGINS) ----------------- */}
       <div
+        className="app-sidebar"
         style={{
           width: 232,
           minWidth: 232,
@@ -461,33 +463,10 @@ export default function EmailOutreachPlugin({
           </span>
         </div>
 
-        {/* Back to Workspace button */}
-        {onBackToHub && (
-          <button
-            onClick={onBackToHub}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              margin: "0 4px 16px 4px",
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: `1px solid ${C.inkLine}`,
-              background: "transparent",
-              color: "#C8CCD6",
-              fontFamily: FONT_BODY,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <LayoutGrid size={14} /> All plugins
-          </button>
-        )}
+        <AppSwitcher current="emailoutreach" onHome={onBackToHub} />
 
         {/* Navigation items */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+        <div className="app-sidebar-nav" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
@@ -505,9 +484,7 @@ export default function EmailOutreachPlugin({
                   cursor: "pointer",
                   background: active ? "rgba(255,255,255,0.09)" : "transparent",
                   color: active ? "#fff" : "#9AA0AE",
-                  fontFamily: FONT_BODY,
-                  fontSize: 13.5,
-                  fontWeight: active ? 600 : 500,
+                  ...NAV_TEXT,
                   textAlign: "left",
                   transition: "all 0.12s",
                 }}
@@ -534,7 +511,7 @@ export default function EmailOutreachPlugin({
         </div>
 
         {/* Sidebar Footer: Operator & Sign Out */}
-        <div style={{ marginTop: "auto", padding: "12px 10px", borderTop: `1px solid ${C.inkLine}` }}>
+        <div className="app-sidebar-extra" style={{ marginTop: "auto", padding: "12px 10px", borderTop: `1px solid ${C.inkLine}` }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#6B7280", marginBottom: 8 }}>
             Logged in as
           </div>
@@ -588,7 +565,7 @@ export default function EmailOutreachPlugin({
       </div>
 
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
+      <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
         
         {/* Top Header Bar */}
         <div
@@ -668,7 +645,7 @@ export default function EmailOutreachPlugin({
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               
               {/* KPI metrics row */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+              <div className="grid-2-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
                 {[
                   { label: "Active Sequences", val: campaigns.length, color: "#F59E0B" },
                   { label: "Contacts Enrolled", val: "857", color: "#2563EB" },
@@ -714,7 +691,7 @@ export default function EmailOutreachPlugin({
                     </div>
 
                     {/* Step pills */}
-                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${seq.steps.length}, 1fr)`, gap: 10, background: HUB_PAPER, padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                    <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: `repeat(${seq.steps.length}, 1fr)`, gap: 10, background: HUB_PAPER, padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }}>
                       {seq.steps.map((st) => (
                         <div key={st.stepNumber} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 3 }}>
@@ -1094,7 +1071,7 @@ export default function EmailOutreachPlugin({
 
           {/* VIEW 3: INBOX & REPLIES */}
           {view === "inbox" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.8fr", gap: 16, minHeight: 480 }}>
+            <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1.2fr 1.8fr", gap: 16, minHeight: 480 }}>
               
               {/* Left Inbox List */}
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -1195,7 +1172,7 @@ export default function EmailOutreachPlugin({
 
           {/* VIEW 4: TEMPLATES */}
           {view === "templates" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {templates.map((tpl) => (
                 <div key={tpl.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -1229,7 +1206,7 @@ export default function EmailOutreachPlugin({
           {/* VIEW 5: ANALYTICS & DELIVERABILITY */}
           {view === "analytics" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+              <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
                 <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 18 }}>
                   <div style={{ fontSize: 12, color: C.slate, fontWeight: 600 }}>SPF Authentication</div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>Valid (Passed)</div>

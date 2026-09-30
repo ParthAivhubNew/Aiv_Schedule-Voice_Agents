@@ -167,7 +167,8 @@ export const api = {
   },
   searchNumbers: ({ locality = '', areaCode = '', country = 'GB', numberType = 'local' }) =>
     apiRequest(`/telnyx/numbers/search?country=${country}&number_type=${numberType}&locality=${encodeURIComponent(locality)}&area_code=${encodeURIComponent(areaCode)}`),
-  orderNumber: (n) => apiRequest('/telnyx/numbers/order', { method: 'POST', body: { phoneNumber: n.phoneNumber, monthlyCost: n.monthlyCost, upfrontCost: n.upfrontCost, currency: n.currency } }),
+  orderNumber: (n) => apiRequest('/telnyx/numbers/order', { method: 'POST', body: { phoneNumber: n.phoneNumber } }),
+  getTelnyxCosts: (month) => apiRequest(`/credits/platform/telnyx-costs?month=${encodeURIComponent(month)}`),
   releaseNumber: (id) => apiRequest(`/telnyx/numbers/${encodeURIComponent(id)}/release`, { method: 'POST' }),
   requestWhatsapp: (id) => apiRequest(`/wa/numbers/${encodeURIComponent(id)}/request`, { method: 'POST' }),
   getWaStatus: () => apiRequest('/wa/status'),

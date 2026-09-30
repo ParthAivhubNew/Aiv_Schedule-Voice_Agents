@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { AppChrome } from "../../components/AppChrome";
 import { api } from "../../api/apiClient";
-import {
+import { NAV_TEXT,
   C,
   FONT_BODY,
   FONT_DISPLAY,
@@ -40,6 +40,8 @@ import { ScheduleWindow } from "./ScheduleWindow";
 import { useEscapeLayer } from "./escapeLayers";
 import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
 import { PluginCredits } from "../../team/PluginCredits";
+import { AppSwitcher } from "../../hub/AppSwitcher";
+import { onRouteChange, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 
 const LS_POSTS = "aivhub_social_v2_posts";
@@ -2361,8 +2363,12 @@ export function SocialWorkspace({
   const [typing, setTyping] = useState(false);
   const [toast, setToast] = useState("");
   const [selectedId, setSelectedId] = useState(null);
-  // Stripe returns here with ?billing=... after a payment started on the Subscription page.
-  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") ? "subscription" : "plan"));
+  // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
+  // Home links straight to /scheduler/subscription.
+  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
+  useEffect(() => onRouteChange(() => {
+    if (routeHash().includes("/scheduler/subscription")) setPage("subscription");
+  }), []);
   const [accounts, setAccounts] = useState([]);
   const [connecting, setConnecting] = useState("");
   const [publishing, setPublishing] = useState("");
@@ -3641,22 +3647,16 @@ export function SocialWorkspace({
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
+    <div className="app-shell" style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
       <AppChrome />
-      <div style={{ width: 228, minWidth: 228, background: C.ink, height: "100vh", display: "flex", flexDirection: "column", padding: "18px 12px", boxSizing: "border-box" }}>
+      <div className="app-sidebar" style={{ width: 228, minWidth: 228, background: C.ink, height: "100vh", display: "flex", flexDirection: "column", padding: "18px 12px", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 12px" }}>
           <div style={{ width: 28, height: 28, borderRadius: 8, background: C.teal, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <CalendarDays size={15} color="#fff" />
           </div>
           <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#fff" }}>Post scheduler</span>
         </div>
-        <button
-          type="button"
-          onClick={onBackToHub}
-          style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px 14px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.inkLine}`, background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-        >
-          <LayoutGrid size={14} /> All plugins
-        </button>
+        <AppSwitcher current="scheduler" onHome={onBackToHub} />
 
         <button
           type="button"
@@ -3671,8 +3671,7 @@ export function SocialWorkspace({
             border: "none",
             background: page === "plan" && !approvalOpen ? "#1E2230" : "transparent",
             color: "#fff",
-            fontSize: 13,
-            fontWeight: 700,
+            ...NAV_TEXT,
             cursor: "pointer",
             textAlign: "left",
           }}
@@ -3693,8 +3692,7 @@ export function SocialWorkspace({
             border: "none",
             background: approvalOpen ? "#1E2230" : "transparent",
             color: "#fff",
-            fontSize: 13,
-            fontWeight: 700,
+            ...NAV_TEXT,
             cursor: "pointer",
             textAlign: "left",
           }}
@@ -3720,8 +3718,7 @@ export function SocialWorkspace({
             border: "none",
             background: page === "accounts" && !approvalOpen ? "#1E2230" : "transparent",
             color: "#fff",
-            fontSize: 13,
-            fontWeight: 700,
+            ...NAV_TEXT,
             cursor: "pointer",
             textAlign: "left",
           }}
@@ -3743,8 +3740,7 @@ export function SocialWorkspace({
               border: "none",
               background: page === "subscription" && !approvalOpen ? "#1E2230" : "transparent",
               color: "#fff",
-              fontSize: 13,
-              fontWeight: 700,
+              ...NAV_TEXT,
               cursor: "pointer",
               textAlign: "left",
             }}
@@ -3753,7 +3749,7 @@ export function SocialWorkspace({
             <span>Subscription</span>
           </button>
         )}
-        <div style={{ flex: 1 }} />
+        <div className="app-sidebar-spacer" style={{ flex: 1 }} />
 
         <PluginCredits wallet="scheduler" operator={operator} onOpen={() => { setApprovalOpen(false); setPage("subscription"); }} refreshKey={page} />
         <button
@@ -3765,7 +3761,7 @@ export function SocialWorkspace({
         </button>
       </div>
 
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {page === "accounts" ? (
           <SimpleAccountsPage
             accounts={accounts}
@@ -3826,8 +3822,8 @@ export function SocialWorkspace({
               : "Some changes are not saved to the server yet. Retrying automatically."}
           </div>
         ) : null}
-        <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="split-view" style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+          <div className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <button type="button" onClick={() => setCal((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))} style={navBtn}>
                 <ChevronLeft size={16} />
@@ -4011,6 +4007,7 @@ export function SocialWorkspace({
           </div>
 
           <div
+            className="split-side"
             style={{
               width: chatW,
               flex: `0 0 ${chatW}px`,
@@ -4025,6 +4022,7 @@ export function SocialWorkspace({
             }}
           >
             <div
+              className="split-resize"
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize Plan AI"

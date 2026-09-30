@@ -1,23 +1,15 @@
 import {
-  Calendar,
   CalendarCheck,
-  CalendarDays,
   ChevronDown,
   LogOut,
-  Mail,
-  PhoneCall,
-  Search,
   Settings2,
   User,
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, HUB_PAPER, initialsFromName } from "../app/constants";
-import { AppChrome, CallTimer, PluginCard } from "../app/ui";
-import { navigateHash, routeHash } from "../utils/route";
-import { BrandMark } from "./BrandMark";
-import { OnboardingChecklist } from "./OnboardingChecklist";
-import { BillingReturnBanner } from "./BillingReturnBanner";
+import { C, FONT_BODY, FONT_MONO, initialsFromName } from "../app/constants";
+import { CallTimer } from "../app/ui";
+import { routeHash } from "../utils/route";
 
 export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin }) {
   const [open, setOpen] = useState(false);
@@ -153,7 +145,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
                   </div>
                   <div>
                     <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>AI Configuration</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Plugin models & API keys</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>App models & API keys</div>
                   </div>
                 </div>
                 {isFullyConnected ? (
@@ -343,96 +335,6 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
   );
 }
 
-export function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin }) {
-  return (
-    <div style={{ minHeight: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, display: "flex", flexDirection: "column" }}>
-      <AppChrome />
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 36px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <BrandMark size={32} />
-          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink, letterSpacing: "-0.02em" }}>OutReach by Aivhub</span>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* User Profile Menu with embedded AI Config & Team Hierarchy */}
-          <UserProfileMenu
-            operator={operator}
-            onLogout={onLogout}
-            commonAi={commonAi}
-            onOpenCommonAi={onOpenCommonAi}
-            onOpenTeamUsers={onOpenTeamUsers}
-            onOpenProfileSettings={onOpenProfileSettings}
-            onOpenCalcomAdmin={onOpenCalcomAdmin}
-          />
-        </div>
-      </div>
-
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "12px 24px 64px" }}>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.slateLight, marginBottom: 8 }}>
-          Workspace Plugins
-        </div>
-        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 32, color: C.ink, letterSpacing: "-0.04em", marginBottom: 8, textAlign: "center" }}>
-          Choose a plugin
-        </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 15, color: C.slate, marginBottom: 38, textAlign: "center", maxWidth: 640, lineHeight: 1.5 }}>
-          The unified AI growth suite for your business. Scout verified accounts, schedule branded content, run outbound email sequences, and conduct live voice discovery calls.
-        </div>
-
-        <BillingReturnBanner />
-        <OnboardingChecklist
-          operator={operator}
-          onGo={(go) => {
-            if (go.startsWith("team:")) return onOpenTeamUsers(go.slice(5));
-            const voice = go.match(/^#\/voice\/(\w+)/);
-            if (voice) {
-              try { localStorage.setItem("aivhub_voice_view", voice[1]); } catch (_) {}
-            }
-            navigateHash(go);
-          }}
-        />
-
-        {/* Workspace Plugins with generous spacing and clean titles */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 310px))", gap: 32, justifyContent: "center", width: "100%", maxWidth: 1360 }}>
-          <PluginCard
-            icon={Search}
-            title="Lead Generation"
-            blurb="Autonomous business lead scout: discover target accounts, extract verified decision-makers & numbers, and prepare enriched intelligence dossiers."
-            accent="#8B5CF6"
-            ready={true}
-            onClick={() => onPick("leadgen")}
-          />
-          <PluginCard
-            icon={CalendarDays}
-            title="Post Scheduler"
-            blurb="Chat a plan. See it on the calendar. Approve, then post."
-            accent={C.teal}
-            ready={true}
-            onClick={() => onPick("scheduler")}
-          />
-          <PluginCard
-            icon={Mail}
-            title="Email Outreach"
-            blurb="AI email drafter & campaign sender: cold approach sequences, inbound client reply drafter, and 1-click social post-to-email repurposing."
-            accent="#F59E0B"
-            ready={true}
-            onClick={() => onPick("emailoutreach")}
-          />
-          <PluginCard
-            icon={PhoneCall}
-            title="AI Voice Assistant"
-            blurb="Live multi-line outbound voice agent: import verified prospect contacts, initiate realistic telephone calls, book meetings, and supervise."
-            accent={C.cobalt}
-            ready={true}
-            onClick={() => onPick("voice")}
-          />
-
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
 export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, onJumpToVoice, onDismissCall }) {
   if (!activeCalls || activeCalls.length === 0) return null;
 
@@ -523,7 +425,7 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
         {isOtherPlugin && (
           <div style={{ fontSize: 11, color: "#A5B4FC", marginTop: 5, display: "flex", alignItems: "center", gap: 5 }}>
             <span>💾</span>
-            <span>Your ongoing work in this plugin is automatically preserved.</span>
+            <span>Your ongoing work in this app is automatically preserved.</span>
           </div>
         )}
       </div>

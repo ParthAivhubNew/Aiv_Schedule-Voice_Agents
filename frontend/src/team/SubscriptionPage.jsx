@@ -51,7 +51,7 @@ export function SubscriptionPage({ wallet, back }) {
   const current = mine && data.plans.find((p) => p.id === mine.planId);
   const history = data.history.filter((h) => h.wallet === wallet);
   // What this plugin's credits are spent on, from the rate card.
-  const rates = Object.values(data.rates).filter((r) => r.wallet === wallet);
+  const rates = Object.values(data.rates).filter((r) => r.wallet === wallet && r.credits > 0);
   // Calling is sold by the minute: voice credits are shown as minutes of calls (a credit is a
   // minute unless staff changed the rate card).
   const perMinute = wallet === "voice" ? data.rates.voice_minute?.credits : 0;
@@ -201,7 +201,7 @@ export function SubscriptionPage({ wallet, back }) {
                 <div key={p.id} style={{ ...card, borderStyle: "dashed" }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 12, color: C.slate, fontWeight: 500 }}> each</span></div>
-                  <div style={{ fontSize: 12.5, color: C.slate, minHeight: 34 }}>{worth(p.credits)} each, used within 30 days{about(p)}</div>
+                  <div style={{ fontSize: 12.5, color: C.slate, minHeight: 34 }}>{worth(p.credits)} each, never expire{about(p)}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     <div style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 9, overflow: "hidden" }}>
                       <button type="button" aria-label={`One fewer ${p.name}`} style={stepBtn} disabled={n <= 1} onClick={() => setN(n - 1)}>−</button>
