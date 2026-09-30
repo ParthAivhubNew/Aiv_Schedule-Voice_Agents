@@ -140,6 +140,15 @@ export const api = {
     clearSession();
   },
   getMe: () => apiRequest('/auth/me'),
+  getSignupConfig: () => apiRequest('/auth/signup-config'),
+  signup: (data) => apiRequest('/auth/signup', { method: 'POST', body: data }),
+  resendVerification: (email) => apiRequest('/auth/resend-verification', { method: 'POST', body: { email } }),
+  googleExchange: async (code) => {
+    const res = await apiRequest('/auth/google/exchange', { method: 'POST', body: { code } });
+    setSession(res);
+    return res;
+  },
+  getOnboarding: () => apiRequest('/auth/onboarding'),
   updateMe: (data) => apiRequest('/auth/me', { method: 'PATCH', body: data }),
   getMyNotifications: () => apiRequest('/auth/me/notifications'),
   setMyNotifications: (events) => apiRequest('/auth/me/notifications', { method: 'PUT', body: { events } }),

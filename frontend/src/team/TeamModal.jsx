@@ -325,8 +325,8 @@ function RolesTab({ roles, sections, reload, isAdmin }) {
 }
 
 // Users & roles: add people, give roles, set No access / View / Full per section.
-export function TeamModal({ isOpen, onClose, currentUser }) {
-  const [tab, setTab] = useState("users");
+export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users" }) {
+  const [tab, setTab] = useState(initialTab);
   const [roles, setRoles] = useState([]);
   const [sections, setSections] = useState([]);
   const [error, setError] = useState("");
@@ -340,6 +340,10 @@ export function TeamModal({ isOpen, onClose, currentUser }) {
       setError(err.message);
     }
   }, []);
+
+  useEffect(() => {
+    if (isOpen) setTab(initialTab || "users");
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     if (isOpen) reload();
