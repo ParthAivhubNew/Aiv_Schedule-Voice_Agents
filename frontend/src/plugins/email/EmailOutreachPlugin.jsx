@@ -34,9 +34,9 @@ import {
   Layers,
   MessageSquare
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../tokens";
-import { api } from "../api/apiClient";
-import { navigateHash, onRouteChange, replaceHash, routeHash } from "../utils/route";
+import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
+import { api } from "../../api/apiClient";
+import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 
 const INITIAL_CAMPAIGN_SEQUENCES = [
   {

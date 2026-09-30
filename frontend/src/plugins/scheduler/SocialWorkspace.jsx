@@ -25,19 +25,19 @@ import {
   Globe,
   X,
 } from "lucide-react";
-import { AppChrome } from "../components/AppChrome";
-import { api } from "../api/apiClient";
+import { AppChrome } from "../../components/AppChrome";
+import { api } from "../../api/apiClient";
 import {
   C,
   FONT_BODY,
   FONT_DISPLAY,
   HUB_PAPER,
-} from "../tokens";
+} from "../../tokens";
 import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
 import { SchedulerAiPanel } from "./SchedulerAiPanel";
 import { ScheduleWindow } from "./ScheduleWindow";
 import { useEscapeLayer } from "./escapeLayers";
-import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../org/orgSettings";
+import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";

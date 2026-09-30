@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Check, Image as ImageIcon, KeyRound, PenLine, Plus, Globe, Sparkles, Zap, ChevronDown, ChevronUp, Edit3, AlertCircle, Eye, EyeOff, Trash2, Settings2 } from "lucide-react";
-import { api } from "../api/apiClient";
-import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../tokens";
+import { api } from "../../api/apiClient";
+import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
 
 // Post Scheduler AI settings.
 // Fully dynamic provider management:

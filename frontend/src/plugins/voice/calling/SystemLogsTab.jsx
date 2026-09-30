@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
-import { C, FONT_BODY, FONT_MONO } from "../tokens";
-import { api } from "../api/apiClient";
+import { C, FONT_BODY, FONT_MONO } from "../../../tokens";
+import { api } from "../../../api/apiClient";
 
 const SUBSYSTEMS = [
   ["all", "Everything"],

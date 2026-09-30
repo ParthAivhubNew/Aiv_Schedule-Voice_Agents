@@ -3,9 +3,9 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 import { ArrowDownRight, ArrowUpRight, Minus, RefreshCw, Share2, Table2, LineChart as LineIcon, X } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
-import { api } from "../api/apiClient";
-import { LevelPicker } from "../team/TeamModal";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../../tokens";
+import { api } from "../../../api/apiClient";
+import { LevelPicker } from "../../../team/TeamModal";
 
 // Categorical slots 1-3 of the validated reference palette (light surface).
 // Aqua is below 3:1 on the surface, so series always carry a legend and a table view.

@@ -40,10 +40,10 @@ import {
   Inbox,
   Workflow
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, meetingTimeLabel } from "../tokens";
-import { api } from "../api/apiClient";
-import { MeetingInvitePreview } from "../components/MeetingInvitePreview";
-import { withToken } from "../api/authStore";
+import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, meetingTimeLabel } from "../../tokens";
+import { api } from "../../api/apiClient";
+import { MeetingInvitePreview } from "../../components/MeetingInvitePreview";
+import { withToken } from "../../api/authStore";
 
 export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "accounts" }) {
   const [activeTab, setActiveTab] = useState(initialTab || "accounts");

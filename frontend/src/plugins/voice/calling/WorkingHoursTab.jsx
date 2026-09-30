@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, Copy, RefreshCw } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
-import { api } from "../api/apiClient";
+import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
+import { api } from "../../../api/apiClient";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const time = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff" };

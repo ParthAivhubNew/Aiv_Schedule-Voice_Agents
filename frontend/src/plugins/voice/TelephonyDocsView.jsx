@@ -28,9 +28,9 @@ import {
   Square,
   Search,
 } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
-import { TopBar } from "../components/TopBar";
-import { api } from "../api/apiClient";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../tokens";
+import { TopBar } from "../../components/TopBar";
+import { api } from "../../api/apiClient";
 
 export function TelephonyDocsView({ notifications, setNotifications, onNavigate, embedded = false }) {
   const [activeTab, setActiveTab] = useState("overview");
