@@ -29,7 +29,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     r"^/$",
     r"^/health$",
     r"^/(privacy|privacy-policy|terms|terms-of-service|data-deletion)$",
-    _OPT_API + r"auth/(login|refresh|signup|signup-config|verify-email|resend-verification)$",
+    _OPT_API + r"auth/(login|refresh|signup|signup-config|verify-email|resend-verification|forgot-password|reset-password)$",
     _OPT_API + r"auth/google/(start|callback|exchange)$",
     # Carrier / provider webhooks (verified by their own signatures inside the handlers)
     _OPT_API + r"sip-webhook/?$",

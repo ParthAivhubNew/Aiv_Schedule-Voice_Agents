@@ -211,7 +211,7 @@ async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(ge
     ok, upgrade = verify_password(body.password or "", op.hashed_password if op else None) if op else (False, False)
     if not op or not ok:
         _FAILS[key].append(time.time())
-        raise HTTPException(status_code=401, detail="Wrong username or password.")
+        raise HTTPException(status_code=401, detail={"message": "Wrong email or password.", "code": "bad_credentials"})
     if op.is_active is False:
         raise HTTPException(status_code=403, detail="This account is disabled. Ask your admin.")
     _FAILS.pop(key, None)
