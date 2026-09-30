@@ -48,7 +48,6 @@ async def test_login_hashes_and_no_master_password(anon, db):
 async def test_legacy_plain_password_is_upgraded_and_must_change(anon, db):
     from app.models.models import Operator, Organization
 
-    db.add(Organization(id="org_default", name="d", slug="default"))
     db.add(Operator(id="op_old", org_id="org_default", username="old", name="Old", role="Admin", hashed_password="password"))
     await db.commit()
     r = await anon.post("/api/auth/login", json={"username": "old", "password": "password"})
@@ -181,7 +180,6 @@ async def test_startup_migration_hashes_old_passwords_and_gives_roles(db):
     from app.database import engine
     from app.models.models import Operator, Organization
 
-    db.add(Organization(id="org_default", name="d", slug="default"))
     db.add(Operator(id="op_a", org_id="org_default", username="a", name="A", role="Admin", hashed_password="password"))
     db.add(Operator(id="op_b", org_id="org_default", username="b", name="B", role="Operator", hashed_password="S3cret-strong"))
     await db.commit()

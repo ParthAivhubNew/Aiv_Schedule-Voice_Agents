@@ -51,3 +51,10 @@ async def get_db():
                 await session.close()
             except Exception:
                 pass
+
+
+# Every app session runs inside its organisation (row-level security, see app.core.tenancy).
+from sqlalchemy.orm import Session as _SyncSession  # noqa: E402
+from app.core.tenancy import install_session_hook  # noqa: E402
+
+install_session_hook(_SyncSession)
