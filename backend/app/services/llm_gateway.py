@@ -213,7 +213,7 @@ async def call_open_chat_llm(
 
     # Default system prompt for open conversational partner
     effective_system = system_prompt or (
-        "You are an expert autonomous AI partner in the AIVHub workspace. "
+        "You are an expert autonomous AI partner in the OutReach by Aivhub workspace. "
         "You have deep expertise in B2B business intelligence, outbound sales engineering, "
         "autonomous lead generation, copywriting, content scheduling, and software architecture. "
         "You provide open, thoughtful, highly capable, and articulate answers on ANY topic, "
@@ -665,7 +665,7 @@ async def stream_open_chat_llm(
     resolved_model = creds.get("model")
 
     effective_system = system_prompt or (
-        "You are an expert autonomous AI partner in the AIVHub workspace."
+        "You are an expert autonomous AI partner in the OutReach by Aivhub workspace."
     )
 
     formatted_messages = []

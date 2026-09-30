@@ -1455,7 +1455,7 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         booked=False,
         transcript=[
             f"System: Inbound call from {from_number} received on {to_number}.",
-            f"AI: Connecting caller to Sam from AIVHub..."
+            f"AI: Connecting caller to the voice agent..."
         ]
     )
     db.add(live_call)

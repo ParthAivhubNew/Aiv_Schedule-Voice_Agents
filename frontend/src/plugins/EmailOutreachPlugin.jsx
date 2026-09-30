@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../tokens";
 import { api } from "../api/apiClient";
+import { navigateHash, onRouteChange, replaceHash, routeHash } from "../utils/route";
 
 const INITIAL_CAMPAIGN_SEQUENCES = [
   {
@@ -168,7 +169,7 @@ export default function EmailOutreachPlugin({
 }) {
   const [view, setView] = useState(() => {
     try {
-      const hash = window.location.hash.replace(/^#\/?/, "");
+      const hash = routeHash().replace(/^#\/?/, "");
       const parts = hash.split("/");
       if (parts[0] === "emailoutreach" && parts[1]) return parts[1];
       return localStorage.getItem("aivhub_email_view") || "campaigns";
@@ -181,8 +182,8 @@ export default function EmailOutreachPlugin({
     try {
       localStorage.setItem("aivhub_email_view", view);
       const target = `#/emailoutreach/${view}`;
-      if (window.location.hash !== target) {
-        window.history.replaceState(null, "", target);
+      if (routeHash() !== target) {
+        replaceHash(target);
       }
     } catch (_) {}
   }, [view]);
@@ -190,15 +191,14 @@ export default function EmailOutreachPlugin({
   useEffect(() => {
     const onHash = () => {
       try {
-        const hash = window.location.hash.replace(/^#\/?/, "");
+        const hash = routeHash().replace(/^#\/?/, "");
         const parts = hash.split("/");
         if (parts[0] === "emailoutreach" && parts[1] && parts[1] !== view) {
           setView(parts[1]);
         }
       } catch (_) {}
     };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    return onRouteChange(onHash);
   }, [view]);
   const [campaigns, setCampaigns] = useState(INITIAL_CAMPAIGN_SEQUENCES);
   const [inboxThreads, setInboxThreads] = useState(INITIAL_INBOX_THREADS);
@@ -293,7 +293,7 @@ export default function EmailOutreachPlugin({
   const [generatedDraft, setGeneratedDraft] = useState({
     subject: "Eliminating dispatch friction at Apex Freight",
     preview: "Quick note on how automation cuts driver check-in delays...",
-    body: "Hi Marcus,\n\nI noticed Apex Freight is expanding your Texas depots. As fleet volume grows, manual status checks create operational drag.\n\nWe automate the entire outbound confirmation and dispatch update cycle via AI voice and email.\n\nAre you free for a quick 10-minute briefing next Tuesday?\n\nBest,\n" + (operator ? operator.name : "AIVHub Operations")
+    body: "Hi Marcus,\n\nI noticed Apex Freight is expanding your Texas depots. As fleet volume grows, manual status checks create operational drag.\n\nWe automate the entire outbound confirmation and dispatch update cycle via AI voice and email.\n\nAre you free for a quick 10-minute briefing next Tuesday?\n\nBest,\n" + (operator ? operator.name : "Operations team")
   });
 
   const handleRefineDraft = (actionType) => {
@@ -303,7 +303,7 @@ export default function EmailOutreachPlugin({
       if (actionType === "concise") {
         setGeneratedDraft(prev => ({
           ...prev,
-          body: `Hi {{firstName}},\n\nNoticed {{companyName}} is scaling operations. When outbound volume spikes, manual coordination eats hours.\n\nWe deployed autonomous agents for similar teams to automate 100% of client updates and outbound confirmations.\n\nWorth a 7-minute call Thursday to see how it works?\n\nBest,\n${operator ? operator.name : "AIVHub Operations"}`
+          body: `Hi {{firstName}},\n\nNoticed {{companyName}} is scaling operations. When outbound volume spikes, manual coordination eats hours.\n\nWe deployed autonomous agents for similar teams to automate 100% of client updates and outbound confirmations.\n\nWorth a 7-minute call Thursday to see how it works?\n\nBest,\n${operator ? operator.name : "Operations team"}`
         }));
         showToast("AI refined draft: Made concise & direct (<75 words)!");
       } else if (actionType === "cta") {
@@ -315,7 +315,7 @@ export default function EmailOutreachPlugin({
       } else if (actionType === "executive") {
         setGeneratedDraft(prev => ({
           ...prev,
-          body: `Hi {{firstName}},\n\nI lead client enablement at AIVHub. In reviewing {{companyName}}'s operational growth, managing communication latency between teams is often a top priority for leadership.\n\nWe provide enterprise teams with autonomous AI voice and email orchestration that reduces manual follow-up overhead by 40% while preserving strict brand governance.\n\nWould you be open to a brief introductory conversation next week?\n\nSincerely,\n${operator ? operator.name : "AIVHub Operations"}`
+          body: `Hi {{firstName}},\n\nI lead client enablement at our team. In reviewing {{companyName}}'s operational growth, managing communication latency between teams is often a top priority for leadership.\n\nWe provide enterprise teams with autonomous AI voice and email orchestration that reduces manual follow-up overhead by 40% while preserving strict brand governance.\n\nWould you be open to a brief introductory conversation next week?\n\nSincerely,\n${operator ? operator.name : "Operations team"}`
         }));
         showToast("AI refined draft: Upgraded to consultative executive tone!");
       } else if (actionType === "metric") {
@@ -360,13 +360,13 @@ export default function EmailOutreachPlugin({
         setGeneratedDraft({
           subject: `How ${targetCompany} can eliminate Friday operational bottlenecks`,
           preview: `Adapted from our recent operational research: "${selectedPostTopic.slice(0, 40)}..."`,
-          body: `Hi {{firstName}},\n\nWe recently published our findings on: "${selectedPostTopic}".\n\nFor growing teams at ${targetCompany}, operational drift doesn't happen because people don't care — it happens because systems don't talk to each other fast enough.\n\nOur autonomous agent infrastructure connects directly to your existing systems, updates clients automatically, and alerts supervisors before delays cascade.\n\nAre you free for a quick 10-minute briefing next Tuesday?\n\nBest,\n${operator ? operator.name : "AIVHub Operations"}`
+          body: `Hi {{firstName}},\n\nWe recently published our findings on: "${selectedPostTopic}".\n\nFor growing teams at ${targetCompany}, operational drift doesn't happen because people don't care — it happens because systems don't talk to each other fast enough.\n\nOur autonomous agent infrastructure connects directly to your existing systems, updates clients automatically, and alerts supervisors before delays cascade.\n\nAre you free for a quick 10-minute briefing next Tuesday?\n\nBest,\n${operator ? operator.name : "Operations team"}`
         });
       } else {
         setGeneratedDraft({
           subject: `Direct inquiry regarding ${targetCompany} operational workflows`,
           preview: `Quick question regarding how your team manages client outreach...`,
-          body: `Hi {{firstName}},\n\nI noticed ${targetCompany} has been expanding operations recently. As team size grows, client follow-ups often slip through the cracks.\n\nWe automate the entire outbound prospecting and client confirmation cycle via AI voice and email.\n\nWould you be open to reviewing a 1-page breakdown?\n\nBest regards,\n${operator ? operator.name : "AIVHub Operations"}`
+          body: `Hi {{firstName}},\n\nI noticed ${targetCompany} has been expanding operations recently. As team size grows, client follow-ups often slip through the cracks.\n\nWe automate the entire outbound prospecting and client confirmation cycle via AI voice and email.\n\nWould you be open to reviewing a 1-page breakdown?\n\nBest regards,\n${operator ? operator.name : "Operations team"}`
         });
       }
       setIsGenerating(false);
@@ -1160,7 +1160,7 @@ export default function EmailOutreachPlugin({
                       <button
                         type="button"
                         onClick={() => {
-                          setReplyText(`Hi ${selectedThread.prospectName.split(" ")[0]},\n\nThanks for your reply! Thursday at 2 PM CT works well for our team. I will send over a calendar invite with the Zoom briefing link shortly.\n\nLooking forward to speaking,\n${operator ? operator.name : "AIVHub Team"}`);
+                          setReplyText(`Hi ${selectedThread.prospectName.split(" ")[0]},\n\nThanks for your reply! Thursday at 2 PM CT works well for our team. I will send over a calendar invite with the Zoom briefing link shortly.\n\nLooking forward to speaking,\n${operator ? operator.name : "The team"}`);
                           showToast("Generated smart AI reply draft!");
                         }}
                         style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 11.5, color: "#D97706", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}

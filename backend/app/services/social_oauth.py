@@ -216,7 +216,7 @@ async def start_oauth(db: AsyncSession, platform: str, frontend_url: str = "") -
     if not app["configured"]:
         return {
             "ok": False,
-            "error": f"AIVHub {plat} app is not configured. Paste Client ID + Secret once, then users can click Connect.",
+            "error": f"OutReach by Aivhub {plat} app is not configured. Paste Client ID + Secret once, then users can click Connect.",
             "callbackUrl": app["callbackUrl"],
         }
 
@@ -655,7 +655,7 @@ def callback_html(ok: bool, platform: str, handle: str = "", error: str = "", fr
     body = ("@" + safe_handle.lstrip("@")) if ok and safe_handle else (safe_err or "You can close this window.")
     dest_js = json.dumps(dest)
     return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>AIVHub social connect</title></head>
+<html><head><meta charset="utf-8"><title>OutReach by Aivhub social connect</title></head>
 <body style="font-family:Inter,system-ui,sans-serif;padding:40px;background:#F6F5F2;color:#12141C">
   <h2>{title} {platform}</h2>
   <p>{body}</p>

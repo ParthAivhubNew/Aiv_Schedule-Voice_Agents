@@ -72,13 +72,13 @@ def _video_link(req: ScheduleItemSchema, item_id: str) -> str:
     topic = (req.mission or "Intro call").strip() or "Intro call"
     if topic.lower().startswith("video"):
         topic = "Intro call"
-    room = _slug(f"AIVHub-with-{prospect}-{topic}-{item_id[-4:]}")
+    room = _slug(f"meeting-with-{prospect}-{topic}-{item_id[-4:]}")
     title = f"AIVHub × {prospect} — {topic}"
     enc = quote(title, safe="")
     return f"https://meet.jit.si/{room}#config.subject=%22{enc}%22&config.localSubject=%22{enc}%22"
 
 
-def _compose_whatsapp(item: ScheduleItem, company_name: str = "AIVHub", caller: str = "") -> str:
+def _compose_whatsapp(item: ScheduleItem, company_name: str = "our company", caller: str = "") -> str:
     who = caller or company_name
     kind = _kind_label(item.kind)
     lines = [
@@ -208,7 +208,7 @@ async def create_schedule_item(req: ScheduleItemSchema, db: AsyncSession = Depen
     wa = None
     if notify and whatsapp_to:
         prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
-        company = (prof.name if prof and prof.name else "AIVHub")
+        company = (prof.name if prof and prof.name else "our company")
         caller = (prof.caller_name if prof and getattr(prof, "caller_name", None) else "")
         body = _compose_whatsapp(item, company, caller)
         wa = await send_whatsapp(whatsapp_to, body)
@@ -328,7 +328,7 @@ async def send_schedule_whatsapp(item_id: str, req: Optional[WhatsAppSendRequest
     if not digits_only(to or ""):
         raise HTTPException(status_code=400, detail="Add a WhatsApp / mobile number first.")
     prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
-    company = (prof.name if prof and prof.name else "AIVHub")
+    company = (prof.name if prof and prof.name else "our company")
     caller = (prof.caller_name if prof and getattr(prof, "caller_name", None) else "")
     body = (req.message if req and req.message else None) or _compose_whatsapp(item, company, caller)
     result = await send_whatsapp(to, body)
