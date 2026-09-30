@@ -1,4 +1,5 @@
 import { withToken } from "./authStore";
+import { Downsampler, startMicTap } from "./micCapture";
 
 // G.711 Mu-Law Audio Decoder & Web Audio Streaming Player
 // Plays real-time phone audio chunks from Twilio/xAI in the browser
@@ -57,18 +58,6 @@ function resampleToAudioContext(pcm8k, targetSampleRate) {
   return out;
 }
 
-function downsampleTo8k(inputData, inputSampleRate) {
-  if (!inputSampleRate || inputSampleRate === 8000) return inputData;
-  const ratio = inputSampleRate / 8000;
-  const outLength = Math.round(inputData.length / ratio);
-  const out = new Float32Array(outLength);
-  for (let i = 0; i < outLength; i++) {
-    const srcIndex = Math.floor(i * ratio);
-    out[i] = inputData[Math.min(srcIndex, inputData.length - 1)];
-  }
-  return out;
-}
-
 export class AudioStreamPlayer {
   constructor(callId, onStatusChange, onAudioLevel) {
     this.callId = callId;
@@ -88,7 +77,8 @@ export class AudioStreamPlayer {
     // mix concurrently in real time without chopping or delaying each other.
     this.trackTimelines = {
       inbound: 0,
-      outbound: 0
+      outbound: 0,
+      operator: 0
     };
 
     // Throttle audio level updates to protect React render loop (max 10fps)
@@ -146,7 +136,8 @@ export class AudioStreamPlayer {
     // Reset track timelines
     this.trackTimelines = {
       inbound: 0,
-      outbound: 0
+      outbound: 0,
+      operator: 0
     };
 
     const host = window.location.host;
@@ -227,7 +218,7 @@ export class AudioStreamPlayer {
 
       // Smooth continuous scheduling with a short jitter buffer (stops crackle / gaps)
       const now = this.audioCtx.currentTime;
-      const trackKey = track === 'outbound' ? 'outbound' : 'inbound';
+      const trackKey = track === 'outbound' || track === 'operator' ? track : 'inbound';
       let trackStart = this.trackTimelines[trackKey] || 0;
       const JITTER = 0.18;
 
@@ -276,7 +267,7 @@ export class AudioStreamPlayer {
       try { this.audioCtx.close(); } catch (_) {}
       this.audioCtx = null;
     }
-    this.trackTimelines = { inbound: 0, outbound: 0 };
+    this.trackTimelines = { inbound: 0, outbound: 0, operator: 0 };
     if (this.onStatusChange) {
       this.onStatusChange({ listening: false, connected: false });
     }
@@ -303,55 +294,30 @@ export class AudioStreamPlayer {
         }
       });
 
-      const micSource = this.audioCtx.createMediaStreamSource(this.mediaStream);
-      // Process chunks: 2048 buffer size
-      this.scriptProcessor = this.audioCtx.createScriptProcessor(2048, 1, 1);
-
-      // Connect through a zero-gain node to destination so onaudioprocess fires continuously
-      // without echoing the operator's voice back into their own headphones
-      this.silentGainNode = this.audioCtx.createGain();
-      this.silentGainNode.gain.value = 0.0;
-
-      micSource.connect(this.scriptProcessor);
-      this.scriptProcessor.connect(this.silentGainNode);
-      this.silentGainNode.connect(this.audioCtx.destination);
-
+      // Band-limit and resample to 8 kHz properly (no aliasing), on the audio thread.
+      this.downsampler = new Downsampler(this.audioCtx.sampleRate, 8000);
       this.micSampleBuffer = [];
-
-      this.scriptProcessor.onaudioprocess = (e) => {
+      const FRAME_SIZE = 160; // 20 ms at 8 kHz, what carrier media streams expect
+      this.stopMicTap = await startMicTap(this.audioCtx, this.mediaStream, (chunk) => {
         if (!this.isMicActive || !this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-        const rawMic = e.inputBuffer.getChannelData(0);
-        const inputRate = this.audioCtx.sampleRate;
-
-        // Downsample microphone capture from native rate (e.g. 48kHz) to standard 8000Hz telephony
-        const downsampled8k = downsampleTo8k(rawMic, inputRate);
-        for (let i = 0; i < downsampled8k.length; i++) {
-          this.micSampleBuffer.push(downsampled8k[i]);
-        }
-
-        // Frame into 160-sample (20ms at 8kHz) chunks required by Twilio PSTN media streams
-        const FRAME_SIZE = 160;
+        const down = this.downsampler.process(chunk);
+        for (let i = 0; i < down.length; i++) this.micSampleBuffer.push(down[i]);
         while (this.micSampleBuffer.length >= FRAME_SIZE) {
           const frame = this.micSampleBuffer.splice(0, FRAME_SIZE);
-          const muLawBytes = new Uint8Array(FRAME_SIZE);
-          for (let j = 0; j < FRAME_SIZE; j++) {
-            muLawBytes[j] = linearToMuLaw(frame[j]);
-          }
           let binaryStr = '';
-          for (let k = 0; k < FRAME_SIZE; k++) {
-            binaryStr += String.fromCharCode(muLawBytes[k]);
+          for (let j = 0; j < FRAME_SIZE; j++) {
+            binaryStr += String.fromCharCode(linearToMuLaw(Math.max(-1, Math.min(1, frame[j]))));
           }
-          const base64Mic = btoa(binaryStr);
           this.socket.send(JSON.stringify({
             type: 'takeover_audio',
             callId: this.callId,
-            payload: base64Mic
+            payload: btoa(binaryStr),
           }));
         }
-      };
+      });
 
       this.isMicActive = true;
-      console.log('[AudioPlayer] Operator microphone live (8kHz 20ms framed)');
+      console.log('[AudioPlayer] Operator microphone live (8 kHz, filtered, 20 ms frames)');
       return true;
     } catch (micErr) {
       console.error('[AudioPlayer] Mic access error:', micErr);
@@ -362,13 +328,9 @@ export class AudioStreamPlayer {
   stopMicrophone() {
     this.isMicActive = false;
     this.micSampleBuffer = [];
-    if (this.scriptProcessor) {
-      try { this.scriptProcessor.disconnect(); } catch (_) {}
-      this.scriptProcessor = null;
-    }
-    if (this.silentGainNode) {
-      try { this.silentGainNode.disconnect(); } catch (_) {}
-      this.silentGainNode = null;
+    if (this.stopMicTap) {
+      this.stopMicTap();
+      this.stopMicTap = null;
     }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());

@@ -7,6 +7,26 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger("media_stream")
 
+DEFAULT_ORG = "org_default"
+
+
+async def _call_in_org(call_id: str, org_id: str) -> bool:
+    """False only when the call is known and belongs to another organisation."""
+    try:
+        from sqlalchemy.future import select as _select
+
+        from app.database import AsyncSessionLocal
+        from app.models.models import LiveCall
+
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(_select(LiveCall).where((LiveCall.id == call_id) | (LiveCall.carrier_sid == call_id)))).scalars().first()
+        if not row:
+            return True
+        owner = row.org_id if row.org_id and row.org_id != "default" else DEFAULT_ORG
+        return owner == org_id
+    except Exception:
+        return True
+
 class MediaStreamHub:
     """
     Manages real-time audio streams between Twilio carrier audio forks
@@ -30,6 +50,14 @@ class MediaStreamHub:
         self._injection_counter: int = 0
         self.stream_protocol: Dict[str, str] = {}
         self._mark_events: Dict[str, asyncio.Event] = {}
+        # Organisation of each supervisor socket and each carrier stream. Audio is only ever
+        # linked between a listener and a stream of the same organisation.
+        self.listener_org: Dict[WebSocket, str] = {}
+        self.stream_org: Dict[str, str] = {}
+
+    def org_of_stream(self, call_id: str) -> str:
+        canonical = self.resolve_canonical(call_id)
+        return self.stream_org.get(canonical) or self.stream_org.get(call_id) or DEFAULT_ORG
 
     def register_alias(self, alias: str, canonical_id: str):
         """Links an alias ID (e.g. xAI SIP call id or Twilio SID) to the canonical call ID."""
@@ -42,7 +70,8 @@ class MediaStreamHub:
     def resolve_canonical(self, some_id: str) -> str:
         return self.alias_map.get(some_id, some_id)
 
-    def register_listener(self, call_id: str, ws: WebSocket):
+    def register_listener(self, call_id: str, ws: WebSocket, org_id: Optional[str] = None):
+        self.listener_org[ws] = org_id or DEFAULT_ORG
         canonical = self.resolve_canonical(call_id)
         if canonical not in self.call_listeners:
             self.call_listeners[canonical] = set()
@@ -57,6 +86,7 @@ class MediaStreamHub:
         logger.info(f"[AudioHub] Supervisor connected to listen to call {call_id} (canonical: {canonical}). Active listeners: {total}")
 
     def unregister_listener(self, call_id: str, ws: WebSocket):
+        self.listener_org.pop(ws, None)
         canonical = self.resolve_canonical(call_id)
         for cid in list(self.call_listeners.keys()):
             if ws in self.call_listeners[cid]:
@@ -65,7 +95,7 @@ class MediaStreamHub:
                     del self.call_listeners[cid]
         logger.info(f"[AudioHub] Supervisor disconnected from call {call_id}.")
 
-    async def broadcast_to_listeners(self, call_id: str, payload_dict: dict):
+    async def broadcast_to_listeners(self, call_id: str, payload_dict: dict, exclude: Optional[WebSocket] = None):
         """Broadcasts audio chunk to all listeners subscribed to this call or its aliases."""
         target_listeners: Set[WebSocket] = set()
         canonical = self.resolve_canonical(call_id)
@@ -81,13 +111,19 @@ class MediaStreamHub:
             if c_id == canonical and alias in self.call_listeners:
                 target_listeners.update(self.call_listeners[alias])
 
-        # 3. Fail-safe: If exactly 1 call stream is active and 1 listener is waiting anywhere, bridge them!
+        # 3. Fail-safe for IDs that were never linked: with exactly one live stream, bridge a
+        # waiting listener to it, but only a listener of the same organisation.
         if not target_listeners and len(self.twilio_streams) == 1 and len(self.call_listeners) >= 1:
-            for registered_cid, ws_set in self.call_listeners.items():
-                target_listeners.update(ws_set)
-                # Auto-link this listener's ID to this active call!
+            stream_org = self.org_of_stream(call_id)
+            for registered_cid, ws_set in list(self.call_listeners.items()):
+                same_org = {w for w in ws_set if self.listener_org.get(w, DEFAULT_ORG) == stream_org}
+                if not same_org:
+                    continue
+                target_listeners.update(same_org)
                 self.register_alias(registered_cid, call_id)
                 break
+
+        target_listeners.discard(exclude)  # a supervisor never hears their own voice back
 
         if not target_listeners:
             return
@@ -102,16 +138,20 @@ class MediaStreamHub:
         for d in dead:
             self.unregister_listener(call_id, d)
 
-    async def inject_operator_audio_to_twilio(self, call_id: str, base64_payload: str):
-        """Injects supervisor microphone audio into the live Twilio call."""
+    async def inject_operator_audio_to_twilio(self, call_id: str, base64_payload: str, from_ws: Optional[WebSocket] = None):
+        """Sends audio into the live carrier call: the AI voice, or (from_ws set) a supervisor's
+        microphone during takeover."""
         canonical = self.resolve_canonical(call_id)
         twilio_ws = self.twilio_streams.get(canonical) or self.twilio_streams.get(call_id)
 
-        # Fallback: if only one Twilio stream is active, use it
+        # Fallback: if only one stream is active, use it. A supervisor's voice only goes to a
+        # call of their own organisation.
         if not twilio_ws and len(self.twilio_streams) == 1:
-            only_cid, twilio_ws = next(iter(self.twilio_streams.items()))
-            self.register_alias(call_id, only_cid)
-            canonical = only_cid
+            only_cid, only_ws = next(iter(self.twilio_streams.items()))
+            if from_ws is None or self.listener_org.get(from_ws, DEFAULT_ORG) == self.org_of_stream(only_cid):
+                twilio_ws = only_ws
+                self.register_alias(call_id, only_cid)
+                canonical = only_cid
 
         if not twilio_ws:
             logger.warning(f"[AudioHub] No active Twilio stream found for call {call_id} (canonical: {canonical}). Active streams: {list(self.twilio_streams.keys())}")
@@ -153,9 +193,9 @@ class MediaStreamHub:
             asyncio.create_task(self.broadcast_to_listeners(canonical, {
                 "type": "audio_chunk",
                 "callId": canonical,
-                "track": "outbound",
+                "track": "operator" if from_ws is not None else "outbound",
                 "payload": base64_payload,
-            }))
+            }, exclude=from_ws))
         except Exception as b_err:
             logger.debug(f"[AudioHub] Supervisor outbound broadcast error: {b_err}")
 
@@ -254,6 +294,29 @@ class MediaStreamHub:
 
 media_stream_hub = MediaStreamHub()
 
+
+async def _remember_stream_org(call_id: Optional[str], call_sid: Optional[str]) -> None:
+    """Look up which organisation a carrier stream's call belongs to."""
+    if not call_id:
+        return
+    try:
+        from sqlalchemy.future import select as _select
+
+        from app.database import AsyncSessionLocal
+        from app.models.models import LiveCall
+
+        async with AsyncSessionLocal() as db:
+            for key in (call_id, call_sid):
+                if not key:
+                    continue
+                row = (await db.execute(_select(LiveCall).where((LiveCall.id == key) | (LiveCall.carrier_sid == key)))).scalars().first()
+                if row:
+                    org = row.org_id if row.org_id and row.org_id != "default" else DEFAULT_ORG
+                    media_stream_hub.stream_org[call_id] = org
+                    return
+    except Exception as err:
+        logger.debug(f"[AudioHub] org lookup for {call_id} failed: {err}")
+
 router = APIRouter(tags=["Media Streams"])
 
 @router.websocket("/ws/media-stream")
@@ -306,6 +369,7 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
                 if call_id:
                     media_stream_hub.twilio_streams[call_id] = websocket
                     media_stream_hub.stream_protocol[call_id] = protocol
+                    asyncio.create_task(_remember_stream_org(call_id, call_sid))
                 logger.info(f"[MediaStream] Stream started ({protocol}): streamSid={stream_sid}, callSid={call_sid} -> call_id={call_id}")
                 try:
                     from app.services.xai_voice_service import get_bridged_session
@@ -405,6 +469,8 @@ async def twilio_media_stream_endpoint(websocket: WebSocket):
             del media_stream_hub.twilio_streams[call_id]
         if call_id and call_id in media_stream_hub.stream_protocol:
             del media_stream_hub.stream_protocol[call_id]
+        if call_id:
+            media_stream_hub.stream_org.pop(call_id, None)
         if stream_sid and stream_sid in media_stream_hub.stream_to_call:
             del media_stream_hub.stream_to_call[stream_sid]
 
@@ -456,8 +522,15 @@ async def supervisor_listen_endpoint(websocket: WebSocket, call_id: str):
     Sends real-time audio chunks to the browser when the user clicks 'Listen'.
     Receives operator microphone audio from the browser when 'Take Over' is active.
     """
+    # Signed in with Calling: full (checked by the auth middleware). The call must also belong
+    # to the supervisor's organisation.
+    ctx = (websocket.scope.get("state") or {}).get("auth") or {}
+    org_id = ctx.get("org_id") or DEFAULT_ORG
+    if not await _call_in_org(call_id, org_id):
+        await websocket.close(code=4403)
+        return
     await websocket.accept()
-    media_stream_hub.register_listener(call_id, websocket)
+    media_stream_hub.register_listener(call_id, websocket, org_id)
 
     try:
         # Acknowledge connection
@@ -477,7 +550,7 @@ async def supervisor_listen_endpoint(websocket: WebSocket, call_id: str):
             if msg_type == "takeover_audio":
                 audio_payload = data.get("payload")
                 if audio_payload:
-                    await media_stream_hub.inject_operator_audio_to_twilio(call_id, audio_payload)
+                    await media_stream_hub.inject_operator_audio_to_twilio(call_id, audio_payload, from_ws=websocket)
 
             elif msg_type == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
