@@ -118,6 +118,9 @@ import { WebSocketClient } from "./api/wsClient";
 import { AUTH_LOST_EVENT, PASSWORD_CHANGE_EVENT, hasSession } from "./api/authStore";
 import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
 import { ProfileSettingsModal } from "./hub/ProfileSettingsModal";
+import { BrandMark } from "./hub/BrandMark";
+import { LoginScreen } from "./hub/LoginScreen";
+import { OnboardingChecklist } from "./hub/OnboardingChecklist";
 import { TeamModal } from "./team/TeamModal";
 import { AudioStreamPlayer } from "./api/audioStreamPlayer";
 import { TelephonyDocsView } from "./views/TelephonyDocsView";
@@ -6482,176 +6485,6 @@ function ProviderConfigView({ notifications, setNotifications, commonAi, setComm
 }
 
 
-function BrandMark({ size = 36 }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 32 32"
-      width={size}
-      height={size}
-      style={{
-        display: "block",
-        flexShrink: 0,
-      }}
-    >
-      <defs>
-        <linearGradient id="aiv" x1="4" y1="2" x2="30" y2="32" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#3457D5"/>
-          <stop offset="1" stopColor="#0C8C7D"/>
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="9" fill="url(#aiv)"/>
-      <circle cx="11" cy="16" r="2.35" fill="#fff"/>
-      <path d="M15.6 11.1c2.7 1.5 2.7 8.3 0 9.8" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
-      <path d="M19.4 8.4c4.3 2.5 4.3 12.7 0 15.2" fill="none" stroke="#fff" strokeWidth="1.85" strokeLinecap="round"/>
-      <path d="M23.1 6.1c5.8 3.3 5.8 16.5 0 19.8" fill="none" stroke="#fff" strokeWidth="1.75" strokeLinecap="round"/>
-    </svg>
-  );
-}
-
-function LoginScreen({ onLogin }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!username.trim() || !password) {
-      setError("Please enter username and password.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const res = await api.login(username.trim(), password);
-      if (res && res.operator) {
-        onLogin(res.operator);
-      } else {
-        setError("Invalid response from authentication server.");
-      }
-    } catch (err) {
-      setError(err.message || "Invalid username or password. Access restricted.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const field = {
-    width: "100%",
-    height: 44,
-    borderRadius: 10,
-    border: `1px solid ${C.border}`,
-    background: "#fff",
-    padding: "0 14px",
-    fontFamily: FONT_BODY,
-    fontSize: 14,
-    color: C.textInk,
-  };
-
-  return (
-    <div style={{ minHeight: "100vh", background: HUB_PAPER, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: FONT_BODY }}>
-      <AppChrome />
-      <form onSubmit={submit} style={{ width: "100%", maxWidth: 420 }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
-          <BrandMark size={44} />
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 28, color: C.ink, letterSpacing: "-0.03em", marginTop: 14 }}>OutReach by Aivhub</div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.slate, marginTop: 6, textAlign: "center" }}>
-            Sign in to open your plugins
-          </div>
-        </div>
-        <div
-          style={{
-            background: "#fff",
-            border: `1px solid ${C.border}`,
-            borderRadius: 20,
-            padding: "28px 28px 24px",
-            boxShadow: "0 18px 50px rgba(18,20,28,0.06)",
-          }}
-        >
-          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Username</label>
-          <input
-            autoFocus
-            value={username}
-            onChange={(e) => { setUsername(e.target.value); setError(""); }}
-            placeholder="Username or email"
-            style={{ ...field, marginBottom: 16 }}
-          />
-          <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Password</label>
-          <div style={{ position: "relative", marginBottom: 8 }}>
-            <Lock size={14} color={C.slateLight} style={{ position: "absolute", left: 14, top: 15 }} />
-            <input
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => { setPassword(e.target.value); setError(""); }}
-              placeholder="••••••••"
-              style={{ ...field, paddingLeft: 36, paddingRight: 40 }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              style={{
-                position: "absolute",
-                right: 12,
-                top: "50%",
-                transform: "translateY(-50%)",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: 4,
-                display: "flex",
-                alignItems: "center",
-                color: C.slateLight,
-              }}
-              title={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-          {error && (
-            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.red, background: C.redSoft, border: `1px solid #F0C4B8`, borderRadius: 8, padding: "8px 12px", margin: "10px 0 4px", display: "flex", alignItems: "center", gap: 6 }}>
-              <AlertTriangle size={14} /> {error}
-            </div>
-          )}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%",
-              height: 46,
-              marginTop: 16,
-              borderRadius: 12,
-              border: "none",
-              background: C.ink,
-              color: "#fff",
-              fontFamily: FONT_DISPLAY,
-              fontWeight: 600,
-              fontSize: 15,
-              cursor: loading ? "wait" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-            }}
-          >
-            {loading ? (
-              <>
-                <RefreshCw size={15} className="animate-spin" />
-                <span>Authenticating...</span>
-              </>
-            ) : (
-              <span>Sign in</span>
-            )}
-          </button>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, marginTop: 14, lineHeight: 1.45, textAlign: "center" }}>
-            Authorized access only. Forgot your password? Ask your admin to reset it.
-          </div>
-        </div>
-      </form>
-    </div>
-  );
-}
 
 function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick }) {
   const [hover, setHover] = useState(false);
@@ -8413,6 +8246,18 @@ function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpe
           The unified AI growth suite for your business. Scout verified accounts, schedule branded content, run outbound email sequences, and conduct live voice discovery calls.
         </div>
 
+        <OnboardingChecklist
+          operator={operator}
+          onGo={(go) => {
+            if (go.startsWith("team:")) return onOpenTeamUsers(go.slice(5));
+            const voice = go.match(/^#\/voice\/(\w+)/);
+            if (voice) {
+              try { localStorage.setItem("aivhub_voice_view", voice[1]); } catch (_) {}
+            }
+            navigateHash(go);
+          }}
+        />
+
         {/* Workspace Plugins with generous spacing and clean titles */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 310px))", gap: 32, justifyContent: "center", width: "100%", maxWidth: 1360 }}>
           <PluginCard
@@ -8708,6 +8553,8 @@ export default function App() {
 
   if (!session) {
     return (
+      <>
+      <AppChrome />
       <LoginScreen
         onLogin={(op) => {
           try { sessionStorage.setItem("aivhub_operator", JSON.stringify(op)); } catch (_) {}
@@ -8715,6 +8562,7 @@ export default function App() {
           setSession({ operator: op, key: op.id + ":" + Date.now() });
         }}
       />
+      </>
     );
   }
   if (mustChangePassword) {
@@ -9071,6 +8919,7 @@ function MainApp({ onSignedOut }) {
   });
   const [showCommonAiModal, setShowCommonAiModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const [teamInitialTab, setTeamInitialTab] = useState("users");
   const [showCalcomAdminModal, setShowCalcomAdminModal] = useState(false);
   const [calcomInitialTab, setCalcomInitialTab] = useState("accounts");
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -9211,7 +9060,7 @@ function MainApp({ onSignedOut }) {
             onLogout={handleLogout}
             commonAi={commonAi}
             onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); }}
-            onOpenTeamUsers={() => setShowTeamModal(true)}
+            onOpenTeamUsers={(tab) => { setTeamInitialTab(typeof tab === "string" ? tab : "users"); setShowTeamModal(true); }}
             onOpenProfileSettings={() => setShowProfileModal(true)}
             onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
           />
@@ -9357,6 +9206,7 @@ function MainApp({ onSignedOut }) {
         isOpen={showTeamModal}
         onClose={() => setShowTeamModal(false)}
         currentUser={operator}
+        initialTab={teamInitialTab}
       />
 
       <ProfileSettingsModal

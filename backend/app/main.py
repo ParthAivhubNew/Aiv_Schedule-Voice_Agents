@@ -15,6 +15,7 @@ from app.seed_data import seed_database
 from app.websockets.call_hub import call_hub
 
 from app.api.auth import router as auth_router
+from app.api.signup import router as signup_router
 from app.api.missions import router as missions_router
 from app.api.prospects import router as prospects_router
 from app.api.calls import router as calls_router
@@ -285,12 +286,13 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
 
-    await seed_database()
-    # Numbered schema/data steps (auth columns, hashed passwords, roles), then the token key.
+    # Numbered schema/data steps (new columns, hashed passwords, roles) run before anything
+    # reads the tables through the models, so an upgrade never queries a missing column.
     from app.core.migrations import run_migrations
     from app.core.security import resolve_signing_key
     async with engine.begin() as conn:
         await run_migrations(conn)
+    await seed_database()
     # Organisation isolation: org_id columns, per-org keys, app role and RLS policies.
     from app.core.tenancy import ensure_tenancy
     async with engine.begin() as conn:
@@ -554,6 +556,7 @@ except Exception:
 
 # Mount REST API Routers
 app.include_router(auth_router, prefix=settings.API_PREFIX)
+app.include_router(signup_router, prefix=settings.API_PREFIX)
 app.include_router(missions_router, prefix=settings.API_PREFIX)
 app.include_router(prospects_router, prefix=settings.API_PREFIX)
 app.include_router(calls_router, prefix=settings.API_PREFIX)
