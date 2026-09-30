@@ -75,10 +75,16 @@ async def _system_roles(conn: AsyncConnection) -> None:
         )
 
 
+async def _meeting_lunch_columns(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE calcom_settings ADD COLUMN IF NOT EXISTS lunch_start VARCHAR DEFAULT '12:00'"))
+    await conn.execute(text("ALTER TABLE calcom_settings ADD COLUMN IF NOT EXISTS lunch_end VARCHAR DEFAULT '13:00'"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
     ("2026_10_01_system_roles", _system_roles),
+    ("2026_10_02_meeting_lunch_columns", _meeting_lunch_columns),
 ]
 
 

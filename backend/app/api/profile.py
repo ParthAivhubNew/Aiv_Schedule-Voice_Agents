@@ -323,37 +323,42 @@ async def list_notifications(db: AsyncSession = Depends(get_db)):
     } for n in notifs]
 
 
-# ── Calling rules (compliance mode and hours policy) ───────────────────────
+# ── Calling rules (compliance mode, hours policy and per-day schedule) ──────
 @router.get("/compliance")
 async def get_compliance(db: AsyncSession = Depends(get_db)):
-    from app.services.compliance import enforcement_mode
+    from app.services.compliance import clean_schedule, enforcement_mode, load_rules, schedule_from_profile
 
     prof = (await db.execute(select(CompanyProfile).limit(1))).scalars().first()
+    rules = await load_rules(db)
+    policy = (getattr(prof, "call_hours_policy", None) or "respectful").lower()
     return {
         "mode": await enforcement_mode(db),
-        "policy": getattr(prof, "call_hours_policy", None) or "respectful",
-        "weekdayStart": getattr(prof, "weekday_start", None) or "09:00",
-        "weekdayEnd": getattr(prof, "weekday_end", None) or "17:30",
-        "lunchStart": getattr(prof, "lunch_start", None) or "12:00",
-        "lunchEnd": getattr(prof, "lunch_end", None) or "13:00",
+        "policy": policy if policy in ("respectful", "legal", "custom") else "respectful",
+        "schedule": clean_schedule(rules["schedule"]) if rules.get("schedule") else schedule_from_profile(prof),
+        "timezone": getattr(prof, "timezone", None) or "Europe/London",
     }
 
 
 @router.put("/compliance")
 async def set_compliance(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-    """mode: block | warn | off (opted-out numbers are refused in every mode)."""
-    from app.models.models import AppSetting
+    """mode: block | warn | off (opted-out numbers are refused in every mode).
+    policy: respectful | legal | custom; schedule: per-day open days and hours (weekends allowed)."""
+    from app.services.compliance import clean_schedule, save_rules
 
-    mode = str(payload.get("mode") or "").lower()
-    if mode not in ("block", "warn", "off"):
-        raise HTTPException(status_code=400, detail="mode must be block, warn or off")
-    row = (await db.execute(select(AppSetting).where(AppSetting.id == "compliance"))).scalars().first()
-    if row:
-        row.data = {**(row.data or {}), "mode": mode}
-    else:
-        db.add(AppSetting(id="compliance", data={"mode": mode}))
+    patch: Dict[str, Any] = {}
+    if "mode" in payload:
+        mode = str(payload.get("mode") or "").lower()
+        if mode not in ("block", "warn", "off"):
+            raise HTTPException(status_code=400, detail="mode must be block, warn or off")
+        patch["mode"] = mode
+    if "schedule" in payload:
+        patch["schedule"] = clean_schedule(payload.get("schedule"))
+    if patch:
+        await save_rules(db, patch)
     policy = str(payload.get("policy") or "").lower()
-    if policy in ("respectful", "legal"):
+    if policy:
+        if policy not in ("respectful", "legal", "custom"):
+            raise HTTPException(status_code=400, detail="policy must be respectful, legal or custom")
         prof = (await db.execute(select(CompanyProfile).limit(1))).scalars().first()
         if prof:
             prof.call_hours_policy = policy

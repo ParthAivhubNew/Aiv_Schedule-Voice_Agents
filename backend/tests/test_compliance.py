@@ -76,3 +76,41 @@ async def test_legal_policy_allows_weekends_until_nine(db):
     await _mode(db, "block")
     assert (await check_call_allowed(db, "+447700900123", now_utc=datetime(2026, 10, 10, 18, 0))).allowed  # Sat 19:00
     assert not (await check_call_allowed(db, "+447700900123", now_utc=datetime(2026, 10, 10, 20, 30))).allowed  # 21:30
+
+
+async def test_custom_schedule_opens_weekends(client, db):
+    from app.services.compliance import check_call_allowed
+
+    await _profile(db)
+    days = {d: {"open": True, "start": "10:00", "end": "16:00"} for d in ("Monday", "Saturday")}
+    r = await client.put("/api/profile/compliance", json={"mode": "block", "policy": "custom",
+                                                          "schedule": {"days": days, "lunch": {"on": False}}})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["policy"] == "custom" and body["schedule"]["days"]["Saturday"]["open"] is True
+    assert body["schedule"]["days"]["Tuesday"]["open"] is False
+    # Saturday 10 Oct 2026 12:30 London (11:30 UTC): open, lunch off
+    assert (await check_call_allowed(db, "+447700900123", now_utc=datetime(2026, 10, 10, 11, 30))).allowed
+    # Tuesday closed
+    g = await check_call_allowed(db, "+447700900123", now_utc=datetime(2026, 10, 6, 11, 0))
+    assert not g.allowed and "Tuesday is closed" in g.reasons[0]
+    # Saturday after hours
+    assert not (await check_call_allowed(db, "+447700900123", now_utc=datetime(2026, 10, 10, 16, 0))).allowed
+    assert (await client.put("/api/profile/compliance", json={"policy": "sometimes"})).status_code == 400
+
+
+async def test_meeting_slots_follow_the_admins_days_and_lunch(client, db):
+    from app.services.calendar_service import calendar_service
+
+    await _profile(db)
+    days = ["Saturday"]
+    r = await client.post("/api/calcom/settings", json={
+        "working_days": days, "working_hours_by_day": {"Saturday": {"start": "10:00", "end": "12:00"}},
+        "lunch_start": "11:00", "lunch_end": "11:30",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"]["lunch_start"] == "11:00"
+    sat = await calendar_service.get_available_slots(db, "2031-10-11", "15-min-discovery")  # a Saturday
+    times = {s["time"]: s["reason"] for s in sat}
+    assert "10:00" in times and times.get("11:00") == "Lunch" and "12:00" not in times
+    assert await calendar_service.get_available_slots(db, "2031-10-13", "15-min-discovery") == []  # Monday closed
