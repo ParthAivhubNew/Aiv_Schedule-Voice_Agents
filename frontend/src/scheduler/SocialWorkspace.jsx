@@ -1968,7 +1968,7 @@ function SimpleCompanyKnowledge({ profile, setProfile, knowledgeSources, setKnow
       <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 14 }}>
         Same identity and RAG sources as Voice. Plan AI writes from this, not a stock angle.
       </div>
-      {field("Company name", "name", { placeholder: "AIVHub" })}
+      {field("Company name", "name", { placeholder: "Your company name" })}
       {field("Pitch", "pitch", { textarea: true, placeholder: "What you actually sell, in one short paragraph." })}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         {field("Industry", "industry", { placeholder: "Business intelligence" })}
@@ -2253,7 +2253,7 @@ function SimpleAccountsPage({
                 style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
               />
               <div style={{ fontSize: 12, color: C.slate, marginTop: 8, lineHeight: 1.45 }}>
-                If Facebook shows “Login is currently unavailable for this app”: turn on Facebook Login for Business, paste the matching Configuration ID, add this callback URL, and add your Facebook user as Admin/Tester while the app is in Development. That wrench popup is Meta, not AIVHub logout. Saved pages below stay until you Reconnect or Remove.
+                If Facebook shows “Login is currently unavailable for this app”: turn on Facebook Login for Business, paste the matching Configuration ID, add this callback URL, and add your Facebook user as Admin/Tester while the app is in Development. That wrench popup is Meta, not OutReach logout. Saved pages below stay until you Reconnect or Remove.
               </div>
             </div>
           ) : null}

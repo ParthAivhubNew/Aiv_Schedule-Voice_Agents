@@ -1,4 +1,4 @@
-# AIVHub — Voice AI Agent & Post Scheduler (Production App)
+# OutReach by Aivhub — Voice AI Agent & Post Scheduler
 
 A production-ready, full-stack, Dockerized SaaS workspace featuring an autonomous **AI Voice SDR (Appointment Booking Agent)** and an AI-driven **Post Scheduler & Social Content Planner** with a **Radiant Redesign Glassmorphic UI**.
 

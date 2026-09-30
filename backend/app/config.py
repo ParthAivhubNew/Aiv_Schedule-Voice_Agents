@@ -3,7 +3,7 @@ from typing import Optional
 import os
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "OutreachAI"
+    PROJECT_NAME: str = "OutReach by Aivhub"
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
     
@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     SIPGATE_PHONE_NUMBER: Optional[str] = os.getenv("SIPGATE_PHONE_NUMBER", None)
     
     # Public URLs for OAuth callbacks and telephony media streams
-    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "http://62.171.163.98:8000")
+    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "https://outreach.aivhub.com")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
     # Social OAuth apps (optional; can also be saved in Accounts UI)

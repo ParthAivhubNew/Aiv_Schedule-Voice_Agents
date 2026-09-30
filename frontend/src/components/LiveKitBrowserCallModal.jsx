@@ -24,7 +24,7 @@ export function LiveKitBrowserCallModal({
   onClose,
   prospectName = "Browser Caller",
   prospectPhone = "Browser WebRTC",
-  companyName = "AIVHub",
+  companyName = "Your company",
   onCallEnded,
 }) {
   const [callState, setCallState] = useState("idle"); // idle | requesting_token | connecting | connected | ended | error
