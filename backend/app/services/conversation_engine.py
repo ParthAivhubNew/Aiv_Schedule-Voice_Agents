@@ -38,7 +38,6 @@ BASE_INBOUND_TEMPLATE_ID = "tpl_base_inbound_reception"
 # --------------------------------------------------------------------------- #
 DEFAULT_OUTBOUND_TEMPLATE = {
     "id": BASE_OUTBOUND_TEMPLATE_ID,
-    "org_id": "org_default",
     "name": "Base Outbound Sales & Demo Booking",
     "description": "Adaptive 7-step outbound prospecting flow with permission check & 4 objection handlers.",
     "call_direction": "outbound",
@@ -90,7 +89,6 @@ DEFAULT_OUTBOUND_TEMPLATE = {
 
 DEFAULT_INBOUND_TEMPLATE = {
     "id": BASE_INBOUND_TEMPLATE_ID,
-    "org_id": "org_default",
     "name": "Base Inbound Reception & Scheduling",
     "description": "Professional receptionist flow: answers questions, discovers needs, and schedules meetings.",
     "call_direction": "inbound",

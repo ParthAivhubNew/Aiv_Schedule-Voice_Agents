@@ -46,13 +46,17 @@ async def _social_publish_due_loop():
     """Auto-publish due social posts on a timer, so scheduling works with no browser open."""
     from app.database import AsyncSessionLocal
     from app.api.scheduler import run_publish_due
+    from app.core.tenancy import org_scope
+    from app.core.orgs import active_org_ids
     while True:
         try:
             await asyncio.sleep(60)
-            async with AsyncSessionLocal() as db:
-                result = await run_publish_due(db)
-                if result.get("published"):
-                    logger.info(f"[Social Auto-Publish] Published {len(result['published'])} due post(s).")
+            for org_id in await active_org_ids():
+                with org_scope(org_id):
+                    async with AsyncSessionLocal() as db:
+                        result = await run_publish_due(db)
+                    if result.get("published"):
+                        logger.info(f"[Social Auto-Publish] {org_id}: published {len(result['published'])} due post(s).")
         except asyncio.CancelledError:
             raise
         except Exception as loop_err:
@@ -286,6 +290,10 @@ async def lifespan(app: FastAPI):
     from app.core.security import resolve_signing_key
     async with engine.begin() as conn:
         await run_migrations(conn)
+    # Organisation isolation: org_id columns, per-org keys, app role and RLS policies.
+    from app.core.tenancy import ensure_tenancy
+    async with engine.begin() as conn:
+        await ensure_tenancy(conn)
     await resolve_signing_key()
     if (settings.LIVEKIT_API_SECRET or "").startswith("secret1234567890") or (settings.LIVEKIT_API_KEY or "") == "devkey":
         logger.warning(

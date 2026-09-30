@@ -145,6 +145,7 @@ def _job_dict(j: SocialGenJob) -> Dict[str, Any]:
         "channel": j.channel or "linkedin", "date": j.date or "", "revision_note": j.revision_note or "",
         "existing_copy": j.existing_copy or "", "skip_image": bool(j.skip_image), "options": j.options or {},
         "priority": j.priority or 0, "attempts": j.attempts or 0,
+        "org_id": getattr(j, "org_id", None) or "org_default",
     }
 
 
@@ -165,9 +166,11 @@ async def _claim(from_state: str, to_state: str, limit: int, text_batch: bool) -
             return []
         rows = [first]
         # Only brand-new posts share a call; rewrites and solo retries go one at a time.
+        # A shared call only ever holds one organisation's posts.
         if text_batch and not (first.revision_note or first.existing_copy or first.solo):
             rows = (await db.execute(
-                base.where(SocialGenJob.revision_note == "", SocialGenJob.existing_copy == "", SocialGenJob.solo.is_(False))
+                base.where(SocialGenJob.revision_note == "", SocialGenJob.existing_copy == "", SocialGenJob.solo.is_(False),
+                           SocialGenJob.org_id == first.org_id)
                 .limit(limit)
             )).scalars().all()
         ids = [r.id for r in rows]
@@ -353,20 +356,33 @@ def _spawn(tasks: set, coro) -> None:
 
 
 async def _tick() -> None:
+    # The queue is shared by every organisation: jobs are picked across all of them, and each
+    # job then runs inside its own organisation.
+    from app.core.tenancy import in_org, system_scope
+
     while len(_text_tasks) < TEXT_SLOTS.slots:
-        jobs = await _claim("queued", "writing", MAX_POSTS_PER_CALL, text_batch=True)
+        with system_scope():
+            jobs = await _claim("queued", "writing", MAX_POSTS_PER_CALL, text_batch=True)
         if not jobs:
             break
-        _spawn(_text_tasks, _run_text(jobs))
+        _spawn(_text_tasks, in_org(jobs[0]["org_id"], _run_text(jobs)))
     while len(_image_tasks) < IMAGE_SLOTS.slots:
-        jobs = await _claim("image_queued", "imaging", 1, text_batch=False)
+        with system_scope():
+            jobs = await _claim("image_queued", "imaging", 1, text_batch=False)
         if not jobs:
             break
-        _spawn(_image_tasks, _run_image(jobs[0]))
+        _spawn(_image_tasks, in_org(jobs[0]["org_id"], _run_image(jobs[0])))
 
 
 async def _recover() -> None:
     """Work that was running when the server stopped goes back in the queue."""
+    from app.core.tenancy import system_scope
+
+    with system_scope():
+        await _recover_all()
+
+
+async def _recover_all() -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(update(SocialGenJob).where(SocialGenJob.state == "writing").values(state="queued").execution_options(synchronize_session=False))
         await db.execute(update(SocialGenJob).where(SocialGenJob.state == "imaging").values(state="image_queued").execution_options(synchronize_session=False))
