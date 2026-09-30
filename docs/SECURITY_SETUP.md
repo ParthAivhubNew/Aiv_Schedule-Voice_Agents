@@ -57,6 +57,7 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `TELNYX_ACCOUNT_MODE` | `billing_group` (default: one Telnyx account, a billing group per client) or `managed_account` (a Telnyx managed account per client, once Telnyx approves us as a manager) |
 | `TELNYX_CONNECTION_ID`, `TELNYX_MESSAGING_PROFILE_ID` | billing_group mode: the Call Control app and messaging profile new numbers attach to (managed accounts get their own automatically) |
 | `TELNYX_ASSISTANT_PUBLIC_KEY` | Telnyx public key (Mission Control → Keys & Credentials); every Telnyx webhook is checked against it |
+| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. Use `sk_test_…` keys first (the app shows "test mode"), then swap in live keys |
 | `PLATFORM_ORG_ID` | Organisation whose admins are OutReach staff: they add credits and set rates (default `org_default`) |
 | `CALL_WINDOW_ENFORCEMENT` | Default calling-hours mode if an organisation has not chosen one |
 | `EXPOSE_API_DOCS` | `true` only if you want `/docs` public (off by default) |
@@ -83,3 +84,19 @@ This replaces `xlsx@0.18.5`, which has known security issues when opening untrus
 
 Webhooks only make the app re-read the order or verification from Telnyx, so a forged webhook
 cannot mark anything approved. The Numbers page also re-checks pending items every minute.
+
+## 6. Stripe (UK account, prices in USD, clients pay in GBP)
+
+1. Stripe Dashboard → Settings → Payments → **Adaptive Pricing**: turn it on (the app also asks
+   for it on every Checkout).
+2. Developers → Webhooks → add endpoint `https://outreach.aivhub.com/api/billing/webhook` with
+   events `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`,
+   `customer.subscription.updated`, `customer.subscription.deleted`. Copy its signing secret into
+   `STRIPE_WEBHOOK_SECRET`.
+3. Settings → Billing → **Customer portal**: turn it on (clients change card, plans, invoices there).
+4. In the app (staff, Team → Plans & credits): add plans and top-ups per plugin, then press
+   **Create in Stripe** on each to put it on sale.
+
+Credits are only granted from signed Stripe webhooks, and each Stripe event is applied once.
+Plan credits expire at the next renewal; top-ups 30 days after purchase; the batch closest to
+expiry is spent first.

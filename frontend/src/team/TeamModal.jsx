@@ -380,7 +380,7 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users" }
           {tabBtn("users", "Users", Users)}
           {tabBtn("roles", "Roles", Shield)}
           {tabBtn("numbers", "Phone numbers", Phone)}
-          {currentUser?.is_admin && tabBtn("credits", "Credits", Coins)}
+          {currentUser?.is_admin && tabBtn("credits", "Plans & credits", Coins)}
         </div>
         <div style={{ padding: 20, overflowY: "auto" }}>
           {error && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10 }}>{error}</div>}
