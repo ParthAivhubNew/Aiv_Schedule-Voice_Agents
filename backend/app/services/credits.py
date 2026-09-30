@@ -34,8 +34,9 @@ WALLETS: Dict[str, str] = {
 }
 
 # Rate card: credits per unit, and which wallet pays. charged=False: priced but not billed yet.
+# A Voice credit is a minute of calls, so calling plans read in minutes (60 credits = 1 hour).
 DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
-    "voice_minute": {"label": "Voice call minute", "unit": "minute", "credits": 10, "wallet": "voice", "charged": True},
+    "voice_minute": {"label": "Voice call minute", "unit": "minute", "credits": 1, "wallet": "voice", "charged": True},
     "whatsapp_message": {"label": "WhatsApp message sent", "unit": "message", "credits": 1, "wallet": "voice", "charged": True},
     "ai_post": {"label": "AI-written social post", "unit": "post", "credits": 2, "wallet": "scheduler", "charged": True},
     "lead_lookup": {"label": "Lead researched", "unit": "lead", "credits": 1, "wallet": "leadgen", "charged": False},

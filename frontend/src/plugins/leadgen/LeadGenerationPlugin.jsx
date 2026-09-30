@@ -29,11 +29,13 @@ import {
   Layers,
   Activity,
   Globe,
-  Tag
+  Tag,
+  CreditCard
 } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
+import { SubscriptionPage } from "../../team/SubscriptionPage";
 
 const INITIAL_DUMMY_LEADS = [
   {
@@ -415,6 +417,7 @@ export default function LeadGenerationPlugin({
     { id: "contacts", label: "Decision Makers", icon: Users, count: leads.length },
     { id: "dossiers", label: "Account Dossiers", icon: FileText },
     { id: "import_export", label: "Import & Export", icon: FileSpreadsheet },
+    ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard }] : []),
   ];
 
   const viewTitles = {
@@ -424,6 +427,7 @@ export default function LeadGenerationPlugin({
     contacts: { title: "Verified Decision Makers", desc: "Direct phone numbers, email addresses, and executive titles for key buyers." },
     dossiers: { title: "Intelligence Dossiers", desc: "Deep operational briefings, verified tech stacks, and personalized conversation angles." },
     import_export: { title: "Import & Export", desc: "Bulk CSV upload, data hygiene verification, and account list export." },
+    subscription: { title: "Subscription", desc: "Your lead generation plan and credits. Change plan, top up, or cancel." },
   };
 
   return (
@@ -1016,6 +1020,8 @@ export default function LeadGenerationPlugin({
           )}
 
           {/* VIEW 5: IMPORT & EXPORT */}
+          {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}
+
           {view === "import_export" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ background: "#fff", border: `1px dashed ${C.border}`, borderRadius: 14, padding: "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>

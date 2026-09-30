@@ -57,7 +57,8 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `TELNYX_ACCOUNT_MODE` | `billing_group` (default: one Telnyx account, a billing group per client) or `managed_account` (a Telnyx managed account per client, once Telnyx approves us as a manager) |
 | `TELNYX_CONNECTION_ID`, `TELNYX_MESSAGING_PROFILE_ID` | billing_group mode: the Call Control app and messaging profile new numbers attach to (managed accounts get their own automatically) |
 | `TELNYX_ASSISTANT_PUBLIC_KEY` | Telnyx public key (Mission Control → Keys & Credentials); every Telnyx webhook is checked against it |
-| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. Use `sk_test_…` keys first (the app shows "test mode"), then swap in live keys |
+| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. Use `sk_test_…` keys first (the app shows "test mode"), then swap in live keys. Put them in `.env.local` next to `docker-compose.yml` (not in git; the backend container reads it) |
+| `STRIPE_AUTOMATIC_TAX` | `true` once Stripe Tax is set up (section 6): Checkout adds VAT/sales tax and asks business customers for a VAT number |
 | `PLATFORM_ORG_ID` | Organisation whose admins are OutReach staff: they add credits and set rates (default `org_default`) |
 | `CALL_WINDOW_ENFORCEMENT` | Default calling-hours mode if an organisation has not chosen one |
 | `EXPOSE_API_DOCS` | `true` only if you want `/docs` public (off by default) |
@@ -85,17 +86,35 @@ This replaces `xlsx@0.18.5`, which has known security issues when opening untrus
 Webhooks only make the app re-read the order or verification from Telnyx, so a forged webhook
 cannot mark anything approved. The Numbers page also re-checks pending items every minute.
 
-## 6. Stripe (UK account, prices in USD, clients pay in GBP)
+## 6. Stripe (UK account, prices in GBP, clients abroad pay in their own currency)
 
 1. Stripe Dashboard → Settings → Payments → **Adaptive Pricing**: turn it on (the app also asks
    for it on every Checkout).
 2. Developers → Webhooks → add endpoint `https://outreach.aivhub.com/api/billing/webhook` with
-   events `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`,
-   `customer.subscription.updated`, `customer.subscription.deleted`. Copy its signing secret into
-   `STRIPE_WEBHOOK_SECRET`.
+   events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`,
+   `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`.
+   Copy its signing secret into `STRIPE_WEBHOOK_SECRET`.
 3. Settings → Billing → **Customer portal**: turn it on (clients change card, plans, invoices there).
-4. In the app (staff, Team → Plans & credits): add plans and top-ups per plugin, then press
-   **Create in Stripe** on each to put it on sale.
+4. In the app (staff, Team → Plans & credits), put plans and top-ups on sale either way:
+   - Products already made in Stripe (monthly = plan, one-off = top-up) are listed under
+     *Already in your Stripe account*: check the plugin (guessed from the product name), enter
+     the credits each gives (a Voice credit is a minute of calls, so 1 hour = 60 credits) and press
+     **Put on sale**. The credits of anything on sale can be corrected in the list above it.
+   - Or add a plan here (USD) and press **Create in Stripe**.
+5. Tax (optional): Settings → Tax: add the head office address, your tax registrations, the default
+   tax code (software as a service) and whether prices include tax. Then set `STRIPE_AUTOMATIC_TAX=true`.
+
+Admins manage each plugin's plan on its **Subscription** page (Voice, Post scheduler and Lead
+generation sidebars): subscribe, move to another plan, cancel at the end of the paid period (or keep
+it after all), buy one-off top-ups, and open Stripe for the card and invoices. Team → Plans &
+credits shows every plugin together. Each purchase of a plan is its own Stripe subscription, so a
+plugin can be added, changed or cancelled without touching the others. Subscriptions and top-ups
+both produce a Stripe invoice.
+
+Changing plan: a dearer plan starts at once, the card is charged the difference for the rest of
+the period and only the extra credits are added; if the bank asks for confirmation the customer
+pays on Stripe's invoice page and the plan changes once paid. A cheaper plan starts at the next
+renewal, with nothing refunded and this period's credits kept.
 
 Credits are only granted from signed Stripe webhooks, and each Stripe event is applied once.
 Plan credits expire at the next renewal; top-ups 30 days after purchase; the batch closest to

@@ -49,6 +49,11 @@ services:
       - ./backend:/app
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
+    # Secrets that must not be in git (the root .env is tracked): Stripe keys and any other
+    # variable from docs/SECURITY_SETUP.md that is not listed under environment below.
+    env_file:
+      - path: .env.local
+        required: false
     environment:
       TZ: ${TZ:-Europe/Berlin}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aivhub}

@@ -103,6 +103,10 @@ async def _credit_wallets(conn: AsyncConnection) -> None:
             ), {"id": f"cg_{_uuid.uuid4().hex[:14]}", "o": org_id, "a": int(total)})
 
 
+async def _billing_plan_currency(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'usd'"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -110,6 +114,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_02_meeting_lunch_columns", _meeting_lunch_columns),
     ("2026_10_02_operator_profile_columns", _operator_profile_columns),
     ("2026_10_03_credit_wallets", _credit_wallets),
+    ("2026_10_04_billing_plan_currency", _billing_plan_currency),
 ]
 
 

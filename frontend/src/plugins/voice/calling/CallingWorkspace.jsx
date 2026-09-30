@@ -5,6 +5,7 @@ import {
   BarChart3,
   Calendar,
   Clock,
+  CreditCard,
   FileText,
   Headphones,
   History,
@@ -44,6 +45,8 @@ import {
 } from "lucide-react";
 import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
+import { PluginCredits } from "../../../team/PluginCredits";
+import { SubscriptionPage } from "../../../team/SubscriptionPage";
 import { api } from "../../../api/apiClient";
 import { WebSocketClient } from "../../../api/wsClient";
 import { withToken } from "../../../api/authStore";
@@ -75,6 +78,7 @@ const PAGES = [
   { id: "company", label: "Company", icon: Users, section: "company" },
   { id: "hours", label: "Working hours", icon: Clock, section: "company" },
   { id: "numbers", label: "Numbers", icon: Phone, section: "admin" },
+  { id: "subscription", label: "Subscription", icon: CreditCard, section: "admin" },
   { id: "systemlogs", label: "System logs", icon: ScrollText, section: "process_logs" },
 ];
 
@@ -2410,6 +2414,7 @@ export function CallingWorkspace({
     analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],
     hours: ["Working hours", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
     numbers: ["Numbers", "Verify your business, buy UK numbers and turn on WhatsApp."],
+    subscription: ["Subscription", "Your calling plan and credits. Change plan, top up, or cancel."],
     whatsapp: ["WhatsApp", "Conversations on your own numbers. AI replies until a person steps in."],
     systemlogs: ["System logs", "Technical activity of calls, providers and background jobs."],
   };
@@ -2470,6 +2475,7 @@ export function CallingWorkspace({
           );
         })}
         <div style={{ flex: 1 }} />
+        <PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} />
         <button type="button" onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "#8B90A0", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           <LogOut size={14} /> Log out
         </button>
@@ -3752,6 +3758,7 @@ export function CallingWorkspace({
           )}
 
           {page === "numbers" && operator?.is_admin && <NumbersPage />}
+          {page === "subscription" && operator?.is_admin && <SubscriptionPage wallet="voice" back="/voice/subscription" />}
           {page === "whatsapp" && canSee(operator, "calling") && <WhatsappInbox />}
 
           {page === "hours" && canSee(operator, "company") && (
