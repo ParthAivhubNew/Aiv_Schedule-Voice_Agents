@@ -157,7 +157,7 @@ class PlanBody(BaseModel):
 
 def _check_plan(body: PlanBody) -> None:
     if body.wallet not in K.WALLETS or body.kind not in ("plan", "topup"):
-        raise HTTPException(status_code=400, detail="Pick a plugin and plan or top-up.")
+        raise HTTPException(status_code=400, detail="Pick an app and plan or top-up.")
     if body.priceUsdCents < 50 or body.credits <= 0 or not body.name.strip():
         raise HTTPException(status_code=400, detail="Name, a price of at least $0.50 and credits are required.")
 
@@ -239,7 +239,7 @@ async def plan_from_stripe(body: StripePriceBody, request: Request, db: AsyncSes
 
     _staff(request)
     if body.wallet not in K.WALLETS or body.credits <= 0:
-        raise HTTPException(status_code=400, detail="Pick a plugin and how many credits it gives.")
+        raise HTTPException(status_code=400, detail="Pick an app and how many credits it gives.")
     if (await db.execute(select(BillingPlan).where(BillingPlan.stripe_price_id == body.priceId))).scalars().first():
         raise HTTPException(status_code=400, detail="That price is already on sale.")
     try:
@@ -251,6 +251,28 @@ async def plan_from_stripe(body: StripePriceBody, request: Request, db: AsyncSes
     db.add(p)
     await db.commit()
     return B.plan_json(p)
+
+
+@router.get("/platform/telnyx-costs")
+async def telnyx_costs(request: Request, month: str = ""):
+    """Per organisation on our Telnyx account: Telnyx's cost for its billing group this month,
+    the minutes we billed, what it paid us, and the margin."""
+    import re
+    from datetime import datetime
+
+    from app.services import telnyx_usage
+    from app.services.telnyx_client import TelnyxError, platform_key
+
+    _staff(request)
+    month = month or datetime.utcnow().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    if not platform_key():
+        raise HTTPException(status_code=503, detail="Telnyx is not connected on the platform yet.")
+    try:
+        return await telnyx_usage.margin_report(month)
+    except TelnyxError as err:
+        raise HTTPException(status_code=502, detail=str(err))
 
 
 @router.post("/platform/plans/{plan_id}/sync-stripe")

@@ -3,8 +3,17 @@
 Two ways to keep clients apart on Telnyx (TELNYX_ACCOUNT_MODE):
 - managed_account: each organisation gets its own Telnyx managed account under ours
   (needs Telnyx to approve us as a manager account). Numbers, calls and costs live in it.
-- billing_group (default): everything runs on our own account; each organisation gets a
-  billing group so Telnyx reports its costs separately.
+- billing_group (default, pay-as-you-go): everything runs on our own account and our one Telnyx
+  balance. Each organisation gets
+    - a billing group: its numbers (inbound) and its outbound profile are in it, so Telnyx
+      reports its usage separately (reports only: a billing group holds no money);
+    - its own outbound voice profile in that billing group, limited to its allowed countries
+      and optionally a daily spend cap (TELNYX_DAILY_SPEND_LIMIT_USD) and a highest per-minute
+      rate (TELNYX_MAX_DESTINATION_RATE) that Telnyx itself enforces;
+    - its own Call Control app on that profile, which its outbound calls are dialled through.
+  Because every organisation draws on our balance, our app is the source of truth: each one
+  pays us in advance (credits), usage is checked before a call and a call is capped at what is
+  left, and Telnyx's reports per billing group are compared with what we charged.
 
 Flow: verification (documents + requirement group, reviewed by Telnyx) -> number search ->
 number order -> when complete, the number becomes one of the organisation's numbers.
@@ -61,8 +70,15 @@ def client_for(setup) -> TelnyxClient:
     return TelnyxClient(platform_key())
 
 
+def _complete(setup) -> bool:
+    if setup.mode == "managed_account":
+        return bool(setup.api_key_sealed and setup.connection_id and setup.messaging_profile_id)
+    return bool(setup.billing_group_id and setup.outbound_voice_profile_id and setup.outbound_connection_id)
+
+
 async def ensure_setup(db, org_name: str, email: str = "") -> Any:
-    """Create (or finish creating) the organisation's Telnyx side. Idempotent; caller commits."""
+    """Create (or finish creating) the organisation's Telnyx side. Idempotent: each part is made
+    once, so an organisation set up before a part existed gets it on the next call. Caller commits."""
     from app.models.models import OrgTelnyx
     from app.services.secret_box import seal_secret
 
@@ -71,10 +87,12 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
         setup = OrgTelnyx(id=_org(), mode=account_mode(), status="new")
         db.add(setup)
         await db.flush()
-    if setup.status == "ready":
+    if setup.status == "ready" and _complete(setup):
         return setup
+    was_ready = setup.status == "ready"
     if not platform_ready():
-        setup.status, setup.last_error = "error", "Telnyx is not connected on the platform yet."
+        if not was_ready:
+            setup.status, setup.last_error = "error", "Telnyx is not connected on the platform yet."
         return setup
     manager = TelnyxClient(platform_key())
     try:
@@ -101,15 +119,67 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
                 prof = await own.create_messaging_profile("OutReach messages", f"{base}/api/telnyx/messaging-webhook")
                 setup.messaging_profile_id = str(prof.get("id") or "")
         else:
+            from app.services.telephony_provider import public_http_base
+
+            label = f"{org_name or _org()} ({_org()})"
             if not setup.billing_group_id:
-                bg = await manager.create_billing_group(f"{org_name or _org()} ({_org()})")
+                bg = await manager.create_billing_group(label)
                 setup.billing_group_id = str(bg.get("id") or "")
+            if not setup.outbound_voice_profile_id:
+                ovp = await manager.create_outbound_voice_profile(
+                    label, list(setup.allowed_countries or ["GB"]), setup.billing_group_id,
+                    daily_spend_limit_usd=os.getenv("TELNYX_DAILY_SPEND_LIMIT_USD", "").strip(),
+                    max_destination_rate=os.getenv("TELNYX_MAX_DESTINATION_RATE", "").strip())
+                setup.outbound_voice_profile_id = str(ovp.get("id") or "")
+                await _prepaid_only(db)
+            if not setup.outbound_connection_id:
+                # Same webhook as our other Call Control apps: it handles every kind of call we place.
+                app_ = await manager.create_call_control_application(
+                    f"OutReach calls: {label}", f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id)
+                setup.outbound_connection_id = str(app_.get("id") or "")
             setup.connection_id = setup.connection_id or os.getenv("TELNYX_CONNECTION_ID", "").strip()
             setup.messaging_profile_id = setup.messaging_profile_id or os.getenv("TELNYX_MESSAGING_PROFILE_ID", "").strip()
         setup.status, setup.last_error = "ready", ""
     except TelnyxError as err:
-        setup.status, setup.last_error = "error", str(err)[:500]
+        setup.last_error = str(err)[:500]
+        if not was_ready:  # what already worked (e.g. buying numbers) keeps working
+            setup.status = "error"
     return setup
+
+
+async def _prepaid_only(db) -> None:
+    """An organisation on our Telnyx balance uses only what it has paid for: its credits are
+    enforced (the platform's own organisation is not a customer and is left as it is)."""
+    from app.api.credits import platform_org
+    from app.services import credits as K
+
+    if _org() != platform_org():
+        await K.set_org_settings(db, {"enforce": True})
+
+
+async def outbound_route(db, from_number: str) -> Optional[Tuple[str, str]]:
+    """(API key, Call Control app) to dial through so the call is billed to this organisation's
+    billing group: our key and its own app, when the caller ID is a number we bought for it.
+    None: dial the way the organisation always has (e.g. its own Telnyx account)."""
+    from app.models.models import OrgPhoneNumber
+    from app.services.numbers import normalize
+
+    if account_mode() != "billing_group" or not platform_ready() or not from_number:
+        return None
+    setup = await get_setup(db)
+    if setup is None or setup.status != "ready":
+        return None
+    if not setup.outbound_connection_id:
+        setup = await ensure_setup(db, "")  # organisations set up before outbound profiles existed
+        await db.commit()
+        if not setup.outbound_connection_id:
+            return None
+    ours = (await db.execute(select(OrgPhoneNumber).where(
+        OrgPhoneNumber.e164 == normalize(from_number), OrgPhoneNumber.provider == "telnyx",
+        OrgPhoneNumber.provider_ref != "", OrgPhoneNumber.status == "active"))).scalars().first()
+    if not ours:
+        return None
+    return platform_key(), setup.outbound_connection_id
 
 
 # ── Regulatory requirements ────────────────────────────────────────────────

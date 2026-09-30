@@ -1,11 +1,14 @@
 """Credits: one wallet per plugin (Voice, Lead generation, Email outreach, Post scheduler).
 
 - Credits arrive in batches (CreditGrant): plan renewals (expire at the next renewal),
-  top-ups (expire 30 days after purchase) and staff grants (optional expiry).
+  top-ups (never expire: they outlast the plan month and are spent after it) and staff grants
+  (optional expiry).
 - Usage takes from the batch closest to expiry first, so as little as possible is lost.
 - Each wallet warns its admins once at 20% left and stops only its own plugin at zero
-  (when the organisation's credits are enforced). A call already running is never cut off:
-  it finishes, and anything it overdraws is taken from the next credits that arrive.
+  (when the organisation's credits are enforced). A call is capped at the minutes left plus a
+  short grace (CALL_GRACE_MIN), so a conversation is not cut off the moment credits reach zero
+  and nothing can run far past what was paid for; the grace is taken from the next credits.
+- Phone numbers bought through us cost their rate-card price every calendar month (0: free).
 - Usage is settled in the background from what actually happened (finished calls, AI posts,
   WhatsApp messages), so billing can never slow down or break a call.
 - The original organisation is tracking-only unless enforcement is switched on, so nothing
@@ -41,18 +44,22 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "ai_post": {"label": "AI-written social post", "unit": "post", "credits": 2, "wallet": "scheduler", "charged": True},
     "lead_lookup": {"label": "Lead researched", "unit": "lead", "credits": 1, "wallet": "leadgen", "charged": False},
     "email_send": {"label": "Email sent", "unit": "email", "credits": 1, "wallet": "email", "charged": False},
+    # Telnyx charges us a monthly rental per number; 0 until staff set our price in the rate card.
+    "phone_number_month": {"label": "Phone number, per month", "unit": "number a month", "credits": 0, "wallet": "voice", "charged": True},
 }
 RATES_KEY = "credit_rates"
 SETTLE_LOOKBACK = timedelta(days=3)
-TOPUP_DAYS = 30
+STARTER_DAYS = 30  # a free trial, when STARTER_CREDITS is set
 LOW_SHARE = 0.20
+CALL_GRACE_MIN = 5  # minutes a call may run past the credits left
+MAX_CALL_SECS = 14400  # Telnyx's own longest call
 
 
 def starter_credits() -> int:
     try:
-        return max(0, int(os.getenv("STARTER_CREDITS", "500")))
+        return max(0, int(os.getenv("STARTER_CREDITS", "0")))
     except ValueError:
-        return 500
+        return 0
 
 
 def wallet_of(item: str) -> str:
@@ -188,9 +195,10 @@ def _entry(kind: str, amount: int, wallet: str, item: str = "", quantity: float 
 
 
 async def add_credits(db, wallet: str, amount: int, *, source: str = "grant", expires_at: Optional[datetime] = None,
-                      note: str = "", by: str = "", ref: str = "") -> int:
+                      note: str = "", by: str = "", ref: str = "", paid_cents: int = 0, paid_currency: str = "") -> int:
     """Add a batch of credits to a wallet. Pays off any overdraw first. Idempotent per ref.
-    Returns the wallet balance. Caller commits."""
+    paid_*: what the customer paid for it (Stripe), for margin reports. Returns the wallet
+    balance. Caller commits."""
     from app.models.models import CreditGrant
 
     if wallet not in WALLETS:
@@ -208,7 +216,8 @@ async def add_credits(db, wallet: str, amount: int, *, source: str = "grant", ex
     lows.pop(wallet, None)
     await _patch_doc(db, {"debt": s["debt"], "low_notified": lows})
     db.add(CreditGrant(id=f"cg_{uuid.uuid4().hex[:14]}", wallet=wallet, source=source, amount=amount,
-                       remaining=amount - paid, expires_at=expires_at, ref=ref, note=note[:200]))
+                       remaining=amount - paid, expires_at=expires_at, ref=ref, note=note[:200],
+                       paid_cents=int(paid_cents or 0), paid_currency=(paid_currency or "").lower()))
     db.add(_entry("grant", amount, wallet, ref=ref or None, note=note or source, by=by))
     await db.flush()
     return await wallet_balance(db, wallet)
@@ -300,6 +309,22 @@ async def can_start(db, item: str) -> Tuple[bool, str]:
         return True, ""
 
 
+async def call_time_limit(db) -> Optional[int]:
+    """Longest a new call may last, in seconds: the voice minutes left plus the grace. None when
+    the organisation's credits are not enforced (no cap). Never raises."""
+    try:
+        if not (await org_settings(db))["enforce"]:
+            return None
+        per_minute = (await rates(db))["voice_minute"]["credits"]
+        if per_minute <= 0:
+            return None
+        minutes = max(await wallet_balance(db, "voice"), 0) // per_minute + CALL_GRACE_MIN
+        return int(max(60, min(MAX_CALL_SECS, minutes * 60)))
+    except Exception as err:
+        logger.warning(f"[credits] call limit skipped: {err}")
+        return None
+
+
 # ── Settling usage from what happened ───────────────────────────────────────
 _MMSS = re.compile(r"^\s*(\d+):(\d{1,2})")
 _MIN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*min")
@@ -370,6 +395,17 @@ async def settle(db, now: Optional[datetime] = None) -> int:
         if not done.get(f"wa:{m.id}"):
             total += await charge(db, "whatsapp_message", 1, f"wa:{m.id}", "WhatsApp message")
 
+    # Numbers bought through us: once per calendar month each, from the month they became active.
+    from app.models.models import OrgPhoneNumber
+
+    numbers = (await db.execute(select(OrgPhoneNumber).where(
+        OrgPhoneNumber.status == "active", OrgPhoneNumber.provider == "telnyx", OrgPhoneNumber.provider_ref != ""))).scalars().all()
+    month = now.strftime("%Y-%m")
+    done = await _charged(db, [f"num:{n.id}:{month}" for n in numbers])
+    for n in numbers:
+        if not done.get(f"num:{n.id}:{month}"):
+            total += await charge(db, "phone_number_month", 1, f"num:{n.id}:{month}", f"Number {n.e164}, {now:%B %Y}")
+
     if total:
         await _warn_low(db)
     await db.commit()
@@ -390,7 +426,7 @@ async def _warn_low(db) -> None:
 
             await notify("low_credits", f"{w['label']}: credits running low",
                          [f"<b>{max(w['balance'], 0)}</b> {w['label']} credits left (20% or less).",
-                          "This plugin pauses at zero; your other plugins keep working. Top up in Plans &amp; credits."])
+                          "This app pauses at zero; your other apps keep working. Top up in Plans &amp; credits."])
         except Exception:
             pass
     await _patch_doc(db, {"low_notified": lows})

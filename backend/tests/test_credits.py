@@ -516,6 +516,15 @@ async def test_top_up_bought_several_at_once(client, anon, db, monkeypatch):
     ov = (await client.get("/api/billing/overview")).json()
     assert next(w["balance"] for w in ov["wallets"] if w["key"] == "voice") == 1800
     assert ov["history"][0]["note"] == "Top-up: onehours × 3"
+    # What was paid is kept on the batch, for the Telnyx margin report.
+    from app.core.tenancy import org_scope
+    from app.models.models import CreditGrant
+    from sqlalchemy.future import select
+
+    with org_scope("org_default"):
+        grant = (await db.execute(select(CreditGrant).where(CreditGrant.source == "topup"))).scalars().first()
+        assert (grant.paid_cents, grant.paid_currency) == (3600, "gbp")
+        assert grant.expires_at is None  # top-ups outlast the plan month: they never expire
 
 
 async def test_failed_webhook_is_applied_on_stripes_retry(client, anon, db, monkeypatch):

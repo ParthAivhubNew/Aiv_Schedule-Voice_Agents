@@ -42,6 +42,8 @@ export const FONT_DISPLAY = "'Space Grotesk', sans-serif";
 export const FONT_BODY = "'Inter', sans-serif";
 export const FONT_MONO = "'JetBrains Mono', monospace";
 export const HUB_PAPER = "#fcfbf8";
+// The text of every navigation option (Home, and the pages in each app's sidebar).
+export const NAV_TEXT = { fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600 };
 
 export const STATUS_MAP = {
   active: { label: "Active", fg: "#3457D5", bg: "#EAEEFC" },

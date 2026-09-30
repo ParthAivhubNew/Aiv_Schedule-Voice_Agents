@@ -622,7 +622,7 @@ export function CallingSchedule({
     : "";
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 400px) 1fr", gap: 16, alignItems: "start" }}>
+    <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "minmax(300px, 400px) 1fr", gap: 16, alignItems: "start" }}>
       <div style={{ ...card(), position: "sticky", top: 0 }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Park a call or meeting</div>
         <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>Name, when, how. Click a free slot on the calendar to fill day & time.</div>

@@ -874,12 +874,12 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                 {scopePlugin === "voice" ? "Voice AI keys"
                   : scopePlugin === "email" ? "Email Outreach AI keys"
                   : scopePlugin === "leadgen" ? "Lead Generation AI keys"
-                  : "AI Plugin Configuration"}
+                  : "AI Configuration"}
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
                 {scopePlugin
-                  ? "Models and keys for this plugin only. Hub AI Configuration still has every plugin."
-                  : "Configure models, connect custom API keys, and manage capabilities for each workspace plugin"}
+                  ? "Models and keys for this app only. Home AI Configuration still has every app."
+                  : "Configure models, connect custom API keys, and manage capabilities for each app"}
               </div>
             </div>
           </div>
@@ -1266,12 +1266,12 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
               {/* Plugin Breakdown Table with Actual Data */}
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
                 <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span>Usage Distribution Across Workspace Plugins</span>
+                  <span>Usage Distribution Across Apps</span>
                   <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>Live metered metrics</span>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 1fr 0.8fr", padding: "10px 18px", background: HUB_PAPER, borderBottom: `1px solid ${C.borderLight}`, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  <span>Plugin</span>
+                  <span>App</span>
                   <span>Live Activity / Units</span>
                   <span>Pipeline Activity</span>
                   <span style={{ textAlign: "right" }}>Est. Spend (Share)</span>
@@ -1331,7 +1331,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 26px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: dirty ? C.teal : C.slate }}>
             <span style={{ width: 8, height: 8, borderRadius: 999, background: dirty ? C.teal : C.green }} />
-            <span>{dirty ? "Saved & synchronized across plugins" : "All plugin models in sync"}</span>
+            <span>{dirty ? "Saved & synchronized across apps" : "All app models in sync"}</span>
           </div>
 
           {!embedded ? (

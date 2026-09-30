@@ -52,9 +52,12 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `SYSTEM_MAIL_HOST`, `SYSTEM_MAIL_PORT`, `SYSTEM_MAIL_USER`, `SYSTEM_MAIL_PASSWORD`, `SYSTEM_MAIL_FROM`, `SYSTEM_MAIL_FROM_NAME`, `SYSTEM_MAIL_TLS` | Platform email (invites, resets, verification) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | "Sign in with Google" (button appears once set). In Google Cloud → Credentials → OAuth client (Web application), add the redirect URI `https://outreach.aivhub.com/api/auth/google/callback` |
 | `ALLOW_SIGNUP` | `true` to let new companies register themselves (with the platform mailbox set, they must confirm their email first) |
-| `STARTER_CREDITS` | Credits a self-signup organisation starts with (default 500); those organisations stop at zero |
+| `STARTER_CREDITS` | Free trial credits a self-signup organisation gets in each app, for 30 days (default 0: no trial); those organisations stop at zero |
 | `TELNYX_API_KEY` | Our (manager) Telnyx key: number search/orders, verification, WhatsApp |
-| `TELNYX_ACCOUNT_MODE` | `billing_group` (default: one Telnyx account, a billing group per client) or `managed_account` (a Telnyx managed account per client, once Telnyx approves us as a manager) |
+| `TELNYX_ACCOUNT_MODE` | `billing_group` (default, pay-as-you-go: one Telnyx account and balance, a billing group per client, section 5) or `managed_account` (a Telnyx managed account per client, once Telnyx approves us as a manager) |
+| `TELNYX_DAILY_SPEND_LIMIT_USD` | Optional. Pay-as-you-go: a cap Telnyx itself enforces on each client's outbound calls per day (USD), set on its outbound profile when the profile is created |
+| `TELNYX_MAX_DESTINATION_RATE` | Optional. Pay-as-you-go: calls to destinations dearer than this per minute (USD) are refused by Telnyx |
+| `FX_USD_TO_GBP` | Optional. Staff margin report: converts Telnyx's USD costs to GBP (e.g. `0.79`); without it the margin column is left blank |
 | `TELNYX_CONNECTION_ID`, `TELNYX_MESSAGING_PROFILE_ID` | billing_group mode: the Call Control app and messaging profile new numbers attach to (managed accounts get their own automatically) |
 | `TELNYX_ASSISTANT_PUBLIC_KEY` | Telnyx public key (Mission Control → Keys & Credentials); every Telnyx webhook is checked against it |
 | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. `.env.local` (in git) holds the sandbox's TEST keys so every developer can try payments; the app then shows "test mode". On the live server put the `sk_live_…`/`pk_live_…` keys and the live webhook secret in `.env`, which overrides `.env.local`; never commit live keys. A server without its own keys runs in test mode |
@@ -86,6 +89,32 @@ This replaces `xlsx@0.18.5`, which has known security issues when opening untrus
 Webhooks only make the app re-read the order or verification from Telnyx, so a forged webhook
 cannot mark anything approved. The Numbers page also re-checks pending items every minute.
 
+### Pay-as-you-go: one Telnyx balance, clients pay us
+
+Customer → OutReach → customer's prepaid credits → Telnyx usage. Clients never see Telnyx or its
+prices; they pay us (Stripe) and we pay Telnyx from one balance.
+
+- **Per client on Telnyx**, made automatically the first time the client opens Numbers (and for
+  existing clients, on their next call or visit to Numbers): a **billing group**; an **outbound
+  voice profile** in that billing group, limited to the client's countries (UK by default) and
+  the optional caps above; and a **Call Control app** on that profile. Numbers bought for the
+  client go in its billing group; its outbound calls from those numbers are dialled through its
+  own app. So Telnyx reports every client's calls separately. A billing group is for reports
+  only: it holds no money, and all usage comes out of our one balance.
+- **Our app is the source of truth for balances.** A client on our account has its credits
+  enforced (set when its outbound profile is made): a call is refused when its Voice credits are
+  gone, and each call is capped at the minutes left plus 5 minutes' grace.
+- **Margin.** Clients pay our prices (plans, top-ups, and a monthly price per number set in the
+  rate card as "Phone number, per month"; 0 = included). Team → Plans & credits → *Telnyx costs
+  and margin* (staff) shows, per client and month, Telnyx's cost for its billing group (Telnyx
+  usage reports), the minutes we billed against the minutes Telnyx billed, what the client paid
+  us, and the margin. Products Telnyx does not report per billing group (Telnyx could not confirm
+  this for Voice AI charges) appear as account-wide totals, never split by guesswork.
+- **Inbound calls** answered by the Telnyx-hosted assistant cannot be refused by our app before
+  they start; their minutes are charged afterwards like any call.
+- **Moving to managed accounts later**: set `TELNYX_ACCOUNT_MODE=managed_account` once Telnyx
+  approves it; new clients then get their own account and balance.
+
 ## 6. Stripe (UK account, prices in GBP, clients abroad pay in their own currency)
 
 1. Stripe Dashboard → Settings → Payments → **Adaptive Pricing**: turn it on (the app also asks
@@ -97,18 +126,18 @@ cannot mark anything approved. The Numbers page also re-checks pending items eve
 3. Settings → Billing → **Customer portal**: turn it on (clients change card, plans, invoices there).
 4. In the app (staff, Team → Plans & credits), put plans and top-ups on sale either way:
    - Products already made in Stripe (monthly = plan, one-off = top-up) are listed under
-     *Already in your Stripe account*: check the plugin (guessed from the product name), enter
+     *Already in your Stripe account*: check the app (guessed from the product name), enter
      the credits each gives (a Voice credit is a minute of calls, so 1 hour = 60 credits) and press
      **Put on sale**. The credits of anything on sale can be corrected in the list above it.
    - Or add a plan here (USD) and press **Create in Stripe**.
 5. Tax (optional): Settings → Tax: add the head office address, your tax registrations, the default
    tax code (software as a service) and whether prices include tax. Then set `STRIPE_AUTOMATIC_TAX=true`.
 
-Admins manage each plugin's plan on its **Subscription** page (Voice, Post scheduler and Lead
+Admins manage each app's plan on its **Subscription** page (Voice, Post scheduler and Lead
 generation sidebars): subscribe, move to another plan, cancel at the end of the paid period (or keep
 it after all), buy one-off top-ups, and open Stripe for the card and invoices. Team → Plans &
-credits shows every plugin together. Each purchase of a plan is its own Stripe subscription, so a
-plugin can be added, changed or cancelled without touching the others. Subscriptions and top-ups
+credits shows every app together. Each purchase of a plan is its own Stripe subscription, so a
+app can be added, changed or cancelled without touching the others. Subscriptions and top-ups
 both produce a Stripe invoice.
 
 Changing plan: a dearer plan starts at once, the card is charged the difference for the rest of
@@ -117,5 +146,5 @@ pays on Stripe's invoice page and the plan changes once paid. A cheaper plan sta
 renewal, with nothing refunded and this period's credits kept.
 
 Credits are only granted from signed Stripe webhooks, and each Stripe event is applied once.
-Plan credits expire at the next renewal; top-ups 30 days after purchase; the batch closest to
+Plan credits expire at the next renewal (no rollover); top-ups never expire; the batch closest to
 expiry is spent first.

@@ -19,6 +19,23 @@ class FakeTelnyx:
         self.calls.append((method, path, json))
         if path == "/billing_groups":
             return {"data": {"id": "bg_1"}}
+        if path == "/outbound_voice_profiles":
+            return {"data": {"id": "ovp_1"}}
+        if path == "/call_control_applications":
+            return {"data": {"id": "cca_1"}}
+        if path == "/usage_reports/options":
+            return {"data": [
+                {"product": "call-control", "product_dimensions": ["billing_group_id", "currency", "direction"], "product_metrics": ["cost", "billed_sec"]},
+                {"product": "inference", "product_dimensions": ["model"], "product_metrics": ["cost"]},
+                {"product": "wireless", "product_dimensions": ["mcc"], "product_metrics": ["count"]},
+            ]}
+        if path == "/usage_reports":
+            if params["product"] == "call-control":
+                assert params["dimensions"] == "billing_group_id,currency" and params["metrics"] == "cost,billed_sec"
+                return {"data": [{"billing_group_id": "bg_1", "currency": "USD", "cost": 12.5, "billed_sec": 3000},
+                                 {"billing_group_id": "", "currency": "USD", "cost": 0.4, "billed_sec": 60}],
+                        "meta": {"total_pages": 1}}
+            return {"data": [{"cost": 3.25}], "meta": {"total_pages": 1}}
         if path == "/requirements":
             return {"data": [{"requirements_types": [
                 {"id": "rt_name", "name": "Business name", "type": "textual"},
@@ -117,8 +134,9 @@ async def test_verify_then_buy_number(client, db, fake):
     assert ov["verification"]["status"] == "approved"
 
     found = (await client.get("/api/telnyx/numbers/search?locality=London")).json()
-    assert found[0]["phoneNumber"] == "+442071234567" and found[0]["monthlyCost"] == "1.00"
-    r = await client.post("/api/telnyx/numbers/order", json={"phoneNumber": "+442071234567", "monthlyCost": "1.00"})
+    # Staff (the platform organisation) also see what Telnyx charges; customers never do.
+    assert found[0]["phoneNumber"] == "+442071234567" and found[0]["telnyxMonthlyCost"] == "1.00"
+    r = await client.post("/api/telnyx/numbers/order", json={"phoneNumber": "+442071234567"})
     assert r.status_code == 200 and r.json()["status"] == "pending"
     order_call = next(c[2] for c in fake.calls if c[1] == "/number_orders")
     assert order_call["phone_numbers"][0]["requirement_group_id"] == "rg_1" and order_call["billing_group_id"] == "bg_1"
@@ -232,3 +250,158 @@ async def test_webhook_for_unknown_number_is_ignored(anon, db, fake):
     body = {"data": {"event_type": "message.received", "payload": {"type": "WhatsApp", "text": "hi",
             "from": {"phone_number": "+447700900123"}, "to": [{"phone_number": "+15550001111"}]}}}
     assert (await anon.post("/api/telnyx/messaging-webhook", json=body)).status_code == 200
+
+
+
+# ── Pay-as-you-go on our Telnyx account ────────────────────────────────────
+async def test_each_customer_gets_its_own_outbound_profile_and_app(db, fake, monkeypatch):
+    """Billing group, an outbound profile in it (its countries, Telnyx-side spend cap) and a call
+    app on that profile; the customer's credits are enforced. An organisation set up before
+    outbound profiles existed is completed on the next call."""
+    from app.core.tenancy import org_scope
+    from app.services import credits as K
+    from app.services import telnyx_provisioning as TP
+
+    monkeypatch.setenv("TELNYX_DAILY_SPEND_LIMIT_USD", "40")
+    await make_user(db, "acme_admin", "Admin", org_id="org_acme")
+    with org_scope("org_acme"):
+        setup = await TP.ensure_setup(db, "Acme")
+        await db.commit()
+        assert (setup.status, setup.billing_group_id, setup.outbound_voice_profile_id, setup.outbound_connection_id) == ("ready", "bg_1", "ovp_1", "cca_1")
+        assert (await K.org_settings(db))["enforce"] is True
+    ovp = next(c[2] for c in fake.calls if c[1] == "/outbound_voice_profiles")
+    assert ovp["billing_group_id"] == "bg_1" and ovp["whitelisted_destinations"] == ["GB"]
+    assert ovp["daily_spend_limit"] == "40" and ovp["daily_spend_limit_enabled"] is True
+    app = next(c[2] for c in fake.calls if c[1] == "/call_control_applications")
+    assert app["outbound"] == {"outbound_voice_profile_id": "ovp_1"} and app["webhook_event_url"].endswith("/api/sip-webhook")
+
+    # Nothing is created twice.
+    made = len(fake.calls)
+    with org_scope("org_acme"):
+        await TP.ensure_setup(db, "Acme")
+        await db.commit()
+    assert len(fake.calls) == made
+
+    # The platform's own organisation is not a customer: its credits are left as they were.
+    with org_scope("org_default"):
+        from app.models.models import OrgTelnyx
+
+        db.add(OrgTelnyx(id="org_default", mode="billing_group", status="ready", billing_group_id="bg_old"))
+        await db.commit()
+        setup = await TP.ensure_setup(db, "Platform")
+        await db.commit()
+        assert setup.outbound_connection_id == "cca_1" and setup.billing_group_id == "bg_old"
+        assert (await K.org_settings(db))["enforce"] is False
+
+
+async def test_outbound_calls_go_through_the_customers_app_and_stop_at_its_minutes(db, fake, monkeypatch):
+    from app.core.tenancy import org_scope
+    from app.models.models import OrgPhoneNumber, OrgTelnyx
+    from app.services import credits as K
+    from app.services import telnyx_assistant_dial as D
+    from app.services import telnyx_provisioning as TP
+
+    await make_user(db, "acme_admin", "Admin", org_id="org_acme")
+    sent = []
+
+    class FakeHttp:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            sent.append((url, json, headers))
+            return httpx.Response(200, json={"data": {"call_control_id": "v3:cc1"}})
+
+    async def allowed(db_, to):
+        from app.services.compliance import CallGate
+
+        return CallGate(allowed=True)
+
+    monkeypatch.setattr(D.httpx, "AsyncClient", FakeHttp)
+    monkeypatch.setattr("app.services.compliance.check_call_allowed", allowed)
+    monkeypatch.setattr("app.config.settings.TELNYX_ASSISTANT_ID", "assistant_1", raising=False)
+    monkeypatch.setattr(D.call_hub, "broadcast", lambda *a, **k: _noop())
+    with org_scope("org_acme"):
+        db.add(OrgTelnyx(id="org_acme", mode="billing_group", status="ready", billing_group_id="bg_1",
+                         outbound_voice_profile_id="ovp_1", outbound_connection_id="cca_acme"))
+        db.add(OrgPhoneNumber(id="num_ours", e164="+442071234567", provider="telnyx", provider_ref="pn_1", status="active"))
+        db.add(OrgPhoneNumber(id="num_byo", e164="+442079990000", provider="telnyx", provider_ref="", status="active"))
+        await K.set_org_settings(db, {"enforce": True})
+        await K.add_credits(db, "voice", 30)
+        await db.commit()
+
+        assert await TP.outbound_route(db, "+442071234567") == ("KEY_TEST", "cca_acme")
+        assert await TP.outbound_route(db, "+442079990000") is None  # not a number we bought: dial as before
+        assert await K.call_time_limit(db) == (30 + K.CALL_GRACE_MIN) * 60
+
+        r = await D.dial_via_telnyx_assistant(db, "+447700900123", from_number_override="+442071234567")
+        assert r["success"], r
+        url, body, headers = sent[-1]
+        assert url.endswith("/v2/calls") and body["connection_id"] == "cca_acme" and headers["Authorization"] == "Bearer KEY_TEST"
+        assert body["time_limit_secs"] == (30 + K.CALL_GRACE_MIN) * 60
+
+        # Not enforced (e.g. the platform's own organisation): no cap.
+        await K.set_org_settings(db, {"enforce": False})
+        assert await K.call_time_limit(db) is None
+
+
+async def _noop():
+    return None
+
+
+async def test_numbers_cost_the_customer_our_monthly_price(db, fake):
+    """Customers see our price, never Telnyx's; a bought number is charged once a month."""
+    from app.core.tenancy import org_scope
+    from app.models.models import OrgPhoneNumber
+    from app.services import credits as K
+
+    _, tok = await make_user(db, "acme_admin", "Admin", org_id="org_acme")
+    with org_scope("org_acme"):
+        await K.set_rates(db, {"phone_number_month": 60})
+        await db.commit()
+    async with _as(tok) as c:
+        found = (await c.get("/api/telnyx/numbers/search?locality=London")).json()
+    assert found[0]["monthlyCredits"] == 60 and not any(k.startswith("telnyx") for k in found[0])
+
+    with org_scope("org_acme"):
+        await K.settle(db)  # first run only marks where charging starts
+        db.add(OrgPhoneNumber(id="num_1", e164="+442071234567", provider="telnyx", provider_ref="pn_1", status="active"))
+        await db.commit()
+        assert await K.settle(db) == 60
+        assert await K.settle(db) == 0  # once per month
+        assert (await K.history(db))[0]["note"].startswith("Number +442071234567")
+
+
+async def test_margin_report_puts_telnyx_cost_next_to_what_we_billed(client, db, fake, monkeypatch):
+    from datetime import datetime
+
+    from app.core.tenancy import org_scope
+    from app.models.models import OrgTelnyx
+    from app.services import credits as K
+
+    monkeypatch.setenv("FX_USD_TO_GBP", "0.8")
+    await make_user(db, "acme_admin", "Admin", org_id="org_acme")
+    with org_scope("org_acme"):
+        db.add(OrgTelnyx(id="org_acme", mode="billing_group", status="ready", billing_group_id="bg_1"))
+        await K.add_credits(db, "voice", 1320, source="plan", note="Plan: startervoice", paid_cents=19999, paid_currency="gbp")
+        await K.charge(db, "voice_minute", 48, "call:a")
+        await db.commit()
+    month = datetime.utcnow().strftime("%Y-%m")
+    r = await client.get(f"/api/credits/platform/telnyx-costs?month={month}")
+    assert r.status_code == 200, r.text
+    rep = r.json()
+    row = next(x for x in rep["rows"] if x["orgId"] == "org_acme")
+    assert (row["minutesBilled"], row["telnyxMinutes"], row["telnyxCost"], row["paid"]) == (48, 50, 12.5, 199.99)
+    assert row["margin"] == round(199.99 - 12.5 * 0.8, 2) and row["marginPct"] == 95
+    assert {u["product"] for u in rep["unattributed"]} == {"inference", "outside every billing group"}
+    assert (await client.get("/api/credits/platform/telnyx-costs?month=2026-13")).status_code == 400
+
+    _, other = await make_user(db, "acme_admin2", "Admin", org_id="org_acme")
+    async with _as(other) as c:
+        assert (await c.get(f"/api/credits/platform/telnyx-costs?month={month}")).status_code == 403

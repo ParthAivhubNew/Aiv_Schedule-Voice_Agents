@@ -630,6 +630,8 @@ class CreditGrant(Base):
     expires_at = Column(DateTime, nullable=True, index=True)  # None = never
     ref = Column(String, default="", index=True)  # e.g. Stripe invoice/session id (makes grants idempotent)
     note = Column(String, default="")
+    paid_cents = Column(Integer, default=0)  # what the customer paid for this batch (Stripe), for margins
+    paid_currency = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -864,7 +866,8 @@ class OrgTelnyx(Base):
     managed_account_id = Column(String, default="")
     api_key_sealed = Column(Text, default="")  # managed account's own key (encrypted)
     billing_group_id = Column(String, default="")
-    outbound_voice_profile_id = Column(String, default="")
+    outbound_voice_profile_id = Column(String, default="")  # its own, in its billing group (PAYG)
+    outbound_connection_id = Column(String, default="")  # its own Call Control app for outbound calls
     connection_id = Column(String, default="")  # Call Control app new numbers attach to
     messaging_profile_id = Column(String, default="")  # needed for WhatsApp / SMS
     allowed_countries = Column(JSON, default=lambda: ["GB"])

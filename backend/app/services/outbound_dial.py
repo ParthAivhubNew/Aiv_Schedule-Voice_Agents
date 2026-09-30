@@ -277,6 +277,18 @@ async def place_outbound_call(
     carrier_choice, credentials, _tele_conn = await _resolve_carrier_and_creds(
         db, carrier, account_sid, api_key
     )
+    if "telnyx" in carrier_choice:
+        # A number we bought for the organisation on our pay-as-you-go account: our key and its
+        # own app, so Telnyx bills the call to its billing group. Prepaid: capped at what is left.
+        from app.services.credits import call_time_limit
+        from app.services.telnyx_provisioning import outbound_route
+
+        route = await outbound_route(db, from_clean)
+        if route:
+            credentials = {**credentials, "api_key": route[0], "auth_token": route[0], "connection_id": route[1]}
+        time_limit = await call_time_limit(db)
+        if time_limit:
+            credentials = {**credentials, "time_limit_secs": time_limit}
 
     from app.services.xai_voice_service import alias_sip_first_call, start_bridged_voice_session
 

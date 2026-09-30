@@ -115,7 +115,7 @@ export function CreditsTab() {
         {data.wallets.map((w) => <WalletCard key={w.key} w={w} />)}
       </div>
       <div style={{ fontSize: 12, color: C.slate, marginTop: 8 }}>
-        {data.enforce ? "Each plugin pauses when its own wallet reaches zero; the others keep working." : "Tracking only: nothing is paused when credits run out."}
+        {data.enforce ? "Each app pauses when its own credits reach zero; the others keep working." : "Tracking only: nothing is paused when credits run out."}
         {data.subscription.renewsAt && ` Plan renews ${day(data.subscription.renewsAt)}.`}
       </div>
 
@@ -162,7 +162,7 @@ export function CreditsTab() {
                         style={{ textAlign: "left", padding: 12, borderRadius: 12, cursor: "pointer", border: `2px dashed ${on ? C.teal : C.border}`, background: on ? C.tealSoft : "#fff" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 13 }}>{p.name}{on && <Check size={14} color={C.teal} />}</div>
                         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 11.5, color: C.slate, fontWeight: 500 }}> once</span></div>
-                        <div style={{ fontSize: 12, color: C.slate }}>{fmt(p.credits)} credits · 30 days</div>
+                        <div style={{ fontSize: 12, color: C.slate }}>{fmt(p.credits)} credits · never expire</div>
                       </button>
                     );
                   })}
@@ -311,7 +311,7 @@ function PlatformCredits({ rates, wallets, stripeReady, onChanged }) {
       {stripePrices.length > 0 && (
         <div style={{ border: `1px dashed ${C.border}`, borderRadius: 10, marginBottom: 10 }}>
           <div style={{ padding: "8px 12px", fontSize: 12.5, color: C.slate }}>
-            Already in your Stripe account, not on sale here yet. Pick the plugin and the credits each one gives
+            Already in your Stripe account, not on sale here yet. Pick the app and the credits each one gives
             (1 hour of calls = {fmt(60 * (rates.voice_minute?.credits || 0))} credits, 1 AI post = {fmt(rates.ai_post?.credits)}).
           </div>
           {stripePrices.map((s) => {
@@ -321,7 +321,7 @@ function PlatformCredits({ rates, wallets, stripeReady, onChanged }) {
               <div key={s.priceId} style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 100px 110px", gap: 8, alignItems: "center", padding: "7px 12px", borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
                 <span>{s.name}{s.description && <span style={{ color: C.slate }}> · {s.description}</span>} <span style={{ color: C.slate }}>({s.kind === "plan" ? "monthly" : "one-off"})</span></span>
                 <span style={{ fontFamily: FONT_MONO }}>{money(s.priceCents, s.currency)}</span>
-                <select aria-label={`Plugin for ${s.name}`} value={draft.wallet} onChange={(e) => edit({ wallet: e.target.value })} style={input}>
+                <select aria-label={`App for ${s.name}`} value={draft.wallet} onChange={(e) => edit({ wallet: e.target.value })} style={input}>
                   {walletKeys.map((k) => <option key={k} value={k}>{k}</option>)}
                 </select>
                 <input aria-label={`Credits for ${s.name}`} type="number" min="1" placeholder="Credits" value={draft.credits} onChange={(e) => edit({ credits: e.target.value })} style={{ ...input, width: "100%" }} />
@@ -360,6 +360,87 @@ function PlatformCredits({ rates, wallets, stripeReady, onChanged }) {
         ))}
         <button type="button" style={btn(false)} onClick={() => run(() => api.setCreditRates(Object.fromEntries(Object.entries(rateDraft).map(([k, v]) => [k, Number(v) || 0]))), "Rates saved.")}>Save rates</button>
       </div>
+
+      <TelnyxMargin />
     </div>
+  );
+}
+
+const cell = { padding: "7px 10px", borderTop: `1px solid ${C.border}`, fontSize: 12.5, textAlign: "right", fontFamily: FONT_MONO, whiteSpace: "nowrap" };
+const amount = (v, cur) => `${Number(v || 0).toFixed(2)} ${(cur || "").toUpperCase()}`;
+
+// OutReach staff: for a month, what Telnyx charged us for each customer's billing group next to
+// the minutes we billed and what the customer paid us, so the margin stays visible.
+function TelnyxMargin() {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [data, setData] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      setData(await api.getTelnyxCosts(month));
+    } catch (err) {
+      setMsg(err.message);
+      setData(null);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <div style={heading}>Telnyx costs and margin</div>
+      <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 8 }}>
+        Every customer uses our one Telnyx balance. This compares what Telnyx charged for each customer's billing group with the
+        minutes we billed and what the customer paid us for Voice in the same month. Telnyx's own report can take a day to catch up.
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+        <input type="month" aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} style={input} />
+        <button type="button" style={btn(true, busy)} disabled={busy} onClick={load}>{busy ? <RefreshCw size={13} /> : null} Show</button>
+      </div>
+      {msg && <div role="alert" style={{ fontSize: 12.5, color: C.red, marginBottom: 8 }}>{msg}</div>}
+      {data && (
+        <>
+          <div className="scroll-narrow" style={{ border: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+              <thead>
+                <tr style={{ fontSize: 11, color: C.slate, textTransform: "uppercase" }}>
+                  {["Customer", "Minutes we billed", "Minutes Telnyx billed", "Telnyx cost", "Paid us", "Margin"].map((h, i) => (
+                    <th key={h} style={{ padding: "7px 10px", textAlign: i ? "right" : "left", fontWeight: 700 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.length === 0 && <tr><td colSpan={6} style={{ ...cell, textAlign: "left", fontFamily: FONT_BODY, color: C.slate }}>No customers on our Telnyx account yet.</td></tr>}
+                {data.rows.map((r) => {
+                  const short = r.telnyxMinutes > r.minutesBilled * 1.05 + 1;
+                  return (
+                    <tr key={r.orgId}>
+                      <td style={{ ...cell, textAlign: "left", fontFamily: FONT_BODY }}>{r.name}</td>
+                      <td style={cell}>{fmt(r.minutesBilled)}</td>
+                      <td style={{ ...cell, color: short ? C.red : C.textInk }} title={short ? "Telnyx billed more minutes than we did" : ""}>{fmt(r.telnyxMinutes)}</td>
+                      <td style={cell}>{amount(r.telnyxCost, r.telnyxCurrency)}</td>
+                      <td style={cell}>{amount(r.paid, r.paidCurrency)}</td>
+                      <td style={{ ...cell, color: r.margin == null ? C.slate : r.margin < 0 ? C.red : C.teal }}>
+                        {r.margin == null ? "set FX_USD_TO_GBP" : `${amount(r.margin, r.paidCurrency)}${r.marginPct != null ? ` (${r.marginPct}%)` : ""}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {data.unattributed.length > 0 && (
+            <div style={{ fontSize: 12.5, color: C.slate, marginTop: 8 }}>
+              Not split by customer (Telnyx does not report these per billing group): {data.unattributed.map((u) => `${u.product} ${amount(u.cost, u.currency)}`).join(" · ")}.
+            </div>
+          )}
+          {data.errors.length > 0 && <div style={{ fontSize: 12, color: C.amber, marginTop: 6 }}>Some Telnyx reports could not be read: {data.errors.join("; ")}</div>}
+          {data.fxUsdToGbp && <div style={{ fontSize: 12, color: C.slate, marginTop: 6 }}>Telnyx's USD converted at {data.fxUsdToGbp} GBP per USD.</div>}
+        </>
+      )}
+    </>
   );
 }
