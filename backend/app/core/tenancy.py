@@ -39,7 +39,8 @@ TENANT_TABLES: List[str] = [
     "social_schedules", "social_posts", "social_post_versions", "social_gen_jobs",
     "scheduler_settings", "social_accounts", "social_oauth_states", "social_emails",
     "process_logs", "conversation_templates", "conversation_variables", "org_phone_numbers",
-    "credit_ledger",
+    "credit_ledger", "org_telnyx", "verification_submissions", "number_orders",
+    "whatsapp_threads", "whatsapp_messages",
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 PER_ORG_SINGLETONS = ["company_profile", "calcom_settings", "scheduler_settings", "conversation_templates"]

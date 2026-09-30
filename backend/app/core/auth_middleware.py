@@ -40,6 +40,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"twilio/(voice|inbound)$",
     _OPT_API + r"(vapi|retell|custom-voice|livekit)/webhook$",
     _OPT_API + r"whatsapp/webhook$",
+    _OPT_API + r"telnyx/(webhook|messaging-webhook)$",  # Ed25519-signed; checked in the handlers
     # Signed links in emails and the social OAuth return page
     _OPT_API + r"scheduler/(review|schedule-extend)$",
     _OPT_API + r"scheduler/oauth/[^/]+/callback$",
@@ -53,7 +54,7 @@ if os.getenv("EXPOSE_API_DOCS", "").lower() in ("1", "true", "yes"):
 PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]  # carrier audio stream
 
 # Carrier webhooks: the organisation is found from the phone numbers in the request.
-CARRIER_WEBHOOK = re.compile(_OPT_API + r"(sip-webhook|sip/webhook|telnyx-assistant/|calls/(telnyx|twilio)/|twilio/)")
+CARRIER_WEBHOOK = re.compile(_OPT_API + r"(sip-webhook|sip/webhook|telnyx-assistant/|telnyx/messaging-webhook|calls/(telnyx|twilio)/|twilio/)")
 _PHONE_RE = re.compile(r"\+\d{8,15}")
 
 
