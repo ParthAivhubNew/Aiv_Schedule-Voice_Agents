@@ -184,6 +184,18 @@ async def _email_temp_password(op: Operator, password: str, welcome: bool, by: s
     return bool(res.get("ok"))
 
 
+async def _security_notice(db: AsyncSession, ctx: Dict[str, Any], line: str, skip: str = "") -> None:
+    """Tell the organisation's other admins about a security change. Never fails the request."""
+    from app.core.notify import notify
+
+    try:
+        ids = [a.id for a in await admins_in(db, ctx["org_id"]) if a.id not in (ctx["operator_id"], skip)]
+        if ids:
+            await notify("security", "Security change in OutReach by Aivhub", [line], only_user_ids=ids)
+    except Exception:
+        pass
+
+
 # ── Sign in / out ───────────────────────────────────────────────────────────
 @router.post("/login")
 async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(get_db)):
@@ -257,6 +269,31 @@ async def me(request: Request, db: AsyncSession = Depends(get_db)):
     return await _operator_json(db, op)
 
 
+class MePatch(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+
+@router.patch("/me")
+async def update_me(body: MePatch, request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    op = await _get_user(db, ctx["operator_id"], ctx["org_id"])
+    if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(status_code=400, detail="Name cannot be empty.")
+        op.name = body.name.strip()[:120]
+    if body.email is not None:
+        email = body.email.strip()
+        if email and ("@" not in email or " " in email or len(email) > 254):
+            raise HTTPException(status_code=400, detail="That email address does not look right.")
+        if (email or None) != op.email:
+            op.email = email or None
+            op.email_verified = False
+    await db.commit()
+    forget(op.id)
+    return await _operator_json(db, op)
+
+
 @router.post("/change-password")
 async def change_password(body: ChangePasswordBody, request: Request, db: AsyncSession = Depends(get_db)):
     ctx = current(request)
@@ -275,6 +312,40 @@ async def change_password(body: ChangePasswordBody, request: Request, db: AsyncS
     await db.commit()
     forget(op.id)
     return await _operator_json(db, op)
+
+
+class NotifyBody(BaseModel):
+    events: Dict[str, bool]
+
+
+async def _notify_state(db: AsyncSession, op: Operator) -> Dict[str, Any]:
+    from app.core import mailer, notify
+
+    is_admin, _, _ = await effective_access(db, op)
+    prefs = notify.effective_prefs(op.notify_prefs, is_admin)
+    return {
+        "email": op.email or "",
+        "mailboxReady": mailer.configured(),
+        "events": [{"key": k, "label": label, "on": prefs[k]} for k, label, _ in notify.EVENTS],
+    }
+
+
+@router.get("/me/notifications")
+async def my_notifications(request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    op = await _get_user(db, ctx["operator_id"], ctx["org_id"])
+    return await _notify_state(db, op)
+
+
+@router.put("/me/notifications")
+async def set_my_notifications(body: NotifyBody, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.core import notify
+
+    ctx = current(request)
+    op = await _get_user(db, ctx["operator_id"], ctx["org_id"])
+    op.notify_prefs = {k: bool(v) for k, v in body.events.items() if k in notify.EVENT_KEYS}
+    await db.commit()
+    return await _notify_state(db, op)
 
 
 # ── Sections, roles ─────────────────────────────────────────────────────────
@@ -418,6 +489,7 @@ async def create_user(body: UserBody, request: Request, db: AsyncSession = Depen
 async def update_user(user_id: str, body: UserPatch, request: Request, db: AsyncSession = Depends(get_db)):
     ctx = await _require_admin_or_team(request)
     op = await _get_user(db, user_id, ctx["org_id"])
+    disabled_notice = False
     was_admin, _, _ = await effective_access(db, op)
     if was_admin and not ctx["is_admin"]:
         raise HTTPException(status_code=403, detail="Only admins can change an admin.")
@@ -443,6 +515,8 @@ async def update_user(user_id: str, body: UserPatch, request: Request, db: Async
             # Signing out everywhere.
             for ses in (await db.execute(select(AuthSession).where(AuthSession.operator_id == op.id, AuthSession.revoked_at.is_(None)))).scalars().all():
                 ses.revoked_at = datetime.utcnow()
+        if op.is_active is not False and not body.is_active:
+            disabled_notice = True
         op.is_active = body.is_active
     if body.grants is not None:
         await db.execute(delete(OperatorGrant).where(OperatorGrant.operator_id == op.id))
@@ -452,6 +526,8 @@ async def update_user(user_id: str, body: UserPatch, request: Request, db: Async
                 db.add(OperatorGrant(operator_id=op.id, section=section, level=level, granted_by=ctx["operator_id"]))
     await db.commit()
     forget(op.id)
+    if disabled_notice:
+        await _security_notice(db, ctx, f"{op.name} ({op.username}) was disabled by {ctx.get('name') or 'an admin'}.")
     return await _operator_json(db, op)
 
 
@@ -470,6 +546,7 @@ async def reset_password(user_id: str, request: Request, db: AsyncSession = Depe
     await db.commit()
     forget(op.id)
     emailed = await _email_temp_password(op, temp, welcome=False, by=ctx.get("name", "")) if op.email else False
+    await _security_notice(db, ctx, f"The password of {op.name} ({op.username}) was reset by {ctx.get('name') or 'an admin'}.", skip=op.id)
     return {"temporary_password": temp, "emailed": emailed}
 
 

@@ -36,6 +36,9 @@ class Operator(Base):
     must_change_password = Column(Boolean, default=False)
     password_changed_at = Column(DateTime, nullable=True)
     last_login_at = Column(DateTime, nullable=True)
+    notify_prefs = Column(JSON, nullable=True)  # {event_key: bool}; missing keys use the defaults
+    email_verified = Column(Boolean, default=False)
+    google_sub = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="operators")

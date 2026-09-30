@@ -128,10 +128,16 @@ async def _send(db: AsyncSession, to: str, subject: str, html_body: str, text_bo
     from app.services.calendar_service import calendar_service
 
     try:
-        return await calendar_service.send_outbound_email(db, to, subject, html_body, text_body=text_body)
+        res = await calendar_service.send_outbound_email(db, to, subject, html_body, text_body=text_body)
     except Exception as err:  # never let mail break publishing
         logger.warning(f"[Approval mail] send to {to} failed: {err}")
-        return {"ok": False, "error": str(err)[:300]}
+        res = {"ok": False, "error": str(err)[:300]}
+    if not res.get("ok") and not await calendar_service._mail_accounts_ready(db):
+        # The organisation has no mailbox of its own: send from the platform mailbox instead.
+        from app.core.mailer import send_system_email
+
+        res = await send_system_email(to, subject, html_body, text_body)
+    return res
 
 
 def _log_row(req_id: str, kind: str, to: str, subject: str, post_ids: List[str], res: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> SocialEmail:

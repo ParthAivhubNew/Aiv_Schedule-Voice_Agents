@@ -140,6 +140,9 @@ export const api = {
     clearSession();
   },
   getMe: () => apiRequest('/auth/me'),
+  updateMe: (data) => apiRequest('/auth/me', { method: 'PATCH', body: data }),
+  getMyNotifications: () => apiRequest('/auth/me/notifications'),
+  setMyNotifications: (events) => apiRequest('/auth/me/notifications', { method: 'PUT', body: { events } }),
   changePassword: (current_password, new_password) =>
     apiRequest('/auth/change-password', { method: 'POST', body: { current_password, new_password } }),
   getSections: () => apiRequest('/auth/sections'),
