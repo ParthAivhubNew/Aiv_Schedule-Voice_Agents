@@ -101,6 +101,19 @@ async def dial_via_telnyx_assistant(
         return {"success": False, "error": "No Telnyx Assistant ID saved. Add it in AI config → Connections → Telnyx AI Assistant."}
 
     api_key = await _resolve_telnyx_api_key(db)
+    # A client on its own Telnyx managed account dials with that account's key and call app.
+    org_connection_id = ""
+    try:
+        from app.services.secret_box import open_secret
+        from app.services.telnyx_provisioning import get_setup
+
+        setup = await get_setup(db)
+        if setup is not None and setup.status == "ready" and setup.mode == "managed_account":
+            own_key = open_secret(setup.api_key_sealed or "")
+            if own_key:
+                api_key, org_connection_id = own_key, (setup.connection_id or "")
+    except Exception as setup_err:
+        logger.debug(f"[TELNYX-ASSISTANT-DIAL] organisation Telnyx setup skipped: {setup_err}")
     if not api_key:
         return {"success": False, "error": "No Telnyx API key saved. Add it in AI config → Connections → Telephony → Telnyx."}
 
@@ -120,7 +133,7 @@ async def dial_via_telnyx_assistant(
     except Exception as line_err:
         logger.debug(f"[TELNYX-ASSISTANT-DIAL] number lookup skipped: {line_err}")
 
-    connection_id = await _resolve_call_control_app_id(db, api_key)
+    connection_id = org_connection_id or await _resolve_call_control_app_id(db, api_key)
     if not connection_id:
         return {"success": False, "error": "No Telnyx Call Control Application found on this account. Run Line setup once to create it."}
 
