@@ -42,6 +42,7 @@ import { AppChrome } from "../components/AppChrome";
 import { NotificationBell } from "../components/TopBar";
 import { api } from "../api/apiClient";
 import { WebSocketClient } from "../api/wsClient";
+import { withToken } from "../api/authStore";
 import { AudioStreamPlayer } from "../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../tokens";
 import { setCallingEdition } from "./callingEdition";
@@ -3536,7 +3537,7 @@ export function CallingWorkspace({
                           </span>
                           <audio
                             controls
-                            src={`/api/calls/${l.id}/recording`}
+                            src={withToken(`/api/calls/${l.id}/recording`)}
                             style={{ height: 32, flex: 1, minWidth: 200 }}
                             onError={(e) => {
                               const parent = e.currentTarget.parentElement;
@@ -3555,7 +3556,7 @@ export function CallingWorkspace({
                             onClick={async (e) => {
                               e.preventDefault();
                               try {
-                                const res = await fetch(`/api/calls/${l.id}/recording/download`);
+                                const res = await fetch(withToken(`/api/calls/${l.id}/recording/download`));
                                 if (!res.ok) {
                                   alert("No audio recording is available for this call.");
                                   return;

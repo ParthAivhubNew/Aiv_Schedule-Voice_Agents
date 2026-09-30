@@ -34,24 +34,33 @@ async def seed_database():
 
         print("Initializing clean database structure...")
         
-        # 1. Operators
+        # 1. Operators. The first sign-in uses ADMIN_PASSWORD (or "password" when unset) and
+        # must pick a new password straight away; the startup migrations give them the Admin role.
+        from app.core.security import hash_password
+        import os
+
+        first_pw = os.getenv("ADMIN_PASSWORD") or "password"
         admin = Operator(
             id="op_admin",
+            org_id="org_default",
             username="admin",
             name="Admin",
             role="Admin",
             email="admin@aivhub.io",
-            hashed_password="password"
+            hashed_password=hash_password(first_pw),
+            must_change_password=True,
         )
         db.add(admin)
 
         jitendra = Operator(
             id="op_jitendra",
+            org_id="org_default",
             username="jitendra",
             name="Jitendra S.",
             role="Admin",
             email="jitendra@aivhub.io",
-            hashed_password="password"
+            hashed_password=hash_password(first_pw),
+            must_change_password=True,
         )
         db.add(jitendra)
         

@@ -1,3 +1,5 @@
+import { withToken } from "./authStore";
+
 // G.711 Mu-Law Audio Decoder & Web Audio Streaming Player
 // Plays real-time phone audio chunks from Twilio/xAI in the browser
 
@@ -152,7 +154,7 @@ export class AudioStreamPlayer {
     const wsUrl = `${protocol}//${host}/ws/listen/${this.callId}`;
 
     console.log(`[AudioPlayer] Connecting to live audio at ${wsUrl}`);
-    this.socket = new WebSocket(wsUrl);
+    this.socket = new WebSocket(withToken(wsUrl));
 
     this.socket.onopen = () => {
       console.log(`[AudioPlayer] Connected to live audio stream for ${this.callId}`);

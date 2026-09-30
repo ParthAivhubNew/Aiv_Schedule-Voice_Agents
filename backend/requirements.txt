@@ -23,4 +23,4 @@ livekit>=1.1.19
 livekit-api>=1.2.1
 miniaudio>=1.61
 audioop-lts>=0.2.1; python_version >= '3.13'
-
+bcrypt>=4.1
