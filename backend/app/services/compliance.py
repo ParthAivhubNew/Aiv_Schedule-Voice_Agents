@@ -1,5 +1,5 @@
 import math
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 PECR_RULES = {
     "weekday_start": "08:00",
@@ -102,3 +102,124 @@ def compute_queue_estimate(
         "finish_time": finish_time,
         "finish_label": finish_label,
     }
+
+
+# ── Call gate: checked before every outbound dial ───────────────────────────
+# UK PECR / Ofcom practice: never call people who opted out, and only at reasonable hours in
+# the callee's own time zone. Two hour policies from the Company profile:
+#   "respectful" (default): Mon–Fri between weekday_start and weekday_end, not over lunch
+#   "legal":                every day 08:00–21:00
+# Enforcement mode (env CALL_WINDOW_ENFORCEMENT or app setting "compliance".mode):
+#   "block": out-of-hours calls are refused; "warn": they go ahead with a warning; "off".
+# Opted-out numbers are always refused, whatever the mode.
+
+import os as _os
+from dataclasses import dataclass, field
+from datetime import datetime as _dt
+from typing import List as _List
+
+
+@dataclass
+class CallGate:
+    allowed: bool
+    reasons: _List[str] = field(default_factory=list)
+    warnings: _List[str] = field(default_factory=list)
+    callee_timezone: str = ""
+    callee_local_time: str = ""
+
+
+def _in_window(local: _dt, policy: str, weekday_start: str, weekday_end: str, lunch_start: str, lunch_end: str) -> tuple:
+    hhmm = local.strftime("%H:%M")
+    mins = time_to_minutes(hhmm)
+    if (policy or "respectful").lower() == "legal":
+        if not (time_to_minutes("08:00") <= mins < time_to_minutes("21:00")):
+            return False, "outside 08:00–21:00 in the callee's time"
+        return True, ""
+    if local.weekday() >= 5:
+        return False, "weekend in the callee's time (calls are Monday to Friday)"
+    if not (time_to_minutes(weekday_start or "09:00") <= mins < time_to_minutes(weekday_end or "17:30")):
+        return False, f"outside {weekday_start}–{weekday_end} in the callee's time"
+    if is_in_lunch(hhmm, lunch_start or "12:00", lunch_end or "13:00"):
+        return False, "lunch time in the callee's time"
+    return True, ""
+
+
+
+
+async def enforcement_mode(db) -> str:
+    from sqlalchemy.future import select as _select
+
+    from app.models.models import AppSetting
+
+    try:
+        row = (await db.execute(_select(AppSetting).where(AppSetting.id == "compliance"))).scalars().first()
+        mode = ((row.data or {}).get("mode") if row else None) or _os.getenv("CALL_WINDOW_ENFORCEMENT", "warn")
+    except Exception:
+        mode = _os.getenv("CALL_WINDOW_ENFORCEMENT", "warn")
+    mode = str(mode).lower().strip()
+    return mode if mode in ("block", "warn", "off") else "warn"
+
+
+async def is_opted_out(db, number: str) -> bool:
+    from sqlalchemy.future import select as _select
+
+    from app.models.models import ContactRegistry
+    from app.services.timezone_service import normalize_phone
+
+    target = normalize_phone(number)
+    if not target:
+        return False
+    rows = (await db.execute(_select(ContactRegistry).where(ContactRegistry.do_not_call.is_(True)))).scalars().all()
+    for r in rows:
+        for p in (r.phones or []):
+            if normalize_phone(p if isinstance(p, str) else (p or {}).get("number", "")) == target:
+                return True
+    return False
+
+
+async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None) -> CallGate:
+    """Never raises: a failure inside the check itself lets the call through with a warning,
+    so a bug here can never stop calling altogether (opt-outs aside)."""
+    import zoneinfo
+
+    from sqlalchemy.future import select as _select
+
+    from app.models.models import CompanyProfile
+    from app.services.timezone_service import resolve_prospect_timezone
+
+    gate = CallGate(allowed=True)
+    try:
+        if await is_opted_out(db, to_number):
+            gate.allowed = False
+            gate.reasons.append("This number opted out (do not call).")
+            return gate
+    except Exception as err:
+        gate.warnings.append(f"Opt-out list could not be checked: {err}")
+    try:
+        mode = await enforcement_mode(db)
+        if mode == "off":
+            return gate
+        prof = (await db.execute(_select(CompanyProfile).limit(1))).scalars().first()
+        tz = resolve_prospect_timezone(phone=to_number, host_tz=getattr(prof, "timezone", None))
+        now_utc = now_utc or _dt.utcnow()
+        local = now_utc.replace(tzinfo=zoneinfo.ZoneInfo("UTC")).astimezone(zoneinfo.ZoneInfo(tz))
+        gate.callee_timezone = tz
+        gate.callee_local_time = local.strftime("%a %H:%M")
+        ok, why = _in_window(
+            local,
+            getattr(prof, "call_hours_policy", "respectful"),
+            getattr(prof, "weekday_start", "09:00"),
+            getattr(prof, "weekday_end", "17:30"),
+            getattr(prof, "lunch_start", "12:00"),
+            getattr(prof, "lunch_end", "13:00"),
+        )
+        if not ok:
+            msg = f"It is {gate.callee_local_time} for this number ({tz}): {why}."
+            if mode == "block":
+                gate.allowed = False
+                gate.reasons.append(msg)
+            else:
+                gate.warnings.append(msg)
+    except Exception as err:
+        gate.warnings.append(f"Call hours could not be checked: {err}")
+    return gate

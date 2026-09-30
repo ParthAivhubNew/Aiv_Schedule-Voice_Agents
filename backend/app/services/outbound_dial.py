@@ -266,6 +266,13 @@ async def place_outbound_call(
         raise ValueError("A valid phone number (at least 7 digits) is required.")
 
     to_clean = normalize_phone_number(to_raw)
+
+    # UK calling rules for batch/list calls too (opt-outs refused; hours per compliance mode).
+    from app.services.compliance import check_call_allowed
+    gate = await check_call_allowed(db, to_clean)
+    if not gate.allowed:
+        raise ValueError(" ".join(gate.reasons))
+
     from_clean = await resolve_from_number(db, from_number)
     carrier_choice, credentials, _tele_conn = await _resolve_carrier_and_creds(
         db, carrier, account_sid, api_key
