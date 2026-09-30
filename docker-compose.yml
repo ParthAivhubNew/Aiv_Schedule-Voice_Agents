@@ -49,10 +49,13 @@ services:
       - ./backend:/app
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
-    # Secrets that must not be in git (the root .env is tracked): Stripe keys and any other
-    # variable from docs/SECURITY_SETUP.md that is not listed under environment below.
+    # .env.local is in git: Stripe TEST keys, so every developer can try payments.
+    # .env comes second, so a server's own values win: production puts its live Stripe keys
+    # (and any other variable from docs/SECURITY_SETUP.md not listed below) in .env.
     env_file:
       - path: .env.local
+        required: false
+      - path: .env
         required: false
     environment:
       TZ: ${TZ:-Europe/Berlin}

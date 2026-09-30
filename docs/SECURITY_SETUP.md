@@ -57,7 +57,7 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `TELNYX_ACCOUNT_MODE` | `billing_group` (default: one Telnyx account, a billing group per client) or `managed_account` (a Telnyx managed account per client, once Telnyx approves us as a manager) |
 | `TELNYX_CONNECTION_ID`, `TELNYX_MESSAGING_PROFILE_ID` | billing_group mode: the Call Control app and messaging profile new numbers attach to (managed accounts get their own automatically) |
 | `TELNYX_ASSISTANT_PUBLIC_KEY` | Telnyx public key (Mission Control → Keys & Credentials); every Telnyx webhook is checked against it |
-| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. Use `sk_test_…` keys first (the app shows "test mode"), then swap in live keys. Put them in `.env.local` next to `docker-compose.yml` (not in git; the backend container reads it) |
+| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. `.env.local` (in git) holds the sandbox's TEST keys so every developer can try payments; the app then shows "test mode". On the live server put the `sk_live_…`/`pk_live_…` keys and the live webhook secret in `.env`, which overrides `.env.local`; never commit live keys. A server without its own keys runs in test mode |
 | `STRIPE_AUTOMATIC_TAX` | `true` once Stripe Tax is set up (section 6): Checkout adds VAT/sales tax and asks business customers for a VAT number |
 | `PLATFORM_ORG_ID` | Organisation whose admins are OutReach staff: they add credits and set rates (default `org_default`) |
 | `CALL_WINDOW_ENFORCEMENT` | Default calling-hours mode if an organisation has not chosen one |
