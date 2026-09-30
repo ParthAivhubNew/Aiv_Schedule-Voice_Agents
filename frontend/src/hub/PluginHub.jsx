@@ -17,6 +17,7 @@ import { AppChrome, CallTimer, PluginCard } from "../app/ui";
 import { navigateHash, routeHash } from "../utils/route";
 import { BrandMark } from "./BrandMark";
 import { OnboardingChecklist } from "./OnboardingChecklist";
+import { BillingReturnBanner } from "./BillingReturnBanner";
 
 export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin }) {
   const [open, setOpen] = useState(false);
@@ -377,6 +378,7 @@ export function PluginHub({ operator, onPick, onLogout, commonAi, onOpenCommonAi
           The unified AI growth suite for your business. Scout verified accounts, schedule branded content, run outbound email sequences, and conduct live voice discovery calls.
         </div>
 
+        <BillingReturnBanner />
         <OnboardingChecklist
           operator={operator}
           onGo={(go) => {

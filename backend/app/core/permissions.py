@@ -101,6 +101,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/auth/(me|me/notifications|logout|change-password|onboarding)$"), None),
     (re.compile(r"^/auth/"), "team"),
     (re.compile(r"^/credits"), None),
+    (re.compile(r"^/billing/"), None),  # admins only; checked in the handlers
     (re.compile(r"^/telnyx/"), None),  # admins only; checked in the handlers
     (re.compile(r"^/wa/"), "calling"),  # admins and platform staff; checked in the handlers
     (re.compile(r"^/analytics/usage$"), None),  # plugin hub usage cards

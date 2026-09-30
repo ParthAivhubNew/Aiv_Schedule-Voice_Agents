@@ -605,7 +605,8 @@ class CreditEntry(Base):
     org_id = Column(String, index=True, server_default=FetchedValue())
 
     id = Column(String, primary_key=True)
-    kind = Column(String, nullable=False)  # grant, usage, adjust
+    kind = Column(String, nullable=False)  # grant, usage, expire, adjust
+    wallet = Column(String, default="voice", index=True)  # voice, leadgen, email, scheduler
     item = Column(String, default="")  # rate card key for usage, e.g. voice_minute
     quantity = Column(Float, default=0)
     amount = Column(Integer, nullable=False)
@@ -613,6 +614,65 @@ class CreditEntry(Base):
     note = Column(String, default="")
     by = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class CreditGrant(Base):
+    """A batch of credits in one plugin's wallet (a plan renewal, a top-up, or added by staff).
+    Usage takes from the batch closest to expiry first."""
+    __tablename__ = "credit_grants"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    wallet = Column(String, nullable=False, index=True)
+    source = Column(String, default="grant")  # plan, topup, grant, starter
+    amount = Column(Integer, nullable=False)
+    remaining = Column(Integer, nullable=False)
+    expires_at = Column(DateTime, nullable=True, index=True)  # None = never
+    ref = Column(String, default="", index=True)  # e.g. Stripe invoice/session id (makes grants idempotent)
+    note = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BillingPlan(Base):
+    """What we sell, per plugin: monthly plans and one-off top-ups (platform-wide, set by staff)."""
+    __tablename__ = "billing_plans"
+
+    id = Column(String, primary_key=True)
+    wallet = Column(String, nullable=False, index=True)
+    kind = Column(String, default="plan")  # plan | topup
+    name = Column(String, nullable=False)
+    description = Column(String, default="")
+    price_usd_cents = Column(Integer, nullable=False)
+    credits = Column(Integer, nullable=False)
+    features = Column(JSON, default=list)
+    stripe_product_id = Column(String, default="")
+    stripe_price_id = Column(String, default="", index=True)
+    active = Column(Boolean, default=True)
+    sort = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BillingSubscription(Base):
+    """An organisation's Stripe customer and subscription (one subscription, one item per plugin)."""
+    __tablename__ = "billing_subscriptions"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)  # = org id
+    stripe_customer_id = Column(String, default="", index=True)
+    stripe_subscription_id = Column(String, default="", index=True)
+    status = Column(String, default="none")  # none, active, past_due, canceled, incomplete
+    plans = Column(JSON, default=dict)  # wallet -> plan id
+    current_period_end = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class StripeEvent(Base):
+    """Stripe events already handled, so a retried webhook never grants credits twice."""
+    __tablename__ = "stripe_events"
+
+    id = Column(String, primary_key=True)
+    type = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class AppSetting(Base):

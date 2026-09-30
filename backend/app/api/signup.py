@@ -172,7 +172,12 @@ async def _starter_credits(org_id: str) -> None:
                 doc["tracking_since"] = datetime.utcnow().isoformat()
                 await K._put_doc(s, K._settings_id(org_id), doc)
                 if K.starter_credits():
-                    await K.grant(s, K.starter_credits(), note="Starter credits")
+                    from datetime import timedelta
+
+                    # A trial in every plugin's wallet; unused starter credits expire like a top-up.
+                    for wallet in K.WALLETS:
+                        await K.add_credits(s, wallet, K.starter_credits(), source="starter", note="Starter credits",
+                                            expires_at=datetime.utcnow() + timedelta(days=K.TOPUP_DAYS))
                 await s.commit()
     except Exception as err:
         import logging

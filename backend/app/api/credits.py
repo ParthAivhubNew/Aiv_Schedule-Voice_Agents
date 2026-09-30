@@ -39,8 +39,8 @@ async def _summary(db: AsyncSession) -> Dict[str, Any]:
     s = await K.org_settings(db)
     return {
         "balance": await K.balance(db),
+        "wallets": await K.wallets(db),
         "enforce": s["enforce"],
-        "lowAt": s["low_at"],
         "rates": await K.rates(db),
         "usage30d": await K.usage_by_item(db, 30),
         "history": await K.history(db, 100),
@@ -53,19 +53,6 @@ async def my_credits(request: Request, db: AsyncSession = Depends(get_db)):
     out = await _summary(db)
     out["isPlatformStaff"] = ctx["org_id"] == platform_org()
     return out
-
-
-class OrgSettingsBody(BaseModel):
-    lowAt: Optional[int] = None
-
-
-@router.put("/settings")
-async def set_my_settings(body: OrgSettingsBody, request: Request, db: AsyncSession = Depends(get_db)):
-    _admin(request)
-    if body.lowAt is not None:
-        await K.set_org_settings(db, {"low_at": body.lowAt})
-    await db.commit()
-    return await _summary(db)
 
 
 # ── Platform staff ──────────────────────────────────────────────────────────
@@ -83,29 +70,37 @@ async def platform_orgs(request: Request):
             async with AsyncSessionLocal() as db:
                 s = await K.org_settings(db, org_id)
                 out.append({"id": org_id, "name": name, "status": status, "balance": await K.balance(db),
-                            "enforce": s["enforce"]})
+                            "wallets": {w["key"]: w["balance"] for w in await K.wallets(db)}, "enforce": s["enforce"]})
     return out
 
 
 class GrantBody(BaseModel):
     org_id: str
     amount: int
+    wallet: str = "voice"
+    expires_in_days: Optional[int] = None  # None = never expires
     note: str = ""
 
 
 @router.post("/platform/grant")
 async def platform_grant(body: GrantBody, request: Request):
+    from datetime import datetime, timedelta
+
     from app.core.tenancy import org_scope
 
     ctx = _staff(request)
     if not body.amount or abs(body.amount) > 10_000_000:
         raise HTTPException(status_code=400, detail="Enter a non-zero amount.")
+    if body.wallet not in K.WALLETS:
+        raise HTTPException(status_code=400, detail="Unknown wallet.")
     await _org_exists(body.org_id)
+    expires = datetime.utcnow() + timedelta(days=body.expires_in_days) if body.expires_in_days else None
     with org_scope(body.org_id):
         async with AsyncSessionLocal() as db:
-            bal = await K.grant(db, body.amount, note=body.note or "Added by OutReach", by=ctx.get("name", ""))
+            bal = await K.grant(db, body.amount, note=body.note or "Added by OutReach", by=ctx.get("name", ""),
+                                wallet=body.wallet, expires_at=expires)
             await db.commit()
-    return {"org_id": body.org_id, "balance": bal}
+    return {"org_id": body.org_id, "wallet": body.wallet, "balance": bal}
 
 
 class EnforceBody(BaseModel):
@@ -145,3 +140,87 @@ async def _org_exists(org_id: str) -> None:
             found = (await db.execute(text("SELECT 1 FROM organizations WHERE id = :i"), {"i": org_id})).first()
     if not found:
         raise HTTPException(status_code=404, detail="Organisation not found.")
+
+
+# ── Plans and top-ups (staff) ──────────────────────────────────────────────
+class PlanBody(BaseModel):
+    wallet: str
+    kind: str = "plan"
+    name: str
+    description: str = ""
+    priceUsdCents: int
+    credits: int
+    features: list = []
+    active: bool = True
+    sort: int = 0
+
+
+def _check_plan(body: PlanBody) -> None:
+    if body.wallet not in K.WALLETS or body.kind not in ("plan", "topup"):
+        raise HTTPException(status_code=400, detail="Pick a plugin and plan or top-up.")
+    if body.priceUsdCents < 50 or body.credits <= 0 or not body.name.strip():
+        raise HTTPException(status_code=400, detail="Name, a price of at least $0.50 and credits are required.")
+
+
+@router.get("/platform/plans")
+async def list_plans(request: Request, db: AsyncSession = Depends(get_db)):
+    from app.services import billing as B
+
+    _staff(request)
+    return [B.plan_json(p) for p in await B.plans(db, active_only=False)]
+
+
+@router.post("/platform/plans")
+async def create_plan(body: PlanBody, request: Request, db: AsyncSession = Depends(get_db)):
+    import uuid
+
+    from app.models.models import BillingPlan
+    from app.services import billing as B
+
+    _staff(request)
+    _check_plan(body)
+    p = BillingPlan(id=f"plan_{uuid.uuid4().hex[:10]}", wallet=body.wallet, kind=body.kind, name=body.name.strip()[:80],
+                    description=body.description[:300], price_usd_cents=body.priceUsdCents, credits=body.credits,
+                    features=body.features[:12], active=body.active, sort=body.sort)
+    db.add(p)
+    await db.commit()
+    return B.plan_json(p)
+
+
+@router.put("/platform/plans/{plan_id}")
+async def update_plan(plan_id: str, body: PlanBody, request: Request, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy.future import select
+
+    from app.models.models import BillingPlan
+    from app.services import billing as B
+
+    _staff(request)
+    _check_plan(body)
+    p = (await db.execute(select(BillingPlan).where(BillingPlan.id == plan_id))).scalars().first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Plan not found.")
+    if (p.price_usd_cents != body.priceUsdCents or p.kind != body.kind) and p.stripe_price_id:
+        p.stripe_price_id = ""  # a new Stripe price is needed; existing subscribers keep theirs
+    p.wallet, p.kind, p.name, p.description = body.wallet, body.kind, body.name.strip()[:80], body.description[:300]
+    p.price_usd_cents, p.credits, p.features, p.active, p.sort = body.priceUsdCents, body.credits, body.features[:12], body.active, body.sort
+    await db.commit()
+    return B.plan_json(p)
+
+
+@router.post("/platform/plans/{plan_id}/sync-stripe")
+async def sync_plan(plan_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy.future import select
+
+    from app.models.models import BillingPlan
+    from app.services import billing as B
+
+    _staff(request)
+    p = (await db.execute(select(BillingPlan).where(BillingPlan.id == plan_id))).scalars().first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Plan not found.")
+    try:
+        await B.sync_plan_to_stripe(p)
+    except B.StripeError as err:
+        raise HTTPException(status_code=502, detail=str(err))
+    await db.commit()
+    return B.plan_json(p)
