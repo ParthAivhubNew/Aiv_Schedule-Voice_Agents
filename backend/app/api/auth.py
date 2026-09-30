@@ -163,6 +163,27 @@ async def _keep_one_admin(db: AsyncSession, org_id: str, losing: str) -> None:
         raise HTTPException(status_code=400, detail="The organisation needs at least one active admin. Make someone else admin first.")
 
 
+async def _email_temp_password(op: Operator, password: str, welcome: bool, by: str = "") -> bool:
+    """Send the sign-in details from the platform mailbox. Never fails the request."""
+    from app.config import settings
+    from app.core.mailer import render, send_system_email
+    import html as _h
+
+    link = (settings.PUBLIC_BASE_URL or "").rstrip("/") + "/"
+    who = _h.escape(by) if by else "Your admin"
+    if welcome:
+        subject = "Your OutReach by Aivhub account"
+        lines = [f"{who} added you to OutReach by Aivhub.", f"Username: <b>{_h.escape(op.username)}</b><br>Temporary password: <b>{_h.escape(password)}</b>",
+                 "You will choose your own password when you first sign in."]
+    else:
+        subject = "Your OutReach by Aivhub password was reset"
+        lines = [f"{who} reset your password.", f"Username: <b>{_h.escape(op.username)}</b><br>Temporary password: <b>{_h.escape(password)}</b>",
+                 "You will choose a new password when you sign in. If you did not expect this, tell your admin."]
+    msg = render(subject, lines, {"label": "Sign in", "url": link})
+    res = await send_system_email(op.email or "", subject, msg["html"], msg["text"])
+    return bool(res.get("ok"))
+
+
 # ── Sign in / out ───────────────────────────────────────────────────────────
 @router.post("/login")
 async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(get_db)):
@@ -389,6 +410,7 @@ async def create_user(body: UserBody, request: Request, db: AsyncSession = Depen
     await db.commit()
     out = await _operator_json(db, op)
     out["temporary_password"] = temp  # shown once to the admin
+    out["emailed"] = await _email_temp_password(op, pw, welcome=True, by=ctx.get("name", "")) if op.email else False
     return out
 
 
@@ -447,7 +469,8 @@ async def reset_password(user_id: str, request: Request, db: AsyncSession = Depe
         ses.revoked_at = datetime.utcnow()
     await db.commit()
     forget(op.id)
-    return {"temporary_password": temp}
+    emailed = await _email_temp_password(op, temp, welcome=False, by=ctx.get("name", "")) if op.email else False
+    return {"temporary_password": temp, "emailed": emailed}
 
 
 # ── Sharing one section (e.g. Analytics) ────────────────────────────────────

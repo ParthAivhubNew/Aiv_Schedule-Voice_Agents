@@ -195,3 +195,38 @@ async def test_startup_migration_hashes_old_passwords_and_gives_roles(db):
     assert (await effective_access(db, a))[0] is True
     is_admin, perms, _ = await effective_access(db, b)
     assert not is_admin and perms["calling"] == "full" and perms["analytics"] == "none"
+
+
+async def test_new_user_gets_an_email_when_the_mailbox_is_set(client, monkeypatch, db):
+    from app.core import mailer
+
+    sent = []
+    monkeypatch.setenv("SYSTEM_MAIL_HOST", "smtp.test")
+    monkeypatch.setenv("SYSTEM_MAIL_USER", "notify@aivhub.com")
+    monkeypatch.setenv("SYSTEM_MAIL_PASSWORD", "x")
+    monkeypatch.setattr(mailer, "_send_sync", lambda msg: sent.append(msg))
+    roles = {r["name"]: r["id"] for r in (await client.get("/api/auth/roles")).json()}
+    r = await client.post("/api/auth/users", json={"username": "mia", "name": "Mia", "email": "mia@example.com", "role_ids": [roles["Viewer"]]})
+    assert r.json()["emailed"] is True
+    assert sent and sent[0]["To"] == "mia@example.com" and "OutReach by Aivhub" in sent[0]["From"]
+    body = sent[0].get_body(("plain",)).get_content()
+    assert r.json()["temporary_password"] in body and "mia" in body
+
+
+async def test_mail_problems_never_break_the_action(client, monkeypatch):
+    from app.core import mailer
+
+    monkeypatch.delenv("SYSTEM_MAIL_HOST", raising=False)
+    roles = {r["name"]: r["id"] for r in (await client.get("/api/auth/roles")).json()}
+    r = await client.post("/api/auth/users", json={"username": "noemail", "name": "N", "email": "n@example.com", "role_ids": [roles["Viewer"]]})
+    assert r.status_code == 200 and r.json()["emailed"] is False
+
+    def boom(msg):
+        raise OSError("smtp down")
+
+    monkeypatch.setenv("SYSTEM_MAIL_HOST", "smtp.test")
+    monkeypatch.setenv("SYSTEM_MAIL_USER", "u@x.com")
+    monkeypatch.setenv("SYSTEM_MAIL_PASSWORD", "x")
+    monkeypatch.setattr(mailer, "_send_sync", boom)
+    r = await client.post(f"/api/auth/users/{r.json()['id']}/reset-password")
+    assert r.status_code == 200 and r.json()["emailed"] is False
