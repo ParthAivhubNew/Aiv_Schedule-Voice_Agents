@@ -33,8 +33,10 @@ def configured() -> bool:
 
 def _send_sync(msg: EmailMessage) -> None:
     host = os.getenv("SYSTEM_MAIL_HOST", "")
-    mode = os.getenv("SYSTEM_MAIL_TLS", "starttls").lower()
-    port = int(os.getenv("SYSTEM_MAIL_PORT", "465" if mode == "ssl" else "587"))
+    port_env = os.getenv("SYSTEM_MAIL_PORT", "").strip()
+    # Port 465 means SSL from the first byte (e.g. one.com send.one.com:465); 587 means STARTTLS.
+    mode = (os.getenv("SYSTEM_MAIL_TLS") or ("ssl" if port_env == "465" else "starttls")).lower()
+    port = int(port_env or ("465" if mode == "ssl" else "587"))
     user = os.getenv("SYSTEM_MAIL_USER", "")
     pw = os.getenv("SYSTEM_MAIL_PASSWORD", "")
     ctx = ssl.create_default_context()

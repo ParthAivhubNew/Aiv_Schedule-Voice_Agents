@@ -3445,8 +3445,11 @@ export function CallingWorkspace({
                       boxShadow: open ? "0 10px 28px rgba(18,20,28,0.08)" : "0 4px 14px rgba(18,20,28,0.04)",
                     }}
                   >
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={open}
+                      onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setOpenLogId(open ? "" : l.id); } }}
                       onClick={() => setOpenLogId(open ? "" : l.id)}
                       style={{
                         width: "100%",
@@ -3519,7 +3522,7 @@ export function CallingWorkspace({
                       {l.mission ? (
                         <div style={{ fontSize: 12, color: C.slateLight }}>{l.mission}</div>
                       ) : null}
-                    </button>
+                    </div>
                     <div style={{
                       borderTop: `1px solid ${C.border}`,
                       background: open ? "linear-gradient(180deg, #FAFAF8 0%, #F6F5F1 100%)" : "#FAFAF8",
