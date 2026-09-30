@@ -817,6 +817,14 @@ async def dial_outbound_call(
 
         to_clean = normalize_phone_number(to_raw)
 
+        # UK calling rules (opt-outs always refused; call hours per the compliance mode).
+        from app.services.compliance import check_call_allowed
+        gate = await check_call_allowed(db, to_clean)
+        if not gate.allowed:
+            raise HTTPException(status_code=400, detail=" ".join(gate.reasons))
+        for w in gate.warnings:
+            logger.warning(f"[Compliance] {to_clean}: {w}")
+
         # 1. Determine From / Caller ID number dynamically
         from_clean = await resolve_outbound_caller_id(db, req.from_number)
 

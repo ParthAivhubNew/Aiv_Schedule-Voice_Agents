@@ -321,3 +321,41 @@ async def list_notifications(db: AsyncSession = Depends(get_db)):
         "unread": n.unread,
         "type": n.type
     } for n in notifs]
+
+
+# ── Calling rules (compliance mode and hours policy) ───────────────────────
+@router.get("/compliance")
+async def get_compliance(db: AsyncSession = Depends(get_db)):
+    from app.services.compliance import enforcement_mode
+
+    prof = (await db.execute(select(CompanyProfile).limit(1))).scalars().first()
+    return {
+        "mode": await enforcement_mode(db),
+        "policy": getattr(prof, "call_hours_policy", None) or "respectful",
+        "weekdayStart": getattr(prof, "weekday_start", None) or "09:00",
+        "weekdayEnd": getattr(prof, "weekday_end", None) or "17:30",
+        "lunchStart": getattr(prof, "lunch_start", None) or "12:00",
+        "lunchEnd": getattr(prof, "lunch_end", None) or "13:00",
+    }
+
+
+@router.put("/compliance")
+async def set_compliance(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    """mode: block | warn | off (opted-out numbers are refused in every mode)."""
+    from app.models.models import AppSetting
+
+    mode = str(payload.get("mode") or "").lower()
+    if mode not in ("block", "warn", "off"):
+        raise HTTPException(status_code=400, detail="mode must be block, warn or off")
+    row = (await db.execute(select(AppSetting).where(AppSetting.id == "compliance"))).scalars().first()
+    if row:
+        row.data = {**(row.data or {}), "mode": mode}
+    else:
+        db.add(AppSetting(id="compliance", data={"mode": mode}))
+    policy = str(payload.get("policy") or "").lower()
+    if policy in ("respectful", "legal"):
+        prof = (await db.execute(select(CompanyProfile).limit(1))).scalars().first()
+        if prof:
+            prof.call_hours_policy = policy
+    await db.commit()
+    return await get_compliance(db)
