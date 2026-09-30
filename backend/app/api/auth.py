@@ -220,6 +220,20 @@ async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(ge
         from app.core.security import WEAK_LEGACY_PASSWORDS
         if body.password in WEAK_LEGACY_PASSWORDS:
             op.must_change_password = True
+    return await sign_in_as(db, op, request)
+
+
+async def sign_in_as(db: AsyncSession, op: Operator, request: Request) -> Dict[str, Any]:
+    """Start a session for a user who proved who they are (password or Google)."""
+    from app.models.models import Organization
+
+    if op.is_active is False:
+        raise HTTPException(status_code=403, detail="This account is disabled. Ask your admin.")
+    org = (await db.execute(select(Organization).where(Organization.id == org_of(op)))).scalars().first()
+    if org and org.status == "pending_verification":
+        raise HTTPException(status_code=403, detail="Confirm your email first: open the link we sent you.")
+    if org and org.status == "suspended":
+        raise HTTPException(status_code=403, detail="This organisation is suspended. Contact support.")
     await ensure_role_for(db, op)
     op.last_login_at = datetime.utcnow()
     tokens = await _start_session(db, op, request)
