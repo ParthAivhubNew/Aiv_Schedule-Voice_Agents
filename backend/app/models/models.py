@@ -643,6 +643,7 @@ class BillingPlan(Base):
     name = Column(String, nullable=False)
     description = Column(String, default="")
     price_usd_cents = Column(Integer, nullable=False)
+    currency = Column(String, default="usd")  # of price_usd_cents (prices made in Stripe can be e.g. gbp)
     credits = Column(Integer, nullable=False)
     features = Column(JSON, default=list)
     stripe_product_id = Column(String, default="")

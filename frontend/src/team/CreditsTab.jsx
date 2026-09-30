@@ -4,20 +4,20 @@ import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 
 const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: "#fff", boxSizing: "border-box" };
-const btn = (primary, disabled) => ({
+export const btn = (primary, disabled) => ({
   display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 13px", borderRadius: 9, cursor: disabled ? "not-allowed" : "pointer",
   border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.ink : "#fff", color: primary ? "#fff" : C.textInk,
   fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, opacity: disabled ? 0.55 : 1,
 });
-const heading = { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.textInk, margin: "20px 0 10px" };
-const fmt = (n) => Number(n || 0).toLocaleString();
-const usd = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)}`;
-const day = (iso) => (iso ? new Date(iso + (iso.endsWith("Z") ? "" : "Z")).toLocaleDateString([], { day: "numeric", month: "short" }) : "");
+export const heading = { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14.5, color: C.textInk, margin: "20px 0 10px" };
+export const fmt = (n) => Number(n || 0).toLocaleString();
+export const money = (cents, currency) => new Intl.NumberFormat(undefined, { style: "currency", currency: (currency || "usd").toUpperCase() }).format(Number(cents || 0) / 100);
+export const day = (iso) => (iso ? new Date(iso + (iso.endsWith("Z") ? "" : "Z")).toLocaleDateString([], { day: "numeric", month: "short" }) : "");
 
 const WALLET_ICON = { voice: PhoneCall, leadgen: Search, email: Mail, scheduler: CalendarDays };
-const WALLET_COLOUR = { voice: C.cobalt, leadgen: "#8B5CF6", email: "#F59E0B", scheduler: C.teal };
+export const WALLET_COLOUR = { voice: C.cobalt, leadgen: "#8B5CF6", email: "#F59E0B", scheduler: C.teal };
 
-function WalletCard({ w }) {
+export function WalletCard({ w }) {
   const Icon = WALLET_ICON[w.key] || Coins;
   const size = w.batches.reduce((a, b) => a + b.amount, 0) || 1;
   const pct = Math.max(0, Math.min(100, Math.round((Math.max(w.balance, 0) / size) * 100)));
@@ -74,8 +74,10 @@ export function CreditsTab() {
 
   const chosenPlans = Object.values(pick.plans).filter(Boolean);
   const chosenTopups = Object.entries(pick.topups).filter(([, v]) => v).map(([k]) => k);
-  const total = [...chosenPlans, ...chosenTopups].reduce((a, id) => a + (data.plans.find((p) => p.id === id)?.priceUsdCents || 0), 0);
-  const hasSub = ["active", "past_due", "trialing"].includes(data.subscription.status);
+  const chosen = [...chosenPlans, ...chosenTopups].map((id) => data.plans.find((p) => p.id === id)).filter(Boolean);
+  const total = chosen.reduce((a, p) => a + p.priceUsdCents, 0);
+  // Plugins already on a plan change it on their Subscription page; the others can still be bought.
+  const subscribed = ["active", "past_due", "trialing"].includes(data.subscription.status) ? data.subscription.plans : {};
 
   const checkout = async () => {
     setBusy("checkout");
@@ -137,17 +139,18 @@ export function CreditsTab() {
                 <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
                   {React.createElement(WALLET_ICON[wallet] || Coins, { size: 15, color: WALLET_COLOUR[wallet] })}
                   {data.wallets.find((w) => w.key === wallet)?.label || wallet}
-                  {data.subscription.plans[wallet] && <span style={{ fontSize: 11, color: C.teal, background: C.tealSoft, padding: "1px 8px", borderRadius: 99 }}>Subscribed</span>}
+                  {subscribed[wallet] && <span style={{ fontSize: 11, color: C.teal, background: C.tealSoft, padding: "1px 8px", borderRadius: 99 }}>Subscribed</span>}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
                   {group.plan.map((p) => {
                     const on = pick.plans[wallet] === p.id;
-                    const current = data.subscription.plans[wallet] === p.id;
+                    const current = subscribed[wallet] === p.id;
+                    const hasSub = Boolean(subscribed[wallet]);
                     return (
                       <button key={p.id} type="button" disabled={hasSub} onClick={() => setPick({ ...pick, plans: { ...pick.plans, [wallet]: on ? "" : p.id } })}
                         style={{ textAlign: "left", padding: 12, borderRadius: 12, cursor: hasSub ? "default" : "pointer", border: `2px solid ${on || current ? C.cobalt : C.border}`, background: on ? C.cobaltSoft : "#fff" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 13 }}>{p.name}{(on || current) && <Check size={14} color={C.cobalt} />}</div>
-                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginTop: 2 }}>{usd(p.priceUsdCents)}<span style={{ fontSize: 11.5, color: C.slate, fontWeight: 500 }}> /month</span></div>
+                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 11.5, color: C.slate, fontWeight: 500 }}> /month</span></div>
                         <div style={{ fontSize: 12, color: C.slate }}>{fmt(p.credits)} credits every month</div>
                       </button>
                     );
@@ -158,7 +161,7 @@ export function CreditsTab() {
                       <button key={p.id} type="button" onClick={() => setPick({ ...pick, topups: { ...pick.topups, [p.id]: !on } })}
                         style={{ textAlign: "left", padding: 12, borderRadius: 12, cursor: "pointer", border: `2px dashed ${on ? C.teal : C.border}`, background: on ? C.tealSoft : "#fff" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 13 }}>{p.name}{on && <Check size={14} color={C.teal} />}</div>
-                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginTop: 2 }}>{usd(p.priceUsdCents)}<span style={{ fontSize: 11.5, color: C.slate, fontWeight: 500 }}> once</span></div>
+                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 11.5, color: C.slate, fontWeight: 500 }}> once</span></div>
                         <div style={{ fontSize: 12, color: C.slate }}>{fmt(p.credits)} credits · 30 days</div>
                       </button>
                     );
@@ -168,9 +171,9 @@ export function CreditsTab() {
             ))}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 12, color: C.slate }}>Prices in USD. UK cards see and pay in £ at Stripe's rate.</div>
+            <div style={{ fontSize: 12, color: C.slate }}>Cards from other countries see and pay in their own currency at Stripe's rate.</div>
             <button type="button" style={btn(true, !total || busy === "checkout")} disabled={!total || busy === "checkout"} onClick={checkout}>
-              {busy === "checkout" ? <RefreshCw size={13} /> : <CreditCard size={13} />} Pay {total ? usd(total) : ""}
+              {busy === "checkout" ? <RefreshCw size={13} /> : <CreditCard size={13} />} Pay {total ? money(total, chosen[0].currency) : ""}
             </button>
           </div>
         </>
@@ -193,17 +196,28 @@ export function CreditsTab() {
         </div>
       )}
 
-      {isStaff && <PlatformCredits rates={data.rates} wallets={data.wallets} onChanged={load} />}
+      {isStaff && <PlatformCredits rates={data.rates} wallets={data.wallets} stripeReady={data.stripeReady} onChanged={load} />}
     </div>
   );
 }
 
+// The plugin a Stripe product is most likely for, from its name (staff can change it).
+const guessWallet = (name) => (/social|post|schedul/i.test(name) ? "scheduler" : /lead/i.test(name) ? "leadgen" : /mail/i.test(name) ? "email" : "voice");
+
+// "22 hours of call per month" in a Stripe description becomes 22 hours of calls in credits.
+const guessCredits = (s, rates) => {
+  const hours = guessWallet(s.name) === "voice" && /(\d+(?:\.\d+)?)\s*hours?/i.exec(s.description);
+  return hours ? String(Math.round(Number(hours[1]) * 60 * (rates.voice_minute?.credits || 0))) : "";
+};
+
 const EMPTY_PLAN = { wallet: "voice", kind: "plan", name: "", priceUsd: "", credits: "" };
 
 // OutReach staff only: every organisation's wallets, adding credits, enforcement, plans and the rate card.
-function PlatformCredits({ rates, wallets, onChanged }) {
+function PlatformCredits({ rates, wallets, stripeReady, onChanged }) {
   const [orgs, setOrgs] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [stripePrices, setStripePrices] = useState([]);
+  const [sell, setSell] = useState({}); // Stripe price id -> { wallet, credits } being typed
   const [grant, setGrant] = useState({ org_id: "", wallet: "voice", amount: "", days: "30", note: "" });
   const [plan, setPlan] = useState(EMPTY_PLAN);
   const [rateDraft, setRateDraft] = useState(() => Object.fromEntries(Object.entries(rates).map(([k, r]) => [k, String(r.credits)])));
@@ -211,13 +225,15 @@ function PlatformCredits({ rates, wallets, onChanged }) {
 
   const load = useCallback(async () => {
     try {
+      // Stripe first: it also refreshes the names and descriptions of the plans on sale.
+      if (stripeReady) setStripePrices(await api.getStripePrices());
       const [o, p] = await Promise.all([api.getPlatformOrgs(), api.getPlatformPlans()]);
       setOrgs(o);
       setPlans(p);
     } catch (err) {
       setMsg(err.message);
     }
-  }, []);
+  }, [stripeReady]);
 
   useEffect(() => {
     load();
@@ -278,8 +294,12 @@ function PlatformCredits({ rates, wallets, onChanged }) {
             <span style={{ color: WALLET_COLOUR[p.wallet], fontWeight: 600 }}>{p.wallet}</span>
             <span>{p.kind}</span>
             <span>{p.name}</span>
-            <span style={{ fontFamily: FONT_MONO }}>{usd(p.priceUsdCents)}</span>
-            <span style={{ fontFamily: FONT_MONO }}>{fmt(p.credits)}</span>
+            <span style={{ fontFamily: FONT_MONO }}>{money(p.priceUsdCents, p.currency)}</span>
+            <input key={p.credits} aria-label={`Credits for ${p.name}`} title="Credits this gives (saved when you leave the box)" type="number" min="1" defaultValue={p.credits} style={{ ...input, padding: "4px 8px", width: "100%", fontFamily: FONT_MONO }}
+              onBlur={(e) => {
+                const credits = Number(e.target.value);
+                if (credits > 0 && credits !== p.credits) run(() => api.updatePlatformPlan(p.id, { ...p, credits }), `${p.name} now gives ${fmt(credits)} credits.`);
+              }} />
             <span style={{ textAlign: "right" }}>
               {p.inStripe ? <span style={{ color: C.teal, fontWeight: 600 }}>In Stripe</span> : (
                 <button type="button" style={btn(false)} onClick={() => run(() => api.syncPlanToStripe(p.id), "Created in Stripe.")}>Create in Stripe</button>
@@ -288,6 +308,32 @@ function PlatformCredits({ rates, wallets, onChanged }) {
           </div>
         ))}
       </div>
+      {stripePrices.length > 0 && (
+        <div style={{ border: `1px dashed ${C.border}`, borderRadius: 10, marginBottom: 10 }}>
+          <div style={{ padding: "8px 12px", fontSize: 12.5, color: C.slate }}>
+            Already in your Stripe account, not on sale here yet. Pick the plugin and the credits each one gives
+            (1 hour of calls = {fmt(60 * (rates.voice_minute?.credits || 0))} credits, 1 AI post = {fmt(rates.ai_post?.credits)}).
+          </div>
+          {stripePrices.map((s) => {
+            const draft = sell[s.priceId] || { wallet: guessWallet(s.name), credits: guessCredits(s, rates) };
+            const edit = (patch) => setSell({ ...sell, [s.priceId]: { ...draft, ...patch } });
+            return (
+              <div key={s.priceId} style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 100px 110px", gap: 8, alignItems: "center", padding: "7px 12px", borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
+                <span>{s.name}{s.description && <span style={{ color: C.slate }}> · {s.description}</span>} <span style={{ color: C.slate }}>({s.kind === "plan" ? "monthly" : "one-off"})</span></span>
+                <span style={{ fontFamily: FONT_MONO }}>{money(s.priceCents, s.currency)}</span>
+                <select aria-label={`Plugin for ${s.name}`} value={draft.wallet} onChange={(e) => edit({ wallet: e.target.value })} style={input}>
+                  {walletKeys.map((k) => <option key={k} value={k}>{k}</option>)}
+                </select>
+                <input aria-label={`Credits for ${s.name}`} type="number" min="1" placeholder="Credits" value={draft.credits} onChange={(e) => edit({ credits: e.target.value })} style={{ ...input, width: "100%" }} />
+                <button type="button" style={btn(false)} onClick={() => {
+                  if (!(Number(draft.credits) > 0)) return setMsg("Enter how many credits it gives.");
+                  run(() => api.sellStripePrice(s.priceId, draft.wallet, Number(draft.credits)), `${s.name} is on sale.`);
+                }}>Put on sale</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <select aria-label="Plan wallet" value={plan.wallet} onChange={(e) => setPlan({ ...plan, wallet: e.target.value })} style={input}>
           {walletKeys.map((k) => <option key={k} value={k}>{k}</option>)}

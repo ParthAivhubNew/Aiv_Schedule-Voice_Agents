@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  CreditCard,
   History,
   Clock,
   Image as ImageIcon,
@@ -38,6 +39,8 @@ import { SchedulerAiPanel } from "./SchedulerAiPanel";
 import { ScheduleWindow } from "./ScheduleWindow";
 import { useEscapeLayer } from "./escapeLayers";
 import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
+import { PluginCredits } from "../../team/PluginCredits";
+import { SubscriptionPage } from "../../team/SubscriptionPage";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -2358,7 +2361,8 @@ export function SocialWorkspace({
   const [typing, setTyping] = useState(false);
   const [toast, setToast] = useState("");
   const [selectedId, setSelectedId] = useState(null);
-  const [page, setPage] = useState("plan");
+  // Stripe returns here with ?billing=... after a payment started on the Subscription page.
+  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") ? "subscription" : "plan"));
   const [accounts, setAccounts] = useState([]);
   const [connecting, setConnecting] = useState("");
   const [publishing, setPublishing] = useState("");
@@ -3725,8 +3729,33 @@ export function SocialWorkspace({
           <Plug size={15} />
           <span>Accounts & AI</span>
         </button>
+        {operator?.is_admin && (
+          <button
+            type="button"
+            onClick={() => { setApprovalOpen(false); setPage("subscription"); }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              margin: "0 4px",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "none",
+              background: page === "subscription" && !approvalOpen ? "#1E2230" : "transparent",
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <CreditCard size={15} />
+            <span>Subscription</span>
+          </button>
+        )}
         <div style={{ flex: 1 }} />
 
+        <PluginCredits wallet="scheduler" operator={operator} onOpen={() => { setApprovalOpen(false); setPage("subscription"); }} refreshKey={page} />
         <button
           type="button"
           onClick={onLogout}
@@ -3749,6 +3778,12 @@ export function SocialWorkspace({
             knowledgeSources={knowledgeSources}
             setKnowledgeSources={setKnowledgeSources}
           />
+        ) : page === "subscription" ? (
+          <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Subscription</div>
+            <div style={{ fontSize: 13, color: C.slate, marginBottom: 16 }}>Your post scheduler plan and credits. Change plan, top up, or cancel.</div>
+            <SubscriptionPage wallet="scheduler" back="/scheduler" />
+          </div>
         ) : (
         <>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
