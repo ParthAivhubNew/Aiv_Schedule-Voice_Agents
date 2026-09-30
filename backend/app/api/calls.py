@@ -794,6 +794,7 @@ async def resolve_outbound_caller_id(db: AsyncSession, from_number: Optional[str
 async def dial_outbound_call(
     req: OutboundDialRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -825,8 +826,13 @@ async def dial_outbound_call(
         for w in gate.warnings:
             logger.warning(f"[Compliance] {to_clean}: {w}")
 
-        # 1. Determine From / Caller ID number dynamically
-        from_clean = await resolve_outbound_caller_id(db, req.from_number)
+        # 1. Caller ID: one of the organisation's numbers this user may use, else the old
+        # saved caller ID (organisations with no numbers saved yet).
+        from app.services.numbers import pick_caller_id
+        picked, number_err = await pick_caller_id(db, getattr(request.state, "auth", None), req.from_number)
+        if number_err:
+            raise HTTPException(status_code=403, detail=number_err)
+        from_clean = await resolve_outbound_caller_id(db, picked or req.from_number)
 
         # 2. Determine carrier plugin and credentials
         from app.services.outbound_dial import _resolve_carrier_and_creds
@@ -1004,7 +1010,7 @@ async def dial_outbound_call(
 
 
 @router.post("/outbound/batch")
-async def dial_outbound_batch(req: BatchDialRequest, db: AsyncSession = Depends(get_db)):
+async def dial_outbound_batch(req: BatchDialRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """
     Launch as many simultaneous outbound PSTN calls as the operator set,
     using the connected telephony provider. Extra contacts wait for a free line.
@@ -1024,13 +1030,17 @@ async def dial_outbound_batch(req: BatchDialRequest, db: AsyncSession = Depends(
             "website": p.website,
         })
     title = (req.mission_title or "").strip() or f"Outbound list — {len(rows)} contacts"
+    from app.services.numbers import pick_caller_id
+    picked, number_err = await pick_caller_id(db, getattr(request.state, "auth", None), req.from_number)
+    if number_err:
+        raise HTTPException(status_code=403, detail=number_err)
     try:
         return await launch_outbound_mission(
             db,
             title=title,
             prospects=rows,
             concurrency=req.concurrency,
-            from_number=req.from_number,
+            from_number=picked or req.from_number,
             carrier=req.carrier,
             call_window=req.call_window or "09:00–17:30",
             timezone=req.timezone or "Europe/London",

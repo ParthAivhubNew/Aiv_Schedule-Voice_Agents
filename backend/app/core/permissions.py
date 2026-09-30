@@ -111,6 +111,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/profile/notifications$"), None),
     (re.compile(r"^/profile"), "company"),
     (re.compile(r"^/connections"), "connections"),
+    (re.compile(r"^/numbers"), "connections"),  # reading the list is open to every signed-in user
     (re.compile(r"^/(calls|prospects|missions|schedule|meetings|conversation-templates|voices|livekit|"
                 r"telnyx-assistant|custom-voice|vapi|retell|diagnostics|sip-webhook|sip)(/|$)"), "calling"),
 ]

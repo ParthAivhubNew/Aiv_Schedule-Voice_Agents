@@ -151,6 +151,11 @@ export const api = {
   createRole: (data) => apiRequest('/auth/roles', { method: 'POST', body: data }),
   updateRole: (id, data) => apiRequest(`/auth/roles/${encodeURIComponent(id)}`, { method: 'PUT', body: data }),
   deleteRole: (id) => apiRequest(`/auth/roles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getNumbers: () => apiRequest('/numbers'),
+  addNumber: (data) => apiRequest('/numbers', { method: 'POST', body: data }),
+  updateNumber: (id, data) => apiRequest(`/numbers/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
+  assignNumber: (id, operator_ids) => apiRequest(`/numbers/${encodeURIComponent(id)}/assignments`, { method: 'PUT', body: { operator_ids } }),
+  deleteNumber: (id) => apiRequest(`/numbers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getShare: (section) => apiRequest(`/auth/share/${encodeURIComponent(section)}`),
   setShare: (section, user_levels) => apiRequest('/auth/share', { method: 'PUT', body: { section, user_levels } }),
 

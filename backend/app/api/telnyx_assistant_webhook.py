@@ -41,18 +41,25 @@ class DialViaAssistantRequest(BaseModel):
     mission_title: Optional[str] = None
     prospect_id: Optional[str] = None
     mission_id: Optional[str] = None
+    from_number: Optional[str] = None
 
 
 @router.post("/dial")
-async def dial_via_assistant_endpoint(req: DialViaAssistantRequest, db: AsyncSession = Depends(get_db)):
+async def dial_via_assistant_endpoint(req: DialViaAssistantRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """
     Triggers a real outbound call from our software that connects the callee to
     our configured Telnyx AI Assistant, using our saved Telnyx number as caller ID.
     """
+    from app.services.numbers import pick_caller_id
     from app.services.telnyx_assistant_dial import dial_via_telnyx_assistant
+
+    picked, number_err = await pick_caller_id(db, getattr(request.state, "auth", None), req.from_number)
+    if number_err:
+        return JSONResponse(status_code=403, content={"success": False, "error": number_err})
     result = await dial_via_telnyx_assistant(
         db,
         req.to,
+        from_number_override=picked,
         prospect_name=req.prospect_name,
         mission_title=req.mission_title,
         prospect_id=req.prospect_id,

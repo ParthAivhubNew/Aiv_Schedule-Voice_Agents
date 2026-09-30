@@ -36,6 +36,7 @@ from app.api.custom_voice_router import router as custom_voice_router
 from app.api.conversation_templates import router as conversation_templates_router
 from app.api.diagnostics import router as diagnostics_router
 from app.api.voices import router as voices_router
+from app.api.numbers import router as numbers_router
 from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
@@ -583,6 +584,7 @@ app.include_router(conversation_templates_router, prefix=settings.API_PREFIX)
 app.include_router(conversation_templates_router)  # Direct /conversation-templates compatibility
 app.include_router(diagnostics_router, prefix=settings.API_PREFIX)
 app.include_router(voices_router, prefix=settings.API_PREFIX)
+app.include_router(numbers_router, prefix=settings.API_PREFIX)
 app.include_router(diagnostics_router)  # Direct /diagnostics compatibility
 app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
 
