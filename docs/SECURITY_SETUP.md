@@ -108,7 +108,11 @@ prices; they pay us (Stripe) and we pay Telnyx from one balance.
   only: it holds no money, and all usage comes out of our one balance.
 - **Our app is the source of truth for balances.** A client on our account has its credits
   enforced (set when its outbound profile is made): a call is refused when its Voice credits are
-  gone, and each call is capped at the minutes left plus 5 minutes' grace.
+  gone, and each call holds the minutes left and is capped at them (Telnyx's `time_limit_secs`,
+  with a wrap-up line a minute before; no grace). Below the company's average call length the
+  user is warned first. At zero, call lists pause and the client's numbers stop taking calls
+  (managed account disabled, or numbers detached from their app in billing-group mode) until a
+  top-up switches them back on.
 - **Margin.** Clients pay our prices (plans, top-ups, and a monthly price per number set in the
   rate card as "Phone number, per month"; 0 = included). Staff admin portal → Plans & pricing →
   *Telnyx costs and margin* shows, per client and month, Telnyx's cost for its billing group (Telnyx

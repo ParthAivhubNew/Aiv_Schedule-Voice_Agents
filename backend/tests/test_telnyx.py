@@ -337,17 +337,25 @@ async def test_outbound_calls_go_through_the_customers_app_and_stop_at_its_minut
 
         assert await TP.outbound_route(db, "+442071234567") == ("KEY_TEST", "cca_acme")
         assert await TP.outbound_route(db, "+442079990000") is None  # not a number we bought: dial as before
-        assert await K.call_time_limit(db) == (30 + K.CALL_GRACE_MIN) * 60
+        assert await K.minutes_left(db) == 30
 
         r = await D.dial_via_telnyx_assistant(db, "+447700900123", from_number_override="+442071234567")
         assert r["success"], r
         url, body, headers = sent[-1]
         assert url.endswith("/v2/calls") and body["connection_id"] == "cca_acme" and headers["Authorization"] == "Bearer KEY_TEST"
-        assert body["time_limit_secs"] == (30 + K.CALL_GRACE_MIN) * 60
+        assert body["time_limit_secs"] == 30 * 60  # the minutes left, no grace
+        from app.services import call_limits
+
+        assert "v3:cc1" in call_limits._timers  # wrap-up a minute before the end
+        call_limits.stop("v3:cc1")
+        # The call holds its minutes: a second call now has none left.
+        assert await K.minutes_left(db) == 0
+        r = await D.dial_via_telnyx_assistant(db, "+447700900124", from_number_override="+442071234567")
+        assert not r["success"] and "Voice" in r["error"]
 
         # Not enforced (e.g. the platform's own organisation): no cap.
         await K.set_org_settings(db, {"enforce": False})
-        assert await K.call_time_limit(db) is None
+        assert await K.reserve_call(db, "call_free") == (True, "", None)
 
 
 async def _noop():

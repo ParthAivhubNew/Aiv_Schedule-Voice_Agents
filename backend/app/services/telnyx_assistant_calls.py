@@ -483,6 +483,12 @@ async def finish_call(call_control_id: str, payload: Optional[Dict[str, Any]] = 
         )
         await db.commit()
         call_id = rec.id
+        # Charge the minutes it used now and free the rest of its hold for the next call.
+        from app.services.call_limits import stop
+        from app.services.credits import charge_finished_call
+
+        stop(call_control_id)
+        await charge_finished_call(db, call_id, rec.duration, rec.prospect)
         await _broadcast("call_ended", {"callId": call_id, "endedBy": "remote", "state": rec.state})
         await _broadcast("call_updated", {"callId": call_id, "ended": True, "state": rec.state, "duration": rec.duration})
 

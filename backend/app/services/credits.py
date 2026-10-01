@@ -11,9 +11,12 @@
   a wallet below zero by even one credit is refused, so work stops before it overspends. A held
   credit is not spendable twice: the balance shown is what is left after holds.
 - Never fail closed: if the credit check itself errors, the work runs anyway and is charged
-  when it finishes; a charge that cannot be written is kept and charged with the next run. A call is capped at the minutes left plus a
-  short grace (CALL_GRACE_MIN), so a conversation is not cut off the moment credits reach zero
-  and nothing can run far past what was paid for; the grace is taken from the next credits.
+  when it finishes; a charge that cannot be written is kept and charged with the next run.
+- A call holds the voice minutes left (reserve_call) and Telnyx ends it when they run out, with
+  a wrap-up line a minute before; no grace, so a call never runs past what was paid for. Before
+  a call whose minutes left are below the company's average call, the user is warned and may
+  accept the shorter call. At zero, call lists pause and the numbers stop taking calls
+  (voice_access) until a top-up.
 - Phone numbers bought through us cost their rate-card price every calendar month (0: free).
 - Usage is settled in the background from what actually happened (finished calls, AI posts,
   WhatsApp messages), so billing can never slow down or break a call.
@@ -58,8 +61,10 @@ RATES_KEY = "credit_rates"
 SETTLE_LOOKBACK = timedelta(days=3)
 STARTER_DAYS = 30  # a free trial, when STARTER_CREDITS is set
 LOW_SHARE = 0.20
-CALL_GRACE_MIN = 5  # minutes a call may run past the credits left
 MAX_CALL_SECS = 14400  # Telnyx's own longest call
+WRAP_UP_SECS = 60  # the call is told to wrap up this long before its minutes run out
+DEFAULT_CALL_MIN = 3  # average call length assumed before a company has any calls
+CALL_HOLD = "callhold:"
 HOLD_TTL = timedelta(hours=6)  # holds left by work that never finished are given back
 
 
@@ -485,20 +490,106 @@ async def can_start(db, item: str, quantity: float = 1, extra: Optional[List[Tup
         return True, ""
 
 
-async def call_time_limit(db) -> Optional[int]:
-    """Longest a new call may last, in seconds: the voice minutes left plus the grace. None when
-    the organisation's credits are not enforced (no cap). Never raises."""
-    try:
-        if not (await org_settings(db))["enforce"]:
-            return None
-        per_minute = (await rates(db))["voice_minute"]["credits"]
-        if per_minute <= 0:
-            return None
-        minutes = max(await wallet_balance(db, "voice"), 0) // per_minute + CALL_GRACE_MIN
-        return int(max(60, min(MAX_CALL_SECS, minutes * 60)))
-    except Exception as err:
-        logger.warning(f"[credits] call limit skipped: {err}")
+async def average_call_minutes(db, days: int = 30) -> float:
+    """The company's average answered voice call over the last days, in minutes (rounded up per
+    call, as charged); DEFAULT_CALL_MIN before it has any."""
+    from app.models.models import CallLog
+
+    since = datetime.utcnow() - timedelta(days=days)
+    rows = (await db.execute(select(CallLog.duration).where(CallLog.channel == "voice", CallLog.created_at >= since)
+                             .order_by(CallLog.created_at.desc()).limit(500))).scalars().all()
+    mins = [m for m in (minutes_of(d) for d in rows) if m > 0]
+    return round(sum(mins) / len(mins), 1) if mins else float(DEFAULT_CALL_MIN)
+
+
+async def minutes_left(db) -> Optional[int]:
+    """Whole voice minutes the organisation can still pay for (after what live calls hold).
+    None when its credits are not enforced or minutes are free."""
+    if not (await org_settings(db))["enforce"]:
         return None
+    per_minute = (await rates(db))["voice_minute"]["credits"]
+    if per_minute <= 0:
+        return None
+    return max(await wallet_balance(db, "voice"), 0) // per_minute
+
+
+async def short_call_warning(db, calls: int = 1) -> Optional[Dict[str, Any]]:
+    """A warning to show before calling when the minutes left are below the company's average
+    call (times the number of calls on a list); None when there is enough. Never raises."""
+    try:
+        left = await minutes_left(db)
+        if left is None:
+            return None
+        avg = await average_call_minutes(db)
+        if left >= avg * max(calls, 1):
+            return None
+        if calls > 1:
+            msg = (f"{left} call minutes left; your calls average {avg:g} minutes, so this list will pause when the "
+                   f"minutes run out (about {int(left // avg) if avg else 0} of {calls} calls). Each call ends when its minutes run out.")
+        else:
+            msg = (f"Only {left} call minute{'s' if left != 1 else ''} left; your calls average {avg:g} minutes. "
+                   f"This call will end after {left} minute{'s' if left != 1 else ''}, with a wrap-up a minute before.")
+        return {"code": "LOW_MINUTES", "message": msg + " Top up for longer calls, or call anyway.",
+                "minutesLeft": left, "averageMinutes": avg}
+    except Exception as err:
+        logger.warning(f"[credits] short-call check skipped: {err}")
+        return None
+
+
+async def reserve_call(db, call_id: str) -> Tuple[bool, str, Optional[int]]:
+    """Hold the voice minutes left for this call: (allowed, why not, longest it may last in
+    seconds, or None for no cap). The hold keeps other calls from spending the same minutes and
+    is charged by what the call really used when it ends (charge_finished_call). Never raises:
+    if the check fails the call goes ahead uncapped and is charged when it ends. Caller commits."""
+    try:
+        left = await minutes_left(db)
+        if left is None:
+            return True, "", None
+        if left < 1:
+            return False, out_of_credits("voice"), None
+        minutes = min(left, MAX_CALL_SECS // 60)
+        ok, why = await hold(db, [{"ref": f"{CALL_HOLD}{call_id}", "item": "voice_minute", "quantity": minutes,
+                                   "note": "Call in progress"}])
+        if not ok:
+            return False, why, None
+        return True, "", minutes * 60
+    except Exception as err:
+        logger.warning(f"[credits] call reserve skipped: {err}")
+        return True, "", None
+
+
+async def charge_finished_call(db, call_id: str, duration: str, label: str = "") -> None:
+    """A call ended: charge the minutes it used and give back the rest of its hold, so the next
+    call sees the real balance straight away. Never raises; settle() charges anything missed."""
+    from app.services.call_log_writer import log_id_for_call
+
+    try:
+        ref = f"call:{log_id_for_call(call_id)}"
+        used = minutes_of(duration) - (await _charged(db, [ref])).get(ref, 0)
+        if used > 0:
+            await charge(db, "voice_minute", used, ref, f"Call with {label}" if label else "Call")
+        await release(db, [f"{CALL_HOLD}{call_id}"])
+        await db.commit()
+    except Exception as err:
+        logger.warning(f"[credits] call {call_id} charged on the next settle: {err}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
+async def _release_ended_call_holds(db) -> None:
+    """Holds of calls that have ended (their minutes are charged from the call log)."""
+    from app.models.models import LiveCall
+
+    refs = [r for r in _holds(await _get_doc(db, _settings_id())) if r.startswith(CALL_HOLD)]
+    if not refs:
+        return
+    ids = [r[len(CALL_HOLD):] for r in refs]
+    live = {c.id: c.ended for c in (await db.execute(select(LiveCall).where(LiveCall.id.in_(ids)))).scalars().all()}
+    done = [f"{CALL_HOLD}{i}" for i in ids if live.get(i, True)]
+    if done:
+        await release(db, done)
 
 
 # ── Settling usage from what happened ───────────────────────────────────────
@@ -555,6 +646,7 @@ async def settle(db, now: Optional[datetime] = None) -> int:
         extra = minutes_of(c.duration) - done.get(f"call:{c.id}", 0)
         if extra > 0:
             total += await charge(db, "voice_minute", extra, f"call:{c.id}", f"Call with {c.listed_as}")
+    await _release_ended_call_holds(db)
 
     # Finished AI posts whose charge was never written (normally charged the moment they finish).
     # One written post (shared by the channels it was written for) and its image.
@@ -591,6 +683,9 @@ async def settle(db, now: Optional[datetime] = None) -> int:
     if total:
         await _warn_low(db)
     await db.commit()
+    from app.services import voice_access
+
+    await voice_access.sync(db)  # at zero minutes the numbers stop taking calls; back on after a top-up
     return total
 
 

@@ -69,6 +69,11 @@ def fake(monkeypatch):
     monkeypatch.setattr(telnyx_assistant_calls.httpx, "AsyncClient", FakeHttp)
     monkeypatch.setattr(telnyx_assistant_calls, "_start_poller", lambda *a: None)
 
+    async def unmetered(db):  # these tests are about calls, not credits (tests/test_call_credits.py)
+        return None
+
+    monkeypatch.setattr("app.services.credits.minutes_left", unmetered)
+
     async def allow(db, to, now_utc=None):
         return compliance.CallGate(allowed=True, reasons=[], warnings=[])
 
