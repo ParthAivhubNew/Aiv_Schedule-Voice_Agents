@@ -106,8 +106,14 @@ class Settings(BaseSettings):
     THREADS_OAUTH_CLIENT_ID: Optional[str] = os.getenv("THREADS_OAUTH_CLIENT_ID", None)
     THREADS_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("THREADS_OAUTH_CLIENT_SECRET", None)
 
+    # Staff Admin and Signup Configuration
+    ALLOW_SIGNUP: bool = os.getenv("ALLOW_SIGNUP", "true").lower() in ("true", "1", "yes")
+    STAFF_ADMIN_EMAIL: Optional[str] = os.getenv("STAFF_ADMIN_EMAIL", None)
+    STAFF_ADMIN_PASSWORD: Optional[str] = os.getenv("STAFF_ADMIN_PASSWORD", None)
+
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 settings = Settings()
