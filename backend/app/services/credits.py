@@ -351,7 +351,7 @@ async def hold(db, parts: List[Dict[str, Any]]) -> Tuple[bool, str]:
 
 
 def out_of_credits(wallet: str) -> str:
-    return f"Out of {WALLETS[wallet]} credits. Top up to carry on; nothing more is charged until you do."
+    return f"USR-01: Out of {WALLETS[wallet]} credits. Top up to carry on; nothing more is charged until you do."
 
 
 async def confirm(db, ref: str, item: str, quantity: float = 1, note: str = "") -> int:

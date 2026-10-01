@@ -721,7 +721,7 @@ async def start_mission_dials(
                 })
             except Exception as exc:
                 err = str(exc)
-                if err.startswith("Out of ") and "credits" in err:
+                if err.startswith("USR-01"):
                     # Ran out between calls: this number and the rest wait for a top-up.
                     async with AsyncSessionLocal() as qdb:
                         prow = (await qdb.execute(select(Prospect).where(Prospect.id == p.id))).scalars().first()

@@ -633,6 +633,34 @@ async def platform_keys_assistant(body: Dict[str, Any], request: Request):
     return await _as_platform(C.save_telnyx_assistant_settings, req)
 
 
+# ── Staff alerts (AI errors only staff can fix) ─────────────────────────────
+@router.get("/alerts")
+async def get_alerts(request: Request):
+    """Recent AI alerts for the banner: code, company, full detail, reference."""
+    from app.core.tenancy import system_scope
+    from app.services import ai_errors
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            items = await ai_errors.alerts(db)
+    return {"items": items, "unseen": sum(1 for a in items if not a.get("seen"))}
+
+
+@router.post("/alerts/{alert_id}/seen")
+async def alert_seen(alert_id: str, request: Request):
+    """Dismiss one alert from the banner ("all" for every one)."""
+    from app.core.tenancy import system_scope
+    from app.services import ai_errors
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            n = await ai_errors.dismiss(db, alert_id)
+            await db.commit()
+    return {"dismissed": n}
+
+
 # ── Platform AI (Post scheduler) ────────────────────────────────────────────
 @router.get("/platform-ai")
 async def get_platform_ai(request: Request):

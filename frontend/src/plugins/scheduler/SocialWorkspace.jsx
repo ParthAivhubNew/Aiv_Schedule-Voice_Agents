@@ -112,6 +112,47 @@ function CreditsPaused({ count, reason, busy, onContinue, onStartNew, onTopUp })
   );
 }
 
+const etaText = (secs) => {
+  if (!secs) return "";
+  if (secs < 60) return "under a minute left";
+  const m = Math.round(secs / 60);
+  return `about ${m} minute${m === 1 ? "" : "s"} left`;
+};
+
+// What the AI writer is doing for each batch the user asked for: stage, place in the queue,
+// time left and a rotating tip. Writing carries on if the user leaves the page.
+function BatchProgress({ batches, tips }) {
+  const [tip, setTip] = useState(0);
+  const live = (batches || []).filter((b) => b.active && !b.paused);
+  useEffect(() => {
+    if (!live.length || !(tips || []).length) return undefined;
+    const t = window.setInterval(() => setTip((n) => n + 1), 7000);
+    return () => window.clearInterval(t);
+  }, [live.length, tips]);
+  if (!live.length) return null;
+  return (
+    <div role="status" aria-live="polite" style={{ margin: "10px 16px 0", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, display: "grid", gap: 8 }}>
+      {live.map((b) => {
+        const pct = b.total ? Math.round(((b.written + b.done) / (2 * b.total)) * 100) : 0;
+        return (
+          <div key={b.batch} style={{ display: "grid", gap: 5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <b style={{ color: C.textInk }}>{b.stage}</b>
+              <span style={{ color: C.slate }}>
+                {[b.queuePosition ? `Place in queue: ${b.queuePosition}` : "", etaText(b.etaSeconds)].filter(Boolean).join(" · ")}
+              </span>
+            </div>
+            <div style={{ height: 6, borderRadius: 99, background: C.paperSoft, overflow: "hidden" }}>
+              <div style={{ width: `${Math.max(4, pct)}%`, height: "100%", background: C.cobalt, transition: "width .6s ease" }} />
+            </div>
+          </div>
+        );
+      })}
+      {(tips || []).length ? <div style={{ color: C.slate, fontSize: 11.5 }}>Tip: {tips[tip % tips.length]}</div> : null}
+    </div>
+  );
+}
+
 function GenFailed({ post, onRetry }) {
   if (!post || post.genState !== "failed") return null;
   return (
@@ -2767,6 +2808,9 @@ export function SocialWorkspace({
       groups.push({ lead: p, ids });
     });
     const allIds = groups.flatMap((g) => g.ids);
+    try {  // so we can tell them when a long batch is done while they are elsewhere
+      if (allIds.length > 1 && "Notification" in window && window.Notification.permission === "default") window.Notification.requestPermission();
+    } catch (_) { /* not supported */ }
     setPosts((ps) => ps.map((row) => (allIds.includes(row.id) ? { ...row, enriching: false, genState: "queued", genError: "" } : row)));
     const rows = allIds.map((id) => postsRef.current.find((r) => r.id === id) || seeds.find((r) => r.id === id)).filter(Boolean);
     await Promise.all(rows.map((r) => persistPost({ ...r, genState: "queued" })));
@@ -2833,6 +2877,40 @@ export function SocialWorkspace({
     const t = window.setInterval(() => { refreshPosts(); }, 2500);
     return () => window.clearInterval(t);
   }, [genActive, refreshPosts]);
+
+  // Progress of each batch, and a pop-up (plus a browser notification when the tab is hidden)
+  // when one finishes. Batches that finished before this page opened are not announced.
+  const [batchProgress, setBatchProgress] = useState({ batches: [], tips: [] });
+  const announcedRef = useRef(null);
+  useEffect(() => {
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await api.generationProgress();
+        if (stop || !r) return;
+        const batches = r.batches || [];
+        if (announcedRef.current === null) {
+          announcedRef.current = new Set(batches.filter((b) => !b.active).map((b) => b.batch));
+        }
+        batches.filter((b) => !b.active && !announcedRef.current.has(b.batch)).forEach((b) => {
+          announcedRef.current.add(b.batch);
+          const text = `AI writing finished: ${b.done} of ${b.total} post${b.total === 1 ? "" : "s"} ready`
+            + (b.failed ? `, ${b.failed} failed (${(b.codes || []).join(", ") || "see the posts"})` : "") + ".";
+          showToast(text);
+          try {
+            if (typeof window !== "undefined" && "Notification" in window && window.Notification.permission === "granted" && document.hidden) {
+              new window.Notification("OutReach Post scheduler", { body: text });
+            }
+          } catch (_) { /* browser notifications are a bonus */ }
+        });
+        setBatchProgress({ batches, tips: r.tips || [] });
+      } catch (_) { /* progress is a convenience; the posts still update */ }
+    };
+    load();
+    if (!genActive) return () => { stop = true; };
+    const t = window.setInterval(load, 3000);
+    return () => { stop = true; window.clearInterval(t); };
+  }, [genActive]);
 
   const unpinDate = (key, e) => {
     if (e) {
@@ -3793,6 +3871,7 @@ export function SocialWorkspace({
         <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
           onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
           onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />
+        <BatchProgress batches={batchProgress.batches} tips={batchProgress.tips} />
         {page === "accounts" ? (
           <SimpleAccountsPage
             accounts={accounts}
