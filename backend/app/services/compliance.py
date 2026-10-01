@@ -255,6 +255,31 @@ async def is_opted_out(db, number: str) -> bool:
     return False
 
 
+async def add_do_not_call(db, number: str, name: str = "") -> bool:
+    """Put a number on this organisation's do-not-call list (e.g. the person asked on a call).
+    Returns False when it was already there. Caller commits."""
+    import uuid as _uuid
+
+    from sqlalchemy.future import select as _select
+
+    from app.models.models import ContactRegistry
+    from app.services.timezone_service import normalize_phone
+
+    target = normalize_phone(number)
+    if not target:
+        return False
+    if await is_opted_out(db, target):
+        return False
+    for r in (await db.execute(_select(ContactRegistry))).scalars().all():
+        if any(normalize_phone(p if isinstance(p, str) else (p or {}).get("number", "")) == target for p in (r.phones or [])):
+            r.do_not_call = True
+            r.last_outcome = "do_not_call"
+            return True
+    db.add(ContactRegistry(id=f"reg_{_uuid.uuid4().hex[:12]}", canonical_name=name or target, phones=[target],
+                           do_not_call=True, last_outcome="do_not_call"))
+    return True
+
+
 async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None) -> CallGate:
     """Never raises: a failure inside the check itself lets the call through with a warning,
     so a bug here can never stop calling altogether (opt-outs aside)."""

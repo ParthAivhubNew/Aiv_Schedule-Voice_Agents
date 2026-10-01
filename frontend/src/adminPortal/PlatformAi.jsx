@@ -65,13 +65,14 @@ const EMPTY = { voices: [], models: [] };
 // names exactly as Telnyx shows them (e.g. in the Telnyx portal's assistant voice list).
 function VoiceCatalogue({ canEdit }) {
   const [data, err, reload] = useLoad(adminApi.voiceCatalogue);
+  const [clients] = useLoad(adminApi.clients);
   const [draft, setDraft] = useState(EMPTY);
   const [msg, run] = useAction(reload);
   useEffect(() => { if (data) setDraft(data); }, [data]);
 
   const edit = (kind, i, patch) => setDraft({ ...draft, [kind]: draft[kind].map((row, j) => (j === i ? { ...row, ...patch } : row)) });
   const remove = (kind, i) => setDraft({ ...draft, [kind]: draft[kind].filter((_, j) => j !== i) });
-  const add = (kind) => setDraft({ ...draft, [kind]: [...draft[kind], kind === "voices" ? { id: "", label: "", sample: "" } : { id: "", label: "" }] });
+  const add = (kind) => setDraft({ ...draft, [kind]: [...draft[kind], kind === "voices" ? { id: "", label: "", sample: "", org: "" } : { id: "", label: "" }] });
   const rows = (kind, fields) => (
     <div style={{ display: "grid", gap: 6 }}>
       {draft[kind].map((row, i) => (
@@ -80,6 +81,13 @@ function VoiceCatalogue({ canEdit }) {
             <input key={f} aria-label={`${kind} ${f} ${i + 1}`} placeholder={ph} value={row[f] || ""} disabled={!canEdit}
               onChange={(e) => edit(kind, i, { [f]: e.target.value })} style={{ ...input, ...(f === "id" ? mono : {}), flex: `1 1 ${w}px` }} />
           ))}
+          {kind === "voices" && (
+            <select aria-label={`voices client ${i + 1}`} value={row.org || ""} disabled={!canEdit} title="A client's own cloned voice: only that client sees it"
+              onChange={(e) => edit(kind, i, { org: e.target.value })} style={{ ...input, flex: "1 1 170px" }}>
+              <option value="">Every client</option>
+              {(clients || []).map((o) => <option key={o.id} value={o.id}>Only {o.name}</option>)}
+            </select>
+          )}
           {canEdit && <button type="button" style={btn(false)} onClick={() => remove(kind, i)}>Remove</button>}
         </div>
       ))}
@@ -94,6 +102,7 @@ function VoiceCatalogue({ canEdit }) {
       <div style={{ ...card, display: "grid", gap: 12 }}>
         <div style={{ fontSize: 12.5, color: C.slate }}>
           What clients can choose for their call assistant. Use Telnyx's exact names. A sample is an https link to a short recording clients can play.
+          A client's cloned voice: clone it in the Telnyx portal, paste its voice ID here and set "Only" to that client, so no other client sees it.
           Nothing listed: everyone uses Telnyx's default.
         </div>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Voices</div>

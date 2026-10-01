@@ -129,3 +129,20 @@ async def test_test_call_rings_the_users_own_phone(db, fake, monkeypatch):
     assert r.status_code == 200, r.text
     call = next(j for u, j in FakeHttp.posts if u.endswith("/calls"))
     assert call["to"] == "+447700900555" and call["from"] == "+442071234567"
+
+
+async def test_a_cloned_voice_is_only_seen_by_its_own_company(db, staff):
+    _, acme = await make_user(db, "ann", "Admin", org_id="org_acme")
+    _, other = await make_user(db, "zed", "Admin", org_id="org_other")
+    r = await staff.put("/api/admin-api/voice-catalogue", json={"voices": [
+        {"id": "Telnyx.NaturalHD.astra", "label": "Astra"},
+        {"id": "Telnyx.Clone.acme-owner", "label": "Acme owner", "org": "org_acme"}], "models": []})
+    assert r.json()["voices"][1]["org"] == "org_acme"
+    async with _as(acme) as c:
+        voices = (await c.get("/api/voice-studio")).json()["catalogue"]["voices"]
+        assert [(v["id"], v["private"]) for v in voices] == [("Telnyx.NaturalHD.astra", False), ("Telnyx.Clone.acme-owner", True)]
+        assert "org" not in voices[1]
+        assert (await c.put("/api/voice-studio/me", json={"voice": "Telnyx.Clone.acme-owner"})).status_code == 200
+    async with _as(other) as c:
+        assert [v["id"] for v in (await c.get("/api/voice-studio")).json()["catalogue"]["voices"]] == ["Telnyx.NaturalHD.astra"]
+        assert (await c.put("/api/voice-studio/me", json={"voice": "Telnyx.Clone.acme-owner"})).status_code == 400
