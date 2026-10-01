@@ -310,29 +310,70 @@ async def reset_user_password(org_id: str, user_id: str, request: Request):
     return {"username": username, "temporaryPassword": temp}
 
 
-class CreditBody(BaseModel):
+# Giving credits takes several confirmations (preview → approve → retype) and leaves a
+# permanent record; see app.services.credit_awards. There is no instant add.
+class AwardBody(BaseModel):
     wallet: str
     amount: int
-    expires_in_days: Optional[int] = None
-    note: str = ""
+    label: str
+    reason: str = ""
+    paymentRef: str = ""
+    paidCents: int = 0
+    currency: str = ""
+    expiresInDays: int = 0
 
 
-@router.post("/clients/{org_id}/credits")
-async def add_credits(org_id: str, body: CreditBody, request: Request):
-    from app.services import credits as K
+class ApproveBody(BaseModel):
+    confirm: str = ""
+
+
+@router.post("/clients/{org_id}/credit-awards/preview")
+async def preview_award(org_id: str, body: AwardBody, request: Request):
+    from app.services import credit_awards as A
 
     staff = _admin_only(request)
-    if body.wallet not in K.WALLETS or not body.amount or abs(body.amount) > 10_000_000:
-        raise HTTPException(status_code=400, detail="Pick a wallet and a non-zero amount.")
-    expires = datetime.utcnow() + timedelta(days=body.expires_in_days) if body.expires_in_days else None
+    async with AsyncSessionLocal() as db:
+        if not (await db.execute(text("SELECT 1 FROM organizations WHERE id = :i AND coalesce(status, 'active') <> 'platform'"), {"i": org_id})).first():
+            raise HTTPException(status_code=404, detail="Client not found.")
+        try:
+            return await A.preview(db, org_id, staff, body.model_dump())
+        except A.AwardError as err:
+            raise HTTPException(status_code=400, detail=str(err))
 
-    async def run(db):
-        bal = await K.grant(db, body.amount, note=body.note or "Added by OutReach", by=staff["name"] or staff["email"],
-                            wallet=body.wallet, expires_at=expires)
-        await db.commit()
-        return bal
 
-    return {"wallet": body.wallet, "balance": await _in_org(org_id, run)}
+@router.post("/credit-awards/{pending_id}/approve")
+async def approve_award(pending_id: str, body: ApproveBody, request: Request):
+    from app.services import credit_awards as A
+
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            return await A.approve(db, pending_id, staff, body.confirm)
+        except A.AwardError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+
+@router.post("/credit-awards/{pending_id}/cancel")
+async def cancel_award(pending_id: str, request: Request):
+    from app.services import credit_awards as A
+
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        return {"cancelled": await A.cancel(db, pending_id, staff)}
+
+
+@router.get("/credit-awards")
+async def list_awards(request: Request, org_id: str = "", month: str = ""):
+    """The permanent record of credits staff gave, newest first (one company, or one month)."""
+    import re
+
+    from app.services import credit_awards as A
+
+    _who(request)
+    if month and not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    async with AsyncSessionLocal() as db:
+        return await A.history(db, org_id, month)
 
 
 class EnforceBody(BaseModel):
@@ -540,6 +581,41 @@ async def telnyx_costs(request: Request, month: str = ""):
         raise HTTPException(status_code=502, detail=str(err))
 
 
+@router.get("/voice-reconciliation")
+async def voice_reconciliation(request: Request, month: str = ""):
+    """The saved monthly check of minutes charged against minutes Telnyx billed (None: not run)."""
+    import re
+
+    from app.services import telnyx_usage
+
+    _who(request)
+    month = month or telnyx_usage.previous_month()
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    async with AsyncSessionLocal() as db:
+        return {"month": month, "result": await telnyx_usage.saved_reconciliation(db, month)}
+
+
+@router.post("/voice-reconciliation/run")
+async def run_voice_reconciliation(request: Request, month: str = ""):
+    """Check a month now (again), keep the result and alert staff about gaps."""
+    import re
+
+    from app.services import telnyx_usage
+    from app.services.telnyx_client import TelnyxError, platform_key
+
+    _admin_only(request)
+    month = month or telnyx_usage.previous_month()
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    if not platform_key():
+        raise HTTPException(status_code=503, detail="Telnyx is not connected on the platform yet.")
+    try:
+        return {"month": month, "result": await telnyx_usage.reconcile(month)}
+    except TelnyxError as err:
+        raise HTTPException(status_code=502, detail=str(err))
+
+
 @router.post("/plans/{plan_id}/sync-stripe")
 async def sync_plan(plan_id: str, request: Request):
     from app.models.models import BillingPlan
@@ -645,11 +721,39 @@ async def platform_keys_assistant(body: Dict[str, Any], request: Request):
     return await _as_platform(C.save_telnyx_assistant_settings, req)
 
 
+# ── Staff alerts (AI errors only staff can fix) ─────────────────────────────
+@router.get("/alerts")
+async def get_alerts(request: Request):
+    """Recent AI alerts for the banner: code, company, full detail, reference."""
+    from app.core.tenancy import system_scope
+    from app.services import ai_errors
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            items = await ai_errors.alerts(db)
+    return {"items": items, "unseen": sum(1 for a in items if not a.get("seen"))}
+
+
+@router.post("/alerts/{alert_id}/seen")
+async def alert_seen(alert_id: str, request: Request):
+    """Dismiss one alert from the banner ("all" for every one)."""
+    from app.core.tenancy import system_scope
+    from app.services import ai_errors
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            n = await ai_errors.dismiss(db, alert_id)
+            await db.commit()
+    return {"dismissed": n}
+
+
 # ── Platform AI (Post scheduler) ────────────────────────────────────────────
 @router.get("/platform-ai")
 async def get_platform_ai(request: Request):
-    """The writing and image AI every client's Post scheduler uses, and which providers OutReach
-    has keys for (saved in its own organisation's AI config)."""
+    """The writing and image AI (main and backup) every company's Post scheduler uses, which
+    providers OutReach has keys for, and how each one did last time."""
     from app.api.scheduler import _saved_ai_keys
     from app.core.auth_middleware import platform_org
     from app.core.tenancy import org_scope
@@ -658,10 +762,12 @@ async def get_platform_ai(request: Request):
     _who(request)
     async with AsyncSessionLocal() as db:
         chosen = await platform_ai.get(db)
+        health = await platform_ai.health(db)
     with org_scope(platform_org()):
         async with AsyncSessionLocal() as db:
             keys = await _saved_ai_keys(db)
-    return {"chosen": chosen, "textProviders": platform_ai.TEXT_PROVIDERS, "imageProviders": platform_ai.IMAGE_PROVIDERS,
+    return {"chosen": chosen, "health": health,
+            "textProviders": platform_ai.TEXT_PROVIDERS, "imageProviders": platform_ai.IMAGE_PROVIDERS,
             "keys": {"text": [k["provider"] for k in keys["text"]], "image": [k["provider"] for k in keys["image"]]}}
 
 
@@ -670,6 +776,10 @@ class PlatformAiBody(BaseModel):
     textModel: Optional[str] = None
     imageProvider: Optional[str] = None
     imageModel: Optional[str] = None
+    textBackupProvider: Optional[str] = None
+    textBackupModel: Optional[str] = None
+    imageBackupProvider: Optional[str] = None
+    imageBackupModel: Optional[str] = None
 
 
 @router.put("/platform-ai")
@@ -684,6 +794,56 @@ async def put_platform_ai(body: PlatformAiBody, request: Request):
             raise HTTPException(status_code=400, detail=str(err))
         await db.commit()
     return out
+
+
+class PlatformAiTestBody(BaseModel):
+    kind: str
+    slot: str = "main"
+
+
+@router.post("/platform-ai/test")
+async def test_platform_ai(body: PlatformAiTestBody, request: Request):
+    """A tiny live call with the saved main or backup choice. Staff see the real error."""
+    from app.api.scheduler import _resolve_image_prefs, _resolve_text_ai
+    from app.core.auth_middleware import platform_org
+    from app.core.tenancy import org_scope
+    from app.services import platform_ai
+    from app.services.llm_gateway import call_open_chat_llm
+    from app.services.post_writer import generate_image_with_provider
+
+    _admin_only(request)
+    if body.kind not in platform_ai.KINDS or body.slot not in platform_ai.SLOTS:
+        raise HTTPException(status_code=400, detail="Say text or image, main or backup.")
+    with org_scope(platform_org()):
+        async with AsyncSessionLocal() as db:
+            provider, model = await platform_ai.choice(db, body.kind, body.slot)
+            if body.slot == "backup" and not provider:
+                return {"ok": False, "error": "No backup is set."}
+            error = None
+            try:
+                if body.kind == "text":
+                    ai = await _resolve_text_ai(db, None, body.slot)
+                    if ai["error"]:
+                        raise platform_ai.AIUnavailable(f"No key saved for {provider or 'any writing provider'}.")
+                    res = await call_open_chat_llm(
+                        messages=[{"role": "user", "content": "Reply with the single word OK."}],
+                        system_prompt="You are a connectivity check.", api_key=ai["api_key"], provider=ai["provider"],
+                        model=ai["model"], base_url=ai["base_url"], max_tokens=5, db=db)
+                    if not res.get("success", True) or res.get("error"):
+                        raise platform_ai.AIUnavailable(res.get("error") or "No reply.")
+                    provider, model = res.get("provider") or ai["provider"], res.get("model") or ai["model"]
+                else:
+                    p = await _resolve_image_prefs(db, {}, body.slot)
+                    img = await generate_image_with_provider(
+                        prompt="A small blue circle on a white background", provider=p["provider"], model=p["model"],
+                        style=p["style"], aspect_ratio="1:1", width=256, height=256, db=db)
+                    if not img.get("imageUrl") or (img.get("status") or "ok") != "ok":
+                        raise platform_ai.AIUnavailable(img.get("warning") or "No image returned.")
+                    provider, model = img.get("provider") or provider, img.get("model") or model
+            except Exception as err:
+                error = str(err) or err.__class__.__name__
+    await platform_ai.note(body.kind, body.slot, error)
+    return {"ok": not error, "error": error, "provider": provider, "model": model}
 
 
 @router.get("/voice-catalogue")

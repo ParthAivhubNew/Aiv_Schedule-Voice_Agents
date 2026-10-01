@@ -18,7 +18,7 @@ router = APIRouter(prefix="/wa", tags=["WhatsApp"])
 
 def _thread_json(t) -> Dict[str, Any]:
     return {"id": t.id, "ourNumber": t.our_number, "contactNumber": t.contact_number, "contactName": t.contact_name,
-            "aiEnabled": bool(t.ai_enabled), "unread": t.unread or 0, "preview": t.last_preview,
+            "aiEnabled": False, "unread": t.unread or 0, "preview": t.last_preview,
             "windowOpen": WA.window_open(t),
             "lastMessageAt": t.last_message_at.isoformat() if t.last_message_at else None}
 
@@ -87,7 +87,6 @@ async def send(thread_id: str, body: SendBody, request: Request, db: AsyncSessio
                             sender="human", sender_name=ctx.get("name", ""))
     except ValueError as err:
         raise HTTPException(status_code=400, detail={"message": str(err), "code": "window_closed" if "24 hours" in str(err) else "bad_message"})
-    t.ai_enabled = False  # a person replied: the AI steps back on this conversation
     await db.commit()
     if msg.status == "failed":
         raise HTTPException(status_code=502, detail=msg.error or "WhatsApp did not accept the message.")
@@ -120,15 +119,12 @@ async def start(body: NewThreadBody, request: Request, db: AsyncSession = Depend
 
 
 class ThreadPatch(BaseModel):
-    aiEnabled: Optional[bool] = None
     contactName: Optional[str] = None
 
 
 @router.patch("/threads/{thread_id}")
 async def patch(thread_id: str, body: ThreadPatch, db: AsyncSession = Depends(get_db)):
     t = await _thread(db, thread_id)
-    if body.aiEnabled is not None:
-        t.ai_enabled = body.aiEnabled
     if body.contactName is not None:
         t.contact_name = body.contactName.strip()[:120]
     await db.commit()

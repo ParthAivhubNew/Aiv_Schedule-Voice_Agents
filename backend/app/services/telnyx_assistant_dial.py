@@ -176,11 +176,14 @@ async def dial_via_telnyx_assistant(
     if not gate.allowed:
         return {"success": False, "error": " ".join(gate.reasons), "compliance": {"blocked": True, "reasons": gate.reasons}}
     compliance_warnings = list(gate.warnings)
-    from app.services.credits import call_time_limit
-
-    time_limit = await call_time_limit(db)  # prepaid: the call ends when the minutes run out
+    from app.services.credits import CALL_HOLD, release, reserve_call
 
     call_id = f"call_{uuid.uuid4().hex[:8]}"
+    # Prepaid: the call holds the minutes left and Telnyx ends it when they run out.
+    allowed, why, time_limit = await reserve_call(db, call_id)
+    if not allowed:
+        return {"success": False, "error": why, "code": "OUT_OF_CREDITS"}
+    await db.commit()
     label = (prospect_name or "").strip() or f"Prospect ({to_clean[-4:]})"
     mission = (mission_title or "").strip() or "Telnyx AI Assistant — outbound"
     org_ref = ""
@@ -231,10 +234,16 @@ async def dial_via_telnyx_assistant(
             level="ERROR",
             details={"to": to_clean, "from": from_clean, "error": err_text},
         )
+        await release(db, [f"{CALL_HOLD}{call_id}"])
+        await db.commit()
         return {"success": False, "error": f"Telnyx HTTP {res.status_code}: {err_text}"}
 
     data = (res.json() or {}).get("data") or {}
     call_control_id = data.get("call_control_id")
+    if time_limit:
+        from app.services.call_limits import watch
+
+        watch(call_control_id, time_limit, api_key, assistant=True)
     logger.info(f"[TELNYX-ASSISTANT-DIAL] Dispatched {to_clean} via assistant {assistant_id} (call_control_id={call_control_id})")
 
     register_outbound(call_control_id, call_id=call_id, to_number=to_clean, prospect=label, assistant_id=assistant_id)

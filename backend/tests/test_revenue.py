@@ -88,12 +88,14 @@ async def test_image_redraw_costs_one_post_scheduler_credit(client, db, monkeypa
     r = await client.post("/api/scheduler/generate-image", json={"prompt": "a van"})
     assert r.status_code == 402 and "Post scheduler" in r.json()["detail"]
 
-    # A placeholder after a failed draw is free.
+    # A failed draw is free, shows a plain error and never names the provider.
     async def failed(**kwargs):
-        return {"status": "ok", "imageUrl": "https://img.example.com/placeholder.png", "fallback": True}
+        return {"status": "error", "imageUrl": None, "provider": "fal", "warning": "fal returned 500"}
 
     monkeypatch.setattr("app.api.scheduler.generate_image_with_provider", failed)
     await K.add_credits(db, "scheduler", 5, source="grant", note="More")
     await db.commit()
-    assert (await client.post("/api/scheduler/generate-image", json={"prompt": "a van"})).status_code == 200
+    r = await client.post("/api/scheduler/generate-image", json={"prompt": "a van"})
+    assert r.status_code == 200 and r.json()["status"] == "error" and r.json()["imageUrl"] is None
+    assert "fal" not in str(r.json()).lower()
     assert await K.wallet_balance(db, "scheduler") == 5

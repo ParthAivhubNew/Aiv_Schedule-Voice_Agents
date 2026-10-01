@@ -2445,7 +2445,7 @@ export function CallingWorkspace({
     hours: ["Working hours", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
     numbers: ["Numbers", "Verify your business, buy UK numbers and turn on WhatsApp."],
     subscription: ["Subscription", "Your calling plan and credits. Change plan, top up, or cancel."],
-    whatsapp: ["WhatsApp", "Conversations on your own numbers. AI replies until a person steps in."],
+    whatsapp: ["WhatsApp", "Conversations on your own numbers. You reply; you are emailed when something new arrives."],
     systemlogs: ["System logs", "Technical activity of calls, providers and background jobs."],
   };
 

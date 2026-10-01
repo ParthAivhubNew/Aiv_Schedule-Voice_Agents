@@ -37,3 +37,22 @@ async def _summary(db: AsyncSession) -> Dict[str, Any]:
 async def my_credits(request: Request, db: AsyncSession = Depends(get_db)):
     _admin(request)
     return await _summary(db)
+
+
+def _month(month: str) -> str:
+    import re
+    from datetime import datetime
+
+    month = month or datetime.utcnow().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    return month
+
+
+@router.get("/usage")
+async def my_usage(request: Request, month: str = "", wallet: str = "", db: AsyncSession = Depends(get_db)):
+    """One month of the company's credits: use per item and per day, and every line."""
+    _admin(request)
+    if wallet and wallet not in K.WALLETS:
+        raise HTTPException(status_code=400, detail="Unknown app.")
+    return await K.usage_month(db, _month(month), wallet)

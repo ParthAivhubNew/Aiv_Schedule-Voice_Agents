@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import { C, FONT_BODY } from "../tokens";
 import { adminApi } from "./adminApi";
-import { Note, PageTitle, Table, btn, cell, fmt, heading, input, mono, money, useAction } from "./ui";
+import { Note, PageTitle, Table, btn, cell, fmt, heading, input, mono, money, useAction, when } from "./ui";
 
 const WALLETS = [["voice", "Voice"], ["leadgen", "Lead generation"], ["email", "Email"], ["scheduler", "Post scheduler"]];
 
@@ -150,7 +150,7 @@ export function Billing({ canEdit }) {
         </div>
       )}
 
-      <TelnyxMargin />
+      <TelnyxMargin canEdit={canEdit} />
     </>
   );
 }
@@ -160,7 +160,7 @@ const amount = (v, cur) => `${Number(v || 0).toFixed(2)} ${(cur || "").toUpperCa
 
 // For a month: what Telnyx charged us for each customer's billing group next to the minutes we
 // billed and what the customer paid us, so the margin stays visible.
-function TelnyxMargin() {
+function TelnyxMargin({ canEdit }) {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [data, setData] = useState(null);
   const [msg, setMsg] = useState("");
@@ -219,6 +219,57 @@ function TelnyxMargin() {
           {data.fxUsdToGbp && <div style={{ fontSize: 12, color: C.slate, marginTop: 6 }}>Telnyx's USD converted at {data.fxUsdToGbp} GBP per USD.</div>}
         </>
       )}
+      <VoiceCheck month={month} canEdit={canEdit} />
     </>
+  );
+}
+
+// The saved monthly check (run by itself on the 2nd for last month): customers whose minutes
+// charged and Telnyx's billed minutes differ by more than 5 minutes and 5%.
+function VoiceCheck({ month, canEdit }) {
+  const [check, setCheck] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    adminApi.voiceCheck(month).then((r) => live && setCheck(r.result), () => live && setCheck(null));
+    return () => { live = false; };
+  }, [month]);
+  const run = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      setCheck((await adminApi.runVoiceCheck(month)).result);
+    } catch (err) {
+      setMsg(err.message);
+    }
+    setBusy(false);
+  };
+  const gaps = (check?.rows || []).filter((r) => r.flagged);
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+        <b>Monthly check, {month}:</b>
+        {check ? (
+          <span style={{ color: gaps.length ? C.red : C.teal }}>
+            {gaps.length ? `${gaps.length} customer${gaps.length === 1 ? "" : "s"} with a gap` : "minutes agree"} · checked {when(check.at)}
+          </span>
+        ) : <span style={{ color: C.slate }}>not checked yet (runs by itself on the 2nd for last month)</span>}
+        {canEdit && <button type="button" style={btn(false, busy)} disabled={busy} onClick={run}>{busy && <RefreshCw size={13} />} {check ? "Check again" : "Check now"}</button>}
+      </div>
+      <Note error>{msg}</Note>
+      {gaps.length > 0 && (
+        <Table head={["Customer", "Minutes we charged", "Minutes Telnyx billed", "Gap"]} minWidth={480}>
+          {gaps.map((r) => (
+            <tr key={r.orgId}>
+              <td style={{ ...cell, fontFamily: FONT_BODY }}>{r.name}</td>
+              <td style={right}>{fmt(r.minutesBilled)}</td>
+              <td style={right}>{fmt(r.telnyxMinutes)}</td>
+              <td style={{ ...right, color: C.red }}>{r.gapMinutes > 0 ? "+" : ""}{fmt(r.gapMinutes)}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </div>
   );
 }

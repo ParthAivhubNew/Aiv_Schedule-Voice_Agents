@@ -277,16 +277,22 @@ async def place_outbound_call(
     carrier_choice, credentials, _tele_conn = await _resolve_carrier_and_creds(
         db, carrier, account_sid, api_key
     )
+    call_id = f"call_{uuid.uuid4().hex[:8]}"
+    # Prepaid: the call holds the minutes left, so it never runs past what was paid for.
+    from app.services.credits import reserve_call
+
+    allowed, why, time_limit = await reserve_call(db, call_id)
+    if not allowed:
+        raise ValueError(why)
+    await db.commit()
     if "telnyx" in carrier_choice:
         # A number we bought for the organisation on our pay-as-you-go account: our key and its
-        # own app, so Telnyx bills the call to its billing group. Prepaid: capped at what is left.
-        from app.services.credits import call_time_limit
+        # own app, so Telnyx bills the call to its billing group; Telnyx ends it at the limit.
         from app.services.telnyx_provisioning import outbound_route
 
         route = await outbound_route(db, from_clean)
         if route:
             credentials = {**credentials, "api_key": route[0], "auth_token": route[0], "connection_id": route[1]}
-        time_limit = await call_time_limit(db)
         if time_limit:
             credentials = {**credentials, "time_limit_secs": time_limit}
 
@@ -295,7 +301,6 @@ async def place_outbound_call(
     bridge_sip = bridge_sip_uri or f"sip:{from_clean}@{settings.XAI_SIP_FQDN};transport=tls"
     prospect_label = clean_person_label(prospect_name) or f"Prospect ({to_clean[-4:]})"
     mission_label = mission_title or "Direct Outbound Outreach"
-    call_id = f"call_{uuid.uuid4().hex[:8]}"
 
     live_call = LiveCall(
         id=call_id,
@@ -397,6 +402,11 @@ async def place_outbound_call(
             except Exception:
                 pass
 
+        if carrier_sid and time_limit and "telnyx" in carrier_choice:
+            from app.services.call_limits import watch
+
+            watch(carrier_sid, time_limit, credentials.get("api_key") or credentials.get("auth_token") or "")
+
         if dial_res.get("simulated") or "sim" in carrier_choice:
             raise ValueError(
                 "Simulation mode detected. Calls must use real carriers (Twilio, Sipgate, Telnyx). "
@@ -461,6 +471,9 @@ async def place_outbound_call(
                         prow.status = "queued" if concurrent_hit else "retry"
                         prow.time_status = "waiting" if concurrent_hit else "failed"
                         prow.note = f"Dial failed: {err_msg}"
+                from app.services.credits import CALL_HOLD, release
+
+                await release(fail_session, [f"{CALL_HOLD}{call_id}"])  # never connected: its minutes are free again
                 await fail_session.commit()
         except Exception as update_err:
             logger.warning(f"Could not update failed call state in DB: {update_err}")
@@ -645,6 +658,15 @@ async def start_mission_dials(
         mission = (await db.execute(select(Mission).where(Mission.id == mission_id))).scalars().first()
         if not mission:
             return results
+        if not await _has_minutes(db):
+            waiting = (await db.execute(select(Prospect.id).where(
+                Prospect.mission_id == mission_id, Prospect.status == "queued").limit(1))).first()
+            if waiting:
+                await _pause_for_credits(db, mission)
+            return results
+        if mission.status == PAUSED_FOR_CREDITS:  # minutes again (a top-up, or a call gave some back)
+            mission.status = "active"
+            await db.commit()
         cap = _cap_concurrency(mission.concurrency)
         live = await count_active_voice_lines(db)
         slots = max(0, cap - live)
@@ -699,6 +721,17 @@ async def start_mission_dials(
                 })
             except Exception as exc:
                 err = str(exc)
+                if err.startswith("USR-01"):
+                    # Ran out between calls: this number and the rest wait for a top-up.
+                    async with AsyncSessionLocal() as qdb:
+                        prow = (await qdb.execute(select(Prospect).where(Prospect.id == p.id))).scalars().first()
+                        if prow:
+                            prow.status, prow.time_status, prow.note = "queued", "waiting", "Waiting for a top-up"
+                        m = (await qdb.execute(select(Mission).where(Mission.id == mission_id))).scalars().first()
+                        if m:
+                            await _pause_for_credits(qdb, m)
+                    results.append({"prospect_id": p.id, "name": p.name, "to": p.phone, "status": "queued", "message": err})
+                    break
                 status = "queued" if _looks_like_concurrency_limit(err) else "failed"
                 if status == "queued":
                     async with AsyncSessionLocal() as qdb:
@@ -717,6 +750,55 @@ async def start_mission_dials(
                     "message": err,
                 })
     return results
+
+
+PAUSED_FOR_CREDITS = "paused_credits"
+
+
+async def _has_minutes(db) -> bool:
+    """At least one call minute left (or credits not enforced). Never raises."""
+    try:
+        from app.services.credits import minutes_left
+
+        left = await minutes_left(db)
+        return left is None or left >= 1
+    except Exception as err:
+        logger.warning(f"Minutes check skipped: {err}")
+        return True
+
+
+async def _pause_for_credits(db, mission: Mission) -> None:
+    """Out of call minutes: the list stops here; it carries on from the next number after a
+    top-up (resume_paused_missions). Caller's session is committed."""
+    if mission.status == PAUSED_FOR_CREDITS:
+        return
+    mission.status = PAUSED_FOR_CREDITS
+    db.add(Notification(id=f"n_{uuid.uuid4().hex[:6]}", type="warning",
+                        text=f"Call list \"{mission.title}\" paused: out of call minutes. Top up and it carries on from the next number."))
+    await db.commit()
+    try:
+        from app.core.notify import notify
+
+        await notify("low_credits", "Call list paused: out of call minutes",
+                     [f"<b>{mission.title}</b> stopped because there are no call minutes left.",
+                      "Top up Voice credits in Plans &amp; credits and the list carries on from the next number."])
+    except Exception:
+        pass
+    await call_hub.broadcast("mission_updated", {"missionId": mission.id, "status": PAUSED_FOR_CREDITS})
+
+
+async def resume_paused_missions(db) -> int:
+    """After a top-up: lists paused for credits carry on. Returns how many resumed."""
+    if not await _has_minutes(db):
+        return 0
+    rows = (await db.execute(select(Mission).where(Mission.status == PAUSED_FOR_CREDITS))).scalars().all()
+    for m in rows:
+        m.status = "active"
+    await db.commit()
+    for m in rows:
+        asyncio.create_task(drain_mission_queue(m.id))
+        await call_hub.broadcast("mission_updated", {"missionId": m.id, "status": "active"})
+    return len(rows)
 
 
 async def drain_mission_queue(mission_id: Optional[str]) -> None:

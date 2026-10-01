@@ -57,7 +57,9 @@ async def resolve_llm_credentials(
     base_url: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Resolves API credentials from request parameters, database connections, or environment variables.
+    Resolves API credentials: an explicit key (internal callers only), else OutReach's own keys
+    saved in the platform record, else that provider's environment key. A company's own saved
+    keys are never used, and a requested provider is never swapped for a different one.
     """
     from app.services.secret_box import reject_if_masked, config_get_secret
 
@@ -83,11 +85,14 @@ async def resolve_llm_credentials(
             "model": mod
         }
 
-    # Otherwise query DB for any saved Connection, restricted to the LLM group only -
+    # Otherwise OutReach's saved keys (the platform record only), restricted to the LLM group -
     # a Telephony/Calendar/etc. connection's key must never be sent to a chat LLM API.
     if db is not None:
         try:
-            res = await db.execute(select(Connection).where(Connection.group_name == "LLM"))
+            from app.core.platform import platform_org_id
+
+            res = await db.execute(select(Connection).where(
+                Connection.group_name == "LLM", Connection.org_id == platform_org_id()))
             conns = res.scalars().all()
 
             # 1. Exact or partial match on provider name if provider was requested
@@ -106,6 +111,10 @@ async def resolve_llm_credentials(
                             "base_url": cfg.get("base_url") or cfg.get("baseUrl") or burl,
                             "model": mod or cfg.get("model")
                         }
+
+            # A chosen provider is never swapped for another one.
+            if prov:
+                conns = []
 
             # 2. Prefer a connected LLM-group provider
             for c in conns:
@@ -162,17 +171,12 @@ async def resolve_llm_credentials(
                 "model": mod or default_model
             }
 
-    # If requested provider has no key in env, check if ANY other provider has an active key in env!
-    for p_name, (env_var, default_url, default_model) in prov_env_map.items():
-        k = os.getenv(env_var, "").strip()
-        if k and (env_var != "ANTHROPIC_API_KEY" or k.startswith("sk-ant-")):
-            same = _same_provider(prov, p_name)
-            return {
-                "provider": p_name,
-                "api_key": k,
-                "base_url": (burl if same else None) or default_url,
-                "model": (mod if same else None) or default_model
-            }
+    # No provider chosen ("automatic"): the first provider with an environment key.
+    if not prov:
+        for p_name, (env_var, default_url, default_model) in prov_env_map.items():
+            k = os.getenv(env_var, "").strip()
+            if k and (env_var != "ANTHROPIC_API_KEY" or k.startswith("sk-ant-")):
+                return {"provider": p_name, "api_key": k, "base_url": burl or default_url, "model": mod or default_model}
 
     # Return whatever was provided without pretending to have a key
     return {

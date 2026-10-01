@@ -74,6 +74,13 @@ class TelnyxClient:
         # The API key of a new managed account is only on this resource, not on the create reply.
         return (await self._req("GET", f"/managed_accounts/{account_id}")).get("data", {})
 
+    async def disable_managed_account(self, account_id: str) -> Dict[str, Any]:
+        """No calls or messages in or out until enabled again (calls in progress carry on)."""
+        return (await self._req("POST", f"/managed_accounts/{account_id}/actions/disable")).get("data", {})
+
+    async def enable_managed_account(self, account_id: str) -> Dict[str, Any]:
+        return (await self._req("POST", f"/managed_accounts/{account_id}/actions/enable")).get("data", {})
+
     async def create_billing_group(self, name: str) -> Dict[str, Any]:
         return (await self._req("POST", "/billing_groups", json={"name": name[:100]})).get("data", {})
 

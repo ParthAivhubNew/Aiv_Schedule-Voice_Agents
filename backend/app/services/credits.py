@@ -5,9 +5,18 @@
   (optional expiry).
 - Usage takes from the batch closest to expiry first, so as little as possible is lost.
 - Each wallet warns its admins once at 20% left and stops only its own plugin at zero
-  (when the organisation's credits are enforced). A call is capped at the minutes left plus a
-  short grace (CALL_GRACE_MIN), so a conversation is not cut off the moment credits reach zero
-  and nothing can run far past what was paid for; the grace is taken from the next credits.
+  (when the organisation's credits are enforced).
+- AI work is held before it starts (hold), at the price of that moment, and charged when it
+  succeeds (confirm) or given back when it fails or times out (release). A hold that would take
+  a wallet below zero by even one credit is refused, so work stops before it overspends. A held
+  credit is not spendable twice: the balance shown is what is left after holds.
+- Never fail closed: if the credit check itself errors, the work runs anyway and is charged
+  when it finishes; a charge that cannot be written is kept and charged with the next run.
+- A call holds the voice minutes left (reserve_call) and Telnyx ends it when they run out, with
+  a wrap-up line a minute before; no grace, so a call never runs past what was paid for. Before
+  a call whose minutes left are below the company's average call, the user is warned and may
+  accept the shorter call. At zero, call lists pause and the numbers stop taking calls
+  (voice_access) until a top-up.
 - Phone numbers bought through us cost their rate-card price every calendar month (0: free).
 - Usage is settled in the background from what actually happened (finished calls, AI posts,
   WhatsApp messages), so billing can never slow down or break a call.
@@ -52,8 +61,11 @@ RATES_KEY = "credit_rates"
 SETTLE_LOOKBACK = timedelta(days=3)
 STARTER_DAYS = 30  # a free trial, when STARTER_CREDITS is set
 LOW_SHARE = 0.20
-CALL_GRACE_MIN = 5  # minutes a call may run past the credits left
 MAX_CALL_SECS = 14400  # Telnyx's own longest call
+WRAP_UP_SECS = 60  # the call is told to wrap up this long before its minutes run out
+DEFAULT_CALL_MIN = 3  # average call length assumed before a company has any calls
+CALL_HOLD = "callhold:"
+HOLD_TTL = timedelta(hours=6)  # holds left by work that never finished are given back
 
 
 def starter_credits() -> int:
@@ -137,6 +149,29 @@ async def set_org_settings(db, patch: dict, org_id: Optional[str] = None) -> dic
     return await org_settings(db, org_id)
 
 
+async def _lock(db, org_id: Optional[str] = None) -> None:
+    """Lock this organisation's credit document until the caller commits, so holds and charges
+    for one organisation happen one at a time (two requests can never spend the same credit)."""
+    from app.models.models import AppSetting
+
+    key = _settings_id(org_id)
+    q = select(AppSetting.id).where(AppSetting.id == key).with_for_update()
+    if (await db.execute(q)).first() is None:
+        db.add(AppSetting(id=key, data={}))
+        await db.flush()
+        await db.execute(q)
+
+
+def _holds(doc: dict) -> Dict[str, dict]:
+    h = doc.get("holds")
+    return dict(h) if isinstance(h, dict) else {}
+
+
+async def held(db, wallet: str) -> int:
+    doc = await _get_doc(db, _settings_id())
+    return sum(int(h.get("credits", 0)) for h in _holds(doc).values() if h.get("wallet") == wallet)
+
+
 # ── Wallet balances ─────────────────────────────────────────────────────────
 def _live(now: datetime):
     from app.models.models import CreditGrant
@@ -154,9 +189,10 @@ async def _batches(db, wallet: str, now: Optional[datetime] = None) -> List[Any]
 
 
 async def wallet_balance(db, wallet: str, now: Optional[datetime] = None) -> int:
+    """Credits left to spend: batches, less overdraw, less credits held by work in progress."""
     total = sum(g.remaining for g in await _batches(db, wallet, now))
     debt = int((await org_settings(db))["debt"].get(wallet, 0))
-    return int(total - debt)
+    return int(total - debt - await held(db, wallet))
 
 
 async def balance(db, wallet: Optional[str] = None) -> int:
@@ -174,10 +210,11 @@ async def wallets(db, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
         batches = await _batches(db, key, now)
         total = sum(g.remaining for g in batches)
         size = sum(g.amount for g in batches)
-        bal = int(total - int(s["debt"].get(key, 0)))
+        on_hold = await held(db, key)
+        bal = int(total - int(s["debt"].get(key, 0)) - on_hold)
         soon = [b for b in batches if b.expires_at]
         out.append({
-            "key": key, "label": label, "balance": bal,
+            "key": key, "label": label, "balance": bal, "held": on_hold,
             "low": bool(s["enforce"] and size and bal <= size * LOW_SHARE),
             "empty": bool(s["enforce"] and bal <= 0),
             "nextExpiry": {"amount": soon[0].remaining, "at": soon[0].expires_at.isoformat()} if soon else None,
@@ -249,11 +286,150 @@ async def charge(db, item: str, quantity: float, ref: str, note: str = "") -> in
     cost = int(math.ceil(quantity * rate["credits"]))
     if cost <= 0:
         return 0
-    wallet = rate["wallet"]
+    return await _charge_cost(db, item, quantity, cost, ref, note)
+
+
+async def _charge_cost(db, item: str, quantity: float, cost: int, ref: str, note: str = "") -> int:
+    wallet = wallet_of(item)
     await _take(db, wallet, cost)
     db.add(_entry("usage", -cost, wallet, item, quantity, ref, note))
     await db.flush()
     return cost
+
+
+async def _already_charged(db, ref: str, item: str) -> bool:
+    from app.models.models import CreditEntry
+
+    return (await db.execute(select(CreditEntry.id).where(
+        CreditEntry.kind == "usage", CreditEntry.ref == ref, CreditEntry.item == item).limit(1))).first() is not None
+
+
+# ── Holds: price fixed when work starts, charged only if it succeeds ──────
+# A part is one thing to charge: {"ref", "item", "quantity", "note"}. ref is unique per thing
+# (e.g. "gen:<job>" for a written post, "genimg:<job>" for its image), so it is charged once.
+async def hold(db, parts: List[Dict[str, Any]]) -> Tuple[bool, str]:
+    """Hold credits for these parts, all or nothing, at today's prices. Parts already held stay
+    held (safe to call again on a retry). Refused when the wallet would go below zero by even
+    one credit and the organisation's credits are enforced. Never raises: if the check itself
+    fails the work may run, and is charged when it is confirmed. Caller commits."""
+    try:
+        await pay_owed(db)
+        await _lock(db)
+        s = await org_settings(db)
+        doc = await _get_doc(db, _settings_id())
+        holds = _holds(doc)
+        card = await rates(db)
+        new: Dict[str, dict] = {}
+        need: Dict[str, int] = {}
+        for p in parts:
+            item, qty = p["item"], float(p.get("quantity", 1))
+            if p["ref"] in holds or item not in card or qty <= 0:
+                continue
+            cost = int(math.ceil(qty * card[item]["credits"]))
+            if cost <= 0 or await _already_charged(db, p["ref"], item):
+                continue
+            wallet = card[item]["wallet"]
+            new[p["ref"]] = {"item": item, "quantity": qty, "credits": cost, "wallet": wallet,
+                             "note": str(p.get("note") or card[item]["label"])[:200], "at": datetime.utcnow().isoformat()}
+            need[wallet] = need.get(wallet, 0) + cost
+        if not new:
+            return True, ""
+        if s["enforce"]:
+            for wallet, cost in need.items():
+                if await wallet_balance(db, wallet) < cost:
+                    return False, out_of_credits(wallet)
+        holds.update(new)
+        await _patch_doc(db, {"holds": holds})
+        return True, ""
+    except Exception as err:
+        logger.warning(f"[credits] hold skipped, work runs and is charged when it finishes: {err}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return True, ""
+
+
+def out_of_credits(wallet: str) -> str:
+    return f"USR-01: Out of {WALLETS[wallet]} credits. Top up to carry on; nothing more is charged until you do."
+
+
+async def confirm(db, ref: str, item: str, quantity: float = 1, note: str = "") -> int:
+    """The held work succeeded: charge what was held (the price when it started). With no hold
+    (the check failed earlier, or the hold expired) it is charged at today's price. Charged once
+    per ref. Returns credits charged. Caller commits."""
+    await _lock(db)
+    doc = await _get_doc(db, _settings_id())
+    holds = _holds(doc)
+    h = holds.pop(ref, None)
+    if h is not None:
+        await _patch_doc(db, {"holds": holds})
+    if await _already_charged(db, ref, item):
+        return 0
+    if h is not None:
+        return await _charge_cost(db, h["item"], h["quantity"], int(h["credits"]), ref, note or h.get("note", ""))
+    return await charge(db, item, quantity, ref, note)
+
+
+async def release(db, refs: List[str]) -> int:
+    """The held work failed, timed out or was cancelled: give the held credits back. Returns the
+    credits released. Never raises. Caller commits."""
+    try:
+        await _lock(db)
+        doc = await _get_doc(db, _settings_id())
+        holds = _holds(doc)
+        freed = sum(int(holds.pop(r, {}).get("credits", 0)) for r in refs)
+        if freed or any(r in _holds(doc) for r in refs):
+            await _patch_doc(db, {"holds": holds})
+        return freed
+    except Exception as err:
+        logger.warning(f"[credits] release skipped (expires on its own): {err}")
+        return 0
+
+
+async def drop_stale_holds(db, now: Optional[datetime] = None) -> int:
+    """Give back holds left by work that never finished (e.g. a server restart mid-job)."""
+    now = now or datetime.utcnow()
+    doc = await _get_doc(db, _settings_id())
+    holds = _holds(doc)
+    stale = [r for r, h in holds.items() if datetime.fromisoformat(h.get("at") or now.isoformat()) < now - HOLD_TTL]
+    for r in stale:
+        holds.pop(r)
+    if stale:
+        await _patch_doc(db, {"holds": holds})
+    return len(stale)
+
+
+# Charges that could not be written (the database was briefly unavailable), per organisation.
+# They are charged together with the organisation's next run; settle() also re-finds AI posts.
+_OWED: Dict[str, List[Dict[str, Any]]] = {}
+
+
+async def confirm_safely(db, ref: str, item: str, quantity: float = 1, note: str = "") -> None:
+    """confirm() and commit; if that fails, keep the charge for the next run. Never raises."""
+    try:
+        await confirm(db, ref, item, quantity, note)
+        await db.commit()
+    except Exception as err:
+        logger.warning(f"[credits] charge {ref} kept for the next run: {err}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        _OWED.setdefault(_org(), []).append({"ref": ref, "item": item, "quantity": quantity, "note": note})
+
+
+async def pay_owed(db) -> int:
+    """Charge what earlier runs could not. Caller commits."""
+    owed = _OWED.pop(_org(), [])
+    total = 0
+    for i, o in enumerate(owed):
+        try:
+            total += await confirm(db, o["ref"], o["item"], o["quantity"], o["note"])
+        except Exception:
+            _OWED.setdefault(_org(), []).extend(owed[i:])
+            raise
+    return total
 
 
 async def remove_credits(db, wallet: str, amount: int, note: str = "", by: str = "") -> int:
@@ -293,38 +469,127 @@ async def expire_plan_batches(db, wallet: str) -> None:
         await db.flush()
 
 
-async def can_start(db, item: str) -> Tuple[bool, str]:
-    """Whether the organisation may start one more unit of item. Never raises."""
+async def can_start(db, item: str, quantity: float = 1, extra: Optional[List[Tuple[str, float]]] = None) -> Tuple[bool, str]:
+    """Whether the organisation can afford quantity units of item now (plus extra items that
+    come with it, e.g. a post's image). Never raises."""
     try:
         if not (await org_settings(db))["enforce"]:
             return True, ""
-        rate = (await rates(db)).get(item, {})
-        cost = rate.get("credits", 0)
-        if cost <= 0:
-            return True, ""
-        wallet = rate.get("wallet", "voice")
-        if await wallet_balance(db, wallet) < cost:
-            return False, f"Out of {WALLETS[wallet]} credits. Top up or wait for your plan to renew."
+        card = await rates(db)
+        need: Dict[str, int] = {}
+        for it, qty in [(item, quantity), *(extra or [])]:
+            rate = card.get(it, {})
+            wallet = rate.get("wallet", "voice")
+            need[wallet] = need.get(wallet, 0) + int(math.ceil(qty * rate.get("credits", 0)))
+        for wallet, cost in need.items():
+            if cost > 0 and await wallet_balance(db, wallet) < cost:
+                return False, out_of_credits(wallet)
         return True, ""
     except Exception as err:
         logger.warning(f"[credits] check skipped: {err}")
         return True, ""
 
 
-async def call_time_limit(db) -> Optional[int]:
-    """Longest a new call may last, in seconds: the voice minutes left plus the grace. None when
-    the organisation's credits are not enforced (no cap). Never raises."""
-    try:
-        if not (await org_settings(db))["enforce"]:
-            return None
-        per_minute = (await rates(db))["voice_minute"]["credits"]
-        if per_minute <= 0:
-            return None
-        minutes = max(await wallet_balance(db, "voice"), 0) // per_minute + CALL_GRACE_MIN
-        return int(max(60, min(MAX_CALL_SECS, minutes * 60)))
-    except Exception as err:
-        logger.warning(f"[credits] call limit skipped: {err}")
+async def average_call_minutes(db, days: int = 30) -> float:
+    """The company's average answered voice call over the last days, in minutes (rounded up per
+    call, as charged); DEFAULT_CALL_MIN before it has any."""
+    from app.models.models import CallLog
+
+    since = datetime.utcnow() - timedelta(days=days)
+    rows = (await db.execute(select(CallLog.duration).where(CallLog.channel == "voice", CallLog.created_at >= since)
+                             .order_by(CallLog.created_at.desc()).limit(500))).scalars().all()
+    mins = [m for m in (minutes_of(d) for d in rows) if m > 0]
+    return round(sum(mins) / len(mins), 1) if mins else float(DEFAULT_CALL_MIN)
+
+
+async def minutes_left(db) -> Optional[int]:
+    """Whole voice minutes the organisation can still pay for (after what live calls hold).
+    None when its credits are not enforced or minutes are free."""
+    if not (await org_settings(db))["enforce"]:
         return None
+    per_minute = (await rates(db))["voice_minute"]["credits"]
+    if per_minute <= 0:
+        return None
+    return max(await wallet_balance(db, "voice"), 0) // per_minute
+
+
+async def short_call_warning(db, calls: int = 1) -> Optional[Dict[str, Any]]:
+    """A warning to show before calling when the minutes left are below the company's average
+    call (times the number of calls on a list); None when there is enough. Never raises."""
+    try:
+        left = await minutes_left(db)
+        if left is None:
+            return None
+        avg = await average_call_minutes(db)
+        if left >= avg * max(calls, 1):
+            return None
+        if calls > 1:
+            msg = (f"{left} call minutes left; your calls average {avg:g} minutes, so this list will pause when the "
+                   f"minutes run out (about {int(left // avg) if avg else 0} of {calls} calls). Each call ends when its minutes run out.")
+        else:
+            msg = (f"Only {left} call minute{'s' if left != 1 else ''} left; your calls average {avg:g} minutes. "
+                   f"This call will end after {left} minute{'s' if left != 1 else ''}, with a wrap-up a minute before.")
+        return {"code": "LOW_MINUTES", "message": msg + " Top up for longer calls, or call anyway.",
+                "minutesLeft": left, "averageMinutes": avg}
+    except Exception as err:
+        logger.warning(f"[credits] short-call check skipped: {err}")
+        return None
+
+
+async def reserve_call(db, call_id: str) -> Tuple[bool, str, Optional[int]]:
+    """Hold the voice minutes left for this call: (allowed, why not, longest it may last in
+    seconds, or None for no cap). The hold keeps other calls from spending the same minutes and
+    is charged by what the call really used when it ends (charge_finished_call). Never raises:
+    if the check fails the call goes ahead uncapped and is charged when it ends. Caller commits."""
+    try:
+        left = await minutes_left(db)
+        if left is None:
+            return True, "", None
+        if left < 1:
+            return False, out_of_credits("voice"), None
+        minutes = min(left, MAX_CALL_SECS // 60)
+        ok, why = await hold(db, [{"ref": f"{CALL_HOLD}{call_id}", "item": "voice_minute", "quantity": minutes,
+                                   "note": "Call in progress"}])
+        if not ok:
+            return False, why, None
+        return True, "", minutes * 60
+    except Exception as err:
+        logger.warning(f"[credits] call reserve skipped: {err}")
+        return True, "", None
+
+
+async def charge_finished_call(db, call_id: str, duration: str, label: str = "") -> None:
+    """A call ended: charge the minutes it used and give back the rest of its hold, so the next
+    call sees the real balance straight away. Never raises; settle() charges anything missed."""
+    from app.services.call_log_writer import log_id_for_call
+
+    try:
+        ref = f"call:{log_id_for_call(call_id)}"
+        used = minutes_of(duration) - (await _charged(db, [ref])).get(ref, 0)
+        if used > 0:
+            await charge(db, "voice_minute", used, ref, f"Call with {label}" if label else "Call")
+        await release(db, [f"{CALL_HOLD}{call_id}"])
+        await db.commit()
+    except Exception as err:
+        logger.warning(f"[credits] call {call_id} charged on the next settle: {err}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
+async def _release_ended_call_holds(db) -> None:
+    """Holds of calls that have ended (their minutes are charged from the call log)."""
+    from app.models.models import LiveCall
+
+    refs = [r for r in _holds(await _get_doc(db, _settings_id())) if r.startswith(CALL_HOLD)]
+    if not refs:
+        return
+    ids = [r[len(CALL_HOLD):] for r in refs]
+    live = {c.id: c.ended for c in (await db.execute(select(LiveCall).where(LiveCall.id.in_(ids)))).scalars().all()}
+    done = [f"{CALL_HOLD}{i}" for i in ids if live.get(i, True)]
+    if done:
+        await release(db, done)
 
 
 # ── Settling usage from what happened ───────────────────────────────────────
@@ -365,6 +630,7 @@ async def settle(db, now: Optional[datetime] = None) -> int:
 
     now = now or datetime.utcnow()
     await expire(db, now)
+    await drop_stale_holds(db, now)
     # Usage from before credits were switched on for this organisation is never charged.
     doc = await _get_doc(db, _settings_id())
     if not doc.get("tracking_since"):
@@ -372,7 +638,7 @@ async def settle(db, now: Optional[datetime] = None) -> int:
         await db.commit()
         return 0
     since = max(now - SETTLE_LOOKBACK, datetime.fromisoformat(doc["tracking_since"]))
-    total = 0
+    total = await pay_owed(db)
 
     logs = (await db.execute(select(CallLog).where(CallLog.created_at >= since, CallLog.channel == "voice"))).scalars().all()
     done = await _charged(db, [f"call:{c.id}" for c in logs])
@@ -380,14 +646,20 @@ async def settle(db, now: Optional[datetime] = None) -> int:
         extra = minutes_of(c.duration) - done.get(f"call:{c.id}", 0)
         if extra > 0:
             total += await charge(db, "voice_minute", extra, f"call:{c.id}", f"Call with {c.listed_as}")
+    await _release_ended_call_holds(db)
 
+    # Finished AI posts whose charge was never written (normally charged the moment they finish).
+    # One written post (shared by the channels it was written for) and its image.
     jobs = (await db.execute(select(SocialGenJob).where(
         SocialGenJob.updated_at >= since, SocialGenJob.state == "done", SocialGenJob.error.is_(None)))).scalars().all()
-    done = await _charged(db, [f"gen:{j.id}" for j in jobs])
     for j in jobs:
-        extra = (len(j.post_ids or []) or 1) - done.get(f"gen:{j.id}", 0)
-        if extra > 0:
-            total += await charge(db, "ai_post", extra, f"gen:{j.id}", "AI-written post")
+        if (j.options or {}).get("billing") != 2:
+            continue  # queued before holds existed: charged the old way, already settled
+        for ref, item, note in ((f"gen:{j.id}", "ai_post", "AI-written post"), (f"genimg:{j.id}", "ai_image", "AI image")):
+            if item == "ai_image" and j.skip_image:
+                continue
+            if not await _already_charged(db, ref, item):
+                total += await confirm(db, ref, item, 1, note)
 
     msgs = (await db.execute(select(WhatsappMessage).where(
         WhatsappMessage.created_at >= since, WhatsappMessage.direction == "outbound",
@@ -411,6 +683,9 @@ async def settle(db, now: Optional[datetime] = None) -> int:
     if total:
         await _warn_low(db)
     await db.commit()
+    from app.services import voice_access
+
+    await voice_access.sync(db)  # at zero minutes the numbers stop taking calls; back on after a top-up
     return total
 
 
@@ -467,6 +742,47 @@ async def usage_by_item(db, days: int = 30) -> Dict[str, dict]:
         .where(CreditEntry.kind == "usage", CreditEntry.created_at >= since).group_by(CreditEntry.item)
     )).all()
     return {item: {"quantity": float(q or 0), "credits": -int(a or 0)} for item, q, a in rows}
+
+
+async def usage_month(db, month: str, wallet: str = "") -> Dict[str, Any]:
+    """A company's credits for one calendar month (UTC): what it used per item, added, expired,
+    each day's use, and every ledger line (newest first)."""
+    from app.models.models import CreditEntry
+    from app.services.revenue import month_range
+
+    start, end = month_range(month)
+    q = select(CreditEntry).where(CreditEntry.created_at >= start, CreditEntry.created_at < end)
+    if wallet:
+        q = q.where(CreditEntry.wallet == wallet)
+    rows = (await db.execute(q.order_by(CreditEntry.created_at.desc()))).scalars().all()
+    items: Dict[str, Dict[str, Any]] = {}
+    days: Dict[str, Dict[str, int]] = {}
+    totals = {"used": 0, "added": 0, "expired": 0, "adjusted": 0}
+    for r in rows:
+        if r.kind == "usage":
+            it = items.setdefault(r.item or "other", {"item": r.item or "other", "wallet": r.wallet,
+                                                        "label": DEFAULT_RATES.get(r.item, {}).get("label", r.item or "Other"),
+                                                        "unit": DEFAULT_RATES.get(r.item, {}).get("unit", ""),
+                                                        "units": 0.0, "credits": 0})
+            it["units"] += float(r.quantity or 0)
+            it["credits"] -= int(r.amount)
+            totals["used"] -= int(r.amount)
+            day = r.created_at.strftime("%Y-%m-%d") if r.created_at else ""
+            days.setdefault(day, {}).setdefault(r.wallet, 0)
+            days[day][r.wallet] -= int(r.amount)
+        elif r.kind == "grant":
+            totals["added"] += int(r.amount)
+        elif r.kind == "expire":
+            totals["expired"] -= int(r.amount)
+        else:
+            totals["adjusted"] += int(r.amount)
+    return {
+        "month": month, "wallet": wallet or None, "totals": totals,
+        "items": sorted(({**v, "units": round(v["units"], 2)} for v in items.values()), key=lambda v: -v["credits"]),
+        "days": [{"day": d, "byWallet": w, "credits": sum(w.values())} for d, w in sorted(days.items())],
+        "entries": [{"id": r.id, "kind": r.kind, "wallet": r.wallet, "item": r.item, "quantity": r.quantity, "amount": r.amount,
+                     "note": r.note, "by": r.by, "at": r.created_at.isoformat() if r.created_at else None} for r in rows],
+    }
 
 
 # Kept for callers from before wallets (staff grants without a wallet go to Voice).

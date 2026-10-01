@@ -102,7 +102,8 @@ async def test_support_staff_can_look_but_not_change(db):
         assert (await c.get("/api/admin-api/logs")).status_code == 200
         for verb, url, body in [
             ("post", "/api/admin-api/clients/org_acme/status", {"status": "suspended"}),
-            ("post", "/api/admin-api/clients/org_acme/credits", {"wallet": "voice", "amount": 100}),
+            ("post", "/api/admin-api/clients/org_acme/credit-awards/preview",
+             {"wallet": "voice", "amount": 100, "label": "given", "reason": "Trial extension"}),
             ("put", "/api/admin-api/clients/org_acme/enforce", {"enforce": False}),
             ("put", "/api/admin-api/rates", {"rates": {"voice_minute": 1}}),
             ("post", "/api/admin-api/plans", {"wallet": "voice", "name": "x", "priceUsdCents": 100, "credits": 1}),
@@ -161,27 +162,42 @@ async def test_client_organisations_cannot_change_provider_settings(client, db):
     assert (await client.get("/api/auth/me")).json()["is_platform_org"] is False  # Aivhub is a normal client company now
 
 
-async def test_staff_choose_the_post_scheduler_ai_for_clients(staff, db):
+async def test_staff_choose_the_post_scheduler_ai_for_every_company(staff, db):
     from app.api.scheduler import _load_ai_settings, _resolve_image_prefs
     from app.core.tenancy import org_scope
 
     got = (await staff.get("/api/admin-api/platform-ai")).json()
-    assert got["chosen"] == {"textProvider": "", "textModel": "", "imageProvider": "", "imageModel": ""}
+    assert got["chosen"]["textProvider"] == "" and got["chosen"]["textBackupProvider"] == ""
     assert "openai" in got["textProviders"] and "fal" in got["imageProviders"]
     assert (await staff.put("/api/admin-api/platform-ai", json={"textProvider": "nope"})).status_code == 400
-    r = await staff.put("/api/admin-api/platform-ai", json={"textProvider": "openai", "textModel": "gpt-test", "imageProvider": "fal"})
-    assert r.status_code == 200 and r.json()["imageProvider"] == "fal"
+    assert (await staff.put("/api/admin-api/platform-ai", json={"imageBackupProvider": "nope"})).status_code == 400
+    r = await staff.put("/api/admin-api/platform-ai", json={
+        "textProvider": "openai", "textModel": "gpt-test", "imageProvider": "fal",
+        "textBackupProvider": "deepseek", "textBackupModel": "deepseek-chat"})
+    assert r.status_code == 200 and r.json()["imageProvider"] == "fal" and r.json()["textBackupProvider"] == "deepseek"
     support = await make_staff(db, "support2@outreach.test", "staff_support")
     async with _as(support) as c:
         assert (await c.put("/api/admin-api/platform-ai", json={"imageProvider": "openai"})).status_code == 403
+        assert (await c.post("/api/admin-api/platform-ai/test", json={"kind": "text"})).status_code == 403
 
     await make_user(db, "acme_admin", "Admin", org_id="org_acme")
     with org_scope("org_acme"):  # a client: staff's choice, whatever the request asks for
         prefs = await _load_ai_settings(db)
         assert (prefs["textProvider"], prefs["textModel"], prefs["imageProvider"]) == ("openai", "gpt-test", "fal")
-        img = await _resolve_image_prefs(db, {"image_provider": "pollinations", "image_api_key": "sk-x"})
-        assert img["provider"] == "fal" and img["api_key"] is None
-    # Aivhub is a client like any other; only the platform record keeps its own choice.
+        assert (await _load_ai_settings(db, "backup"))["textProvider"] == "deepseek"
+        img = await _resolve_image_prefs(db, {"image_provider": "pollinations", "image_api_key": "sk-x",
+                                              "image_base_url": "https://evil.example", "aspectRatio": "1:1"})
+        assert img["provider"] == "fal" and img["api_key"] is None and img["base_url"] is None
+        assert img["aspect_ratio"] == "1:1"  # the look is the company's own
+    # Aivhub and OutReach itself use the very same choice: there is one AI stack.
     assert (await _load_ai_settings(db))["textProvider"] == "openai"
     with org_scope("org_outreach"):
-        assert (await _load_ai_settings(db))["textProvider"] == "auto"
+        assert (await _load_ai_settings(db))["textProvider"] == "openai"
+
+    # Clearing the backup provider clears its model too.
+    r = await staff.put("/api/admin-api/platform-ai", json={"textBackupProvider": ""})
+    assert r.json()["textBackupModel"] == ""
+    r = await staff.post("/api/admin-api/platform-ai/test", json={"kind": "text", "slot": "backup"})
+    assert r.json() == {"ok": False, "error": "No backup is set."}
+
+
