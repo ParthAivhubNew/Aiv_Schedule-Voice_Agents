@@ -326,6 +326,7 @@ export const api = {
   }),
   queueGeneration: (payload) => apiRequest('/scheduler/generate', { method: 'POST', body: payload }),
   retryGeneration: (payload) => apiRequest('/scheduler/generate/retry', { method: 'POST', body: payload }),
+  resumeGeneration: (action) => apiRequest('/scheduler/generate/resume', { method: 'POST', body: { action } }),
   getApprovalStatus: () => apiRequest('/scheduler/approval/status'),
   resendApprovalEmails: () => apiRequest('/scheduler/approval/resend', { method: 'POST' }),
   listSchedules: () => apiRequest('/scheduler/schedules'),

@@ -96,6 +96,22 @@ function queueProgress(p) {
   return null;
 }
 
+// The AI queue paused because Post scheduler credits ran out. Nothing paused was charged.
+function CreditsPaused({ count, reason, busy, onContinue, onStartNew, onTopUp }) {
+  if (!count) return null;
+  const b = (primary) => ({ height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.red}`, background: primary ? C.red : "#fff", color: primary ? "#fff" : C.red, fontWeight: 700, fontSize: 12, cursor: busy ? "wait" : "pointer" });
+  return (
+    <div role="alert" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "10px 16px 0", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.red}`, background: "#FFF5F5", fontSize: 12.5, color: C.red }}>
+      <span style={{ flex: "1 1 260px", minWidth: 0 }}>
+        <b>AI writing paused.</b> {reason || "Out of Post scheduler credits."} {count} post{count === 1 ? "" : "s"} waiting; nothing was charged for them.
+      </span>
+      {onTopUp ? <button type="button" style={b(false)} onClick={onTopUp}>Top up</button> : <span>Ask your admin to top up.</span>}
+      <button type="button" style={b(true)} disabled={busy} onClick={onContinue}>Continue where it stopped</button>
+      <button type="button" style={b(false)} disabled={busy} onClick={onStartNew}>Start new</button>
+    </div>
+  );
+}
+
 function GenFailed({ post, onRetry }) {
   if (!post || post.genState !== "failed") return null;
   return (
@@ -2795,6 +2811,21 @@ export function SocialWorkspace({
     }
   };
 
+  const pausedPosts = posts.filter((p) => p.genState === "paused");
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const resumeGeneration = async (action) => {
+    setResumeBusy(true);
+    try {
+      const r = await api.resumeGeneration(action);
+      showToast(action === "new" ? `Cleared ${r.dropped} waiting job${r.dropped === 1 ? "" : "s"}. Start a new plan when ready.` : "Carrying on where it stopped.");
+      refreshPosts();
+    } catch (e) {
+      showToast(e.message || "Could not continue.");
+    } finally {
+      setResumeBusy(false);
+    }
+  };
+
   // While anything is queued or being written, pull fresh copies from the server.
   const genActive = posts.some((p) => ["queued", "writing", "imaging"].includes(p.genState));
   useEffect(() => {
@@ -3759,6 +3790,9 @@ export function SocialWorkspace({
       </div>
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
+          onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
+          onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />
         {page === "accounts" ? (
           <SimpleAccountsPage
             accounts={accounts}

@@ -33,6 +33,7 @@ from app.services.social_oauth import (
 )
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
+import asyncio
 import uuid
 import logging
 import time
@@ -460,44 +461,42 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
     width = int(payload.get("width", w))
     height = int(payload.get("height", h))
 
-    from app.services.credits import can_start
+    from app.services import credits
 
-    ok, why = await can_start(db, "ai_image")  # Post scheduler credits; stop at zero
+    # Held at today's price before drawing; charged only if an image comes back.
+    ref = f"img:{uuid.uuid4().hex[:16]}"
+    ok, why = await credits.hold(db, [{"ref": ref, "item": "ai_image", "quantity": 1, "note": "AI image redraw"}])
     if not ok:
         raise HTTPException(status_code=402, detail=why)
+    await db.commit()
 
     if not prompt and title:
         prompt = create_topic_image_prompt(title, theme=theme, style=style)
     elif not prompt:
         prompt = f"Modern professional illustration representing {theme}, clean vector style, high quality"
 
+    hosted = None
     try:
         async with IMAGE_SLOTS.slot(PRIORITY_INTERACTIVE):
-            img = await _image_with_backup(db, payload, prompt, width=width, height=height)
+            img = await asyncio.wait_for(_image_with_backup(db, payload, prompt, width=width, height=height),
+                                         timeout=gen_queue.IMAGE_TIMEOUT_SECS)
+        hosted = _host_image(img.get("imageUrl"), request)
     except Exception as err:
         logger.warning(f"[Scheduler] image failed on every configured engine: {err}")
+        img = {}
+    if not hosted:
+        await credits.release(db, [ref])  # a failed image is free
+        await db.commit()
         return {"status": "error", "imageUrl": None, "imagePrompt": prompt, "prompt": prompt, "warning": NO_IMAGE_AI}
-    hosted = _host_image(img.get("imageUrl"), request)
-    if hosted:
-        # A real new image: one "AI image redraw".
-        import uuid as _uuid
-
-        from app.services.credits import charge
-
-        try:
-            await charge(db, "ai_image", 1, f"img:{_uuid.uuid4().hex[:16]}", "AI image redraw")
-            await db.commit()
-        except Exception as charge_err:
-            logger.warning(f"[credits] image charge skipped: {charge_err}")
-            await db.rollback()
+    await credits.confirm_safely(db, ref, "ai_image", 1, "AI image redraw")
     return {
-        "status": "ok" if hosted else "error",
+        "status": "ok",
         "imageUrl": hosted,
         "imagePrompt": img.get("imagePrompt") or prompt,
         "prompt": img.get("imagePrompt") or prompt,
         "width": img.get("width") or width,
         "height": img.get("height") or height,
-        "warning": None if hosted else NO_IMAGE_AI,
+        "warning": None,
     }
 
 
@@ -534,7 +533,9 @@ async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
         raise HTTPException(status_code=409, detail=f"Save these posts before writing them: {missing[:5]}")
     from app.services.credits import can_start
 
-    ok, why = await can_start(db, "ai_post")
+    # The first post must be affordable now; later ones are held one by one as they start, and
+    # the queue pauses at the first one the company cannot afford.
+    ok, why = await can_start(db, "ai_post", extra=[] if groups[0]["skip_image"] else [("ai_image", 1)])
     if not ok:
         raise HTTPException(status_code=402, detail=why)
     priority = PRIORITY_INTERACTIVE if payload.get("interactive") else 0
@@ -542,6 +543,47 @@ async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
     job_ids = await gen_queue.enqueue(db, groups, priority=priority, options=options)
     await db.commit()
     return {"status": "ok", "jobs": job_ids, "posts": total}
+
+
+@router.get("/generate/paused")
+async def paused_generation(db: AsyncSession = Depends(get_db)):
+    """Writing paused because the company ran out of Post scheduler credits."""
+    rows = (await db.execute(select(SocialGenJob).where(SocialGenJob.state.in_(["paused", "image_paused"])))).scalars().all()
+    return {"jobs": len(rows), "posts": len({pid for j in rows for pid in (j.post_ids or [])})}
+
+
+@router.post("/generate/resume")
+async def resume_generation(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    """After a top-up: continue where the queue stopped ("continue") or drop what was waiting
+    and start afresh ("new"). Nothing paused was charged."""
+    action = str(payload.get("action") or "continue")
+    if action not in ("continue", "new"):
+        raise HTTPException(status_code=400, detail="action must be continue or new.")
+    rows = (await db.execute(select(SocialGenJob).where(SocialGenJob.state.in_(["paused", "image_paused"])))).scalars().all()
+    if not rows:
+        return {"status": "ok", "resumed": 0, "dropped": 0}
+    post_ids = [pid for j in rows for pid in (j.post_ids or [])]
+    if action == "new":
+        for j in rows:
+            j.state, j.error = "done", "cancelled"
+            await gen_queue.release_job(db, j.id)
+        await db.execute(update(SocialPost).where(SocialPost.id.in_(post_ids))
+                         .values(gen_state=None, gen_error=None).execution_options(synchronize_session=False))
+        await db.commit()
+        return {"status": "ok", "resumed": 0, "dropped": len(rows)}
+    from app.services.credits import can_start
+
+    ok, why = await can_start(db, "ai_image" if any(j.state == "image_paused" for j in rows) else "ai_post")
+    if not ok:
+        raise HTTPException(status_code=402, detail=why)
+    for j in rows:
+        image = j.state == "image_paused"
+        j.state = "image_queued" if image else "queued"
+        await db.execute(update(SocialPost).where(SocialPost.id.in_(j.post_ids or []))
+                         .values(gen_state="imaging" if image else "queued", gen_error=None).execution_options(synchronize_session=False))
+    await db.commit()
+    gen_queue.wake()
+    return {"status": "ok", "resumed": len(rows), "dropped": 0}
 
 
 @router.post("/generate/retry")
@@ -552,7 +594,7 @@ async def retry_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
     retried = 0
     for job in jobs:
         if ids & set(job.post_ids or []):
-            image_only = (job.error or "").startswith("Image:")
+            image_only = job.error == NO_IMAGE_AI or (job.error or "").startswith("Image:")
             job.state = "image_queued" if image_only else "queued"
             job.error = None
             job.attempts = 0
@@ -1222,14 +1264,26 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
     if not (post.image_url or "").strip():
         from app.services.post_writer import create_topic_image_prompt
         prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
-        try:
-            img = await _image_with_backup(db, {}, prompt)
-        except Exception:
-            logger.exception("Image generation before publish failed for %s", post.id)
-            img = {}
-        if img.get("imageUrl"):
+        from app.services import credits
+
+        # Drawn and charged like any AI image; with no credits left the post goes out without one.
+        ref = f"pubimg:{post.id}:{uuid.uuid4().hex[:8]}"
+        ok, _ = await credits.hold(db, [{"ref": ref, "item": "ai_image", "quantity": 1, "note": "AI image before publishing"}])
+        await db.commit()
+        img = {}
+        if ok:
+            try:
+                img = await asyncio.wait_for(_image_with_backup(db, {}, prompt), timeout=gen_queue.IMAGE_TIMEOUT_SECS)
+            except Exception:
+                logger.exception("Image generation before publish failed for %s", post.id)
+        hosted = _host_image(img["imageUrl"], request) if img.get("imageUrl") else None
+        if hosted:
             post.image_prompt = img.get("imagePrompt") or prompt
-            post.image_url = _host_image(img["imageUrl"], request)
+            post.image_url = hosted
+            await db.commit()
+            await credits.confirm_safely(db, ref, "ai_image", 1, "AI image before publishing")
+        elif ok:
+            await credits.release(db, [ref])
             await db.commit()
 
     bundled = await _publish_claimed(db, post, request)
