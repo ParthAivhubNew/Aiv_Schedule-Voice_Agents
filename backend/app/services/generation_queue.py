@@ -257,42 +257,45 @@ async def _apply_text(job: Dict[str, Any], pkg: Dict[str, Any], brand: str) -> N
 
 
 async def _run_text(jobs: List[Dict[str, Any]]) -> None:
+    from app.services import platform_ai
     from app.services.post_writer import BatchWriteError, generate_complete_social_package, write_post_batch
-    from app.api.scheduler import _resolve_text_ai
+    from app.api.scheduler import NO_TEXT_AI, _resolve_text_ai
 
     priority = max(j["priority"] for j in jobs)
     try:
         async with TEXT_SLOTS.slot(priority):
             async with AsyncSessionLocal() as db:
-                ai = await _resolve_text_ai(db, {})
                 company = await _company(db)
                 kb = await _knowledge(db, " ".join(j["plan"] or j["headline"] for j in jobs))
                 if kb:
                     company["context"] = (company["context"] + "\n\n" + kb).strip()
-            if ai["error"]:
-                for j in jobs:
-                    await _finish(j, "failed", ai["error"], "failed")
-                return
             opts = jobs[0]["options"] or {}
-            common = dict(
-                company_name=company["name"], company_pitch=company["pitch"], company_context=company["context"],
-                linkedin_directive=opts.get("linkedinDirective") or "",
-                api_key=ai["api_key"], provider=ai["provider"], model=ai["model"], base_url=ai["base_url"],
-            )
-            async with AsyncSessionLocal() as db:
-                j0 = jobs[0]
-                if len(jobs) == 1 and (j0["revision_note"] or j0["existing_copy"]):
-                    pkg = await generate_complete_social_package(
-                        topic=j0["plan"] or j0["headline"], existing_copy=j0["existing_copy"],
-                        existing_headline=j0["headline"], revision_note=j0["revision_note"],
-                        skip_image=True, db=db, **common,
+            j0 = jobs[0]
+
+            async def attempt(slot: str) -> Dict[str, Any]:
+                async with AsyncSessionLocal() as db:
+                    ai = await _resolve_text_ai(db, None, slot)
+                    if ai["error"]:
+                        raise platform_ai.AIUnavailable(ai["error"])
+                    common = dict(
+                        company_name=company["name"], company_pitch=company["pitch"], company_context=company["context"],
+                        linkedin_directive=opts.get("linkedinDirective") or "",
+                        api_key=ai["api_key"], provider=ai["provider"], model=ai["model"], base_url=ai["base_url"],
                     )
-                    if pkg.get("generationSource") != "llm":
-                        raise RuntimeError("The writing AI did not return a usable rewrite.")
-                    results = {j0["id"]: pkg}
-                else:
+                    if len(jobs) == 1 and (j0["revision_note"] or j0["existing_copy"]):
+                        pkg = await generate_complete_social_package(
+                            topic=j0["plan"] or j0["headline"], existing_copy=j0["existing_copy"],
+                            existing_headline=j0["headline"], revision_note=j0["revision_note"],
+                            skip_image=True, db=db, **common,
+                        )
+                        if pkg.get("generationSource") != "llm":
+                            raise platform_ai.AIUnavailable("The writing AI did not return a usable rewrite.")
+                        return {j0["id"]: pkg}
                     items = [{"key": j["id"], "plan": j["plan"], "headline": j["headline"], "channel": j["channel"], "date": j["date"]} for j in jobs]
-                    results = await write_post_batch(items, db=db, **common)
+                    return await write_post_batch(items, db=db, **common)
+
+            async with AsyncSessionLocal() as db:
+                results = await platform_ai.run_with_backup(db, "text", attempt)
         for j in jobs:
             await _apply_text(j, results[j["id"]], company["name"])
             if j["skip_image"]:
@@ -312,14 +315,14 @@ async def _run_text(jobs: List[Dict[str, Any]]) -> None:
             if j["attempts"] < MAX_ATTEMPTS:
                 await _finish(j, "queued", None, "queued", solo=True)
             else:
-                await _finish(j, "failed", str(err)[:300] or "The writing AI failed.", "failed")
+                await _finish(j, "failed", NO_TEXT_AI, "failed")
     finally:
         wake()
 
 
 async def _run_image(job: Dict[str, Any]) -> None:
-    from app.api.scheduler import _host_image, _resolve_image_prefs
-    from app.services.post_writer import ASPECT_RATIOS, generate_image_with_provider
+    from app.api.scheduler import NO_IMAGE_AI, _host_image, _image_with_backup, _resolve_image_prefs
+    from app.services.post_writer import ASPECT_RATIOS
 
     try:
         async with IMAGE_SLOTS.slot(job["priority"]):
@@ -328,11 +331,7 @@ async def _run_image(job: Dict[str, Any]) -> None:
                 post = (await db.execute(select(SocialPost).where(SocialPost.id.in_(job["post_ids"])))).scalars().first()
                 prompt = ((post.image_prompt if post else "") or job["plan"] or job["headline"]).strip()
                 width, height = ASPECT_RATIOS.get(prefs["aspect_ratio"], (1080, 1350))
-                img = await generate_image_with_provider(
-                    prompt=prompt, provider=prefs["provider"], api_key=prefs["api_key"], model=prefs["model"],
-                    base_url=prefs["base_url"], style=prefs["style"], aspect_ratio=prefs["aspect_ratio"],
-                    width=width, height=height, db=db,
-                )
+                img = await _image_with_backup(db, {}, prompt, width=width, height=height)
             url = _host_image(img.get("imageUrl"), None) or img.get("imageUrl")
             if not url:
                 raise RuntimeError(img.get("warning") or "The image AI returned no image.")
@@ -344,7 +343,7 @@ async def _run_image(job: Dict[str, Any]) -> None:
         await _finish(job, "done", None, None)
     except Exception as err:
         logger.warning(f"[GenQueue] Image failed: {err}")
-        await _finish(job, "failed", f"Image: {str(err)[:280]}", "failed")
+        await _finish(job, "failed", NO_IMAGE_AI, "failed")
     finally:
         wake()
 

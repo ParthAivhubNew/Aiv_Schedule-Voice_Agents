@@ -340,9 +340,6 @@ export const api = {
   getSocialOauthApps: () => apiRequest('/scheduler/oauth/apps'),
   saveSocialOauthApp: (payload) => apiRequest('/scheduler/oauth/apps', { method: 'POST', body: payload }),
   startSocialOauth: (platform, frontend) => apiRequest(`/scheduler/oauth/${platform}/start${frontend ? `?frontend=${encodeURIComponent(frontend)}` : ''}`),
-  getSchedulerAiSettings: () => apiRequest('/scheduler/ai-settings'),
-  saveSchedulerAiSettings: (payload) => apiRequest('/scheduler/ai-settings', { method: 'POST', body: payload }),
-  testSchedulerAiSettings: () => apiRequest('/scheduler/ai-settings/test', { method: 'POST', timeoutMs: 30000 }),
 
   // Dedicated Process Logs (Multi-Subsystem)
   getCompliance: () => apiRequest('/profile/compliance'),

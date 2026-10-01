@@ -89,6 +89,7 @@ export const adminApi = {
   voiceCatalogue: () => request("/voice-catalogue"),
   setVoiceCatalogue: (body) => request("/voice-catalogue", { method: "PUT", body }),
   setPlatformAi: (body) => request("/platform-ai", { method: "PUT", body }),
+  testPlatformAi: (kind, slot) => request("/platform-ai/test", { method: "POST", body: { kind, slot } }),
   logs: (orgId = "") => request(`/logs?limit=300${orgId ? `&org_id=${q(orgId)}` : ""}`),
   staff: () => request("/staff"),
   addStaff: (body) => request("/staff", { method: "POST", body }),
