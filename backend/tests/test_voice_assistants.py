@@ -281,3 +281,19 @@ def test_client_state_stays_compatible():
     old = base64.b64encode(f"{DIAL_MARKER}:asst:call_1".encode()).decode()
     assert decode_client_state(old) == {"assistant_id": "asst", "call_id": "call_1", "org_id": ""}
     assert decode_client_state(encode_client_state("asst", "call_1", "org_x")) == {"assistant_id": "asst", "call_id": "call_1", "org_id": "org_x"}
+
+
+async def test_asked_not_to_be_called_again_blocks_the_number(db, fake, signed):
+    from app.core.tenancy import org_scope
+    from app.services.compliance import is_opted_out  # check_call_allowed refuses these (faked open here)
+
+    ref, _ = await _call_with_brief(db)
+    async with _anon() as c:
+        r = await c.post(f"/api/telnyx-assistant/tools/save_outcome?ref={ref}", json={"outcome": "do_not_call"})
+        assert r.json() == {"success": True}
+    await db.rollback()  # a new transaction per organisation, as each request has
+    with org_scope("org_acme"):
+        assert await is_opted_out(db, "+447700900123")
+    await db.rollback()
+    with org_scope("org_other"):  # only this company's list
+        assert not await is_opted_out(db, "+447700900123")

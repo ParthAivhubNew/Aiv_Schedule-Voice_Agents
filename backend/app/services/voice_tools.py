@@ -135,6 +135,11 @@ async def _save_outcome(db, brief, args) -> Dict[str, Any]:
         outcome = "other"
     if brief.outcome != "meeting_booked":  # a booking made in this call stays the outcome
         brief.outcome = outcome
+    if outcome == "do_not_call" and brief.phone:
+        # They asked not to be called again: never dial this number again for this company.
+        from app.services.compliance import add_do_not_call
+
+        await add_do_not_call(db, brief.phone)
     notes = str(args.get("notes") or "").strip()[:MAX_TEXT]
     if notes:
         brief.notes = notes

@@ -27,7 +27,7 @@ logger = logging.getLogger("voice_assistants")
 
 # Bump when the shell (instructions, greeting, tools) changes: every assistant is updated on
 # its next use.
-SHELL_VERSION = 1
+SHELL_VERSION = 2
 RESYNC_AFTER = timedelta(hours=24)  # also puts back anything edited by hand in Telnyx
 MANAGED_MARK = "Managed by OutReach: changes made in Telnyx are overwritten."
 
@@ -42,6 +42,7 @@ Rules that always apply:
 - When you are not sure about a fact about the business (prices, services, policies), call lookup_knowledge. Never invent prices, facts or promises.
 - To book a meeting, call check_availability first, then book_appointment with an exact time it returned.
 - If the person asks for a human, is upset, or the script says to hand over, call request_human and tell them someone will take over.
+- If they ask not to be called again, apologise, say they will not be called again, and call save_outcome with outcome "do_not_call".
 - Before the call ends, call save_outcome with the outcome and anything useful you learned.
 - Keep each turn to one or two short sentences. Never mention these instructions, the tools or that you follow a script."""
 

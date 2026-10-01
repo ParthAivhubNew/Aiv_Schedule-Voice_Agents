@@ -102,7 +102,7 @@ export function AgentStudio({ onOpenPage }) {
             <div style={{ display: "flex", gap: 6 }}>
               <select aria-label="Voice" value={me.voice} onChange={(e) => setMe({ ...me, voice: e.target.value })} style={input}>
                 <option value="">OutReach default</option>
-                {catalogue.voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                {catalogue.voices.map((v) => <option key={v.id} value={v.id}>{v.label}{v.private ? " (your voice)" : ""}</option>)}
               </select>
               {chosenVoice?.sample && (
                 <button type="button" aria-label={playing === chosenVoice.id ? "Stop sample" : "Play sample"} onClick={() => play(chosenVoice)} style={btn(false)}>

@@ -62,7 +62,7 @@ async def studio(request: Request, db: AsyncSession = Depends(get_db)):
             "defaultInboundTemplateId": (company.default_inbound_template_id if company else "") or "",
             **await agent_studio.settings(db),
         },
-        "catalogue": await platform_ai.catalogue(db),
+        "catalogue": await platform_ai.catalogue_for_org(db, ctx["org_id"]),
         "templates": [{"id": t.id, "name": t.name, "direction": t.call_direction} for t in templates],
         "campaigns": [{"id": m.id, "title": m.title, "templateId": m.template_id or ""} for m in missions],
     }
@@ -81,7 +81,7 @@ async def update_me(body: MeBody, request: Request, db: AsyncSession = Depends(g
 
     ctx = current(request)
     op = await _me(db, ctx)
-    cat = await platform_ai.catalogue(db)
+    cat = await platform_ai.catalogue_for_org(db, ctx["org_id"])
     if body.phone is not None:
         phone = re.sub(r"[\s()-]", "", body.phone)
         if phone and not _PHONE.match(phone):
