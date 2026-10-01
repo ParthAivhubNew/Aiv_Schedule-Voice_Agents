@@ -256,12 +256,41 @@ async def set_status(org_id: str, body: StatusBody, request: Request):
     if body.status not in ("active", "suspended"):
         raise HTTPException(status_code=400, detail="Status is active or suspended.")
     async with AsyncSessionLocal() as db:
-        res = await db.execute(text("UPDATE organizations SET status = :s, updated_at = now() WHERE id = :i"), {"s": body.status, "i": org_id})
+        res = await db.execute(text("UPDATE organizations SET status = :s, updated_at = now() "
+                                    "WHERE id = :i AND coalesce(status, 'active') <> 'platform'"), {"s": body.status, "i": org_id})
         await db.commit()
     if not res.rowcount:
         raise HTTPException(status_code=404, detail="Client not found.")
     forget()  # everyone's cached access is re-checked at once
     return {"id": org_id, "status": body.status}
+
+
+@router.post("/clients/{org_id}/users/{user_id}/reset-password")
+async def reset_user_password(org_id: str, user_id: str, request: Request):
+    """A temporary password for one of a client's users (shown once). They must choose a new
+    one at their next sign-in, and every device they were signed in on is signed out."""
+    from app.core.auth_middleware import forget
+    from app.core.security import temporary_password
+    from app.models.models import AuthSession, Operator
+
+    _admin_only(request)
+    temp = temporary_password()
+
+    async def run(db):
+        op = (await db.execute(select(Operator).where(Operator.id == user_id, Operator.org_id == org_id))).scalars().first()
+        if not op:
+            raise HTTPException(status_code=404, detail="User not found.")
+        op.hashed_password = hash_password(temp)
+        op.must_change_password = True
+        now = datetime.utcnow()
+        for ses in (await db.execute(select(AuthSession).where(AuthSession.operator_id == op.id, AuthSession.revoked_at.is_(None)))).scalars().all():
+            ses.revoked_at = now
+        await db.commit()
+        return op.username
+
+    username = await _in_org(org_id, run)
+    forget()
+    return {"username": username, "temporaryPassword": temp}
 
 
 class CreditBody(BaseModel):

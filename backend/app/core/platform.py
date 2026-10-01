@@ -7,7 +7,6 @@ company, including Aivhub (the original "org_default"), is a normal paying clien
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 
@@ -56,8 +55,7 @@ async def split_platform(conn: AsyncConnection) -> None:
 
 async def ensure_aivhub_ready() -> None:
     """Once: Aivhub pays like every company (stop at zero) and gets demo credits in each app.
-    AIVHUB_ADMIN_PASSWORD (optional) sets the password of its "admin" user whenever the value
-    changes, so it never has to match the owner portal's."""
+    Its users and passwords are its own, like any company's (staff can reset one in /admin)."""
     from app.core.tenancy import org_scope, system_scope
     from app.database import AsyncSessionLocal
     from app.services import credits as K
@@ -83,26 +81,3 @@ async def ensure_aivhub_ready() -> None:
                 await db.commit()
         logger.info(f"[platform] Aivhub: {DEMO_CREDITS} demo credits in each app, stop at zero on")
 
-    password = os.getenv("AIVHUB_ADMIN_PASSWORD", "").strip()
-    if not password:
-        return
-    marker = hashlib.sha256(password.encode()).hexdigest()
-    with system_scope():
-        async with AsyncSessionLocal() as db:
-            doc = await K._get_doc(db, "aivhub_demo_setup")
-            if doc.get("admin_password") == marker:
-                return
-            from app.core.security import hash_password, password_problem
-
-            problem = password_problem(password)
-            if problem:
-                logger.warning(f"[platform] AIVHUB_ADMIN_PASSWORD not used: {problem}")
-                return
-            res = await db.execute(text(
-                "UPDATE operators SET hashed_password = :h, must_change_password = false "
-                "WHERE org_id = :a AND username = 'admin'"), {"h": hash_password(password), "a": AIVHUB_ORG})
-            if res.rowcount:  # no "admin" user yet: try again at the next start
-                await K._put_doc(db, "aivhub_demo_setup", {**doc, "admin_password": marker})
-            await db.commit()
-    if res.rowcount:
-        logger.info("[platform] Aivhub admin password set from AIVHUB_ADMIN_PASSWORD")

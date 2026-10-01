@@ -46,6 +46,7 @@ function ClientDetail({ id, canEdit, back }) {
   const [c, err, reload] = useLoad(load, [load]);
   const [msg, run] = useAction(reload);
   const [grant, setGrant] = useState({ wallet: "voice", amount: "", days: "", note: "" });
+  const [temp, setTemp] = useState(null);
 
   if (!c) return <><button type="button" style={btn(false)} onClick={back}><ArrowLeft size={13} /> Clients</button><Note error>{err}</Note></>;
   const suspended = c.status === "suspended";
@@ -142,7 +143,13 @@ function ClientDetail({ id, canEdit, back }) {
       </Table>
 
       <div style={heading}>Users</div>
-      <Table head={["Name", "Email", "Role", "Active", "Last sign-in"]}>
+      {temp && (
+        <div style={{ ...card, marginBottom: 10 }}>
+          Temporary password for <b>@{temp.username}</b>: <span style={{ ...mono, fontSize: 14 }}>{temp.temporaryPassword}</span>
+          <div style={{ fontSize: 12, color: C.slate }}>Shown once. Give it to them privately; they choose their own at the next sign-in.</div>
+        </div>
+      )}
+      <Table head={["Name", "Email", "Role", "Active", "Last sign-in", ""]}>
         {c.users.map((u) => (
           <tr key={u.id}>
             <td style={cell}>{u.name}<div style={{ ...mono, color: C.slateLight }}>@{u.username}</div></td>
@@ -150,6 +157,14 @@ function ClientDetail({ id, canEdit, back }) {
             <td style={cell}>{u.role}</td>
             <td style={cell}>{u.active ? "Yes" : "No"}</td>
             <td style={cell}>{when(u.lastLoginAt)}</td>
+            <td style={cell}>
+              {canEdit && (
+                <button type="button" style={btn(false)} onClick={() => {
+                  if (!window.confirm(`Reset @${u.username}'s password? They are signed out everywhere.`)) return;
+                  run(async () => setTemp(await adminApi.resetUserPassword(c.id, u.id)), "Password reset.");
+                }}>Reset password</button>
+              )}
+            </td>
           </tr>
         ))}
       </Table>

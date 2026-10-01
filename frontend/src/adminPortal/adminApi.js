@@ -65,6 +65,7 @@ export const adminApi = {
   client: (id) => request(`/clients/${q(id)}`),
   setClientStatus: (id, status) => request(`/clients/${q(id)}/status`, { method: "POST", body: { status } }),
   addCredits: (id, body) => request(`/clients/${q(id)}/credits`, { method: "POST", body }),
+  resetUserPassword: (orgId, userId) => request(`/clients/${q(orgId)}/users/${q(userId)}/reset-password`, { method: "POST" }),
   setEnforce: (id, enforce) => request(`/clients/${q(id)}/enforce`, { method: "PUT", body: { enforce } }),
   setWhatsapp: (orgId, numberId, enabled) => request(`/clients/${q(orgId)}/numbers/${q(numberId)}/whatsapp`, { method: "POST", body: { enabled } }),
   queue: () => request("/verifications"),

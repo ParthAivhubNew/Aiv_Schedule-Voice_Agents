@@ -35,27 +35,30 @@ async def test_aivhubs_provider_keys_move_to_the_platform(db):
     assert orgs == {"org_default": "active", "org_outreach": "platform"} and name == "Aivhub"
 
 
-async def test_aivhub_gets_demo_credits_once_and_its_own_password(db, monkeypatch):
-    from sqlalchemy.future import select
-
+async def test_aivhub_gets_demo_credits_once(db):
     from app.core.platform import ensure_aivhub_ready
-    from app.core.security import verify_password
     from app.core.tenancy import org_scope
-    from app.models.models import Operator
     from app.services import credits as K
 
     await _split()
-    admin, _ = await make_user(db, "admin", "Admin", must_change=True)
-    admin_id = admin.id
-    monkeypatch.setenv("AIVHUB_ADMIN_PASSWORD", "Aivhub-Demo-2026!x")
     await ensure_aivhub_ready()
     await ensure_aivhub_ready()  # credits are given once only
-    db.expire_all()
     with org_scope("org_default"):
         assert {w: await K.wallet_balance(db, w) for w in K.WALLETS} == {w: 500 for w in K.WALLETS}
         assert (await K.org_settings(db))["enforce"] is True
-        op = (await db.execute(select(Operator).where(Operator.id == admin_id))).scalars().first()
-    assert verify_password("Aivhub-Demo-2026!x", op.hashed_password) and op.must_change_password is False
+
+
+async def test_staff_reset_a_client_users_password(db, staff, anon):
+    await _split()
+    op, _ = await make_user(db, "admin", "Admin")
+    op_id = op.id
+    r = await staff.post(f"/api/admin-api/clients/org_default/users/{op_id}/reset-password")
+    assert r.status_code == 200 and r.json()["username"] == "admin"
+    temp = r.json()["temporaryPassword"]
+    login = await anon.post("/api/auth/login", json={"username": "admin", "password": temp})
+    assert login.status_code == 200, login.text
+    assert (await staff.post(f"/api/admin-api/clients/org_acme/users/{op_id}/reset-password")).status_code == 404
+    assert (await staff.post("/api/admin-api/clients/org_outreach/status", json={"status": "active"})).status_code == 404
 
 
 async def test_staff_manage_platform_keys_and_clients_never_see_the_platform(db, staff, monkeypatch):
