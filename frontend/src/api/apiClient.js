@@ -220,6 +220,7 @@ export const api = {
   clearLiveCalls: () => apiRequest('/calls/live', { method: 'DELETE' }),
   toggleListen: (callId) => apiRequest(`/calls/live/${callId}/listen`, { method: 'POST' }),
   toggleTakeover: (callId) => apiRequest(`/calls/live/${callId}/takeover`, { method: 'POST' }),
+  handBackCall: (callId, note = '') => apiRequest(`/calls/live/${callId}/handback`, { method: 'POST', body: { note } }),
   confirmBooking: (callId) => apiRequest(`/calls/live/${callId}/confirm-booking`, { method: 'POST' }),
   getCallLogs: () => apiRequest('/calls/logs'),
   dialOutbound: (payload) => apiRequest('/calls/outbound/dial', { method: 'POST', body: payload }),

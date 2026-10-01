@@ -124,6 +124,11 @@ async def _agent_studio(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE voice_assistants ADD COLUMN IF NOT EXISTS model VARCHAR DEFAULT ''"))
 
 
+async def _call_takeover(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE call_briefs ADD COLUMN IF NOT EXISTS supervisor_leg VARCHAR DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE call_briefs ADD COLUMN IF NOT EXISTS supervisor_id VARCHAR DEFAULT ''"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -134,6 +139,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_04_billing_plan_currency", _billing_plan_currency),
     ("2026_10_05_payg_columns", _payg_columns),
     ("2026_10_06_agent_studio", _agent_studio),
+    ("2026_10_07_call_takeover", _call_takeover),
 ]
 
 

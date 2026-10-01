@@ -117,6 +117,8 @@ export function LiveCallCard({
   confirmingEnd,
   onListen,
   onTakeover,
+  onPhoneTakeover,
+  onHandBack,
   onBook,
   onAskEnd,
   onCancelEnd,
@@ -124,6 +126,8 @@ export function LiveCallCard({
 }) {
   const [tall, setTall] = useState(false);
   const [busy, setBusy] = useState("");
+  const [handNote, setHandNote] = useState("");
+  const onLine = taken || Boolean(call.takeoverByPhone && call.taken); // a person is on the call, not the AI
   const id = call.id || call.call_sid;
   const name = call.prospect || call.prospect_name || call.contact || call.name || "Unknown";
   const state = String(call.state || call.status || "calling").toLowerCase();
@@ -139,7 +143,7 @@ export function LiveCallCard({
   };
 
   return (
-    <div style={{ background: "#fff", border: `1.5px solid ${taken ? C.red : listening ? C.cobalt : C.border}`, borderRadius: 16, padding: 18, boxShadow: "0 8px 28px rgba(18,20,28,0.06)" }}>
+    <div style={{ background: "#fff", border: `1.5px solid ${onLine ? C.red : listening ? C.cobalt : C.border}`, borderRadius: 16, padding: 18, boxShadow: "0 8px 28px rgba(18,20,28,0.06)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -161,7 +165,7 @@ export function LiveCallCard({
             ) : null}
           </div>
         </div>
-        {taken ? <span style={{ color: C.red, fontWeight: 800, fontSize: 11, whiteSpace: "nowrap" }}>YOU'RE ON THE LINE</span> : null}
+        {onLine ? <span style={{ color: C.red, fontWeight: 800, fontSize: 11, whiteSpace: "nowrap" }}>{taken ? "YOU'RE ON THE LINE" : "A PERSON HAS TAKEN OVER"}</span> : null}
       </div>
 
       <Transcript lines={lines} live tall={tall} />
@@ -190,6 +194,20 @@ export function LiveCallCard({
                 {taken ? "Hand back to AI" : "Take over"}
               </button>
             </>
+          ) : call.takeoverByPhone && onPhoneTakeover ? (
+            call.taken ? (
+              <>
+                <input aria-label="Note for the assistant" placeholder="Note for the AI (optional)" value={handNote} onChange={(e) => setHandNote(e.target.value)}
+                  style={{ height: 34, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 10px", fontSize: 12.5, minWidth: 200 }} />
+                <button type="button" disabled={busy === "handback"} onClick={() => run("handback", () => onHandBack(handNote))} style={btn({ background: C.redSoft })}>
+                  {busy === "handback" ? "Handing back…" : "Hand back to AI"}
+                </button>
+              </>
+            ) : (
+              <button type="button" disabled={busy === "takeover"} onClick={() => run("takeover", onPhoneTakeover)} style={btn({})} title="Pauses the AI and rings your phone (set it in Agent Studio)">
+                {busy === "takeover" ? "Ringing your phone…" : "Take over"}
+              </button>
+            )
           ) : isAssistant ? (
             <span style={{ fontSize: 11.5, color: C.slate, alignSelf: "center", maxWidth: 320 }}>
               Audio runs inside Telnyx — live listen/take-over isn't available for Assistant calls. The transcript updates as they talk.

@@ -220,16 +220,17 @@ class RecorderManager:
             candidates.append(safe_id[5:])
 
         for c in candidates:
-            path = os.path.join(RECORDINGS_DIR, f"{c}.wav")
-            if os.path.exists(path):
-                return path
+            for ext in (".wav", ".mp3"):  # .mp3: recorded by Telnyx (managed assistant calls)
+                path = os.path.join(RECORDINGS_DIR, f"{c}{ext}")
+                if os.path.exists(path):
+                    return path
 
         # Core ID substring search in recordings dir
         core_id = safe_id.replace("cl_lk_", "").replace("cl_", "").replace("call_", "")
         if len(core_id) >= 6 and os.path.exists(RECORDINGS_DIR):
             try:
                 for f in os.listdir(RECORDINGS_DIR):
-                    if f.endswith(".wav") and core_id in f:
+                    if f.endswith((".wav", ".mp3")) and core_id in f:
                         return os.path.join(RECORDINGS_DIR, f)
             except Exception:
                 pass

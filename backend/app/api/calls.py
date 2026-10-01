@@ -87,8 +87,10 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
             "ended": c.ended,
             "booked": c.booked,
             "carrier": c.carrier,
-            # Telnyx-hosted assistant calls have no media stream on our side to listen to / take over.
+            # Telnyx-hosted assistant calls have no media stream on our side to listen to; the
+            # transcript updates live instead, and taking over rings the user's phone.
             "supportsListen": (c.carrier or "") != "telnyx_assistant",
+            "takeoverByPhone": (c.carrier or "") == "telnyx_assistant",
             "transcript": c.transcript or [],
         })
     return out_calls
@@ -349,13 +351,56 @@ async def toggle_listen(call_id: str, db: AsyncSession = Depends(get_db)):
     await call_hub.broadcast("call_updated", {"callId": call_id, "listening": call.listening})
     return {"status": "ok", "listening": call.listening}
 
+class HandBackBody(BaseModel):
+    note: str = ""
+
+
+async def _managed_call(db: AsyncSession, call: LiveCall) -> bool:
+    """A call run by a managed Telnyx assistant (it has a brief): taken over by phone."""
+    if (call.carrier or "") != "telnyx_assistant":
+        return False
+    from app.services import voice_assistants as VA
+
+    return (await VA.brief(db, call.id)) is not None
+
+
+@router.post("/live/{call_id}/handback")
+async def hand_back_call(call_id: str, body: HandBackBody, db: AsyncSession = Depends(get_db)):
+    """Give a call you took over back to its assistant, with a note it continues from."""
+    from app.services.voice_takeover import hand_back
+
+    call = (await db.execute(select(LiveCall).where(LiveCall.id == call_id))).scalars().first()
+    if not call or not await _managed_call(db, call):
+        raise HTTPException(status_code=404, detail="Call not found")
+    try:
+        return await hand_back(db, call, body.note)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
 @router.post("/live/{call_id}/takeover")
-async def toggle_takeover(call_id: str, db: AsyncSession = Depends(get_db)):
+async def toggle_takeover(call_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
     call = res.scalars().first()
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
-        
+
+    if await _managed_call(db, call):
+        # Telnyx-hosted assistant: ring the user's own phone and join them to the call.
+        from app.models.models import Operator
+        from app.services.voice_takeover import hand_back, take_over
+
+        try:
+            if call.taken:
+                return await hand_back(db, call, "")
+            auth = getattr(request.state, "auth", None) or {}
+            op = (await db.execute(select(Operator).where(Operator.id == auth.get("operator_id", "")))).scalars().first()
+            if op is None:
+                raise HTTPException(status_code=401, detail="Sign in again.")
+            return await take_over(db, call, op)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
     call.taken = not call.taken
     from app.websockets.media_stream import media_stream_hub
     from app.services.xai_voice_service import notify_xai_takeover_state
@@ -616,6 +661,12 @@ async def get_call_logs(db: AsyncSession = Depends(get_db)):
     logs = result.scalars().all()
     dirty = False
     payload = []
+    # Credits each call used (the ledger keeps "call:<log id>" for call minutes).
+    from sqlalchemy import func as _func
+    from app.models.models import CreditEntry
+    used = dict((await db.execute(
+        select(CreditEntry.ref, _func.sum(CreditEntry.amount)).where(CreditEntry.kind == "usage", CreditEntry.ref.like("call:%"))
+        .group_by(CreditEntry.ref))).all())
     for l in logs:
         names = resolve_call_people(
             live_label=l.listed_as,
@@ -641,6 +692,7 @@ async def get_call_logs(db: AsyncSession = Depends(get_db)):
             "outcome": l.outcome,
             "requestedFollowUp": l.requested_follow_up,
             "wordsLocked": l.words_locked,
+            "creditsUsed": -int(used.get(f"call:{l.id}") or 0),
             "transcript": l.transcript or []
         })
     if dirty:
@@ -1740,43 +1792,45 @@ async def telnyx_inbound_voice(request: Request, db: AsyncSession = Depends(get_
     return {"status": "answered", "call_id": internal_call_id}
 
 
-@router.get("/{call_id}/recording")
-async def get_call_recording(call_id: str):
-    """Streams the dual-track synchronized WAV recording for this call."""
+async def _recording_path(db: AsyncSession, call_id: str) -> str:
+    """The recording file of a call of this organisation (404 for anyone else's)."""
+    from app.services.call_log_writer import log_id_for_call
     from app.services.call_recorder import recorder_manager
     from app.websockets.media_stream import media_stream_hub
     import os
 
+    ids = {call_id, log_id_for_call(call_id), "call_" + call_id[3:] if call_id.startswith("cl_") else call_id}
+    owned = (await db.execute(select(CallLog.id).where(CallLog.id.in_(ids)))).first() or \
+        (await db.execute(select(LiveCall.id).where(LiveCall.id.in_(ids)))).first()
+    if not owned:
+        raise HTTPException(status_code=404, detail="Recording not found for this call.")
     canonical = media_stream_hub.resolve_canonical(call_id)
     rec_path = recorder_manager.get_recording_path(canonical) or recorder_manager.get_recording_path(call_id)
-    
     if not rec_path or not os.path.exists(rec_path):
         raise HTTPException(status_code=404, detail="Recording not found for this call.")
+    return rec_path
 
+
+@router.get("/{call_id}/recording")
+async def get_call_recording(call_id: str, db: AsyncSession = Depends(get_db)):
+    """Streams this call's recording (the app's own WAV, or the MP3 Telnyx recorded)."""
+    rec_path = await _recording_path(db, call_id)
     return FileResponse(
         path=rec_path,
-        media_type="audio/wav",
+        media_type="audio/mpeg" if rec_path.endswith(".mp3") else "audio/wav",
         headers={"Accept-Ranges": "bytes"}
     )
 
 
 @router.get("/{call_id}/recording/download")
-async def download_call_recording(call_id: str):
-    """Downloads the WAV recording for this call as an attachment."""
-    from app.services.call_recorder import recorder_manager
-    from app.websockets.media_stream import media_stream_hub
-    import os
-
-    canonical = media_stream_hub.resolve_canonical(call_id)
-    rec_path = recorder_manager.get_recording_path(canonical) or recorder_manager.get_recording_path(call_id)
-
-    if not rec_path or not os.path.exists(rec_path):
-        raise HTTPException(status_code=404, detail="Recording not found for this call.")
-
-    filename = f"call_recording_{call_id}.wav"
+async def download_call_recording(call_id: str, db: AsyncSession = Depends(get_db)):
+    """Downloads this call's recording as an attachment."""
+    rec_path = await _recording_path(db, call_id)
+    ext = "mp3" if rec_path.endswith(".mp3") else "wav"
+    filename = f"call_recording_{call_id}.{ext}"
     return FileResponse(
         path=rec_path,
-        media_type="audio/wav",
+        media_type="audio/mpeg" if ext == "mp3" else "audio/wav",
         filename=filename,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )

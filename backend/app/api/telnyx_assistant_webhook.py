@@ -88,6 +88,20 @@ async def handle_assistant_call_control(request: Request):
 
     from app.core.tenancy import org_scope
     from app.services.telnyx_assistant_calls import tagged_event, handle_call_control_event
+
+    # The user's own phone while they take over a call.
+    from app.services.voice_takeover import decode_leg, leg_event
+    envelope = body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), dict) else {}
+    leg_payload = envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {}
+    leg = decode_leg(leg_payload.get("client_state"))
+    if leg:
+        with org_scope(leg[1]):
+            try:
+                return await leg_event(str(envelope.get("event_type") or ""), leg_payload, leg[0])
+            except Exception as err:
+                logger.error(f"[TELNYX-ASSISTANT] take-over leg handling failed: {err}")
+                return {"status": "error", "error": str(err)}
+
     tagged = tagged_event(body if isinstance(body, dict) else {})
     if not tagged:
         # A call coming in on one of our numbers (its Call Control app points here).
