@@ -2438,6 +2438,7 @@ export function CallingWorkspace({
     logs: ["Call history", "Name from dial form. Search, filter, expand transcript."],
     schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
     templates: ["AI Templates", "Configure greeting, pitch, objection handling, and booking flow per call type."],
+    studio: ["Agent Studio", "How your AI caller sounds and behaves: voice, company rules, and a script per campaign."],
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
     company: ["Company profile", "Identity, knowledge & FAQs, services, compliance. The agent uses this on every call."],
     analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],

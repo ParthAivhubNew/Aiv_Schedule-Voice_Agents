@@ -36,17 +36,19 @@ export function AgentStudio({ onOpenPage }) {
   const [playing, setPlaying] = useState("");
   const audio = useRef(null);
 
-  const load = useCallback(async () => {
+  // part: which form to refresh from the server ("all" on opening). A save never resets the
+  // other form, so nothing typed there is lost.
+  const load = useCallback(async (part = "all") => {
     try {
       const d = await api.getAgentStudio();
       setData(d);
-      setMe({ voice: d.me.voice, model: d.me.model, phone: d.me.phone });
-      setCompany({ ...d.company, captureText: (d.company.captureFields || []).join(", ") });
+      if (part === "all" || part === "me") setMe({ voice: d.me.voice, model: d.me.model, phone: d.me.phone });
+      if (part === "all" || part === "company") setCompany({ ...d.company, captureText: (d.company.captureFields || []).join(", ") });
     } catch (err) {
       setError(err.message);
     }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load("all"); }, [load]);
   useEffect(() => () => audio.current && audio.current.pause(), []);
 
   const say = (key, text, isError = false) => setMsg((m) => ({ ...m, [key]: { text, error: isError } }));
@@ -56,7 +58,7 @@ export function AgentStudio({ onOpenPage }) {
     try {
       await fn();
       say(key, ok);
-      load();
+      load(key);
     } catch (err) {
       say(key, err.message, true);
     }

@@ -258,7 +258,7 @@ export default function LeadGenerationPlugin({
         {
           id: "m_" + (Date.now() + 1),
           role: "assistant",
-          text: `⚠️ AI connection error: ${err.message || "Failed to reach AI service. Please verify your API key."}`,
+          text: /credits/i.test(err.message || "") ? `⚠️ ${err.message}` : `⚠️ AI connection error: ${err.message || "Failed to reach AI service. Please verify your API key."}`,
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         }
       ]);

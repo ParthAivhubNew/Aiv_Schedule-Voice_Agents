@@ -603,6 +603,53 @@ async def put_voice_catalogue(body: CatalogueBody, request: Request):
     return out
 
 
+# ── Revenue and costs ───────────────────────────────────────────────────────
+@router.get("/revenue")
+async def revenue(request: Request, month: str = ""):
+    """A month's payments, usage, our estimated cost, margin per client, and subscriptions."""
+    import re
+
+    from app.services import revenue as R
+
+    _who(request)
+    month = month or datetime.utcnow().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    async with AsyncSessionLocal() as db:
+        return await R.report(db, month)
+
+
+@router.get("/unit-costs")
+async def get_unit_costs(request: Request):
+    from app.services import revenue as R
+    from app.services.credits import DEFAULT_RATES
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        out = await R.unit_costs(db)
+    return {**out, "items": [{"key": k, "label": v["label"], "unit": v["unit"]} for k, v in DEFAULT_RATES.items()]}
+
+
+class UnitCostsBody(BaseModel):
+    currency: str = "gbp"
+    costs: Dict[str, Any] = {}
+
+
+@router.put("/unit-costs")
+async def put_unit_costs(body: UnitCostsBody, request: Request):
+    """Our own cost per unit (e.g. a call minute, an AI post), in pence/cents, for the margins."""
+    from app.services import revenue as R
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            out = await R.set_unit_costs(db, body.currency.lower(), body.costs)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        await db.commit()
+    return out
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────
 @router.get("/logs")
 async def logs(request: Request, org_id: str = "", limit: int = 200):
