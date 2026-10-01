@@ -36,9 +36,8 @@ backend/app/static/generated/*
 *.sqlite
 postgres_data/
 
-# Environment variables
+# Environment variables (.env.local is tracked on purpose: Stripe TEST keys for developers)
 .env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local

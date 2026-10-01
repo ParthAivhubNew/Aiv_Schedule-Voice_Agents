@@ -3,7 +3,7 @@ import { CheckCircle2, X } from "lucide-react";
 import { C, FONT_BODY } from "../tokens";
 
 // After Stripe Checkout sends people back: ?billing=success|cancelled (read once, then removed).
-function takeBillingParam() {
+export function takeBillingParam() {
   try {
     const q = new URLSearchParams(window.location.search);
     const v = q.get("billing");

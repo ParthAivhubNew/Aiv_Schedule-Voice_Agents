@@ -174,10 +174,10 @@ async def _starter_credits(org_id: str) -> None:
                 if K.starter_credits():
                     from datetime import timedelta
 
-                    # A trial in every plugin's wallet; unused starter credits expire like a top-up.
+                    # A trial in every app's wallet (only when STARTER_CREDITS is set); unused ones expire.
                     for wallet in K.WALLETS:
                         await K.add_credits(s, wallet, K.starter_credits(), source="starter", note="Starter credits",
-                                            expires_at=datetime.utcnow() + timedelta(days=K.TOPUP_DAYS))
+                                            expires_at=datetime.utcnow() + timedelta(days=K.STARTER_DAYS))
                 await s.commit()
     except Exception as err:
         import logging

@@ -20,10 +20,10 @@ const STEPS = [
   { key: "done", label: "Approved" },
 ];
 
-function money(v, cur) {
-  if (v === null || v === undefined || v === "") return "—";
-  const n = Number(v);
-  return Number.isFinite(n) ? `${cur === "USD" ? "$" : ""}${n.toFixed(2)}${cur && cur !== "USD" ? " " + cur : ""}` : String(v);
+// Our monthly price for a number, from the rate card (Voice credits; a credit is a minute of calls).
+function numberPrice(n) {
+  const c = Number(n.monthlyCredits || 0);
+  return c > 0 ? `${c.toLocaleString()} Voice credit${c === 1 ? "" : "s"} a month` : "Included";
 }
 
 // Verification status as a small tracker: Submitted → Under review → Approved / Declined.
@@ -200,7 +200,8 @@ function BuyNumber({ verified, onOrdered }) {
   };
 
   const buy = async (n) => {
-    if (!window.confirm(`Buy ${n.phoneNumber}? ${money(n.upfrontCost, n.currency)} now and ${money(n.monthlyCost, n.currency)} a month.`)) return;
+    const price = Number(n.monthlyCredits || 0) > 0 ? ` It costs ${numberPrice(n).toLowerCase()} from your Voice credits.` : "";
+    if (!window.confirm(`Buy ${n.phoneNumber}?${price}`)) return;
     setBusy(n.phoneNumber);
     setError("");
     try {
@@ -217,7 +218,7 @@ function BuyNumber({ verified, onOrdered }) {
   return (
     <div style={card}>
       <div style={h2}>Get a UK number</div>
-      <p style={sub}>{verified ? "Search by town or area code. Prices come straight from Telnyx." : "You can search now; buying needs your business verified first."}</p>
+      <p style={sub}>{verified ? "Search by town or area code." : "You can search now; buying needs your business verified first."}</p>
       <form onSubmit={search} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: "2 1 180px" }}>
           <MapPin size={14} color={C.slateLight} style={{ position: "absolute", left: 11, top: 11 }} />
@@ -238,7 +239,9 @@ function BuyNumber({ verified, onOrdered }) {
                 <div style={{ fontFamily: FONT_MONO, fontSize: 14, fontWeight: 600 }}>{n.phoneNumber}</div>
                 <div style={{ fontSize: 12, color: C.slate }}>{n.region || "UK"}{n.features?.length ? ` · ${n.features.join(", ")}` : ""}</div>
               </div>
-              <div style={{ fontSize: 12.5, color: C.slate, textAlign: "right" }}>{money(n.monthlyCost, n.currency)}/month<br />{money(n.upfrontCost, n.currency)} setup</div>
+              <div style={{ fontSize: 12.5, color: C.slate, textAlign: "right" }}>{numberPrice(n)}
+                {n.telnyxMonthlyCost != null && <><br /><span title="What Telnyx charges us (only OutReach staff see this)">Telnyx: {n.telnyxMonthlyCost} {n.telnyxCurrency}/mo</span></>}
+              </div>
               <button type="button" style={btn(true, !verified || busy)} disabled={!verified || Boolean(busy)} onClick={() => buy(n)}
                 title={verified ? "Buy this number" : "Verify your business first"}>
                 {busy === n.phoneNumber ? <Loader2 size={14} className="nx-spin" /> : <ShoppingCart size={14} />} Buy

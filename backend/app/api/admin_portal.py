@@ -11,10 +11,10 @@ import time
 import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, text
 from sqlalchemy.future import select
 
@@ -167,6 +167,9 @@ async def platform(request: Request):
 async def _in_org(org_id: str, fn):
     from app.core.tenancy import org_scope
 
+    async with AsyncSessionLocal() as db:
+        if not (await db.execute(text("SELECT 1 FROM organizations WHERE id = :i"), {"i": org_id})).first():
+            raise HTTPException(status_code=404, detail="Client not found.")
     with org_scope(org_id):
         async with AsyncSessionLocal() as db:
             return await fn(db)
@@ -369,7 +372,7 @@ def _check_plan(body: PlanBody) -> None:
     from app.services import credits as K
 
     if body.wallet not in K.WALLETS or body.kind not in ("plan", "topup"):
-        raise HTTPException(status_code=400, detail="Pick a plugin and plan or top-up.")
+        raise HTTPException(status_code=400, detail="Pick an app and plan or top-up.")
     if body.priceUsdCents < 50 or body.credits <= 0 or not body.name.strip():
         raise HTTPException(status_code=400, detail="Name, a price of at least $0.50 and credits are required.")
 
@@ -416,6 +419,74 @@ async def update_plan(plan_id: str, body: PlanBody, request: Request):
         p.price_usd_cents, p.credits, p.features, p.active, p.sort = body.priceUsdCents, body.credits, body.features[:12], body.active, body.sort
         await db.commit()
         return B.plan_json(p)
+
+
+@router.get("/stripe-prices")
+async def stripe_prices(request: Request):
+    """Prices made in the Stripe Dashboard that are not on sale here yet. Opening this also
+    refreshes the names and descriptions of the ones on sale from Stripe."""
+    from app.services import billing as B
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            prices = await B.unlinked_prices(db)
+        except B.StripeError as err:
+            raise HTTPException(status_code=502, detail=str(err))
+        await db.commit()
+        return prices
+
+
+class StripePriceBody(BaseModel):
+    priceId: str = Field(pattern=r"^price_\w+$")
+    wallet: str
+    credits: int
+
+
+@router.post("/plans/from-stripe")
+async def plan_from_stripe(body: StripePriceBody, request: Request):
+    """Put a price that already exists in Stripe on sale: staff say which app it is for and how
+    many credits it gives; name, amount, currency and monthly/one-off come from Stripe."""
+    from app.models.models import BillingPlan
+    from app.services import billing as B
+    from app.services import credits as K
+
+    _admin_only(request)
+    if body.wallet not in K.WALLETS or body.credits <= 0:
+        raise HTTPException(status_code=400, detail="Pick an app and how many credits it gives.")
+    async with AsyncSessionLocal() as db:
+        if (await db.execute(select(BillingPlan).where(BillingPlan.stripe_price_id == body.priceId))).scalars().first():
+            raise HTTPException(status_code=400, detail="That price is already on sale.")
+        try:
+            p = await B.plan_from_price(body.priceId, body.wallet, body.credits)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        except B.StripeError as err:
+            raise HTTPException(status_code=502, detail=str(err))
+        db.add(p)
+        await db.commit()
+        return B.plan_json(p)
+
+
+@router.get("/telnyx-costs")
+async def telnyx_costs(request: Request, month: str = ""):
+    """Per organisation on our Telnyx account: Telnyx's cost for its billing group this month,
+    the minutes we billed, what it paid us, and the margin."""
+    import re
+
+    from app.services import telnyx_usage
+    from app.services.telnyx_client import TelnyxError, platform_key
+
+    _who(request)
+    month = month or datetime.utcnow().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    if not platform_key():
+        raise HTTPException(status_code=503, detail="Telnyx is not connected on the platform yet.")
+    try:
+        return await telnyx_usage.margin_report(month)
+    except TelnyxError as err:
+        raise HTTPException(status_code=502, detail=str(err))
 
 
 @router.post("/plans/{plan_id}/sync-stripe")

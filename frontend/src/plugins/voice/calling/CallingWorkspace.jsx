@@ -5,6 +5,7 @@ import {
   BarChart3,
   Calendar,
   Clock,
+  CreditCard,
   FileText,
   Headphones,
   History,
@@ -44,11 +45,14 @@ import {
 } from "lucide-react";
 import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
+import { PluginCredits } from "../../../team/PluginCredits";
+import { AppSwitcher } from "../../../hub/AppSwitcher";
+import { SubscriptionPage } from "../../../team/SubscriptionPage";
 import { api } from "../../../api/apiClient";
 import { WebSocketClient } from "../../../api/wsClient";
 import { withToken } from "../../../api/authStore";
 import { AudioStreamPlayer } from "../../../api/audioStreamPlayer";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../../../tokens";
+import { NAV_TEXT, C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../../../tokens";
 import { AnalyticsTab } from "./AnalyticsTab";
 import { ImportMapper } from "./ImportMapper";
 import { WorkingHoursTab } from "./WorkingHoursTab";
@@ -75,6 +79,7 @@ const PAGES = [
   { id: "company", label: "Company", icon: Users, section: "company" },
   { id: "hours", label: "Working hours", icon: Clock, section: "company" },
   { id: "numbers", label: "Numbers", icon: Phone, section: "admin" },
+  { id: "subscription", label: "Subscription", icon: CreditCard, section: "admin" },
   { id: "systemlogs", label: "System logs", icon: ScrollText, section: "process_logs" },
 ];
 
@@ -773,8 +778,7 @@ function navBtn(active) {
     border: "none",
     background: active ? "linear-gradient(135deg, #3457D5 0%, #26409E 100%)" : "transparent",
     color: "#fff",
-    fontSize: 13,
-    fontWeight: 700,
+    ...NAV_TEXT,
     cursor: "pointer",
     textAlign: "left",
     boxShadow: active ? "0 6px 16px rgba(52,87,213,0.32)" : "none",
@@ -2410,14 +2414,15 @@ export function CallingWorkspace({
     analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],
     hours: ["Working hours", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
     numbers: ["Numbers", "Verify your business, buy UK numbers and turn on WhatsApp."],
+    subscription: ["Subscription", "Your calling plan and credits. Change plan, top up, or cancel."],
     whatsapp: ["WhatsApp", "Conversations on your own numbers. AI replies until a person steps in."],
     systemlogs: ["System logs", "Technical activity of calls, providers and background jobs."],
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: "linear-gradient(180deg, #F3F1EB 0%, #EFEDE8 100%)", fontFamily: FONT_BODY }}>
+    <div className="app-shell" style={{ display: "flex", height: "100vh", background: "linear-gradient(180deg, #F3F1EB 0%, #EFEDE8 100%)", fontFamily: FONT_BODY }}>
       <AppChrome />
-      <div style={{ width: 232, minWidth: 232, background: "linear-gradient(180deg, #12141C 0%, #1B1E29 100%)", height: "100vh", display: "flex", flexDirection: "column", padding: "18px 12px", boxSizing: "border-box" }}>
+      <div className="app-sidebar" style={{ width: 232, minWidth: 232, background: "linear-gradient(180deg, #12141C 0%, #1B1E29 100%)", height: "100vh", display: "flex", flexDirection: "column", padding: "18px 12px", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 8px 16px" }}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -2446,15 +2451,13 @@ export function CallingWorkspace({
             <div style={{ fontSize: 9.5, color: "#8B90A0", fontWeight: 700, letterSpacing: "0.07em" }}>OUTREACH BY AIVHUB</div>
           </div>
         </div>
-        <button type="button" onClick={() => {
+        <AppSwitcher current="voice" onHome={() => {
           if (page === "company" && companyDirty) {
             setUnsavedLeaveTarget({ type: "hub" });
             return;
           }
           onBackToHub();
-        }} style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px 12px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.inkLine}`, background: "transparent", color: "#C8CCD6", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          <LayoutGrid size={14} /> All plugins
-        </button>
+        }} />
         {visiblePages.map((p) => {
           const Icon = p.icon;
           return (
@@ -2469,13 +2472,14 @@ export function CallingWorkspace({
             </button>
           );
         })}
-        <div style={{ flex: 1 }} />
+        <div className="app-sidebar-spacer" style={{ flex: 1 }} />
+        <PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} />
         <button type="button" onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "#8B90A0", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           <LogOut size={14} /> Log out
         </button>
       </div>
 
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+      <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
         <style>{`
           .calling-scroll {
             overflow: auto;
@@ -2521,9 +2525,9 @@ export function CallingWorkspace({
           }}>{toast}</div>
         ) : null}
 
-        <div style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates") ? "hidden" : "auto", padding: "18px 28px 28px", display: (page === "list" || page === "templates") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates") ? "column" : undefined }}>
+        <div className="app-page" style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates") ? "hidden" : "auto", padding: "18px 28px 28px", display: (page === "list" || page === "templates") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates") ? "column" : undefined }}>
           {page === "list" && (
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 380px", gap: 16, flex: 1, minHeight: 0 }}>
+            <div className="list-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 380px", gap: 16, flex: 1, minHeight: 0 }}>
               <div
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
@@ -3752,6 +3756,7 @@ export function CallingWorkspace({
           )}
 
           {page === "numbers" && operator?.is_admin && <NumbersPage />}
+          {page === "subscription" && operator?.is_admin && <SubscriptionPage wallet="voice" back="/voice/subscription" />}
           {page === "whatsapp" && canSee(operator, "calling") && <WhatsappInbox />}
 
           {page === "hours" && canSee(operator, "company") && (

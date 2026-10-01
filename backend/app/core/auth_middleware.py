@@ -52,13 +52,14 @@ PUBLIC_HTTP = [re.compile(p) for p in (
 if os.getenv("EXPOSE_API_DOCS", "").lower() in ("1", "true", "yes"):
     PUBLIC_HTTP += [re.compile(r"^/(docs|redoc)(/|$)"), re.compile(r"^/openapi\.json$")]
 
-PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]
+PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]  # carrier audio stream
 
 STAFF_API = re.compile(_OPT_API + r"admin-api(/|$)")
 
 
 def platform_org() -> str:
-    return os.getenv("PLATFORM_ORG_ID", "org_default").strip() or "org_default"  # carrier audio stream
+    return os.getenv("PLATFORM_ORG_ID", "org_default").strip() or "org_default"
+
 
 # Carrier webhooks: the organisation is found from the phone numbers in the request.
 CARRIER_WEBHOOK = re.compile(_OPT_API + r"(sip-webhook|sip/webhook|telnyx-assistant/|telnyx/messaging-webhook|calls/(telnyx|twilio)/|twilio/)")

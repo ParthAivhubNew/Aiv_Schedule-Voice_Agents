@@ -27,6 +27,21 @@ def _admin(request: Request) -> Dict[str, Any]:
     return ctx
 
 
+def _staff(ctx: Dict[str, Any]) -> bool:
+    """OutReach staff see what Telnyx charges us; customers only ever see our own prices."""
+    from app.core.auth_middleware import platform_org
+
+    return ctx.get("org_id") == platform_org()
+
+
+async def _our_price(db: AsyncSession) -> Dict[str, Any]:
+    """What a number costs the customer each month, from our rate card (in Voice credits)."""
+    from app.services import credits as K
+
+    card = await K.rates(db)
+    return {"monthlyCredits": card["phone_number_month"]["credits"], "creditsPerMinute": card["voice_minute"]["credits"]}
+
+
 async def _org_name(db: AsyncSession, org_id: str) -> str:
     from sqlalchemy import text
 
@@ -57,7 +72,8 @@ def _sub_json(s) -> Optional[Dict[str, Any]]:
 async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     from app.models.models import NumberOrder, OrgPhoneNumber
 
-    _admin(request)
+    ctx = _admin(request)
+    staff = _staff(ctx)
     setup = await TP.get_setup(db)
     if setup is not None and setup.status == "ready" and TP.platform_ready():
         try:
@@ -73,8 +89,10 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
         "account": {"status": setup.status if setup else "new", "error": setup.last_error if setup else ""},
         "verification": _sub_json(await TP.latest_verification(db)),
         "orders": [{"id": o.id, "phoneNumber": o.phone_number, "status": o.status, "error": o.error,
-                    "monthlyCost": o.monthly_cost, "upfrontCost": o.upfront_cost, "currency": o.currency,
-                    "at": o.created_at.isoformat() if o.created_at else None} for o in orders],
+                    "at": o.created_at.isoformat() if o.created_at else None,
+                    **({"telnyxMonthlyCost": o.monthly_cost, "telnyxUpfrontCost": o.upfront_cost, "telnyxCurrency": o.currency} if staff else {})}
+                   for o in orders],
+        "price": await _our_price(db),
         "numbers": [{"id": n.id, "e164": n.e164, "label": n.label, "status": n.status, "capabilities": n.capabilities or [],
                      "isDefault": bool(n.is_default), "provider": n.provider} for n in numbers],
     }
@@ -141,6 +159,7 @@ async def search(request: Request, country: str = "GB", number_type: str = "loca
         found = await client.search_numbers(country.upper(), number_type, locality.strip(), area_code.strip(), contains.strip(), limit=20)
     except TelnyxError as err:
         raise HTTPException(status_code=502, detail=str(err))
+    price, staff = await _our_price(db), _staff(ctx)
     out = []
     for n in found:
         cost = n.get("cost_information") or {}
@@ -149,8 +168,9 @@ async def search(request: Request, country: str = "GB", number_type: str = "loca
             "phoneNumber": n.get("phone_number"),
             "region": ", ".join(r.get("region_name", "") for r in region if r.get("region_name")),
             "features": [f.get("name") for f in n.get("features") or [] if isinstance(f, dict)],
-            "monthlyCost": cost.get("monthly_cost"), "upfrontCost": cost.get("upfront_cost"),
-            "currency": cost.get("currency") or "USD",
+            "monthlyCredits": price["monthlyCredits"],
+            **({"telnyxMonthlyCost": cost.get("monthly_cost"), "telnyxUpfrontCost": cost.get("upfront_cost"),
+                "telnyxCurrency": cost.get("currency") or "USD"} if staff else {}),
         })
     return out
 
@@ -159,9 +179,6 @@ class OrderBody(BaseModel):
     phoneNumber: str
     country: str = "GB"
     numberType: str = "local"
-    monthlyCost: Optional[str] = None
-    upfrontCost: Optional[str] = None
-    currency: Optional[str] = None
 
 
 @router.post("/numbers/order")
@@ -179,9 +196,17 @@ async def order(body: OrderBody, request: Request, db: AsyncSession = Depends(ge
             raise HTTPException(status_code=409, detail={
                 "message": "Numbers in this country need your business verified first.", "code": "verification_required"})
         group_id = sub.requirement_group_id
+    # What Telnyx charges us for it, read from Telnyx (for staff reports; customers never see it).
+    cost: Dict[str, Any] = {}
+    try:
+        digits = body.phoneNumber.lstrip("+")
+        same = [n for n in await client.search_numbers(body.country.upper(), body.numberType, contains=digits[-8:], limit=5)
+                if n.get("phone_number") == body.phoneNumber]
+        cost = (same[0].get("cost_information") or {}) if same else {}
+    except TelnyxError:
+        pass
     o = await TP.place_order(db, client, setup, phone_number=body.phoneNumber, country=body.country.upper(),
-                             number_type=body.numberType, requirement_group_id=group_id,
-                             cost={"monthly_cost": body.monthlyCost, "upfront_cost": body.upfrontCost, "currency": body.currency},
+                             number_type=body.numberType, requirement_group_id=group_id, cost=cost,
                              by=ctx.get("name", ""))
     await db.commit()
     if o.status == "failure":

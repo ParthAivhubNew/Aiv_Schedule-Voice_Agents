@@ -128,3 +128,31 @@ async def anon(db):
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         yield c
+
+
+async def make_staff(db, email="ops@outreach.test", role="staff_admin"):
+    """A signed-in staff user of the admin portal (2FA already set up): returns its token."""
+    import uuid
+
+    from app.core.security import hash_password
+    from app.core.staff import staff_token
+    from app.models.models import StaffUser
+
+    sid = f"stf_{uuid.uuid4().hex[:10]}"
+    db.add(StaffUser(id=sid, email=email, name=email.split("@")[0], role=role,
+                     hashed_password=hash_password("Staff-pass-2026"), totp_enabled=True))
+    await db.commit()
+    return staff_token(sid, role)
+
+
+@pytest.fixture
+async def staff(db):
+    """API client signed in to the admin portal as a staff admin."""
+    import httpx
+
+    from app.main import app
+
+    token = await make_staff(db)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test",
+                                 headers={"Authorization": f"Bearer {token}"}) as c:
+        yield c
