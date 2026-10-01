@@ -90,7 +90,7 @@ async def handle_incoming(body: Dict[str, Any]) -> Dict[str, Any]:
     if time_limit:
         from app.services.call_limits import watch
 
-        watch(ccid, time_limit, client.api_key, hang_up=True)
+        watch(ccid, time_limit, client.api_key, hang_up=True, assistant=True)
     register_outbound(ccid, call_id=call_id, to_number=caller, prospect=label, assistant_id=assistant.telnyx_assistant_id)
     await call_hub.broadcast("call_started", {"callId": call_id, "id": call_id, "prospect": label, "state": "calling",
                                               "duration": "00:00", "mission": "Inbound call", "channel": "voice", "ended": False})

@@ -149,7 +149,7 @@ async def test_numbers_stop_taking_calls_at_zero_and_come_back_after_a_top_up(db
     await _setup(db, monkeypatch, fake)
     await _voice(db, 0)
     assert await voice_access.sync(db) == "off"
-    assert fake.conn["pn_1"] == ""  # detached: calls to it go nowhere
+    assert fake.conn["pn_1"] is None  # detached: calls to it go nowhere
     assert await voice_access.sync(db) == ""  # already off
 
     await K.add_credits(db, "voice", 10, source="topup")
@@ -180,4 +180,4 @@ async def test_managed_account_is_disabled_or_its_numbers_detached(db, monkeypat
     await K.remove_credits(db, "voice", 10)
     await db.commit()
     assert await voice_access.sync(db) == "off"
-    assert fake2.conn["pn_1"] == ""
+    assert fake2.conn["pn_1"] is None
