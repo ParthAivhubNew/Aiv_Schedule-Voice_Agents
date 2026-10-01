@@ -116,7 +116,7 @@ async def _operator_json(db: AsyncSession, op: Operator) -> Dict[str, Any]:
         "last_login_at": op.last_login_at.isoformat() if op.last_login_at else None,
         "org_id": org_of(op),
         # OutReach's own organisation runs the AI/telephony provider settings; clients never see them.
-        "is_platform_org": org_of(op) == (__import__("os").getenv("PLATFORM_ORG_ID") or "org_default"),
+        "is_platform_org": org_of(op) == __import__("app.core.platform", fromlist=["x"]).platform_org_id(),
     }
 
 

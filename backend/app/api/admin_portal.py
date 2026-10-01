@@ -130,7 +130,7 @@ async def dashboard(request: Request):
     since = datetime.utcnow() - timedelta(days=30)
     async with AsyncSessionLocal() as db:
         return {
-            "clients": await _count(db, "SELECT count(*) FROM organizations"),
+            "clients": await _count(db, "SELECT count(*) FROM organizations WHERE coalesce(status, 'active') <> 'platform'"),
             "suspended": await _count(db, "SELECT count(*) FROM organizations WHERE status = 'suspended'"),
             "users": await _count(db, "SELECT count(*) FROM operators WHERE coalesce(is_active, true)"),
             "numbers": await _count(db, "SELECT count(*) FROM org_phone_numbers WHERE status = 'active'"),
@@ -173,7 +173,7 @@ async def _in_org(org_id: str, fn):
     from app.core.tenancy import org_scope
 
     async with AsyncSessionLocal() as db:
-        if not (await db.execute(text("SELECT 1 FROM organizations WHERE id = :i"), {"i": org_id})).first():
+        if not (await db.execute(text("SELECT 1 FROM organizations WHERE id = :i AND coalesce(status, 'active') <> 'platform'"), {"i": org_id})).first():
             raise HTTPException(status_code=404, detail="Client not found.")
     with org_scope(org_id):
         async with AsyncSessionLocal() as db:
@@ -191,7 +191,7 @@ async def clients(request: Request):
             "SELECT o.id, o.name, o.status, o.created_at, "
             "(SELECT count(*) FROM operators u WHERE u.org_id = o.id) AS users, "
             "(SELECT count(*) FROM org_phone_numbers n WHERE n.org_id = o.id AND n.status = 'active') AS numbers "
-            "FROM organizations o ORDER BY o.created_at DESC NULLS LAST"))).all()
+            "FROM organizations o WHERE coalesce(o.status, 'active') <> 'platform' ORDER BY o.created_at DESC NULLS LAST"))).all()
     out = []
     for org_id, name, status, created, users, numbers in orgs:
         async def detail(db):
@@ -212,7 +212,7 @@ async def client_detail(org_id: str, request: Request):
 
     _who(request)
     async with AsyncSessionLocal() as db:
-        org = (await db.execute(text("SELECT id, name, slug, status, created_at FROM organizations WHERE id = :i"), {"i": org_id})).first()
+        org = (await db.execute(text("SELECT id, name, slug, status, created_at FROM organizations WHERE id = :i AND coalesce(status, 'active') <> 'platform'"), {"i": org_id})).first()
     if not org:
         raise HTTPException(status_code=404, detail="Client not found.")
 
@@ -534,6 +534,69 @@ async def put_rates(body: RatesBody, request: Request):
         out = await K.set_rates(db, body.rates)
         await db.commit()
         return out
+
+
+# ── Platform keys (provider keys every company runs on) ─────────────────────
+async def _as_platform(fn, *args):
+    """Run a Connections handler inside the platform record, where OutReach's keys live."""
+    from app.core.auth_middleware import platform_org
+    from app.core.tenancy import org_scope
+
+    with org_scope(platform_org()):
+        async with AsyncSessionLocal() as db:
+            return await fn(*args, db)
+
+
+@router.get("/platform-keys")
+async def platform_keys(request: Request):
+    """Provider groups with masked keys (never the keys themselves) and the Telnyx assistant."""
+    from app.api import connections as C
+
+    _who(request)
+    from app.core.tenancy import SHARED_PROVIDER_GROUPS
+
+    groups = await _as_platform(C.list_connections)
+    have = {g["group"] for g in groups}
+    groups += [{"group": g, "desc": "", "items": []} for g in SHARED_PROVIDER_GROUPS
+               if g not in have and g != "Telnyx AI Assistant"]
+    assistant = await _as_platform(C.get_telnyx_assistant_settings)
+    return {"groups": groups, "assistant": assistant}
+
+
+@router.post("/platform-keys/save")
+async def platform_keys_save(body: Dict[str, Any], request: Request):
+    from app.api import connections as C
+
+    _admin_only(request)
+    try:
+        req = C.TestKeyRequest(**body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Check the provider and key.")
+    return await _as_platform(C.test_and_save_connection, req)
+
+
+@router.post("/platform-keys/clear")
+async def platform_keys_clear(body: Dict[str, Any], request: Request):
+    from app.api import connections as C
+
+    _admin_only(request)
+    try:
+        req = C.ClearKeyRequest(**body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Say which key to remove.")
+    return await _as_platform(C.clear_connection_key, req)
+
+
+@router.post("/platform-keys/assistant")
+async def platform_keys_assistant(body: Dict[str, Any], request: Request):
+    from app.api import connections as C
+
+    _admin_only(request)
+    try:
+        req = C.TelnyxAssistantSettingsRequest(**body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Check the assistant ID and public key.")
+    return await _as_platform(C.save_telnyx_assistant_settings, req)
 
 
 # ── Platform AI (Post scheduler) ────────────────────────────────────────────

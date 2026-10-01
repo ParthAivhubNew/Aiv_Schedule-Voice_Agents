@@ -257,7 +257,9 @@ async def test_call_plan_uses_the_picked_voice_and_fails_clearly_without_its_key
     plan = await resolve_voice_plan()
     assert plan.external_tts and plan.tts.provider == "cartesia" and plan.tts.voice_id.startswith("a0e99841")
 
-    await client.post("/api/connections/clear-key", json={"layer": "Text-to-Speech", "provider": "Cartesia"})
+    from app.api.connections import ClearKeyRequest, clear_connection_key
+
+    await clear_connection_key(ClearKeyRequest(layer="Text-to-Speech", provider="Cartesia"), db)
     with pytest.raises(ValueError, match="no cartesia key"):
         await resolve_voice_plan()
     assert (await client.get("/api/voices/library")).json()["active"]["status"] == "key_missing"

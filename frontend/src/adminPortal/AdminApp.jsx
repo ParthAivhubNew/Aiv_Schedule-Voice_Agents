@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ClipboardList, Coins, LayoutDashboard, LogOut, PoundSterling, ScrollText, ShieldCheck, Sparkles, Users, UserCog } from "lucide-react";
+import { ClipboardList, Coins, KeyRound, LayoutDashboard, LogOut, PoundSterling, ScrollText, ShieldCheck, Sparkles, Users, UserCog } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
 import { Billing } from "./Billing";
@@ -7,6 +7,7 @@ import { Clients } from "./Clients";
 import { Dashboard } from "./Dashboard";
 import { Logs } from "./Logs";
 import { PlatformAi } from "./PlatformAi";
+import { PlatformKeys } from "./PlatformKeys";
 import { Revenue } from "./Revenue";
 import { Queue } from "./Queue";
 import { SignIn } from "./SignIn";
@@ -19,6 +20,7 @@ const PAGES = [
   { id: "revenue", label: "Revenue", icon: PoundSterling },
   { id: "billing", label: "Plans & pricing", icon: Coins },
   { id: "ai", label: "Platform AI", icon: Sparkles },
+  { id: "keys", label: "Platform keys", icon: KeyRound },
   { id: "logs", label: "Logs", icon: ScrollText },
   { id: "staff", label: "Staff", icon: UserCog },
 ];
@@ -107,6 +109,7 @@ export function AdminApp() {
         {page === "revenue" && <Revenue canEdit={canEdit} />}
         {page === "billing" && <Billing canEdit={canEdit} />}
         {page === "ai" && <PlatformAi canEdit={canEdit} />}
+        {page === "keys" && <PlatformKeys canEdit={canEdit} />}
         {page === "logs" && <Logs />}
         {page === "staff" && <Staff me={staff} canEdit={canEdit} />}
       </main>

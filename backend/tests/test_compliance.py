@@ -8,6 +8,9 @@ pytestmark = pytest.mark.db
 
 async def _profile(db, policy="respectful"):
     from app.models.models import CompanyProfile
+    from app.services import credits as K
+
+    await K.set_org_settings(db, {"enforce": False})  # these tests are about hours, not credits
 
     db.add(CompanyProfile(id="default", name="Acme", pitch="x", timezone="Europe/London", call_hours_policy=policy,
                           weekday_start="09:00", weekday_end="17:30", lunch_start="12:00", lunch_end="13:00"))

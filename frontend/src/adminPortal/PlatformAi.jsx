@@ -7,7 +7,7 @@ const LABELS = { openai: "OpenAI", anthropic: "Anthropic (Claude)", deepseek: "D
   xai: "xAI (Grok)", fal: "fal (FLUX)", stability: "Stability AI", pollinations: "Pollinations (free, no key)" };
 
 // The writing and image AI every client's Post scheduler uses. Empty = automatic (the first
-// key OutReach saved), as before. Keys are saved in OutReach's own AI config.
+// key OutReach saved), as before. Keys are set on the Platform keys page.
 export function PlatformAi({ canEdit }) {
   const [data, err, reload] = useLoad(adminApi.platformAi);
   const [draft, setDraft] = useState(null);
@@ -52,7 +52,7 @@ export function PlatformAi({ canEdit }) {
 
       <div style={heading}>Keys</div>
       <div style={{ fontSize: 12.5, color: C.slate, maxWidth: 680 }}>
-        Provider keys are saved in OutReach's own organisation (sign in to the app as an OutReach admin → AI configuration).
+        Provider keys are set on the Platform keys page (LLM for writing, IMAGE for images).
         Saved now — writing: {data.keys.text.join(", ") || "none"}; images: {data.keys.image.join(", ") || "none"}.
       </div>
     </>

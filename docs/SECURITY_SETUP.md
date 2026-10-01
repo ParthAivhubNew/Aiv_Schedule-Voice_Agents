@@ -52,7 +52,7 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `SYSTEM_MAIL_HOST`, `SYSTEM_MAIL_PORT`, `SYSTEM_MAIL_USER`, `SYSTEM_MAIL_PASSWORD`, `SYSTEM_MAIL_FROM`, `SYSTEM_MAIL_FROM_NAME`, `SYSTEM_MAIL_TLS` | Platform email (invites, resets, verification) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | "Sign in with Google" (button appears once set). In Google Cloud → Credentials → OAuth client (Web application), add the redirect URI `https://outreach.aivhub.com/api/auth/google/callback` |
 | `ALLOW_SIGNUP` | `true` to let new companies register themselves (with the platform mailbox set, they must confirm their email first) |
-| `STARTER_CREDITS` | Free trial credits a self-signup organisation gets in each app, for 30 days (default 0: no trial); those organisations stop at zero |
+| `STARTER_CREDITS` | Free trial credits a self-signup organisation gets in each app, for 30 days (default 0: no trial). Every company stops at zero unless staff switch that off for it; staff add or remove credits under *Clients* |
 | `TELNYX_API_KEY` | Our (manager) Telnyx key: number search/orders, verification, WhatsApp |
 | `TELNYX_ACCOUNT_MODE` | `billing_group` (default, pay-as-you-go: one Telnyx account and balance, a billing group per client, section 5) or `managed_account` (a Telnyx managed account per client, once Telnyx approves us as a manager) |
 | `TELNYX_DAILY_SPEND_LIMIT_USD` | Optional. Pay-as-you-go: a cap Telnyx itself enforces on each client's outbound calls per day (USD), set on its outbound profile when the profile is created |
@@ -65,7 +65,8 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `TELNYX_SCRIPT_VAR_LIMIT` | Optional. How many characters of a script are sent with each call (default 6000); the assistant reads the rest with a tool |
 | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. `.env.local` (in git) holds the sandbox's TEST keys so every developer can try payments; the app then shows "test mode". On the live server put the `sk_live_…`/`pk_live_…` keys and the live webhook secret in `.env`, which overrides `.env.local`; never commit live keys. A server without its own keys runs in test mode |
 | `STRIPE_AUTOMATIC_TAX` | `true` once Stripe Tax is set up (section 6): Checkout adds VAT/sales tax and asks business customers for a VAT number |
-| `PLATFORM_ORG_ID` | OutReach's own organisation (default `org_default`). Only its admins see and change AI, carrier and provider keys (AI config); every other organisation uses the keys OutReach runs. It gives no staff powers: those are in the staff admin portal (section 7) |
+| `PLATFORM_ORG_ID` | The platform record that holds OutReach's provider keys (default `org_outreach`). It is not a company: nobody signs in to it and it is never listed as a client. Keys are set in the staff admin portal under *Platform keys*; every company uses them and none can see or change them. Aivhub (`org_default`) is a normal client company; its old keys were moved to the platform record automatically |
+| `AIVHUB_ADMIN_PASSWORD` | Optional. Sets the password of Aivhub's `admin` user (the company login, separate from the staff portal) whenever the value changes. Remove it after the first start if you prefer |
 | `STAFF_ADMIN_EMAIL`, `STAFF_ADMIN_PASSWORD` | First staff admin of the staff admin portal (`/admin`), created at startup when there is no staff account yet. Remove the password from the env file after the first sign-in |
 | `CALL_WINDOW_ENFORCEMENT` | Default calling-hours mode if an organisation has not chosen one |
 | `EXPOSE_API_DOCS` | `true` only if you want `/docs` public (off by default) |

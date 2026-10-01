@@ -316,9 +316,18 @@ async def lifespan(app: FastAPI):
     from app.core.tenancy import ensure_tenancy
     async with engine.begin() as conn:
         await ensure_tenancy(conn)
+    # A brand-new database seeds provider rows into Aivhub; they belong to the platform.
+    from app.core.platform import split_platform
+    async with engine.begin() as conn:
+        await split_platform(conn)
     await resolve_signing_key()
     from app.core.staff import ensure_bootstrap_staff
     await ensure_bootstrap_staff()
+    try:
+        from app.core.platform import ensure_aivhub_ready
+        await ensure_aivhub_ready()
+    except Exception as aivhub_err:
+        logger.warning(f"Aivhub demo setup skipped: {aivhub_err}")
     if (settings.LIVEKIT_API_SECRET or "").startswith("secret1234567890") or (settings.LIVEKIT_API_KEY or "") == "devkey":
         logger.warning(
             "LiveKit is using the development key/secret that is published in the repository. "
@@ -349,118 +358,122 @@ async def lifespan(app: FastAPI):
         from app.models.models import Connection
         from app.services.secret_box import seal_config
         from sqlalchemy.future import select
-        async with AsyncSessionLocal() as init_db:
-            # Auto-configure LiveKit (self-hosted) connection if missing or not configured
-            r_lk = await init_db.execute(
-                select(Connection).where(
-                    Connection.group_name == "Voice Orchestration",
-                    Connection.name.ilike("%livekit%")
-                )
-            )
-            lk_conn = r_lk.scalars().first()
-            # Only ever mark this "connected" when a real LIVEKIT_API_KEY is configured —
-            # never from the "devkey"/dev-default fallback, so the UI doesn't show a
-            # connection as active/saved when nobody actually configured one.
-            has_real_livekit_key = bool(settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_KEY != "devkey")
-            if not lk_conn:
-                lk_conn = Connection(
-                    id=f"c_vo_livekit_{uuid.uuid4().hex[:6]}",
-                    group_name="Voice Orchestration",
-                    name="LiveKit (self-hosted)",
-                    status="connected" if has_real_livekit_key else "not_configured",
-                    config=seal_config({
-                        "api_key": settings.LIVEKIT_API_KEY or "",
-                        "api_secret": settings.LIVEKIT_API_SECRET or "",
-                        "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
-                    }) if has_real_livekit_key else {"base_url": settings.LIVEKIT_URL or "ws://localhost:7880"},
-                    api_key_masked=f"{settings.LIVEKIT_API_KEY[:4]}••••" if has_real_livekit_key else None,
-                )
-                init_db.add(lk_conn)
-                await init_db.commit()
-                logger.info("Auto-configured LiveKit (self-hosted) connection row (status=%s).", lk_conn.status)
-            elif has_real_livekit_key and lk_conn.status != "connected":
-                lk_conn.status = "connected"
-                if not lk_conn.config or not isinstance(lk_conn.config, dict):
-                    lk_conn.config = seal_config({
-                        "api_key": settings.LIVEKIT_API_KEY,
-                        "api_secret": settings.LIVEKIT_API_SECRET or "",
-                        "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
-                    })
-                lk_conn.api_key_masked = lk_conn.api_key_masked or f"{settings.LIVEKIT_API_KEY[:4]}••••"
-                await init_db.commit()
-
-            # Ensure xAI Voice Agent is in Text-to-Speech
-            r_xai_tts = await init_db.execute(
-                select(Connection).where(
-                    Connection.group_name == "Text-to-Speech",
-                    Connection.name.ilike("%xai%")
-                )
-            )
-            if not r_xai_tts.scalars().first():
-                xai_tts_conn = Connection(
-                    id=f"c_tts_xai_{uuid.uuid4().hex[:6]}",
-                    group_name="Text-to-Speech",
-                    name="xAI Voice Agent",
-                    status="connected" if settings.XAI_API_KEY else "not_configured",
-                    config=seal_config({
-                        "api_key": settings.XAI_API_KEY or "",
-                        "model": "xai built-in (rex)",
-                    }),
-                    api_key_masked=f"{(settings.XAI_API_KEY or '')[:6]}••••" if settings.XAI_API_KEY else None,
-                )
-                init_db.add(xai_tts_conn)
-                await init_db.commit()
-
-            # Ensure xAI Voice Agent is in Voice Orchestration
-            r_xai_vo = await init_db.execute(
-                select(Connection).where(
-                    Connection.group_name == "Voice Orchestration",
-                    Connection.name.ilike("%xai%")
-                )
-            )
-            if not r_xai_vo.scalars().first():
-                xai_vo_conn = Connection(
-                    id=f"c_vo_xai_{uuid.uuid4().hex[:6]}",
-                    group_name="Voice Orchestration",
-                    name="xAI Voice Agent",
-                    status="connected" if settings.XAI_API_KEY else "not_configured",
-                    config=seal_config({"api_key": settings.XAI_API_KEY or ""}),
-                    api_key_masked=f"{(settings.XAI_API_KEY or '')[:6]}••••" if settings.XAI_API_KEY else None,
-                )
-                init_db.add(xai_vo_conn)
-                await init_db.commit()
-
-            # Ensure standard provider connections exist (Telnyx AI/STT/TTS, Twilio, Deepgram, Cartesia, ElevenLabs, etc.)
-            standard_templates = [
-                ("LLM", "Telnyx AI", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
-                ("Speech-to-Text", "Telnyx Whisper", "openai/whisper-large-v3"),
-                ("Text-to-Speech", "Telnyx Natural (TTS)", "telnyx/natural"),
-                ("Telephony", "Telnyx", ""),
-                ("Speech-to-Text", "Deepgram", "nova-2"),
-                ("Text-to-Speech", "Cartesia", "sonic-3"),
-                ("Text-to-Speech", "ElevenLabs", "eleven_turbo_v2_5"),
-                ("LLM", "DeepSeek", "deepseek-chat"),
-                ("LLM", "OpenAI", "gpt-4o-mini"),
-                ("LLM", "Anthropic (Claude)", "claude-3-5-sonnet-20241022"),
-                ("Telephony", "Twilio", ""),
-            ]
-            for group, name, default_model in standard_templates:
-                conn_id = f"c_{group.lower()[:3]}_{name.lower().replace(' ', '_').replace('(', '').replace(')', '')}"
-                res = await init_db.execute(
+        from app.core.platform import platform_org_id
+        from app.core.tenancy import org_scope
+        # Built-in provider rows belong to the platform (OutReach), never to a client company.
+        with org_scope(platform_org_id()):
+            async with AsyncSessionLocal() as init_db:
+                # Auto-configure LiveKit (self-hosted) connection if missing or not configured
+                r_lk = await init_db.execute(
                     select(Connection).where(
-                        (Connection.id == conn_id)
-                        | ((Connection.group_name == group) & (Connection.name == name))
+                        Connection.group_name == "Voice Orchestration",
+                        Connection.name.ilike("%livekit%")
                     )
                 )
-                if not res.scalars().first():
-                    init_db.add(Connection(
-                        id=conn_id,
-                        group_name=group,
-                        name=name,
-                        status="not_configured",
-                        config={"model": default_model, "provider": name} if default_model else {"provider": name}
-                    ))
-            await init_db.commit()
+                lk_conn = r_lk.scalars().first()
+                # Only ever mark this "connected" when a real LIVEKIT_API_KEY is configured —
+                # never from the "devkey"/dev-default fallback, so the UI doesn't show a
+                # connection as active/saved when nobody actually configured one.
+                has_real_livekit_key = bool(settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_KEY != "devkey")
+                if not lk_conn:
+                    lk_conn = Connection(
+                        id=f"c_vo_livekit_{uuid.uuid4().hex[:6]}",
+                        group_name="Voice Orchestration",
+                        name="LiveKit (self-hosted)",
+                        status="connected" if has_real_livekit_key else "not_configured",
+                        config=seal_config({
+                            "api_key": settings.LIVEKIT_API_KEY or "",
+                            "api_secret": settings.LIVEKIT_API_SECRET or "",
+                            "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
+                        }) if has_real_livekit_key else {"base_url": settings.LIVEKIT_URL or "ws://localhost:7880"},
+                        api_key_masked=f"{settings.LIVEKIT_API_KEY[:4]}••••" if has_real_livekit_key else None,
+                    )
+                    init_db.add(lk_conn)
+                    await init_db.commit()
+                    logger.info("Auto-configured LiveKit (self-hosted) connection row (status=%s).", lk_conn.status)
+                elif has_real_livekit_key and lk_conn.status != "connected":
+                    lk_conn.status = "connected"
+                    if not lk_conn.config or not isinstance(lk_conn.config, dict):
+                        lk_conn.config = seal_config({
+                            "api_key": settings.LIVEKIT_API_KEY,
+                            "api_secret": settings.LIVEKIT_API_SECRET or "",
+                            "base_url": settings.LIVEKIT_URL or "ws://localhost:7880",
+                        })
+                    lk_conn.api_key_masked = lk_conn.api_key_masked or f"{settings.LIVEKIT_API_KEY[:4]}••••"
+                    await init_db.commit()
+
+                # Ensure xAI Voice Agent is in Text-to-Speech
+                r_xai_tts = await init_db.execute(
+                    select(Connection).where(
+                        Connection.group_name == "Text-to-Speech",
+                        Connection.name.ilike("%xai%")
+                    )
+                )
+                if not r_xai_tts.scalars().first():
+                    xai_tts_conn = Connection(
+                        id=f"c_tts_xai_{uuid.uuid4().hex[:6]}",
+                        group_name="Text-to-Speech",
+                        name="xAI Voice Agent",
+                        status="connected" if settings.XAI_API_KEY else "not_configured",
+                        config=seal_config({
+                            "api_key": settings.XAI_API_KEY or "",
+                            "model": "xai built-in (rex)",
+                        }),
+                        api_key_masked=f"{(settings.XAI_API_KEY or '')[:6]}••••" if settings.XAI_API_KEY else None,
+                    )
+                    init_db.add(xai_tts_conn)
+                    await init_db.commit()
+
+                # Ensure xAI Voice Agent is in Voice Orchestration
+                r_xai_vo = await init_db.execute(
+                    select(Connection).where(
+                        Connection.group_name == "Voice Orchestration",
+                        Connection.name.ilike("%xai%")
+                    )
+                )
+                if not r_xai_vo.scalars().first():
+                    xai_vo_conn = Connection(
+                        id=f"c_vo_xai_{uuid.uuid4().hex[:6]}",
+                        group_name="Voice Orchestration",
+                        name="xAI Voice Agent",
+                        status="connected" if settings.XAI_API_KEY else "not_configured",
+                        config=seal_config({"api_key": settings.XAI_API_KEY or ""}),
+                        api_key_masked=f"{(settings.XAI_API_KEY or '')[:6]}••••" if settings.XAI_API_KEY else None,
+                    )
+                    init_db.add(xai_vo_conn)
+                    await init_db.commit()
+
+                # Ensure standard provider connections exist (Telnyx AI/STT/TTS, Twilio, Deepgram, Cartesia, ElevenLabs, etc.)
+                standard_templates = [
+                    ("LLM", "Telnyx AI", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
+                    ("Speech-to-Text", "Telnyx Whisper", "openai/whisper-large-v3"),
+                    ("Text-to-Speech", "Telnyx Natural (TTS)", "telnyx/natural"),
+                    ("Telephony", "Telnyx", ""),
+                    ("Speech-to-Text", "Deepgram", "nova-2"),
+                    ("Text-to-Speech", "Cartesia", "sonic-3"),
+                    ("Text-to-Speech", "ElevenLabs", "eleven_turbo_v2_5"),
+                    ("LLM", "DeepSeek", "deepseek-chat"),
+                    ("LLM", "OpenAI", "gpt-4o-mini"),
+                    ("LLM", "Anthropic (Claude)", "claude-3-5-sonnet-20241022"),
+                    ("Telephony", "Twilio", ""),
+                ]
+                for group, name, default_model in standard_templates:
+                    conn_id = f"c_{group.lower()[:3]}_{name.lower().replace(' ', '_').replace('(', '').replace(')', '')}"
+                    res = await init_db.execute(
+                        select(Connection).where(
+                            (Connection.id == conn_id)
+                            | ((Connection.group_name == group) & (Connection.name == name))
+                        )
+                    )
+                    if not res.scalars().first():
+                        init_db.add(Connection(
+                            id=conn_id,
+                            group_name=group,
+                            name=name,
+                            status="not_configured",
+                            config={"model": default_model, "provider": name} if default_model else {"provider": name}
+                        ))
+                await init_db.commit()
 
     except Exception as auto_conn_err:
         logger.warning("Auto-configuration of built-in connections skipped: %s", auto_conn_err)

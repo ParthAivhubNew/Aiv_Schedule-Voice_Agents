@@ -134,8 +134,8 @@ async def test_verify_then_buy_number(client, db, fake):
     assert ov["verification"]["status"] == "approved"
 
     found = (await client.get("/api/telnyx/numbers/search?locality=London")).json()
-    # Staff (the platform organisation) also see what Telnyx charges; customers never do.
-    assert found[0]["phoneNumber"] == "+442071234567" and found[0]["telnyxMonthlyCost"] == "1.00"
+    # Customers (Aivhub included) never see what Telnyx charges.
+    assert found[0]["phoneNumber"] == "+442071234567" and "telnyxMonthlyCost" not in found[0]
     r = await client.post("/api/telnyx/numbers/order", json={"phoneNumber": "+442071234567"})
     assert r.status_code == 200 and r.json()["status"] == "pending"
     order_call = next(c[2] for c in fake.calls if c[1] == "/number_orders")
@@ -282,16 +282,15 @@ async def test_each_customer_gets_its_own_outbound_profile_and_app(db, fake, mon
         await db.commit()
     assert len(fake.calls) == made
 
-    # The platform's own organisation is not a customer: its credits are left as they were.
-    with org_scope("org_default"):
+    # The platform record is not a customer: its own Telnyx setup is left as it was.
+    with org_scope("org_outreach"):
         from app.models.models import OrgTelnyx
 
-        db.add(OrgTelnyx(id="org_default", mode="billing_group", status="ready", billing_group_id="bg_old"))
+        db.add(OrgTelnyx(id="org_outreach", mode="billing_group", status="ready", billing_group_id="bg_old"))
         await db.commit()
         setup = await TP.ensure_setup(db, "Platform")
         await db.commit()
         assert setup.outbound_connection_id == "cca_1" and setup.billing_group_id == "bg_old"
-        assert (await K.org_settings(db))["enforce"] is False
 
 
 async def test_outbound_calls_go_through_the_customers_app_and_stop_at_its_minutes(db, fake, monkeypatch):

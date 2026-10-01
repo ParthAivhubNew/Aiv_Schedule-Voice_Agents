@@ -45,7 +45,8 @@ TENANT_TABLES: List[str] = [
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.
-SHARED_PROVIDER_GROUPS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Embeddings", "Business Discovery", "Messaging"]
+SHARED_PROVIDER_GROUPS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Embeddings",
+                          "Business Discovery", "Messaging", "IMAGE", "Telnyx AI Assistant"]
 PER_ORG_SINGLETONS = ["company_profile", "calcom_settings", "scheduler_settings", "conversation_templates"]
 
 ORG_DEFAULT_SQL = f"coalesce(nullif(current_setting('app.org_id', true), ''), '{DEFAULT_ORG}')"
@@ -149,7 +150,9 @@ async def ensure_tenancy(conn: AsyncConnection) -> None:
     if await _table_exists(conn, "connections"):
         import os as _os
 
-        platform = (_os.getenv("PLATFORM_ORG_ID") or DEFAULT_ORG).replace("'", "")
+        from app.core.platform import platform_org_id
+
+        platform = platform_org_id().replace("'", "")
         shared = ", ".join(f"'{g}'" for g in SHARED_PROVIDER_GROUPS)
         await conn.execute(text("DROP POLICY IF EXISTS platform_providers ON connections"))
         await conn.execute(text(

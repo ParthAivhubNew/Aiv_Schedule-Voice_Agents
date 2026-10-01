@@ -158,7 +158,7 @@ async def test_client_organisations_cannot_change_provider_settings(client, db):
         assert (await c.post("/api/scheduler/ai-settings/test")).status_code == 403
         me = (await c.get("/api/auth/me")).json()
     assert me["is_platform_org"] is False
-    assert (await client.get("/api/auth/me")).json()["is_platform_org"] is True
+    assert (await client.get("/api/auth/me")).json()["is_platform_org"] is False  # Aivhub is a normal client company now
 
 
 async def test_staff_choose_the_post_scheduler_ai_for_clients(staff, db):
@@ -181,5 +181,7 @@ async def test_staff_choose_the_post_scheduler_ai_for_clients(staff, db):
         assert (prefs["textProvider"], prefs["textModel"], prefs["imageProvider"]) == ("openai", "gpt-test", "fal")
         img = await _resolve_image_prefs(db, {"image_provider": "pollinations", "image_api_key": "sk-x"})
         assert img["provider"] == "fal" and img["api_key"] is None
-    # OutReach's own organisation keeps its own choice.
-    assert (await _load_ai_settings(db))["textProvider"] == "auto"
+    # Aivhub is a client like any other; only the platform record keeps its own choice.
+    assert (await _load_ai_settings(db))["textProvider"] == "openai"
+    with org_scope("org_outreach"):
+        assert (await _load_ai_settings(db))["textProvider"] == "auto"

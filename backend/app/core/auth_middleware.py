@@ -58,7 +58,10 @@ STAFF_API = re.compile(_OPT_API + r"admin-api(/|$)")
 
 
 def platform_org() -> str:
-    return os.getenv("PLATFORM_ORG_ID", "org_default").strip() or "org_default"
+    """The platform record holding OutReach's provider keys (not a company; see core/platform)."""
+    from app.core.platform import platform_org_id
+
+    return platform_org_id()
 
 
 # Carrier webhooks: the organisation is found from the phone numbers in the request.

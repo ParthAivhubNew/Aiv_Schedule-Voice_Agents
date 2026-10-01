@@ -117,7 +117,8 @@ async def set_rates(db, patch: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
 async def org_settings(db, org_id: Optional[str] = None) -> dict:
     doc = await _get_doc(db, _settings_id(org_id))
-    return {"enforce": bool(doc.get("enforce", False)), "debt": dict(doc.get("debt") or {}),
+    # Every company pays for what it uses: stop at zero unless staff switch it off for one.
+    return {"enforce": bool(doc.get("enforce", True)), "debt": dict(doc.get("debt") or {}),
             "low_notified": dict(doc.get("low_notified") or {}) if isinstance(doc.get("low_notified"), dict) else {}}
 
 

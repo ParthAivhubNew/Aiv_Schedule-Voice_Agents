@@ -96,6 +96,9 @@ async def test_stop_at_zero_per_plugin_only_when_enforced(db):
     from app.services.compliance import check_call_allowed
 
     with org_scope("org_default"):
+        # Stop at zero is on by default; staff can switch it off for a company.
+        assert (await K.can_start(db, "voice_minute"))[0] is False
+        await K.set_org_settings(db, {"enforce": False})
         assert (await K.can_start(db, "voice_minute"))[0] is True
         await K.set_org_settings(db, {"enforce": True})
         await K.add_credits(db, "scheduler", 10)
