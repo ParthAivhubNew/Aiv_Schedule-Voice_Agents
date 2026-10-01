@@ -9,6 +9,8 @@ import os
 
 import pytest
 
+pytest_plugins = ["tests.voice_fakes"]  # the fake Telnyx fixtures (fake, signed)
+
 TEST_DB = os.environ.get("TEST_DATABASE_URL", "")
 # The app builds its engine at import time; a placeholder URL is fine for unit tests
 # (nothing connects until a query runs).
