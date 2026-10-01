@@ -559,7 +559,7 @@ export const PROFILE_TABS = [
 
 export const SOURCE_TYPES = [
   { id: "Website URL", label: "Website URL", icon: Globe, placeholder: "https://www.aivhub.com/", hint: "Public company website, product documentation, or case study URL." },
-  { id: "Document upload", label: "Document / PDF", icon: FileText, placeholder: "e.g. pricing-matrix-2026.pdf or cloud link", hint: "Upload or reference pricing sheets, service catalogues, and sales decks." },
+  { id: "File upload", label: "Upload file", icon: FileText, placeholder: "", hint: "PDF, Word (.docx), text, Markdown or CSV, up to 10 MB: price lists, service catalogues, FAQs, sales decks." },
   { id: "Google Drive link", label: "Google Drive", icon: Link2, placeholder: "https://drive.google.com/drive/folders/...", hint: "Shared team drive folder or presentation link." },
   { id: "Google Docs link", label: "Google Docs", icon: FileText, placeholder: "https://docs.google.com/document/d/...", hint: "Live internal playbooks, FAQs, and competitor battlecards." },
   { id: "Manual text", label: "Direct Text / Notes", icon: PenLine, placeholder: "Paste raw objection rebuttals, customer Q&As, or pricing rules here...", hint: "Paste custom scripts or internal knowledge directly into the AI's memory." },
