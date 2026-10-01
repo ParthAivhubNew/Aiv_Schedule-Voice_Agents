@@ -1,0 +1,185 @@
+import React, { useCallback, useMemo, useState } from "react";
+import { ArrowLeft, Ban, Check, Plus, Search } from "lucide-react";
+import { C } from "../tokens";
+import { adminApi } from "./adminApi";
+import { Note, PageTitle, Pill, Table, btn, card, cell, fmt, heading, input, mono, useAction, useLoad, when } from "./ui";
+
+const WALLETS = ["voice", "leadgen", "email", "scheduler"];
+const statusTone = (s) => (s === "suspended" ? "red" : s === "active" ? "green" : "slate");
+
+export function Clients({ canEdit, openId, open }) {
+  const [list, err, reload] = useLoad(adminApi.clients);
+  const [find, setFind] = useState("");
+  const shown = useMemo(() => {
+    const t = find.trim().toLowerCase();
+    return (list || []).filter((o) => !t || `${o.name} ${o.id}`.toLowerCase().includes(t));
+  }, [list, find]);
+
+  if (openId) return <ClientDetail id={openId} canEdit={canEdit} back={() => { open(""); reload(); }} />;
+  return (
+    <>
+      <PageTitle title="Clients" sub={list ? `${list.length} organisations` : "Loading…"}
+        right={<label style={{ position: "relative" }}><Search size={14} style={{ position: "absolute", left: 10, top: 10, color: C.slate }} />
+          <input aria-label="Find a client" placeholder="Find a client" value={find} onChange={(e) => setFind(e.target.value)} style={{ ...input, paddingLeft: 30, width: 240 }} /></label>} />
+      <Note error>{err}</Note>
+      <Table head={["Organisation", "Status", "Users", "Numbers", ...WALLETS, "Stop at zero", "Verification", "Subscription", "Joined"]} minWidth={1100}>
+        {shown.map((o) => (
+          <tr key={o.id} onClick={() => open(o.id)} style={{ cursor: "pointer" }}>
+            <td style={cell}><b>{o.name}</b><div style={{ ...mono, color: C.slateLight }}>{o.id}</div></td>
+            <td style={cell}><Pill tone={statusTone(o.status)}>{o.status}</Pill></td>
+            <td style={cell}>{o.users}</td>
+            <td style={cell}>{o.numbers}</td>
+            {WALLETS.map((w) => <td key={w} style={{ ...cell, ...mono, color: (o.wallets?.[w] || 0) <= 0 ? C.red : C.textInk }}>{fmt(o.wallets?.[w])}</td>)}
+            <td style={cell}>{o.enforce ? "Yes" : "No"}</td>
+            <td style={cell}>{o.verification || "—"}</td>
+            <td style={cell}>{o.subscription}</td>
+            <td style={cell}>{when(o.createdAt)}</td>
+          </tr>
+        ))}
+      </Table>
+    </>
+  );
+}
+
+function ClientDetail({ id, canEdit, back }) {
+  const load = useCallback(() => adminApi.client(id), [id]);
+  const [c, err, reload] = useLoad(load, [load]);
+  const [msg, run] = useAction(reload);
+  const [grant, setGrant] = useState({ wallet: "voice", amount: "", days: "", note: "" });
+
+  if (!c) return <><button type="button" style={btn(false)} onClick={back}><ArrowLeft size={13} /> Clients</button><Note error>{err}</Note></>;
+  const suspended = c.status === "suspended";
+  return (
+    <>
+      <button type="button" style={{ ...btn(false), marginBottom: 12 }} onClick={back}><ArrowLeft size={13} /> Clients</button>
+      <PageTitle title={c.name} sub={<span style={mono}>{c.id} · joined {when(c.createdAt)}</span>}
+        right={canEdit && (
+          <button type="button" style={{ ...btn(!suspended), background: suspended ? C.teal : C.red, color: "#fff", border: "none" }}
+            onClick={() => {
+              const next = suspended ? "active" : "suspended";
+              if (!suspended && !window.confirm(`Suspend ${c.name}? Everyone in it is signed out and cannot sign in until you reactivate it.`)) return;
+              run(() => adminApi.setClientStatus(c.id, next), next === "suspended" ? "Suspended. Everyone in it was signed out." : "Active again.");
+            }}>
+            {suspended ? <Check size={13} /> : <Ban size={13} />} {suspended ? "Reactivate" : "Suspend"}
+          </button>
+        )} />
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Pill tone={statusTone(c.status)}>{c.status}</Pill>
+        {c.subscription && <Pill tone="blue">Subscription: {c.subscription.status}{c.subscription.renewsAt ? ` · renews ${when(c.subscription.renewsAt)}` : ""}</Pill>}
+        {c.telnyx && <Pill tone={c.telnyx.status === "ready" ? "green" : "amber"}>Telnyx {c.telnyx.mode}: {c.telnyx.status}</Pill>}
+      </div>
+      {c.telnyx?.error && <Note error>Telnyx: {c.telnyx.error}</Note>}
+      <Note error={msg.error}>{msg.text}</Note>
+
+      <div style={heading}>Credits</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+        {c.wallets.map((w) => (
+          <div key={w.key} style={card}>
+            <div style={{ fontSize: 12, color: C.slate, fontWeight: 600 }}>{w.label}</div>
+            <div style={{ fontWeight: 700, fontSize: 20, color: w.empty ? C.red : C.textInk }}>{fmt(w.balance)}</div>
+            {w.nextExpiry && <div style={{ fontSize: 11.5, color: C.slate }}>{fmt(w.nextExpiry.amount)} expire {when(w.nextExpiry.at)}</div>}
+          </div>
+        ))}
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "10px 0" }}>
+        <input type="checkbox" checked={c.enforce} disabled={!canEdit} onChange={() => run(() => adminApi.setEnforce(c.id, !c.enforce), "Saved.")} />
+        Stop each app when its credits reach zero
+      </label>
+      {canEdit && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <select aria-label="Wallet" value={grant.wallet} onChange={(e) => setGrant({ ...grant, wallet: e.target.value })} style={input}>
+            {c.wallets.map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
+          </select>
+          <input aria-label="Credits" type="number" placeholder="Credits (negative removes)" value={grant.amount} onChange={(e) => setGrant({ ...grant, amount: e.target.value })} style={{ ...input, width: 180 }} />
+          <input aria-label="Expires in days" type="number" min="0" placeholder="Expire in days (empty = never)" value={grant.days} onChange={(e) => setGrant({ ...grant, days: e.target.value })} style={{ ...input, width: 210 }} />
+          <input aria-label="Note" placeholder="Note" value={grant.note} onChange={(e) => setGrant({ ...grant, note: e.target.value })} style={{ ...input, flex: 1, minWidth: 140 }} />
+          <button type="button" style={btn(true)} onClick={() => run(async () => {
+            if (!Number(grant.amount)) throw new Error("Enter an amount.");
+            await adminApi.addCredits(c.id, { wallet: grant.wallet, amount: Number(grant.amount), note: grant.note, expires_in_days: grant.days ? Number(grant.days) : null });
+            setGrant({ ...grant, amount: "", note: "" });
+          }, "Credits updated.")}><Plus size={13} /> Add credits</button>
+        </div>
+      )}
+
+      <div style={heading}>Phone numbers</div>
+      <Table head={["Number", "Status", "Provider", "Capabilities", "WhatsApp"]}>
+        {c.numbers.length === 0 && <tr><td colSpan={5} style={{ ...cell, color: C.slate }}>None yet.</td></tr>}
+        {c.numbers.map((n) => {
+          const wa = n.capabilities.includes("whatsapp");
+          const asked = n.capabilities.includes("whatsapp_requested");
+          return (
+            <tr key={n.id}>
+              <td style={{ ...cell, ...mono }}>{n.e164}</td>
+              <td style={cell}>{n.status}</td>
+              <td style={cell}>{n.provider}</td>
+              <td style={cell}>{n.capabilities.join(", ") || "—"}</td>
+              <td style={cell}>
+                {asked && <Pill tone="amber">Requested</Pill>}{" "}
+                {canEdit && (
+                  <button type="button" style={btn(false)} onClick={() => run(() => adminApi.setWhatsapp(c.id, n.id, !wa), wa ? "WhatsApp switched off." : "WhatsApp is live. The client was told.")}>
+                    {wa ? "Switch off" : "Switch on"}
+                  </button>
+                )}
+                {!canEdit && (wa ? "On" : "Off")}
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+
+      <div style={heading}>Business verification</div>
+      <Table head={["Submitted", "Status", "Type", "Documents", "Reason"]}>
+        {c.verifications.length === 0 && <tr><td colSpan={5} style={{ ...cell, color: C.slate }}>Not submitted.</td></tr>}
+        {c.verifications.map((v) => (
+          <tr key={v.id}>
+            <td style={cell}>{when(v.at)}</td>
+            <td style={cell}><Pill tone={v.status === "approved" ? "green" : /reject|unapproved|fail/.test(v.status) ? "red" : "amber"}>{v.status}</Pill></td>
+            <td style={cell}>{v.entityType}</td>
+            <td style={cell}>{v.documents.join(", ")}</td>
+            <td style={cell}>{v.reason || "—"}</td>
+          </tr>
+        ))}
+      </Table>
+
+      <div style={heading}>Users</div>
+      <Table head={["Name", "Email", "Role", "Active", "Last sign-in"]}>
+        {c.users.map((u) => (
+          <tr key={u.id}>
+            <td style={cell}>{u.name}<div style={{ ...mono, color: C.slateLight }}>@{u.username}</div></td>
+            <td style={cell}>{u.email || "—"}</td>
+            <td style={cell}>{u.role}</td>
+            <td style={cell}>{u.active ? "Yes" : "No"}</td>
+            <td style={cell}>{when(u.lastLoginAt)}</td>
+          </tr>
+        ))}
+      </Table>
+
+      <div style={heading}>Number orders</div>
+      <Table head={["Number", "Status", "Monthly cost", "When", "Error"]}>
+        {c.orders.length === 0 && <tr><td colSpan={5} style={{ ...cell, color: C.slate }}>None.</td></tr>}
+        {c.orders.map((o, i) => (
+          <tr key={i}>
+            <td style={{ ...cell, ...mono }}>{o.phoneNumber}</td>
+            <td style={cell}>{o.status}</td>
+            <td style={cell}>{o.monthlyCost || "—"}</td>
+            <td style={cell}>{when(o.at)}</td>
+            <td style={{ ...cell, color: C.red }}>{o.error || ""}</td>
+          </tr>
+        ))}
+      </Table>
+
+      <div style={heading}>Credit history</div>
+      <Table head={["When", "App", "What", "Amount"]}>
+        {c.history.length === 0 && <tr><td colSpan={4} style={{ ...cell, color: C.slate }}>Nothing yet.</td></tr>}
+        {c.history.map((h) => (
+          <tr key={h.id}>
+            <td style={cell}>{when(h.at)}</td>
+            <td style={cell}>{h.wallet}</td>
+            <td style={cell}>{h.note || h.kind}{h.by ? ` · ${h.by}` : ""}</td>
+            <td style={{ ...cell, ...mono, color: h.amount < 0 ? C.red : C.teal }}>{h.amount > 0 ? "+" : ""}{fmt(h.amount)}</td>
+          </tr>
+        ))}
+      </Table>
+    </>
+  );
+}

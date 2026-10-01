@@ -1139,7 +1139,11 @@ export function CallingWorkspace({
     if (page && SIMPLE_PAGES.has(page)) goPage(page);
   };
 
-  const visiblePages = useMemo(() => PAGES.filter((p) => canSee(operator, p.section)), [operator]);
+  // AI config is run by OutReach for client organisations, so only its own organisation sees it.
+  const visiblePages = useMemo(
+    () => PAGES.filter((p) => canSee(operator, p.section) && (p.id !== "ai" || operator?.is_platform_org)),
+    [operator],
+  );
 
   // Numbers this user may call from; the first one is picked unless they choose another.
   const [myNumbers, setMyNumbers] = useState([]);
@@ -1241,7 +1245,7 @@ export function CallingWorkspace({
   }, [profile]);
 
   useEffect(() => {
-    api.getTelephonyHub().then((res) => {
+    if (operator?.is_platform_org) api.getTelephonyHub().then((res) => {
       const phone = (res?.phoneNumber || "").trim();
       if (phone && setProfile) {
         setProfile((p) => (p && p.callerId ? p : { ...(p || {}), callerId: phone }));
@@ -1249,7 +1253,7 @@ export function CallingWorkspace({
     }).catch(() => {});
     // Push browser Twilio vault → server Connections so classic + new share one source of truth.
     const tw = savedTwilioCreds();
-    if (tw.account_sid && tw.api_key) {
+    if (operator?.is_platform_org && tw.account_sid && tw.api_key) {
       api.testAndSaveConnection({
         layer: "Telephony",
         provider: "Twilio",

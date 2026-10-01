@@ -23,10 +23,11 @@ import { TeamModal } from "./team/TeamModal";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "./utils/route";
 
 function CallingRoot(props) {
+  // AI and carrier keys are run by OutReach: only its own organisation sees that page.
   return (
     <CallingWorkspace
       {...props}
-      aiKeysPanel={
+      aiKeysPanel={props.operator?.is_platform_org && (
         <ProviderConfigView
           embedded
           notifications={props.notifications || []}
@@ -36,7 +37,7 @@ function CallingRoot(props) {
           profile={props.profile}
           setProfile={props.setProfile}
         />
-      }
+      )}
       companyPanel={
         <CompanyProfileView
           embedded
@@ -170,6 +171,8 @@ function MainApp({ onSignedOut }) {
 
   // Refresh who I am and what I can see (roles may have changed since sign-in).
   const operatorId = operator && operator.id;
+  // Only OutReach's own organisation manages AI and carrier keys; clients never see those screens.
+  const platformOrg = Boolean(operator && operator.is_platform_org);
   useEffect(() => {
     if (!operatorId) return;
     api.getMe().then((me) => {
@@ -532,7 +535,7 @@ function MainApp({ onSignedOut }) {
             return merged;
           });
         }
-        try {
+        if (platformOrg) try {
           const hub = await api.getTelephonyHub();
           if (hub && hub.phoneNumber) {
             setProfile((prev) => {
@@ -567,7 +570,7 @@ function MainApp({ onSignedOut }) {
           try { localStorage.setItem("aivhub_faq", JSON.stringify(f)); } catch (_) {}
         }
       } catch (_) {}
-      try {
+      if (platformOrg) try {
         const [conns, hub] = await Promise.all([
           api.getConnections().catch(() => []),
           api.getTelephonyHub().catch(() => null),
@@ -578,7 +581,7 @@ function MainApp({ onSignedOut }) {
       } catch (_) {}
     }
     loadBackendProfile();
-  }, []);
+  }, [platformOrg]);
 
   const handleLogout = () => {
     try {
@@ -643,7 +646,7 @@ function MainApp({ onSignedOut }) {
             onPick={handlePickPlugin}
             onLogout={handleLogout}
             commonAi={commonAi}
-            onOpenCommonAi={(tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); }}
+            onOpenCommonAi={platformOrg ? (tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); } : null}
             onOpenTeamUsers={(tab) => { setTeamInitialTab(typeof tab === "string" ? tab : "users"); setShowTeamModal(true); }}
             onOpenProfileSettings={() => setShowProfileModal(true)}
             onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
@@ -716,7 +719,7 @@ function MainApp({ onSignedOut }) {
                 setFaq={setFaq}
                 commonAi={commonAi}
                 setCommonAi={setCommonAi}
-                onOpenCommonAi={() => { setCommonAiTab("voice"); setCommonAiScope("voice"); setShowCommonAiModal(true); }}
+                onOpenCommonAi={platformOrg ? () => { setCommonAiTab("voice"); setCommonAiScope("voice"); setShowCommonAiModal(true); } : null}
                 returnPlugin={returnPlugin}
                 onReturnToPlugin={handleReturnToPlugin}
                 liveCalls={liveCalls}
@@ -753,7 +756,7 @@ function MainApp({ onSignedOut }) {
 
 
       <CommonAiConfigModal
-        isOpen={showCommonAiModal}
+        isOpen={platformOrg && showCommonAiModal}
         onClose={() => { setShowCommonAiModal(false); setCommonAiScope(null); }}
         commonAi={commonAi}
         setCommonAi={setCommonAi}

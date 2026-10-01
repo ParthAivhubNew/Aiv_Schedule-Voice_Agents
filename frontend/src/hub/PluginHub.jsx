@@ -121,8 +121,8 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
                 Admin Controls
               </div>
 
-              {/* AI Configuration */}
-              <button
+              {/* AI Configuration (OutReach's own organisation only) */}
+              {onOpenCommonAi && <button
                 onClick={() => { setOpen(false); onOpenCommonAi(); }}
                 style={{
                   width: "100%",
@@ -203,7 +203,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
                     Not configured
                   </span>
                 )}
-              </button>
+              </button>}
 
               {/* Users & roles (admins and anyone given the Users & roles section) */}
               {(operator?.is_admin || (operator?.permissions && operator.permissions.team && operator.permissions.team !== "none")) && (

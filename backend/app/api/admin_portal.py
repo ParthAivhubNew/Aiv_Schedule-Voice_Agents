@@ -99,10 +99,15 @@ async def confirm_2fa(body: ConfirmBody):
     claims = decode_token(body.ticket, "staff_setup")
     if not claims:
         raise HTTPException(status_code=401, detail="Setup expired. Sign in again.")
+    key = f"setup|{claims['sub']}"
+    if _limited(key):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again in 15 minutes.")
     async with AsyncSessionLocal() as db:
         s = (await db.execute(select(StaffUser).where(StaffUser.id == claims["sub"]))).scalars().first()
         if not s or not s.is_active or not S.verify_totp(open_secret(s.totp_secret_sealed), body.code):
+            _FAILS[key].append(time.time())
             raise HTTPException(status_code=401, detail="That code is not right. Check the time on your phone and try again.")
+        _FAILS.pop(key, None)
         s.totp_enabled = True
         s.last_login_at = datetime.utcnow()
         await db.commit()

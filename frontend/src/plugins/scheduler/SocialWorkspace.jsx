@@ -2041,6 +2041,7 @@ function SimpleAccountsPage({
   setProfile,
   knowledgeSources,
   setKnowledgeSources,
+  platformOrg,
 }) {
   const [oauthApps, setOauthApps] = useState([]);
   const [setupPlat, setSetupPlat] = useState("linkedin");
@@ -2206,7 +2207,8 @@ function SimpleAccountsPage({
           })}
         </div>
 
-        <SchedulerAiPanel showToast={showToast} />
+        {/* AI keys and models are run by OutReach for client organisations. */}
+        {platformOrg && <SchedulerAiPanel showToast={showToast} />}
 
         <SimpleCompanyKnowledge
           profile={profile}
@@ -3773,6 +3775,7 @@ export function SocialWorkspace({
             setProfile={setProfile}
             knowledgeSources={knowledgeSources}
             setKnowledgeSources={setKnowledgeSources}
+            platformOrg={Boolean(operator?.is_platform_org)}
           />
         ) : page === "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
