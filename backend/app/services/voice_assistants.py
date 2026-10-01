@@ -58,6 +58,7 @@ DEFAULT_VARIABLES = {
     "customer_name": "there",
     "caller_name": "there",
     "call_ref": "",
+    "recorded": "no",
 }
 
 OUTCOMES = ["meeting_booked", "interested", "callback_requested", "not_interested", "wrong_number",
@@ -135,7 +136,7 @@ def shell_tools(base: str) -> List[Dict[str, Any]]:
     ]
 
 
-def shell_payload(name: str, description: str) -> Dict[str, Any]:
+def shell_payload(name: str, description: str, voice: str = "", model: str = "") -> Dict[str, Any]:
     from app.services.telephony_provider import public_http_base
 
     base = public_http_base()
@@ -149,10 +150,10 @@ def shell_payload(name: str, description: str) -> Dict[str, Any]:
         # Inbound calls: Telnyx asks us for the variables when the call starts.
         "dynamic_variables_webhook_url": f"{base}/api/telnyx-assistant/call-event",
     }
-    model = os.getenv("TELNYX_ASSISTANT_MODEL", "").strip()
+    model = model or os.getenv("TELNYX_ASSISTANT_MODEL", "").strip()
     if model:
         payload["model"] = model
-    voice = os.getenv("TELNYX_ASSISTANT_VOICE", "").strip()
+    voice = voice or os.getenv("TELNYX_ASSISTANT_VOICE", "").strip()
     if voice:
         payload["voice_settings"] = {"voice": voice}
     return payload
@@ -200,7 +201,7 @@ async def assistant_for(db, operator_id: str = "") -> Any:
     name, description = await _names(db, operator_id)
     try:
         client = await _client(db)
-        payload = shell_payload(name, description)
+        payload = shell_payload(name, description, row.voice or "", row.model or "")
         if row.telnyx_assistant_id:
             await client.update_assistant(row.telnyx_assistant_id, payload)
         else:
@@ -252,9 +253,16 @@ async def build_brief(db, *, call_id: str, direction: str, operator_id: str, ass
     else:
         ctx = await context_resolver.resolve_inbound(db, phone or "unknown")
     ctx["direction"] = direction
-    tpl = await template_engine.get_active_template(db, direction=direction, template_id=template_id or None)
-    script = template_engine.render_system_prompt(tpl, ctx)
+    from app.services import agent_studio
+
+    chosen = await agent_studio.template_for(db, direction, mission_id or "", template_id or "")
+    tpl = await template_engine.get_active_template(db, direction=direction, template_id=chosen or None)
+    studio = await agent_studio.settings(db)
+    company_row = await agent_studio.profile(db)
+    script = template_engine.render_system_prompt(tpl, ctx) + "\n\n" + agent_studio.rules_block(studio, company_row)
     greeting = template_engine.render_initial_greeting(tpl, ctx)
+    if studio.get("recordCalls") and greeting:
+        greeting = f"{greeting} {agent_studio.disclosure(company_row)}"
     company = ctx.get("company") or {}
     prospect = ctx.get("prospect") or {}
     name = _real(prospect_name) or prospect.get("name") or ""
@@ -269,6 +277,7 @@ async def build_brief(db, *, call_id: str, direction: str, operator_id: str, ass
         "agent_name": company.get("agent_name") or "",
         "customer_name": name or "there",
         "caller_name": name or "there",
+        "recorded": "yes" if studio.get("recordCalls") else "no",
     }
     existing = (await db.execute(select(CallBrief).where(CallBrief.id == call_id))).scalars().first()
     brief = existing or CallBrief(id=call_id)

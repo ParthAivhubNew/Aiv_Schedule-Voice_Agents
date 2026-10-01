@@ -89,6 +89,7 @@ async def dial_via_telnyx_assistant(
     mission_id: Optional[str] = None,
     from_number_override: Optional[str] = None,
     operator_id: str = "",
+    template_id: str = "",
 ) -> dict:
     """
     Places a real outbound call that connects the callee to our configured Telnyx
@@ -183,14 +184,17 @@ async def dial_via_telnyx_assistant(
     label = (prospect_name or "").strip() or f"Prospect ({to_clean[-4:]})"
     mission = (mission_title or "").strip() or "Telnyx AI Assistant — outbound"
     org_ref = ""
+    record = False
     if managed is not None:
         # This call's script, rendered now and handed to Telnyx when the call is answered.
         from app.core.tenancy import current_org
 
-        await VA.build_brief(db, call_id=call_id, direction="outbound", operator_id=operator_id,
+        brief_vars = await VA.build_brief(db, call_id=call_id, direction="outbound", operator_id=operator_id,
                              assistant_row_id=managed.id, phone=to_clean, our_number=from_clean,
-                             prospect_id=prospect_id or "", mission_id=mission_id or "", prospect_name=label)
+                             prospect_id=prospect_id or "", mission_id=mission_id or "", prospect_name=label,
+                             template_id=template_id)
         org_ref = current_org()
+        record = brief_vars.get("recorded") == "yes"
 
     payload = {
         "to": to_clean,
@@ -204,6 +208,8 @@ async def dial_via_telnyx_assistant(
     }
     if time_limit:
         payload["time_limit_secs"] = time_limit
+    if record:  # Agent Studio: the company records its calls (the agent says so first)
+        payload.update({"record": "record-from-answer", "record_format": "mp3", "record_channels": "dual"})
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=12.0) as client:

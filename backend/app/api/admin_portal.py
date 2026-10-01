@@ -577,6 +577,32 @@ async def put_platform_ai(body: PlatformAiBody, request: Request):
     return out
 
 
+@router.get("/voice-catalogue")
+async def get_voice_catalogue(request: Request):
+    """Voices and models clients may pick for their call assistant in Agent Studio."""
+    from app.services import platform_ai
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return await platform_ai.catalogue(db)
+
+
+class CatalogueBody(BaseModel):
+    voices: list = []
+    models: list = []
+
+
+@router.put("/voice-catalogue")
+async def put_voice_catalogue(body: CatalogueBody, request: Request):
+    from app.services import platform_ai
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        out = await platform_ai.put_catalogue(db, body.voices, body.models)
+        await db.commit()
+    return out
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────
 @router.get("/logs")
 async def logs(request: Request, org_id: str = "", limit: int = 200):

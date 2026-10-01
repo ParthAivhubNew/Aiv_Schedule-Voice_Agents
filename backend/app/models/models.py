@@ -39,6 +39,7 @@ class Operator(Base):
     notify_prefs = Column(JSON, nullable=True)  # {event_key: bool}; missing keys use the defaults
     email_verified = Column(Boolean, default=False)
     google_sub = Column(String, nullable=True, index=True)
+    phone = Column(String, default="")  # rings for "Call my phone" tests and when taking over a call
     created_at = Column(DateTime, default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="operators")
@@ -136,6 +137,8 @@ class CompanyProfile(Base):
     calendar_mode = Column(String, default="internal")  # internal | calcom
     default_outbound_template_id = Column(String, nullable=True)
     default_inbound_template_id = Column(String, nullable=True)
+    # Agent Studio rules for every call: handover, never say, fields to capture, recording.
+    studio = Column(JSON, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class KnowledgeSource(Base):
@@ -245,6 +248,7 @@ class Mission(Base):
     lunch_start = Column(String, default="12:00")
     lunch_end = Column(String, default="13:00")
     no_answer_fallbacks = Column(JSON, default=lambda: ["whatsapp", "sms", "email"])
+    template_id = Column(String, default="")  # the script this campaign's calls use ("" = default)
     default_channel = Column(String, default="voice")
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -987,6 +991,8 @@ class VoiceAssistant(Base):
     org_id = Column(String, index=True, server_default=FetchedValue())
     operator_id = Column(String, default="", index=True)
     telnyx_assistant_id = Column(String, default="")
+    voice = Column(String, default="")  # from the staff voice catalogue ("" = platform default)
+    model = Column(String, default="")  # from the staff model catalogue ("" = platform default)
     shell_version = Column(Integer, default=0)
     status = Column(String, default="pending")  # pending, ready, error
     last_error = Column(Text, default="")

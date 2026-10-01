@@ -198,7 +198,7 @@ class CallContextResolver:
         industry_phrase = f"companies in {p_company}" if p_company else "businesses like yours"
 
         # Mission metadata
-        mission_name = mission.name if mission else "Product Walkthrough"
+        mission_name = (getattr(mission, "title", None) or getattr(mission, "name", None) or "Product Walkthrough") if mission else "Product Walkthrough"
         mission_hook = getattr(mission, "description", None) or f"our conversation about {comp_name}"
         mission_value = getattr(mission, "pitch", None) or comp_pitch
         mission_pain = "scheduling and outbound workflow"

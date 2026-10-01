@@ -42,3 +42,41 @@ def applies_here() -> bool:
     from app.core.tenancy import current_org
 
     return current_org() != platform_org()
+
+
+# ── Voices and models clients may pick for their call assistant (Agent Studio) ──────────────
+CATALOGUE_KEY = "voice_catalogue"
+MAX_ITEMS = 40
+
+
+def _clean_items(items: Any, with_sample: bool) -> list:
+    out, seen = [], set()
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict):
+            continue
+        ident = str(it.get("id") or "").strip()[:160]
+        if not ident or ident in seen:
+            continue
+        seen.add(ident)
+        row = {"id": ident, "label": str(it.get("label") or ident).strip()[:80]}
+        if with_sample:
+            sample = str(it.get("sample") or "").strip()[:500]
+            row["sample"] = sample if sample.startswith("https://") else ""
+        out.append(row)
+    return out[:MAX_ITEMS]
+
+
+async def catalogue(db) -> Dict[str, list]:
+    """{"voices": [{id, label, sample}], "models": [{id, label}]}: Telnyx voice and model names."""
+    from app.services.credits import _get_doc
+
+    stored = await _get_doc(db, CATALOGUE_KEY)
+    return {"voices": _clean_items(stored.get("voices"), True), "models": _clean_items(stored.get("models"), False)}
+
+
+async def put_catalogue(db, voices: Any, models: Any) -> Dict[str, list]:
+    from app.services.credits import _put_doc
+
+    data = {"voices": _clean_items(voices, True), "models": _clean_items(models, False)}
+    await _put_doc(db, CATALOGUE_KEY, data)
+    return data
