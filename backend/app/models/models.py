@@ -595,7 +595,8 @@ class SocialGenJob(Base):
     solo = Column(Boolean, default=False)  # retry alone after a batched reply failed
     options = Column(JSON, default=dict)
     priority = Column(Integer, default=0)
-    state = Column(String, default="queued")  # queued | writing | image_queued | imaging | done | failed
+    # queued | writing | image_queued | imaging | done | failed | paused | image_paused (out of credits)
+    state = Column(String, default="queued")
     error = Column(Text, nullable=True)
     attempts = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
