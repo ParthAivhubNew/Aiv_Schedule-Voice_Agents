@@ -55,7 +55,7 @@ export function AuthShowcase() {
       </div>
 
       <div className="sh-card sh-calls" style={{ animationDelay: ".1s" }}>
-        <div className="sh-label"><Search size={12} /> Leads found <span className="sh-up">↑ 24%</span></div>
+        <div className="sh-label"><Search size={12} /> Prospects reached <span className="sh-up">↑ 24%</span></div>
         <div className="sh-big"><Counter to={1284} /></div>
         <div className="sh-bars">
           {[38, 52, 44, 66, 58, 74, 90].map((h, i) => (
@@ -67,8 +67,8 @@ export function AuthShowcase() {
       <div className="sh-card sh-status" style={{ animationDelay: ".25s" }}>
         <div className="sh-row-head"><span className="sh-label">Your apps</span><span className="sh-live"><i /> Live</span></div>
         {[
-          ["AI Voice", 88, C.cobalt],
-          ["Lead generation", 74, "#F59E0B"],
+          ["Voice calling", 88, C.cobalt],
+          ["Prospect research", 74, "#F59E0B"],
           ["Email campaigns", 64, C.teal],
           ["Post scheduler", 72, "#8B5CF6"],
         ].map(([label, w, colour], i) => (
@@ -81,7 +81,7 @@ export function AuthShowcase() {
 
       <div className="sh-card sh-transcript" style={{ animationDelay: ".4s" }}>
         <div className="sh-row-head">
-          <span className="sh-label"><PhoneCall size={12} /> AI call · Sam, Acme Ltd</span>
+          <span className="sh-label"><PhoneCall size={12} /> Live call · Sam, Acme Ltd</span>
           <span className="sh-wave">{[0, 1, 2, 3, 4].map((i) => <i key={i} style={{ animationDelay: `${i * 0.12}s` }} />)}</span>
         </div>
         <div className="sh-msgs">
@@ -116,9 +116,9 @@ export function AuthShowcase() {
       </div>
 
       <div className="sh-foot">
-        <div className="sh-tag"><Sparkles size={14} /> AI calls, leads, email and social posts</div>
-        <h2>Find <span>·</span> Reach <span>·</span> Book <span>·</span> Grow</h2>
-        <p>Find new leads, call them with an AI agent that sounds human, follow up by email and WhatsApp, and keep your social pages busy, all from one place.</p>
+        <div className="sh-tag"><Sparkles size={14} /> Calls, campaigns, email and social posts</div>
+        <h2>Connect <span>·</span> Reach <span>·</span> Book <span>·</span> Grow</h2>
+        <p>Connect with prospects, automate customer calling, follow up by email and WhatsApp, and manage your social presence from one unified workspace.</p>
       </div>
     </aside>
   );
