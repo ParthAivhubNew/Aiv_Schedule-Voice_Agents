@@ -631,8 +631,8 @@ async def platform_keys_assistant(body: Dict[str, Any], request: Request):
 # ── Platform AI (Post scheduler) ────────────────────────────────────────────
 @router.get("/platform-ai")
 async def get_platform_ai(request: Request):
-    """The writing and image AI every client's Post scheduler uses, and which providers OutReach
-    has keys for (saved in its own organisation's AI config)."""
+    """The writing and image AI (main and backup) every company's Post scheduler uses, which
+    providers OutReach has keys for, and how each one did last time."""
     from app.api.scheduler import _saved_ai_keys
     from app.core.auth_middleware import platform_org
     from app.core.tenancy import org_scope
@@ -641,10 +641,12 @@ async def get_platform_ai(request: Request):
     _who(request)
     async with AsyncSessionLocal() as db:
         chosen = await platform_ai.get(db)
+        health = await platform_ai.health(db)
     with org_scope(platform_org()):
         async with AsyncSessionLocal() as db:
             keys = await _saved_ai_keys(db)
-    return {"chosen": chosen, "textProviders": platform_ai.TEXT_PROVIDERS, "imageProviders": platform_ai.IMAGE_PROVIDERS,
+    return {"chosen": chosen, "health": health,
+            "textProviders": platform_ai.TEXT_PROVIDERS, "imageProviders": platform_ai.IMAGE_PROVIDERS,
             "keys": {"text": [k["provider"] for k in keys["text"]], "image": [k["provider"] for k in keys["image"]]}}
 
 
@@ -653,6 +655,10 @@ class PlatformAiBody(BaseModel):
     textModel: Optional[str] = None
     imageProvider: Optional[str] = None
     imageModel: Optional[str] = None
+    textBackupProvider: Optional[str] = None
+    textBackupModel: Optional[str] = None
+    imageBackupProvider: Optional[str] = None
+    imageBackupModel: Optional[str] = None
 
 
 @router.put("/platform-ai")
@@ -667,6 +673,56 @@ async def put_platform_ai(body: PlatformAiBody, request: Request):
             raise HTTPException(status_code=400, detail=str(err))
         await db.commit()
     return out
+
+
+class PlatformAiTestBody(BaseModel):
+    kind: str
+    slot: str = "main"
+
+
+@router.post("/platform-ai/test")
+async def test_platform_ai(body: PlatformAiTestBody, request: Request):
+    """A tiny live call with the saved main or backup choice. Staff see the real error."""
+    from app.api.scheduler import _resolve_image_prefs, _resolve_text_ai
+    from app.core.auth_middleware import platform_org
+    from app.core.tenancy import org_scope
+    from app.services import platform_ai
+    from app.services.llm_gateway import call_open_chat_llm
+    from app.services.post_writer import generate_image_with_provider
+
+    _admin_only(request)
+    if body.kind not in platform_ai.KINDS or body.slot not in platform_ai.SLOTS:
+        raise HTTPException(status_code=400, detail="Say text or image, main or backup.")
+    with org_scope(platform_org()):
+        async with AsyncSessionLocal() as db:
+            provider, model = await platform_ai.choice(db, body.kind, body.slot)
+            if body.slot == "backup" and not provider:
+                return {"ok": False, "error": "No backup is set."}
+            error = None
+            try:
+                if body.kind == "text":
+                    ai = await _resolve_text_ai(db, None, body.slot)
+                    if ai["error"]:
+                        raise platform_ai.AIUnavailable(f"No key saved for {provider or 'any writing provider'}.")
+                    res = await call_open_chat_llm(
+                        messages=[{"role": "user", "content": "Reply with the single word OK."}],
+                        system_prompt="You are a connectivity check.", api_key=ai["api_key"], provider=ai["provider"],
+                        model=ai["model"], base_url=ai["base_url"], max_tokens=5, db=db)
+                    if not res.get("success", True) or res.get("error"):
+                        raise platform_ai.AIUnavailable(res.get("error") or "No reply.")
+                    provider, model = res.get("provider") or ai["provider"], res.get("model") or ai["model"]
+                else:
+                    p = await _resolve_image_prefs(db, {}, body.slot)
+                    img = await generate_image_with_provider(
+                        prompt="A small blue circle on a white background", provider=p["provider"], model=p["model"],
+                        style=p["style"], aspect_ratio="1:1", width=256, height=256, db=db)
+                    if not img.get("imageUrl") or (img.get("status") or "ok") != "ok":
+                        raise platform_ai.AIUnavailable(img.get("warning") or "No image returned.")
+                    provider, model = img.get("provider") or provider, img.get("model") or model
+            except Exception as err:
+                error = str(err) or err.__class__.__name__
+    await platform_ai.note(body.kind, body.slot, error)
+    return {"ok": not error, "error": error, "provider": provider, "model": model}
 
 
 @router.get("/voice-catalogue")

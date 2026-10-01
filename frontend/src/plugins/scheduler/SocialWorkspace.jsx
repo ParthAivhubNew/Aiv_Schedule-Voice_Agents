@@ -35,7 +35,6 @@ import { NAV_TEXT,
   HUB_PAPER,
 } from "../../tokens";
 import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
-import { SchedulerAiPanel } from "./SchedulerAiPanel";
 import { ScheduleWindow } from "./ScheduleWindow";
 import { useEscapeLayer } from "./escapeLayers";
 import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
@@ -1115,7 +1114,7 @@ function ApprovalsBoard({
                   {expandedPost.status === "failed" ? (
                     <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
                       <strong>Publishing failed.</strong> {expandedPost.lastError || "The network rejected the post."}
-                      <div style={{ color: C.slate, marginTop: 4 }}>Fix the cause (usually Accounts & AI → Reconnect), then Retry. It will not retry by itself.</div>
+                      <div style={{ color: C.slate, marginTop: 4 }}>Fix the cause (usually Accounts → Reconnect), then Retry. It will not retry by itself.</div>
                     </div>
                   ) : null}
                   <div style={{
@@ -2041,7 +2040,6 @@ function SimpleAccountsPage({
   setProfile,
   knowledgeSources,
   setKnowledgeSources,
-  platformOrg,
 }) {
   const [oauthApps, setOauthApps] = useState([]);
   const [setupPlat, setSetupPlat] = useState("linkedin");
@@ -2125,7 +2123,7 @@ function SimpleAccountsPage({
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Accounts & AI</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Accounts</div>
         <div style={{ fontSize: 13, color: C.slate, marginBottom: 20, lineHeight: 1.45 }}>
           1. Connect the networks you post to. 2. Choose the AI that writes and draws. 3. Tell it about your company.
           Everything here is saved on the server, so it works in any browser and posts go out even when this tab is closed.
@@ -2206,9 +2204,6 @@ function SimpleAccountsPage({
             );
           })}
         </div>
-
-        {/* AI keys and models are run by OutReach for client organisations. */}
-        {platformOrg && <SchedulerAiPanel showToast={showToast} />}
 
         <SimpleCompanyKnowledge
           profile={profile}
@@ -2783,7 +2778,7 @@ export function SocialWorkspace({
     } catch (e) {
       const msg = e.message || "Could not queue the writer.";
       showToast(msg);
-      if (/key saved|Accounts & AI/i.test(msg)) setPage("accounts");
+      if (/key saved|Accounts/i.test(msg)) setPage("accounts");
       setPosts((ps) => ps.map((row) => (allIds.includes(row.id) ? { ...row, genState: "failed", genError: msg } : row)));
     } finally {
       setCopyBusy((cur) => (allIds.includes(cur) ? "" : cur));
@@ -3094,7 +3089,7 @@ export function SocialWorkspace({
       if (!opts.quiet) {
         if (res && res.alreadyPublished) showToast("Already posted.");
         else if (ok && res.allOk === false) showToast("Posted, but some channels failed: " + (res.error || "see the post"));
-        else showToast(ok ? "Posted." : "Publish failed: " + ((res && res.error) || "check Accounts & AI"));
+        else showToast(ok ? "Posted." : "Publish failed: " + ((res && res.error) || "check Accounts"));
       }
       return { ok, status: ok ? "posted" : "failed", reason: ok ? undefined : "publish" };
     } catch (e) {
@@ -3726,7 +3721,7 @@ export function SocialWorkspace({
           }}
         >
           <Plug size={15} />
-          <span>Accounts & AI</span>
+          <span>Accounts</span>
         </button>
         {operator?.is_admin && (
           <button
@@ -3775,7 +3770,6 @@ export function SocialWorkspace({
             setProfile={setProfile}
             knowledgeSources={knowledgeSources}
             setKnowledgeSources={setKnowledgeSources}
-            platformOrg={Boolean(operator?.is_platform_org)}
           />
         ) : page === "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
@@ -4159,7 +4153,7 @@ export function SocialWorkspace({
                     ) : null}
                     {m.kind === "needsKey" && !editing ? (
                       <button type="button" onClick={() => { setApprovalOpen(false); setPage("accounts"); }} style={{ ...secBtn, marginTop: 6, height: 28, fontSize: 11 }}>
-                        Open Accounts & AI
+                        Open Accounts
                       </button>
                     ) : null}
                   </div>

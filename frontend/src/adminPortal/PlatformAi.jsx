@@ -6,12 +6,16 @@ import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useL
 const LABELS = { openai: "OpenAI", anthropic: "Anthropic (Claude)", deepseek: "DeepSeek", groq: "Groq", gemini: "Google Gemini",
   xai: "xAI (Grok)", fal: "fal (FLUX)", stability: "Stability AI", pollinations: "Pollinations (free, no key)" };
 
-// The writing and image AI every client's Post scheduler uses. Empty = automatic (the first
-// key OutReach saved), as before. Keys are set on the Platform keys page.
+const when = (iso) => (iso ? new Date(iso + "Z").toLocaleString() : "");
+
+// The writing and image AI every company's Post scheduler uses: a main provider and an optional
+// backup for each. When the main fails and a backup is set, the backup is used straight away;
+// with no backup, only the main is used. Keys are set on the Platform keys page.
 export function PlatformAi({ canEdit }) {
   const [data, err, reload] = useLoad(adminApi.platformAi);
   const [draft, setDraft] = useState(null);
   const [msg, run] = useAction(reload);
+  const [tests, setTests] = useState({});
   useEffect(() => { if (data) setDraft(data.chosen); }, [data]);
 
   if (!data || !draft) return <><PageTitle title="Platform AI" /><Note error>{err}</Note></>;
@@ -20,31 +24,66 @@ export function PlatformAi({ canEdit }) {
     if (p === "pollinations") return <Pill tone="amber">No key needed; quality and commercial terms not guaranteed</Pill>;
     return data.keys[kind].some((k) => k.includes(p)) ? <Pill tone="green">Key saved</Pill> : <Pill tone="red">No key saved yet</Pill>;
   };
-  const row = (label, kind, providerField, modelField, options) => (
-    <div style={{ ...card, display: "grid", gap: 10 }}>
-      <div style={{ fontWeight: 700 }}>{label}</div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <select aria-label={`${label} provider`} value={draft[providerField]} disabled={!canEdit}
-          onChange={(e) => setDraft({ ...draft, [providerField]: e.target.value })} style={input}>
-          <option value="">Automatic (first key saved)</option>
-          {options.map((p) => <option key={p} value={p}>{LABELS[p] || p}</option>)}
-        </select>
-        <input aria-label={`${label} model`} placeholder="Model (empty = provider default)" value={draft[modelField]} disabled={!canEdit}
-          onChange={(e) => setDraft({ ...draft, [modelField]: e.target.value })} style={{ ...input, minWidth: 240, flex: 1 }} />
-        {keyNote(kind, draft[providerField])}
+  const testIt = async (kind, slot) => {
+    const id = `${kind}-${slot}`;
+    setTests((t) => ({ ...t, [id]: { busy: true } }));
+    const out = await run(() => adminApi.testPlatformAi(kind, slot));
+    setTests((t) => ({ ...t, [id]: out || { ok: false, error: "Test could not run." } }));
+  };
+  const status = (kind, slot) => {
+    const t = tests[`${kind}-${slot}`];
+    if (t && t.busy) return <Pill>Testing…</Pill>;
+    if (t) return t.ok ? <Pill tone="green">Works ({[t.provider, t.model].filter(Boolean).join(" · ")})</Pill> : <Pill tone="red">{t.error}</Pill>;
+    const h = ((data.health || {})[kind] || {})[slot] || {};
+    const okAt = h.lastOkAt || "";
+    const errAt = h.lastErrorAt || "";
+    if (errAt && errAt > okAt) return <Pill tone="red">Last failed {when(errAt)}: {h.lastError}</Pill>;
+    if (okAt) return <Pill tone="green">Last worked {when(okAt)}</Pill>;
+    return null;
+  };
+  const slotRow = (kind, slot, options) => {
+    const pf = `${kind}${slot === "backup" ? "Backup" : ""}Provider`;
+    const mf = `${kind}${slot === "backup" ? "Backup" : ""}Model`;
+    const isBackup = slot === "backup";
+    return (
+      <div style={{ display: "grid", gap: 6 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: C.slate }}>{isBackup ? "Backup (used only when the main fails)" : "Main"}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select aria-label={`${kind} ${slot} provider`} value={draft[pf]} disabled={!canEdit}
+            onChange={(e) => setDraft({ ...draft, [pf]: e.target.value, ...(isBackup && !e.target.value ? { [mf]: "" } : {}) })} style={input}>
+            <option value="">{isBackup ? "No backup" : "Automatic (first key saved)"}</option>
+            {options.map((p) => <option key={p} value={p}>{LABELS[p] || p}</option>)}
+          </select>
+          <input aria-label={`${kind} ${slot} model`} placeholder="Model (empty = provider default)" value={draft[mf]}
+            disabled={!canEdit || (isBackup && !draft[pf])}
+            onChange={(e) => setDraft({ ...draft, [mf]: e.target.value })} style={{ ...input, minWidth: 220, flex: 1 }} />
+          {keyNote(kind, draft[pf])}
+          {canEdit && (!isBackup || draft[pf]) && (
+            <button type="button" style={btn(false)} onClick={() => testIt(kind, slot)}
+              title="Saves nothing. Tests what is saved now.">Test saved</button>
+          )}
+        </div>
+        <div>{status(kind, slot)}</div>
       </div>
+    );
+  };
+  const block = (label, kind, options) => (
+    <div style={{ ...card, display: "grid", gap: 14 }}>
+      <div style={{ fontWeight: 700 }}>{label}</div>
+      {slotRow(kind, "main", options)}
+      {slotRow(kind, "backup", options)}
     </div>
   );
   return (
     <>
-      <PageTitle title="Platform AI" sub="What every client's Post scheduler writes and draws with. Clients cannot change it." />
+      <PageTitle title="Platform AI" sub="What every company's Post scheduler writes and draws with. Companies never see or change it." />
       <Note error={msg.error}>{msg.text}</Note>
       <div style={{ display: "grid", gap: 12 }}>
-        {row("Writing (captions and posts)", "text", "textProvider", "textModel", data.textProviders)}
-        {row("Images", "image", "imageProvider", "imageModel", data.imageProviders)}
+        {block("Writing (captions, posts and Plan AI)", "text", data.textProviders)}
+        {block("Images", "image", data.imageProviders)}
       </div>
       {canEdit && (
-        <button type="button" style={{ ...btn(true), marginTop: 12 }} onClick={() => run(() => adminApi.setPlatformAi(draft), "Saved. Clients use this from their next post.")}>
+        <button type="button" style={{ ...btn(true), marginTop: 12 }} onClick={() => run(() => adminApi.setPlatformAi(draft), "Saved. Every company uses this from its next post.")}>
           Save
         </button>
       )}
@@ -52,7 +91,7 @@ export function PlatformAi({ canEdit }) {
 
       <div style={heading}>Keys</div>
       <div style={{ fontSize: 12.5, color: C.slate, maxWidth: 680 }}>
-        Provider keys are set on the Platform keys page (LLM for writing, IMAGE for images).
+        Provider keys are set on the Platform keys page (LLM for writing, IMAGE for images). Only these keys are ever used.
         Saved now — writing: {data.keys.text.join(", ") || "none"}; images: {data.keys.image.join(", ") || "none"}.
       </div>
     </>
