@@ -77,7 +77,7 @@ function GoogleButton({ label }) {
 }
 
 const TITLES = {
-  signin: ["Welcome back", "Sign in to your calls, campaigns and posts"],
+  signin: ["Welcome back", "Sign in to your account"],
   signup: ["Create your account", "Set up your company in under a minute"],
   forgot: ["Forgot your password?", "We will email you a link to choose a new one"],
   reset: ["Choose a new password", "Use at least 8 characters"],

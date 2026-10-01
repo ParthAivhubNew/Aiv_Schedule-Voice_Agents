@@ -55,7 +55,7 @@ export function AuthShowcase() {
       </div>
 
       <div className="sh-card sh-calls" style={{ animationDelay: ".1s" }}>
-        <div className="sh-label"><Search size={12} /> Prospects reached <span className="sh-up">↑ 24%</span></div>
+        <div className="sh-label"><Search size={12} /> Leads found <span className="sh-up">↑ 24%</span></div>
         <div className="sh-big"><Counter to={1284} /></div>
         <div className="sh-bars">
           {[38, 52, 44, 66, 58, 74, 90].map((h, i) => (
@@ -67,8 +67,8 @@ export function AuthShowcase() {
       <div className="sh-card sh-status" style={{ animationDelay: ".25s" }}>
         <div className="sh-row-head"><span className="sh-label">Your apps</span><span className="sh-live"><i /> Live</span></div>
         {[
-          ["Voice calling", 88, C.cobalt],
-          ["Prospect research", 74, "#F59E0B"],
+          ["AI Voice", 88, C.cobalt],
+          ["Lead generation", 74, "#F59E0B"],
           ["Email campaigns", 64, C.teal],
           ["Post scheduler", 72, "#8B5CF6"],
         ].map(([label, w, colour], i) => (
@@ -81,7 +81,7 @@ export function AuthShowcase() {
 
       <div className="sh-card sh-transcript" style={{ animationDelay: ".4s" }}>
         <div className="sh-row-head">
-          <span className="sh-label"><PhoneCall size={12} /> Live call · Sam, Acme Ltd</span>
+          <span className="sh-label"><PhoneCall size={12} /> AI call · Sam, Acme Ltd</span>
           <span className="sh-wave">{[0, 1, 2, 3, 4].map((i) => <i key={i} style={{ animationDelay: `${i * 0.12}s` }} />)}</span>
         </div>
         <div className="sh-msgs">
@@ -89,6 +89,11 @@ export function AuthShowcase() {
             <div key={i} className={`sh-msg ${m.who}`}>{m.text}</div>
           ))}
         </div>
+        {shown >= 5 && (
+          <div className="sh-chip-status">
+            <CalendarCheck size={13} color="#19B3A0" /> Meeting booked · invite sent
+          </div>
+        )}
       </div>
 
       <div className="sh-card sh-ring" style={{ animationDelay: ".55s" }}>
@@ -111,14 +116,9 @@ export function AuthShowcase() {
         <div className="sh-nets">{["LinkedIn", "Instagram", "Facebook", "X"].map((n) => <span key={n}>{n}</span>)}</div>
       </div>
 
-      <div className="sh-card sh-chip" style={{ animationDelay: ".85s" }}>
-        <CalendarCheck size={14} color="#19B3A0" /> Meeting booked · invite sent
-      </div>
-
       <div className="sh-foot">
-        <div className="sh-tag"><Sparkles size={14} /> Calls, campaigns, email and social posts</div>
-        <h2>Connect <span>·</span> Reach <span>·</span> Book <span>·</span> Grow</h2>
-        <p>Connect with prospects, automate customer calling, follow up by email and WhatsApp, and manage your social presence from one unified workspace.</p>
+        <h2>Find <span>·</span> Reach <span>·</span> Book <span>·</span> Grow</h2>
+        <p>Find new leads, call them with an AI agent that sounds human, follow up by email and WhatsApp, and keep your social pages busy, all from one place.</p>
       </div>
     </aside>
   );
@@ -150,13 +150,14 @@ const SHOW_CSS = `
 .sh-line { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 10px; font-size: 12px; color: ${C.slate}; margin-top: 7px; }
 .sh-track { height: 6px; border-radius: 3px; background: #EEF0F4; overflow: hidden; }
 .sh-track b { display: block; height: 100%; border-radius: 3px; transform-origin: left; animation: shFill 1.4s cubic-bezier(.16,1,.3,1) both; }
-.sh-transcript { left: 12%; top: 42%; width: min(380px, 44%); animation-duration: .8s, 9s; }
-.sh-msgs { display: flex; flex-direction: column; gap: 6px; min-height: 150px; }
+.sh-transcript { left: 10%; top: 38%; width: min(370px, 44%); animation-duration: .8s, 9s; }
+.sh-msgs { display: flex; flex-direction: column; gap: 6px; min-height: 120px; }
 .sh-msg { max-width: 85%; font-size: 12.5px; line-height: 1.4; padding: 7px 10px; border-radius: 12px; animation: shMsg .45s cubic-bezier(.16,1,.3,1) both; }
 .sh-msg.agent { background: ${C.cobaltSoft}; color: ${C.cobaltDeep}; border-bottom-left-radius: 4px; align-self: flex-start; }
 .sh-msg.caller { background: #F1F0EC; color: ${C.textInk}; border-bottom-right-radius: 4px; align-self: flex-end; }
 .sh-wave { display: inline-flex; align-items: center; gap: 3px; height: 16px; }
 .sh-wave i { width: 3px; height: 100%; border-radius: 2px; background: ${C.cobalt}; animation: shWave 1s ease-in-out infinite; }
+.sh-chip-status { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: #0C8C7D; background: #E4F5F2; border-radius: 999px; padding: 4px 10px; animation: shMsg .3s ease-out both; }
 .sh-ring { right: 14%; top: 40%; width: 132px; text-align: center; padding: 16px 12px 12px; animation-duration: .8s, 6.5s; }
 .sh-ring svg { display: block; margin: 0 auto; }
 .sh-ring-arc { animation: shArc 1.8s .6s cubic-bezier(.16,1,.3,1) forwards; }
@@ -168,9 +169,7 @@ const SHOW_CSS = `
 .sh-post-text { font-size: 12px; line-height: 1.4; margin: 8px 0; }
 .sh-nets { display: flex; gap: 4px; }
 .sh-nets span { font-size: 10.5px; font-weight: 600; color: ${C.slate}; background: #F1F0EC; border-radius: 999px; padding: 2px 8px; }
-.sh-chip { left: 14%; top: 66%; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; padding: 9px 13px; border-radius: 999px; animation-duration: .8s, 8.5s; }
 .sh-foot { position: absolute; left: 48px; right: 48px; bottom: 44px; z-index: 2; }
-.sh-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #BFD0FF; background: rgba(91,123,255,.16); border: 1px solid rgba(143,166,255,.3); padding: 5px 10px; border-radius: 999px; margin-bottom: 14px; }
 .sh-foot h2 { font-family: ${FONT_DISPLAY}; font-size: 34px; letter-spacing: -0.03em; margin: 0 0 8px; }
 .sh-foot h2 span { color: #19B3A0; }
 .sh-foot p { margin: 0; max-width: 460px; font-size: 14.5px; line-height: 1.55; color: rgba(255,255,255,.72); }
@@ -184,5 +183,6 @@ const SHOW_CSS = `
 @keyframes shWave { 0%,100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
 @keyframes shShine { from { background-position: 0% 0; } to { background-position: 100% 0; } }
 @keyframes shArc { to { stroke-dashoffset: 34; } }
-@media (max-height: 760px) { .sh-chip, .sh-post { display: none; } }
+@media (max-height: 760px) { .sh-post { display: none; } }
 `;
+
