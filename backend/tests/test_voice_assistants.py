@@ -82,7 +82,7 @@ async def test_shell_update_and_telnyx_outage(db, fake, monkeypatch):
         await db.commit()
         monkeypatch.setattr(VA, "SHELL_VERSION", VA.SHELL_VERSION + 1)
         await VA.assistant_for(db, ann.id)
-        assert ("POST", "/ai/assistants/assistant-1") == fake.calls[-1][:2]
+        assert ("POST", "/ai/assistants/assistant-1") == [c for c in fake.calls if c[0] == "POST"][-1][:2]
 
         # Telnyx down: the existing assistant keeps working, marked for another try.
         monkeypatch.setattr(VA, "SHELL_VERSION", VA.SHELL_VERSION + 1)

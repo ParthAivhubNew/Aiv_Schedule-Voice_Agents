@@ -103,6 +103,11 @@ async def lifespan(app: FastAPI):
         # Safe migration for new columns on existing tables (PostgreSQL & SQLite)
         try:
             from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE voice_assistants ADD COLUMN IF NOT EXISTS settings JSON;"))
+        except Exception as col_err:
+            logger.warning(f"Could not add voice_assistants.settings: {col_err}")
+        try:
+            from sqlalchemy import text
             await conn.execute(text("ALTER TABLE live_calls ADD COLUMN IF NOT EXISTS carrier_sid VARCHAR;"))
         except Exception:
             try:

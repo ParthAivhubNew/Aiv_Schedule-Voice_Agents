@@ -58,7 +58,8 @@ async def test_users_pick_their_voice_from_the_staff_list(db, staff, fake):
     db.expire_all()
     with org_scope("org_acme"):
         await VA.assistant_for(db, bob_id)
-    assert fake.calls[-1][1] == f"/ai/assistants/{tid}" and fake.calls[-1][2]["voice_settings"]["voice"] == "Telnyx.NaturalHD.orion"
+    last = [c for c in fake.calls if c[0] == "POST"][-1]
+    assert last[1] == f"/ai/assistants/{tid}" and last[2]["voice_settings"]["voice"] == "Telnyx.NaturalHD.orion"
 
 
 async def test_company_rules_go_into_every_call(db, fake, signed):

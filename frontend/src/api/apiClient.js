@@ -272,6 +272,13 @@ export const api = {
   saveAgentStudioMe: (data) => apiRequest('/voice-studio/me', { method: 'PUT', body: data }),
   saveAgentStudioCompany: (data) => apiRequest('/voice-studio/company', { method: 'PUT', body: data }),
   setCampaignScript: (missionId, templateId) => apiRequest(`/voice-studio/campaigns/${encodeURIComponent(missionId)}`, { method: 'PUT', body: { templateId } }),
+  addVoiceClone: ({ file, name, language, gender, consent, refText = '' }) => {
+    const form = new FormData();
+    form.append('audio', file);
+    Object.entries({ name, language, gender, consent: consent ? 'true' : 'false', refText }).forEach(([k, v]) => form.append(k, v));
+    return apiRequest('/voice-studio/clones', { method: 'POST', body: form, timeoutMs: 120000 });
+  },
+  deleteVoiceClone: (id) => apiRequest(`/voice-studio/clones/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   agentStudioTestCall: (templateId = '') => apiRequest('/voice-studio/test-call', { method: 'POST', body: { templateId }, timeoutMs: 30000 }),
   getSources: () => apiRequest('/profile/sources'),
   addSource: (source) => apiRequest('/profile/sources', { method: 'POST', body: source }),

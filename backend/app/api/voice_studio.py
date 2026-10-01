@@ -1,22 +1,23 @@
 """Agent Studio (Voice): what clients control about their AI caller, without any keys.
 
-Each user: their assistant's voice and model (from the list staff allow) and their own phone
-(for test calls and taking over calls). Admins: the company's call rules, the default inbound
-and outbound scripts, and the script each campaign uses.
+Each user: their assistant's voice, model, how it speaks and listens (from what Telnyx offers,
+"" = Telnyx default) and their own phone (for test calls and taking over calls). Everyone can add
+the company's own voices (clones, free). Admins: the company's call rules, how every call behaves,
+the default inbound and outbound scripts, and the script each campaign uses.
 """
 from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.auth_middleware import current
 from app.database import get_db
-from app.services import agent_studio
+from app.services import agent_studio, assistant_options
 
 router = APIRouter(prefix="/voice-studio", tags=["Agent Studio"])
 
@@ -52,6 +53,8 @@ async def studio(request: Request, db: AsyncSession = Depends(get_db)):
         "managed": VA.enabled(),
         "canChangeCompany": _can_change_company(ctx),
         "me": {"voice": mine.voice if mine else "", "model": mine.model if mine else "", "phone": op.phone or "",
+               "settings": assistant_options.clean_mine({}, (mine.settings or {}) if mine else {}),
+               "effective": ((mine.settings or {}).get("effective") if mine else None) or {},
                "assistant": {"status": mine.status, "error": mine.last_error,
                              "syncedAt": mine.synced_at.isoformat() if mine.synced_at else None} if mine else None},
         "company": {
@@ -61,7 +64,10 @@ async def studio(request: Request, db: AsyncSession = Depends(get_db)):
             "defaultOutboundTemplateId": (company.default_outbound_template_id if company else "") or "",
             "defaultInboundTemplateId": (company.default_inbound_template_id if company else "") or "",
             **await agent_studio.settings(db),
+            "assistant": assistant_options.company_of(company.studio if company else {}),
         },
+        "clones": [{k: c.get(k, "") for k in ("id", "name", "language", "gender", "status", "voice", "createdAt")}
+                   for c in await assistant_options.clones(db, ctx["org_id"])],
         "catalogue": await platform_ai.catalogue_for_org(db, ctx["org_id"]),
         "templates": [{"id": t.id, "name": t.name, "direction": t.call_direction} for t in templates],
         "campaigns": [{"id": m.id, "title": m.title, "templateId": m.template_id or ""} for m in missions],
@@ -69,6 +75,7 @@ async def studio(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 class MeBody(BaseModel):
+    settings: Optional[Dict[str, Any]] = None
     voice: Optional[str] = None
     model: Optional[str] = None
     phone: Optional[str] = None
@@ -89,7 +96,7 @@ async def update_me(body: MeBody, request: Request, db: AsyncSession = Depends(g
         op.phone = phone
     changed = False
     row = None
-    if body.voice is not None or body.model is not None:
+    if body.voice is not None or body.model is not None or body.settings is not None:
         row = (await db.execute(select(VoiceAssistant).where(VoiceAssistant.operator_id == op.id))).scalars().first()
         if row is None:
             import uuid
@@ -105,6 +112,15 @@ async def update_me(body: MeBody, request: Request, db: AsyncSession = Depends(g
             raise HTTPException(status_code=400, detail=f"Pick a {field} from the list.")
         if getattr(row, field) != value:
             setattr(row, field, value)
+            changed = True
+    if body.settings is not None:
+        stt = str(body.settings.get("sttModel") or "").strip()
+        if stt and stt not in {i["id"] for i in cat["stt"]}:
+            raise HTTPException(status_code=400, detail="Pick a speech-to-text engine from the list.")
+        mine = dict(row.settings or {})
+        new = assistant_options.clean_mine(body.settings, mine)
+        if any(mine.get(k) != v for k, v in new.items()):
+            row.settings = {**mine, **new}
             changed = True
     if changed:
         row.synced_at = None  # the assistant picks up the new voice/model on the next call
@@ -122,6 +138,7 @@ class CompanyBody(BaseModel):
     recordCalls: Optional[bool] = None
     defaultOutboundTemplateId: Optional[str] = None
     defaultInboundTemplateId: Optional[str] = None
+    assistant: Optional[Dict[str, Any]] = None
 
 
 @router.put("/company")
@@ -152,6 +169,16 @@ async def update_company(body: CompanyBody, request: Request, db: AsyncSession =
                     raise HTTPException(status_code=400, detail=f"Pick an {direction} script.")
             setattr(p, attr, tid or None)
     p.studio = agent_studio.clean(data, p.studio if isinstance(p.studio, dict) else {})
+    if body.assistant is not None:
+        from sqlalchemy import update
+
+        from app.models.models import VoiceAssistant
+
+        try:
+            p.studio = {**p.studio, "assistant": assistant_options.clean_company(body.assistant, p.studio.get("assistant"))}
+        except assistant_options.OptionError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        await db.execute(update(VoiceAssistant).values(synced_at=None))  # every assistant picks it up on its next call
     await db.commit()
     return {"ok": True, **agent_studio.clean({}, p.studio)}
 
@@ -206,3 +233,45 @@ async def test_call(body: TestCallBody, request: Request, db: AsyncSession = Dep
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error") or "The test call could not be placed.")
     return result
+
+
+# ── The company's own voices (clones, free) ─────────────────────────────────
+@router.post("/clones")
+async def add_clone(request: Request, audio: UploadFile = File(...), name: str = Form(...), language: str = Form(...),
+                    gender: str = Form(...), consent: bool = Form(False), refText: str = Form(""),
+                    db: AsyncSession = Depends(get_db)):
+    from app.services import voice_assistants as VA
+    from app.services.telnyx_client import TelnyxError
+
+    ctx = current(request)
+    content = await audio.read(assistant_options.CLONE_MAX_BYTES + 1)
+    try:
+        item = await assistant_options.add_clone(db, await VA._client(db), ctx["org_id"], name=name, language=language,
+                                                 gender=gender, filename=audio.filename or "", content=content,
+                                                 consent=consent, ref_text=refText, by=ctx.get("operator_id") or "")
+    except assistant_options.OptionError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except TelnyxError as err:
+        raise HTTPException(status_code=502, detail=f"Telnyx could not clone this voice: {err}")
+    await db.commit()
+    return {k: item.get(k, "") for k in ("id", "name", "language", "gender", "status", "voice", "createdAt")}
+
+
+@router.delete("/clones/{clone_id}")
+async def delete_clone(clone_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import update
+
+    from app.models.models import VoiceAssistant
+    from app.services import voice_assistants as VA
+
+    ctx = current(request)
+    item = next((c for c in await assistant_options.clones(db, ctx["org_id"]) if c["id"] == clone_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Voice not found.")
+    if item.get("by") != (ctx.get("operator_id") or "") and not _can_change_company(ctx):
+        raise HTTPException(status_code=403, detail="Only whoever added this voice, or an admin, can delete it.")
+    voice = await assistant_options.delete_clone(db, await VA._client(db), ctx["org_id"], clone_id)
+    if voice:  # assistants using it go back to the default voice
+        await db.execute(update(VoiceAssistant).where(VoiceAssistant.voice == voice).values(voice="", synced_at=None))
+    await db.commit()
+    return {"ok": True}

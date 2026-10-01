@@ -73,3 +73,6 @@ backend/recordings/
 *.ogg
 *.flac
 
+
+# Voice clone samples (personal data)
+backend/data/voice_samples/

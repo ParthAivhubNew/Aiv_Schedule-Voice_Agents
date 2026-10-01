@@ -12,6 +12,7 @@ class FakeTelnyx:
         self.calls = []
         self.fail = False
         self.n = 0
+        self.clone_status = {}  # telnyx clone id -> status Telnyx reports
 
     async def __call__(self, client, method, path, *, params=None, json=None, files=None, data=None):
         from app.services.telnyx_client import TelnyxError
@@ -24,6 +25,25 @@ class FakeTelnyx:
             return {"data": {"id": f"assistant-{self.n}"}}
         if path.startswith("/ai/assistants/"):
             return {"data": {"id": path.rsplit("/", 1)[-1]}}
+        if path == "/ai/openai/models":
+            return {"data": [{"id": "moonshotai/Kimi-K2.6", "task": "text-generation", "recommended_for_assistants": True,
+                              "pricing": {"prompt": "0.5", "completion": "2", "currency": "USD", "unit": "1M tokens"}},
+                             {"id": "some/embedder", "task": "feature-extraction"}]}
+        if path == "/text-to-speech/voices":
+            if (params or {}).get("provider") == "telnyx":
+                return {"voices": [{"provider": "telnyx", "name": "Clara", "voice_id": "Telnyx.Ultra.Clara", "language": "en-GB", "gender": "female"}]}
+            return {"voices": []}
+        if path == "/speech-to-text/providers":
+            return {"data": [{"provider": "deepgram", "model": "nova-3", "service_types": [{"type": "ai_assistant", "languages": ["en", "de"]}]}]}
+        if path == "/voice_clones/from_upload":
+            self.n += 1
+            self.calls[-1] = (method, path, data)
+            return {"data": {"id": f"clone-{self.n}", "status": "active"}}
+        if path.startswith("/voice_clones/"):
+            cid = path.rsplit("/", 1)[-1]
+            if method == "GET" and self.clone_status.get(cid) == "gone":
+                raise TelnyxError("not found", 404)
+            return {"data": {"id": cid, "status": self.clone_status.get(cid, "active")}}
         if path.endswith("/actions/answer"):
             return {"data": {"result": "ok"}}
         raise AssertionError(f"unexpected Telnyx call {method} {path}")
@@ -58,8 +78,12 @@ def fake(monkeypatch):
     from app.services import telnyx_assistant_calls, telnyx_assistant_dial, telnyx_client
     from app.services import compliance
 
+    from app.services import assistant_options
+
     f = FakeTelnyx()
     FakeHttp.posts = []
+    monkeypatch.setattr(assistant_options, "_lists", {"at": 0.0, "data": None})
+    monkeypatch.setenv("VOICE_SAMPLE_DIR", "/tmp/voice_samples_test")
     monkeypatch.setenv("TELNYX_API_KEY", "KEY_TEST")
     monkeypatch.setattr("app.config.settings.TELNYX_API_KEY", "KEY_TEST", raising=False)
     monkeypatch.setenv("TELNYX_MANAGED_ASSISTANTS", "true")
