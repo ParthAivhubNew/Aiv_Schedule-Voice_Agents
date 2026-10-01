@@ -78,6 +78,9 @@ async def _credits_settle_loop():
         try:
             await asyncio.sleep(300)
             await settle_all_orgs()
+            from app.services.telnyx_usage import reconcile_due
+
+            await reconcile_due()
         except asyncio.CancelledError:
             raise
         except Exception as loop_err:

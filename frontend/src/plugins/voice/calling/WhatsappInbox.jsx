@@ -105,16 +105,6 @@ export function WhatsappInbox() {
     }
   };
 
-  const toggleAi = async () => {
-    try {
-      await api.patchWaThread(activeId, { aiEnabled: !conv.thread.aiEnabled });
-      loadConv(activeId);
-      loadThreads();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   const start = async (template) => {
     setBusy(true);
     setError("");
@@ -202,10 +192,9 @@ export function WhatsappInbox() {
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{t.contactName || t.contactNumber}</div>
                 <div style={{ fontSize: 12, color: C.slate, fontFamily: FONT_MONO }}>{t.contactNumber} → {t.ourNumber}</div>
               </div>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 600, color: t.aiEnabled ? C.cobalt : C.slate, cursor: "pointer" }}>
-                <Bot size={15} /> AI replies
-                <input type="checkbox" checked={t.aiEnabled} onChange={toggleAi} aria-label="AI replies on this conversation" />
-              </label>
+<span title="OutReach never answers WhatsApp for you; you are emailed when a conversation has something new." style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.slate }}>
+                <Bot size={14} /> Auto-replies off
+              </span>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 6 }}>
               {conv.messages.map((m) => {
@@ -230,7 +219,7 @@ export function WhatsappInbox() {
               {error && <div role="alert" style={{ fontSize: 12.5, color: C.red, marginBottom: 8 }}>{error}</div>}
               {t.windowOpen ? (
                 <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) send({ text }); }} style={{ display: "flex", gap: 8 }}>
-                  <input aria-label="Message" placeholder={t.aiEnabled ? "Type to reply yourself (AI steps back)" : "Type a message"} value={text} onChange={(e) => setText(e.target.value)} style={{ ...input, flex: 1 }} />
+                  <input aria-label="Message" placeholder="Type a message" value={text} onChange={(e) => setText(e.target.value)} style={{ ...input, flex: 1 }} />
                   <button type="submit" style={{ ...btn(true, busy || !text.trim()), background: WA }} disabled={busy || !text.trim()}>
                     {busy ? <Loader2 size={14} /> : <Send size={14} />} Send
                   </button>

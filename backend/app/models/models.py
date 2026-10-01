@@ -975,7 +975,7 @@ class WhatsappThread(Base):
     our_number = Column(String, nullable=False, index=True)
     contact_number = Column(String, nullable=False, index=True)
     contact_name = Column(String, default="")
-    ai_enabled = Column(Boolean, default=True)
+    ai_enabled = Column(Boolean, default=False)  # unused: WhatsApp auto-replies are off
     unread = Column(Integer, default=0)
     last_inbound_at = Column(DateTime, nullable=True)  # starts the 24-hour free-reply window
     last_message_at = Column(DateTime, default=datetime.utcnow, index=True)

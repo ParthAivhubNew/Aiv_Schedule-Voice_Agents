@@ -53,7 +53,7 @@ async def set_unit_costs(db, currency: str, costs: Dict[str, Any]) -> Dict[str, 
 
 async def report(db, month: str) -> Dict[str, Any]:
     """Every organisation (run with all organisations visible)."""
-    from app.services.credits import DEFAULT_RATES, WALLETS
+    from app.services.credits import DEFAULT_RATES, WALLETS, wallet_of
 
     start, end = month_range(month)
     window = {"s": start, "e": end}
@@ -113,6 +113,17 @@ async def report(db, month: str) -> Dict[str, Any]:
         window)).scalar() or 0
 
     cur = costs["currency"]
+    # Margin per app: what was paid for it against what its usage cost us.
+    apps = []
+    for w in WALLETS:
+        cost = sum(v["cost"] for k, v in items.items() if wallet_of(k) == w)
+        credits_used = sum(v["credits"] for k, v in items.items() if wallet_of(k) == w)
+        paid_here = dict(by_app.get(w, {}))
+        if not paid_here and not credits_used:
+            continue
+        margin = paid_here.get(cur, 0) - round(cost) if set(paid_here) <= {cur} else None
+        apps.append({"wallet": w, "name": WALLETS[w], "paid": paid_here, "credits": credits_used,
+                     "given": int(given.get(w, 0) or 0), "costCents": round(cost), "marginCents": margin})
     out_clients = []
     for c in clients.values():
         paid_here = dict(c["paid"])
@@ -128,6 +139,7 @@ async def report(db, month: str) -> Dict[str, Any]:
         "appNames": WALLETS,
         "payments": payments,
         "given": {w: int(v or 0) for w, v in given.items()},
+        "apps": apps,
         "failedPayments": int(failed),
         "subscriptions": {k or "none": int(v) for k, v in subs.items()},
         "monthlyPlans": dict(monthly),
