@@ -28,19 +28,19 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: process.env.VITE_BACKEND_URL || 'https://outreach.aivhub.com',
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
         timeout: 180000,
         proxyTimeout: 180000,
       },
       '/media': {
-        target: process.env.VITE_BACKEND_URL || 'https://outreach.aivhub.com',
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
       },
       '/ws': {
-        target: process.env.VITE_WS_URL || 'wss://outreach.aivhub.com',
+        target: process.env.VITE_WS_URL || 'ws://127.0.0.1:8000',
         ws: true,
         secure: false,
       },
