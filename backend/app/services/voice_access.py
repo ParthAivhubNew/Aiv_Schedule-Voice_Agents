@@ -49,7 +49,7 @@ async def _detach(db, client) -> Dict[str, str]:
             pn = await client.get_phone_number(n.provider_ref)
             conn = str(pn.get("connection_id") or "")
             if conn:
-                await client.update_phone_number(n.provider_ref, connection_id="")
+                await client.update_phone_number(n.provider_ref, connection_id=None)
                 saved[n.id] = conn
         except Exception as err:
             logger.warning(f"[voice-access] could not detach {n.e164}: {err}")

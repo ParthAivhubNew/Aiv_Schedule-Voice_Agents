@@ -243,7 +243,7 @@ async def dial_via_telnyx_assistant(
     if time_limit:
         from app.services.call_limits import watch
 
-        watch(call_control_id, time_limit, api_key)
+        watch(call_control_id, time_limit, api_key, assistant=True)
     logger.info(f"[TELNYX-ASSISTANT-DIAL] Dispatched {to_clean} via assistant {assistant_id} (call_control_id={call_control_id})")
 
     register_outbound(call_control_id, call_id=call_id, to_number=to_clean, prospect=label, assistant_id=assistant_id)
