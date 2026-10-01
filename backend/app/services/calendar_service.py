@@ -565,8 +565,8 @@ class CalendarService:
         if not setting:
             setting = CalcomSetting(
                 id="default",
-                host_email="admin@aivhub.io",
-                host_name="Jitendra S.",
+                host_email="parth.barot@aivhub.com",
+                host_name="Parth Barot",
                 api_key=self.default_api_key or None,
                 base_url=self.default_base_url or CALCOM_CLOUD_V2,
                 default_event_type_slug="15-min-discovery",

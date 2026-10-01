@@ -209,7 +209,7 @@ class MeetingSchema(BaseModel):
     video_link: Optional[str] = None
     dial_in: Optional[str] = None
     address: Optional[str] = None
-    host: str = "Jitendra S."
+    host: str = "Parth Barot"
     attendee: Optional[str] = ""
     prep: Optional[str] = ""
     outcome: Optional[str] = None
