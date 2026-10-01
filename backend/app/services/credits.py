@@ -42,6 +42,7 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "voice_minute": {"label": "Voice call minute", "unit": "minute", "credits": 1, "wallet": "voice", "charged": True},
     "whatsapp_message": {"label": "WhatsApp message sent", "unit": "message", "credits": 1, "wallet": "voice", "charged": True},
     "ai_post": {"label": "AI-written social post", "unit": "post", "credits": 2, "wallet": "scheduler", "charged": True},
+    "ai_image": {"label": "AI image redraw", "unit": "image", "credits": 1, "wallet": "scheduler", "charged": True},
     "lead_lookup": {"label": "Lead researched", "unit": "lead", "credits": 1, "wallet": "leadgen", "charged": True},
     "email_send": {"label": "Email sent", "unit": "email", "credits": 1, "wallet": "email", "charged": False},
     # Telnyx charges us a monthly rental per number; 0 until staff set our price in the rate card.
