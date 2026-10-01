@@ -2,13 +2,30 @@ import React, { useCallback, useMemo, useState } from "react";
 import { ArrowLeft, Ban, Check, Plus, Search } from "lucide-react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
-import { Note, PageTitle, Pill, Table, btn, card, cell, fmt, heading, input, mono, useAction, useLoad, when } from "./ui";
+import { AivhubToggle, Note, PageTitle, Pill, Table, btn, card, cell, fmt, heading, input, mono, useAction, useLoad, when } from "./ui";
 
 const WALLETS = ["voice", "leadgen", "email", "scheduler"];
 const statusTone = (s) => (s === "suspended" ? "red" : s === "active" ? "green" : "slate");
 
 export function Clients({ canEdit, openId, open }) {
-  const [list, err, reload] = useLoad(adminApi.clients);
+  const [includeAivhub, setIncludeAivhub] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("admin_include_aivhub");
+      return saved !== null ? saved === "true" : true;
+    } catch (_) {
+      return true;
+    }
+  });
+
+  const onToggle = (val) => {
+    setIncludeAivhub(val);
+    try {
+      localStorage.setItem("admin_include_aivhub", String(val));
+    } catch (_) {}
+  };
+
+  const loadClients = useCallback(() => adminApi.clients(includeAivhub), [includeAivhub]);
+  const [list, err, reload] = useLoad(loadClients, [loadClients]);
   const [find, setFind] = useState("");
   const shown = useMemo(() => {
     const t = find.trim().toLowerCase();
@@ -18,9 +35,19 @@ export function Clients({ canEdit, openId, open }) {
   if (openId) return <ClientDetail id={openId} canEdit={canEdit} back={() => { open(""); reload(); }} />;
   return (
     <>
-      <PageTitle title="Clients" sub={list ? `${list.length} organisations` : "Loading…"}
-        right={<label style={{ position: "relative" }}><Search size={14} style={{ position: "absolute", left: 10, top: 10, color: C.slate }} />
-          <input aria-label="Find a client" placeholder="Find a client" value={find} onChange={(e) => setFind(e.target.value)} style={{ ...input, paddingLeft: 30, width: 240 }} /></label>} />
+      <PageTitle
+        title="Clients"
+        sub={list ? `${list.length} organisation${list.length === 1 ? "" : "s"} (${includeAivhub ? "including Aivhub" : "clients only"})` : "Loading…"}
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <AivhubToggle value={includeAivhub} onChange={onToggle} />
+            <label style={{ position: "relative" }}>
+              <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: C.slate }} />
+              <input aria-label="Find a client" placeholder="Find a client" value={find} onChange={(e) => setFind(e.target.value)} style={{ ...input, paddingLeft: 30, width: 220 }} />
+            </label>
+          </div>
+        }
+      />
       <Note error>{err}</Note>
       <Table head={["Organisation", "Status", "Users", "Numbers", ...WALLETS, "Stop at zero", "Verification", "Subscription", "Joined"]} minWidth={1100}>
         {shown.map((o) => (

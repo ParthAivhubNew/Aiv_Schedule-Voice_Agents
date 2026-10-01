@@ -83,3 +83,46 @@ export function useLoad(fn, deps = []) {
   React.useEffect(() => { load(); }, [load]);
   return [state.data, state.error, load];
 }
+
+export function AivhubToggle({ value, onChange }) {
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: "5px 10px", userSelect: "none" }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: value ? C.textInk : C.slate }}>
+        Include Aivhub (own company)
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        onClick={() => onChange(!value)}
+        style={{
+          width: 34,
+          height: 18,
+          borderRadius: 99,
+          border: "none",
+          background: value ? C.cobalt : C.border,
+          position: "relative",
+          cursor: "pointer",
+          transition: "background 0.2s",
+          padding: 0,
+        }}
+      >
+        <span
+          style={{
+            display: "block",
+            width: 14,
+            height: 14,
+            borderRadius: "50%",
+            background: "#fff",
+            position: "absolute",
+            top: 2,
+            left: value ? 18 : 2,
+            transition: "left 0.2s",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+          }}
+        />
+      </button>
+    </div>
+  );
+}
+

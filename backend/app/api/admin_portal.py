@@ -125,22 +125,36 @@ async def _count(db, sql: str, **params) -> int:
 
 
 @router.get("/dashboard")
-async def dashboard(request: Request):
+async def dashboard(request: Request, include_aivhub: bool = True):
     _who(request)
     since = datetime.utcnow() - timedelta(days=30)
     async with AsyncSessionLocal() as db:
-        return {
-            "clients": await _count(db, "SELECT count(*) FROM organizations WHERE coalesce(status, 'active') <> 'platform'"),
-            "suspended": await _count(db, "SELECT count(*) FROM organizations WHERE status = 'suspended'"),
-            "users": await _count(db, "SELECT count(*) FROM operators WHERE coalesce(is_active, true)"),
-            "numbers": await _count(db, "SELECT count(*) FROM org_phone_numbers WHERE status = 'active'"),
-            "liveCalls": await _count(db, "SELECT count(*) FROM live_calls WHERE state NOT IN ('ended', 'completed', 'failed')") if await _has(db, "live_calls", "state") else 0,
-            "pendingVerifications": await _count(db, "SELECT count(*) FROM verification_submissions WHERE status IN ('pending-approval', 'unapproved')"),
-            "whatsappRequests": await _count(db, "SELECT count(*) FROM org_phone_numbers WHERE capabilities::text LIKE '%whatsapp_requested%'"),
-            "callsLast30d": await _count(db, "SELECT count(*) FROM call_logs WHERE created_at >= :s", s=since),
-            "creditsUsed30d": -await _count(db, "SELECT coalesce(sum(amount), 0) FROM credit_ledger WHERE kind = 'usage' AND created_at >= :s", s=since),
-            "payments30d": await _count(db, "SELECT count(*) FROM stripe_events WHERE type IN ('invoice.paid', 'checkout.session.completed') AND created_at >= :s", s=since),
-        }
+        if include_aivhub:
+            return {
+                "clients": await _count(db, "SELECT count(*) FROM organizations WHERE coalesce(status, 'active') <> 'platform'"),
+                "suspended": await _count(db, "SELECT count(*) FROM organizations WHERE status = 'suspended'"),
+                "users": await _count(db, "SELECT count(*) FROM operators WHERE coalesce(is_active, true)"),
+                "numbers": await _count(db, "SELECT count(*) FROM org_phone_numbers WHERE status = 'active'"),
+                "liveCalls": await _count(db, "SELECT count(*) FROM live_calls WHERE state NOT IN ('ended', 'completed', 'failed')") if await _has(db, "live_calls", "state") else 0,
+                "pendingVerifications": await _count(db, "SELECT count(*) FROM verification_submissions WHERE status IN ('pending-approval', 'unapproved')"),
+                "whatsappRequests": await _count(db, "SELECT count(*) FROM org_phone_numbers WHERE capabilities::text LIKE '%whatsapp_requested%'"),
+                "callsLast30d": await _count(db, "SELECT count(*) FROM call_logs WHERE created_at >= :s", s=since),
+                "creditsUsed30d": -await _count(db, "SELECT coalesce(sum(amount), 0) FROM credit_ledger WHERE kind = 'usage' AND created_at >= :s", s=since),
+                "payments30d": await _count(db, "SELECT count(*) FROM stripe_events WHERE type IN ('invoice.paid', 'checkout.session.completed') AND created_at >= :s", s=since),
+            }
+        else:
+            return {
+                "clients": await _count(db, "SELECT count(*) FROM organizations WHERE coalesce(status, 'active') <> 'platform' AND id <> 'org_default'"),
+                "suspended": await _count(db, "SELECT count(*) FROM organizations WHERE status = 'suspended' AND id <> 'org_default'"),
+                "users": await _count(db, "SELECT count(*) FROM operators WHERE coalesce(is_active, true) AND org_id <> 'org_default'"),
+                "numbers": await _count(db, "SELECT count(*) FROM org_phone_numbers WHERE status = 'active' AND org_id <> 'org_default'"),
+                "liveCalls": await _count(db, "SELECT count(*) FROM live_calls WHERE state NOT IN ('ended', 'completed', 'failed') AND org_id <> 'org_default'") if await _has(db, "live_calls", "state") else 0,
+                "pendingVerifications": await _count(db, "SELECT count(*) FROM verification_submissions WHERE status IN ('pending-approval', 'unapproved') AND org_id <> 'org_default'"),
+                "whatsappRequests": await _count(db, "SELECT count(*) FROM org_phone_numbers WHERE capabilities::text LIKE '%whatsapp_requested%' AND org_id <> 'org_default'"),
+                "callsLast30d": await _count(db, "SELECT count(*) FROM call_logs WHERE created_at >= :s AND org_id <> 'org_default'", s=since),
+                "creditsUsed30d": -await _count(db, "SELECT coalesce(sum(amount), 0) FROM credit_ledger WHERE kind = 'usage' AND created_at >= :s AND org_id <> 'org_default'", s=since),
+                "payments30d": await _count(db, "SELECT count(*) FROM stripe_events WHERE type IN ('invoice.paid', 'checkout.session.completed') AND created_at >= :s AND org_id <> 'org_default'", s=since),
+            }
 
 
 async def _has(db, table: str, column: str) -> bool:
@@ -181,17 +195,20 @@ async def _in_org(org_id: str, fn):
 
 
 @router.get("/clients")
-async def clients(request: Request):
+async def clients(request: Request, include_aivhub: bool = True):
     from app.services import credits as K
     from app.services.telnyx_provisioning import latest_verification
 
     _who(request)
+    filter_sql = "coalesce(o.status, 'active') <> 'platform'"
+    if not include_aivhub:
+        filter_sql += " AND o.id <> 'org_default'"
     async with AsyncSessionLocal() as db:
         orgs = (await db.execute(text(
-            "SELECT o.id, o.name, o.status, o.created_at, "
-            "(SELECT count(*) FROM operators u WHERE u.org_id = o.id) AS users, "
-            "(SELECT count(*) FROM org_phone_numbers n WHERE n.org_id = o.id AND n.status = 'active') AS numbers "
-            "FROM organizations o WHERE coalesce(o.status, 'active') <> 'platform' ORDER BY o.created_at DESC NULLS LAST"))).all()
+            f"SELECT o.id, o.name, o.status, o.created_at, "
+            f"(SELECT count(*) FROM operators u WHERE u.org_id = o.id) AS users, "
+            f"(SELECT count(*) FROM org_phone_numbers n WHERE n.org_id = o.id AND n.status = 'active') AS numbers "
+            f"FROM organizations o WHERE {filter_sql} ORDER BY o.created_at DESC NULLS LAST"))).all()
     out = []
     for org_id, name, status, created, users, numbers in orgs:
         async def detail(db):

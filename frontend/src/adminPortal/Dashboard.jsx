@@ -1,7 +1,7 @@
 import React from "react";
 import { C, FONT_DISPLAY } from "../tokens";
 import { adminApi } from "./adminApi";
-import { Note, PageTitle, Pill, card, fmt, heading, useLoad } from "./ui";
+import { AivhubToggle, Note, PageTitle, Pill, card, fmt, heading, useLoad } from "./ui";
 
 const TILES = [
   ["clients", "Clients"], ["suspended", "Suspended"], ["users", "Active users"], ["numbers", "Phone numbers"],
@@ -14,11 +14,33 @@ const SERVICES = [
 ];
 
 export function Dashboard({ go }) {
-  const [d, err] = useLoad(adminApi.dashboard);
+  const [includeAivhub, setIncludeAivhub] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("admin_include_aivhub");
+      return saved !== null ? saved === "true" : true;
+    } catch (_) {
+      return true;
+    }
+  });
+
+  const onToggle = (val) => {
+    setIncludeAivhub(val);
+    try {
+      localStorage.setItem("admin_include_aivhub", String(val));
+    } catch (_) {}
+  };
+
+  const loadDashboard = React.useCallback(() => adminApi.dashboard(includeAivhub), [includeAivhub]);
+  const [d, err] = useLoad(loadDashboard, [loadDashboard]);
   const [p] = useLoad(adminApi.platform);
+
   return (
     <>
-      <PageTitle title="Dashboard" sub="Everything across every client organisation." />
+      <PageTitle
+        title="Dashboard"
+        sub={includeAivhub ? "Overall platform & client metrics (including Aivhub)." : "Client organisations only (excluding Aivhub)."}
+        right={<AivhubToggle value={includeAivhub} onChange={onToggle} />}
+      />
       <Note error>{err}</Note>
       {d && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
