@@ -78,6 +78,9 @@ async def _credits_settle_loop():
         try:
             await asyncio.sleep(300)
             await settle_all_orgs()
+            from app.services.telnyx_usage import reconcile_due
+
+            await reconcile_due()
         except asyncio.CancelledError:
             raise
         except Exception as loop_err:
@@ -98,6 +101,11 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Could not enable pgvector extension directly: {ext_err}")
         await conn.run_sync(Base.metadata.create_all)
         # Safe migration for new columns on existing tables (PostgreSQL & SQLite)
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE voice_assistants ADD COLUMN IF NOT EXISTS settings JSON;"))
+        except Exception as col_err:
+            logger.warning(f"Could not add voice_assistants.settings: {col_err}")
         try:
             from sqlalchemy import text
             await conn.execute(text("ALTER TABLE live_calls ADD COLUMN IF NOT EXISTS carrier_sid VARCHAR;"))

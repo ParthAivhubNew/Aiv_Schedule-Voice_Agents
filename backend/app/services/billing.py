@@ -496,4 +496,8 @@ async def handle_event(event: Dict[str, Any]) -> str:
                 done = "subscription"
 
             await db.commit()
+            if done in ("checkout", "topup", "renewal"):
+                from app.services import voice_access
+
+                voice_access.kick(org_id)  # calls back on straight away after a top-up
             return done

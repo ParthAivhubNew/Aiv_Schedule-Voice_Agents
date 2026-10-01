@@ -595,7 +595,8 @@ class SocialGenJob(Base):
     solo = Column(Boolean, default=False)  # retry alone after a batched reply failed
     options = Column(JSON, default=dict)
     priority = Column(Integer, default=0)
-    state = Column(String, default="queued")  # queued | writing | image_queued | imaging | done | failed
+    # queued | writing | image_queued | imaging | done | failed | paused | image_paused (out of credits)
+    state = Column(String, default="queued")
     error = Column(Text, nullable=True)
     attempts = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -654,6 +655,33 @@ class CreditGrant(Base):
     paid_cents = Column(Integer, default=0)  # what the customer paid for this batch (Stripe), for margins
     paid_currency = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CreditAward(Base):
+    """Credits given by OutReach staff from the owner portal: a permanent record (the database
+    refuses to change or delete a row; see tenancy.ensure_append_only). Not per-organisation:
+    staff and finance read every company's. label says how it was paid for: given (no payment),
+    offline (paid outside Stripe, with its reference) or paid (paid, with its reference)."""
+    __tablename__ = "credit_awards"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, nullable=False, index=True)
+    org_name = Column(String, default="")
+    wallet = Column(String, nullable=False)
+    amount = Column(Integer, nullable=False)
+    label = Column(String, nullable=False)  # given | offline | paid
+    reason = Column(Text, nullable=False)
+    payment_ref = Column(String, default="")
+    paid_cents = Column(Integer, default=0)
+    paid_currency = Column(String, default="")
+    expires_at = Column(DateTime, nullable=True)
+    balance_before = Column(Integer, nullable=False)
+    balance_after = Column(Integer, nullable=False)
+    confirmed_with = Column(String, default="")  # amount | password
+    staff_id = Column(String, nullable=False)
+    staff_email = Column(String, default="")
+    staff_name = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class BillingPlan(Base):
@@ -947,7 +975,7 @@ class WhatsappThread(Base):
     our_number = Column(String, nullable=False, index=True)
     contact_number = Column(String, nullable=False, index=True)
     contact_name = Column(String, default="")
-    ai_enabled = Column(Boolean, default=True)
+    ai_enabled = Column(Boolean, default=False)  # unused: WhatsApp auto-replies are off
     unread = Column(Integer, default=0)
     last_inbound_at = Column(DateTime, nullable=True)  # starts the 24-hour free-reply window
     last_message_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -993,6 +1021,9 @@ class VoiceAssistant(Base):
     telnyx_assistant_id = Column(String, default="")
     voice = Column(String, default="")  # from the staff voice catalogue ("" = platform default)
     model = Column(String, default="")  # from the staff model catalogue ("" = platform default)
+    # How it speaks and listens (assistant_options.MINE): speed, sound, speech-to-text, language;
+    # plus "effective", what Telnyx actually uses, read back after each sync.
+    settings = Column(JSON, default=dict)
     shell_version = Column(Integer, default=0)
     status = Column(String, default="pending")  # pending, ready, error
     last_error = Column(Text, default="")

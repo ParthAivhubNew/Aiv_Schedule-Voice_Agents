@@ -33,6 +33,7 @@ from app.services.social_oauth import (
 )
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
+import asyncio
 import uuid
 import logging
 import time
@@ -102,7 +103,10 @@ _SOCIAL_SCHEDULE_EXTRA_COLS = [
 # A post in one of these states must never be edited back to draft/approved by a client
 # save: that is how a stale browser tab re-queued already-published posts (double posting).
 LOCKED_STATUSES = ("published", "publishing")
-MAX_POSTS_PER_REQUEST = 90
+MAX_POSTS_PER_REQUEST = 90  # post rows, counting each channel copy
+MAX_WRITTEN_PER_REQUEST = 50  # pieces of content written (one per group)
+MAX_BRIEF_CHARS = 4000
+MAX_NOTE_CHARS = 2000
 
 
 async def ensure_social_schema() -> None:
@@ -298,50 +302,46 @@ def _auto_none(value: Optional[str]) -> Optional[str]:
     return None if not v or v == "auto" else v
 
 
-async def _load_ai_settings(db: AsyncSession) -> Dict[str, Any]:
+# Per-company choices that are design, not AI: how images look. The AI itself (provider,
+# model, keys) is chosen by OutReach staff in the admin portal for every company.
+ORG_IMAGE_PREFS = ("imageStyle", "imageAspectRatio")
+NO_TEXT_AI = "The writing AI is not available right now. Please try again later or contact OutReach support."
+NO_IMAGE_AI = "The image AI is not available right now. Please try again later or contact OutReach support."
+
+
+async def _load_ai_settings(db: AsyncSession, slot: str = "main") -> Dict[str, Any]:
+    """The AI staff chose for every company (main or backup), plus this company's image look."""
+    from app.services import platform_ai
+
     out = dict(DEFAULT_AI_SETTINGS)
     try:
         row = (await db.execute(select(SchedulerSetting).where(SchedulerSetting.id == "default"))).scalars().first()
         if row and isinstance(row.data, dict):
-            out.update({k: v for k, v in row.data.items() if k in DEFAULT_AI_SETTINGS and v is not None})
+            out.update({k: v for k, v in row.data.items() if k in ORG_IMAGE_PREFS and v})
     except Exception as e:
-        logger.warning(f"Could not load scheduler AI settings: {e}")
+        logger.warning(f"Could not load scheduler image settings: {e}")
         await db.rollback()
-    # Client organisations write and draw with the AI staff chose for the platform.
-    from app.services import platform_ai
-
-    if platform_ai.applies_here():
-        try:
-            chosen = await platform_ai.get(db)
-        except Exception as e:
-            logger.warning(f"Could not load the platform AI choice: {e}")
-            await db.rollback()
-            chosen = {}
-        for field, value in chosen.items():
-            if value:
-                out[field] = value
-                if field == "textProvider" and not chosen.get("textModel"):
-                    out["textModel"] = ""
-                if field == "imageProvider" and not chosen.get("imageModel"):
-                    out["imageModel"] = ""
+    try:
+        for kind in ("text", "image"):
+            provider, model = await platform_ai.choice(db, kind, slot)
+            out[f"{kind}Provider"] = provider or "auto"
+            out[f"{kind}Model"] = model or ""
+    except Exception as e:
+        logger.warning(f"Could not load the platform AI choice: {e}")
+        await db.rollback()
     return out
 
 
-async def _platform_locked(db: AsyncSession, field: str) -> bool:
-    """A client organisation whose staff-chosen provider must not be overridden per request."""
-    from app.services import platform_ai
-
-    return platform_ai.applies_here() and bool((await platform_ai.get(db)).get(field))
-
-
 async def _saved_ai_keys(db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
-    """Which providers have a saved key (masked) - for the settings UI. Never returns raw keys."""
+    """Which providers have a saved key (masked) - for the admin portal. Never returns raw keys."""
     from app.services.key_validator import identify_provider
     from app.services.secret_box import config_get_secret, mask_secret
-
     text_keys: Dict[str, Dict[str, Any]] = {}
     image_keys: Dict[str, Dict[str, Any]] = {}
-    res = await db.execute(select(Connection).where(Connection.group_name.in_(["LLM", "IMAGE"])))
+    from app.core.platform import platform_org_id
+
+    res = await db.execute(select(Connection).where(
+        Connection.group_name.in_(["LLM", "IMAGE"]), Connection.org_id == platform_org_id()))
     for c in res.scalars().all():
         cfg = c.config if isinstance(c.config, dict) else {}
         k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
@@ -362,141 +362,62 @@ async def _saved_ai_keys(db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
     return {"text": list(text_keys.values()), "image": list(image_keys.values())}
 
 
-async def _resolve_text_ai(db: AsyncSession, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Pick the writing model. Supports any custom provider name and custom base_url."""
+async def _resolve_text_ai(db: AsyncSession, payload: Optional[Dict[str, Any]] = None, slot: str = "main") -> Dict[str, Any]:
+    """The writing AI staff chose (main or backup) with OutReach's key. Whatever the request
+    asks for (provider, key, model, endpoint) is ignored: companies never choose the AI."""
     from app.services.llm_gateway import resolve_llm_credentials, _same_provider
 
-    api_key = (payload.get("apiKey") or payload.get("api_key") or "").strip() or None
-    req_provider = (payload.get("provider") or "").strip() or None
-    if await _platform_locked(db, "textProvider"):
-        api_key = req_provider = None
-    explicit = bool(api_key or req_provider)
-    if explicit:
-        provider = req_provider
-        model = payload.get("model") or None
-        base_url = payload.get("baseUrl") or payload.get("base_url") or None
-    else:
-        prefs = await _load_ai_settings(db)
-        provider = _auto_none(prefs.get("textProvider"))
-        model = (prefs.get("textModel") or "").strip() or None
-        base_url = None
-
-    creds = await resolve_llm_credentials(db=db, api_key=api_key, provider=provider, model=model, base_url=base_url)
+    prefs = await _load_ai_settings(db, slot)
+    provider = _auto_none(prefs.get("textProvider"))
+    model = (prefs.get("textModel") or "").strip() or None
+    creds = await resolve_llm_credentials(db=db, provider=provider, model=model)
     error = None
-    if not explicit:
-        is_local = is_self_hosted(creds.get("base_url"))
-        label = provider or "AI"
-        if provider and not _same_provider(provider, creds.get("provider")) and not creds.get("api_key") and not is_local:
-            error = f"No {label} key saved. Add it under Accounts & AI → Writing AI, or set the provider to Auto."
-        elif not creds.get("api_key") and not is_local:
-            error = "No AI writing key saved yet. Add one under Accounts & AI → Writing AI."
+    is_local = is_self_hosted(creds.get("base_url"))
+    if not creds.get("api_key") and not is_local:
+        error = NO_TEXT_AI
+    elif provider and not _same_provider(provider, creds.get("provider")):
+        error = NO_TEXT_AI
     return {
         "api_key": creds.get("api_key") or None,
         "provider": creds.get("provider") or provider or "openai",
         "model": creds.get("model") or model,
-        "base_url": creds.get("base_url") or base_url,
+        "base_url": creds.get("base_url") or None,
         "error": error,
-        "explicit": explicit,
+        "explicit": False,
     }
 
 
-async def _resolve_image_prefs(db: AsyncSession, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Image engine choice: request fields win, else the saved scheduler choice."""
-    prefs = await _load_ai_settings(db)
-    if await _platform_locked(db, "imageProvider"):
-        payload = {k: v for k, v in payload.items() if k not in (
-            "image_provider", "imageProvider", "imageEngine", "image_api_key", "imageApiKey",
-            "image_model", "imageModel", "image_base_url", "imageBaseUrl")}
-    provider = (
-        payload.get("image_provider") or payload.get("imageProvider") or payload.get("imageEngine")
-        or _auto_none(prefs.get("imageProvider"))
-    )
+async def _resolve_image_prefs(db: AsyncSession, payload: Optional[Dict[str, Any]] = None, slot: str = "main") -> Dict[str, Any]:
+    """The image AI staff chose (main or backup). A request may only pick the look (style,
+    aspect ratio); provider, key, model and endpoint fields are ignored."""
+    payload = payload or {}
+    prefs = await _load_ai_settings(db, slot)
     return {
-        "provider": provider or None,
-        "api_key": payload.get("image_api_key") or payload.get("imageApiKey") or None,
-        "model": payload.get("image_model") or payload.get("imageModel") or (prefs.get("imageModel") or None),
-        "base_url": payload.get("image_base_url") or payload.get("imageBaseUrl") or None,
+        "provider": _auto_none(prefs.get("imageProvider")),
+        "api_key": None,
+        "model": prefs.get("imageModel") or None,
+        "base_url": None,
         "style": payload.get("style") or payload.get("imageStyle") or prefs.get("imageStyle") or "modern_saas",
         "aspect_ratio": payload.get("aspect_ratio") or payload.get("aspectRatio") or prefs.get("imageAspectRatio") or "4:5",
     }
 
 
-@router.get("/ai-settings")
-async def get_ai_settings(db: AsyncSession = Depends(get_db)):
-    keys = await _saved_ai_keys(db)
-    # Dynamically build providers from saved connections without hardcoding closed lists
-    text_provs = {"auto": "Auto — use any saved key"}
-    for k in keys.get("text", []):
-        text_provs[k["provider"]] = k["name"]
+async def _image_with_backup(db: AsyncSession, payload: Dict[str, Any], prompt: str, **size) -> Dict[str, Any]:
+    """Draw with the main image AI; on failure use the backup when staff set one.
+    Returns the generator's result for the slot that worked; raises AIUnavailable otherwise."""
+    from app.services import platform_ai
 
-    img_provs = {
-        "auto": "Auto — saved image key, else free",
-        "pollinations": "Pollinations (free)",
-    }
-    for k in keys.get("image", []):
-        img_provs[k["provider"]] = k["name"]
-
-    return {
-        "settings": await _load_ai_settings(db),
-        "keys": keys,
-        "textProviders": text_provs,
-        "imageProviders": img_provs,
-    }
-
-
-@router.post("/ai-settings")
-async def save_ai_settings(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-    current = await _load_ai_settings(db)
-    for k in DEFAULT_AI_SETTINGS:
-        if k in payload and payload[k] is not None:
-            current[k] = str(payload[k]).strip()
-    if current["imageAspectRatio"] not in ASPECT_RATIOS:
-        current["imageAspectRatio"] = "4:5"
-    row = (await db.execute(select(SchedulerSetting).where(SchedulerSetting.id == "default"))).scalars().first()
-    if row:
-        row.data = current
-    else:
-        db.add(SchedulerSetting(id="default", data=current))
-    await db.commit()
-    return {"status": "ok", "settings": current}
-
-
-@router.post("/ai-settings/test")
-async def test_ai_settings(db: AsyncSession = Depends(get_db)):
-    """Tiny live call with the saved choice, so the user sees exactly which engine is used."""
-    from app.services.llm_gateway import call_open_chat_llm
-    from app.services.post_writer import resolve_image_credentials
-
-    text_ai = await _resolve_text_ai(db, {})
-    text: Dict[str, Any] = {"ok": False, "provider": text_ai.get("provider"), "model": text_ai.get("model")}
-    if text_ai["error"]:
-        text["error"] = text_ai["error"]
-    else:
-        res = await call_open_chat_llm(
-            messages=[{"role": "user", "content": "Reply with the single word OK."}],
-            system_prompt="You are a connectivity check.",
-            api_key=text_ai["api_key"],
-            provider=text_ai["provider"],
-            model=text_ai["model"],
-            base_url=text_ai["base_url"],
-            max_tokens=5,
-            db=db,
+    async def attempt(slot: str) -> Dict[str, Any]:
+        p = await _resolve_image_prefs(db, payload, slot)
+        img = await generate_image_with_provider(
+            prompt=prompt, provider=p["provider"], model=p["model"], style=p["style"],
+            aspect_ratio=p["aspect_ratio"], db=db, **size,
         )
-        text.update({
-            "ok": bool(res.get("success", True)) and not res.get("error"),
-            "provider": res.get("provider") or text_ai["provider"],
-            "model": res.get("model") or text_ai["model"],
-            "error": res.get("error"),
-        })
+        if not img.get("imageUrl") or (img.get("status") or "ok") != "ok":
+            raise platform_ai.AIUnavailable(img.get("warning") or "The image AI returned no image.")
+        return img
 
-    img_prefs = await _resolve_image_prefs(db, {})
-    img_creds = await resolve_image_credentials(db=db, provider=img_prefs["provider"], model=img_prefs["model"])
-    image = {
-        "provider": img_creds.get("provider"),
-        "model": img_creds.get("model") or "",
-        "missingKeyFor": img_creds.get("missing_key_for"),
-    }
-    return {"text": text, "image": image}
+    return await platform_ai.run_with_backup(db, "image", attempt)
 
 
 @router.get("/media/{filename}")
@@ -537,79 +458,62 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
     prompt = payload.get("prompt", "")
     title = payload.get("title", "")
     theme = payload.get("theme", "Operations")
-
-    # This endpoint historically took provider/api_key/model/base_url unprefixed.
-    img_prefs = await _resolve_image_prefs(db, {
-        **payload,
-        "image_provider": payload.get("provider") or payload.get("image_provider") or payload.get("imageEngine") or payload.get("imageProvider"),
-        "image_api_key": payload.get("api_key") or payload.get("apiKey") or payload.get("image_api_key") or payload.get("imageApiKey"),
-        "image_model": payload.get("model") or payload.get("image_model") or payload.get("imageModel"),
-        "image_base_url": payload.get("base_url") or payload.get("baseUrl") or payload.get("image_base_url") or payload.get("imageBaseUrl"),
-    })
-    provider = img_prefs["provider"]
-    api_key = img_prefs["api_key"]
-    model = img_prefs["model"]
-    base_url = img_prefs["base_url"]
-    style = img_prefs["style"]
-    aspect_ratio = img_prefs["aspect_ratio"]
-
-    w, h = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
+    look = await _resolve_image_prefs(db, payload)  # only the look comes from the request
+    style = look["style"]
+    w, h = ASPECT_RATIOS.get(look["aspect_ratio"], (1200, 675))
     width = int(payload.get("width", w))
     height = int(payload.get("height", h))
 
-    from app.services.credits import can_start
+    from app.services import credits
 
-    ok, why = await can_start(db, "ai_image")  # Post scheduler credits; stop at zero
+    # Held at today's price before drawing; charged only if an image comes back.
+    ref = f"img:{uuid.uuid4().hex[:16]}"
+    ok, why = await credits.hold(db, [{"ref": ref, "item": "ai_image", "quantity": 1, "note": "AI image redraw"}])
     if not ok:
         raise HTTPException(status_code=402, detail=why)
+    await db.commit()
 
     if not prompt and title:
         prompt = create_topic_image_prompt(title, theme=theme, style=style)
     elif not prompt:
         prompt = f"Modern professional illustration representing {theme}, clean vector style, high quality"
 
-    async with IMAGE_SLOTS.slot(PRIORITY_INTERACTIVE):
-        img = await generate_image_with_provider(
-            prompt=prompt,
-            provider=provider,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            style=style,
-            aspect_ratio=aspect_ratio,
-            width=width,
-            height=height,
-            db=db,
-        )
-    hosted = _host_image(img.get("imageUrl"), request)
-    if hosted and not img.get("fallback") and (img.get("status") or "ok") == "ok":
-        # A real new image: one "AI image redraw" (a placeholder after a failure is free).
-        import uuid as _uuid
+    hosted = None
+    failed = "The image AI returned no image."
+    try:
+        async with IMAGE_SLOTS.slot(PRIORITY_INTERACTIVE):
+            img = await asyncio.wait_for(_image_with_backup(db, payload, prompt, width=width, height=height),
+                                         timeout=gen_queue.IMAGE_TIMEOUT_SECS)
+        hosted = _host_image(img.get("imageUrl"), request)
+    except asyncio.TimeoutError:
+        failed = f"No image within {gen_queue.IMAGE_TIMEOUT_SECS // 60} minutes."
+        img = {}
+    except Exception as err:
+        logger.warning(f"[Scheduler] image failed on every configured engine: {err}")
+        failed = str(err) or failed
+        img = {}
+    if not hosted:
+        await credits.release(db, [ref])  # a failed image is free
+        await db.commit()
+        from app.services import ai_errors
 
-        from app.services.credits import charge
-
-        try:
-            await charge(db, "ai_image", 1, f"img:{_uuid.uuid4().hex[:16]}", "AI image redraw")
-            await db.commit()
-        except Exception as charge_err:
-            logger.warning(f"[credits] image charge skipped: {charge_err}")
-            await db.rollback()
+        msg = await ai_errors.failure(failed, "Image redraw")
+        return {"status": "error", "imageUrl": None, "imagePrompt": prompt, "prompt": prompt, "warning": msg,
+                "code": ai_errors.code_of(msg)}
+    await credits.confirm_safely(db, ref, "ai_image", 1, "AI image redraw")
     return {
-        "status": img.get("status") or "ok",
+        "status": "ok",
         "imageUrl": hosted,
         "imagePrompt": img.get("imagePrompt") or prompt,
         "prompt": img.get("imagePrompt") or prompt,
-        "provider": img.get("provider") or provider,
-        "model": img.get("model"),
         "width": img.get("width") or width,
         "height": img.get("height") or height,
-        "warning": img.get("warning"),
-        "fallback": img.get("fallback", False),
+        "warning": None,
     }
 
 
 @router.post("/generate")
-async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+async def queue_generation(payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
     """Queue AI writing for posts. groups: [{postIds, plan, headline, channel, date,
     revisionNote, existingCopy, skipImage}]; posts sharing one group get the same content."""
     groups_in = payload.get("groups") or []
@@ -631,24 +535,94 @@ async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
     total = sum(len(g["post_ids"]) for g in groups)
     if not groups:
         raise HTTPException(status_code=400, detail="Nothing to write.")
-    if total > MAX_POSTS_PER_REQUEST:
-        raise HTTPException(status_code=400, detail=f"At most {MAX_POSTS_PER_REQUEST} posts per request ({total} asked). Split the plan.")
+    from app.services import ai_errors
+
+    if total > MAX_POSTS_PER_REQUEST or len(groups) > MAX_WRITTEN_PER_REQUEST:
+        raise HTTPException(status_code=400, detail={
+            "code": "USR-02", "message": ai_errors.message("USR-02") + f" At most {MAX_WRITTEN_PER_REQUEST} posts "
+            f"({MAX_POSTS_PER_REQUEST} with channel copies) at once; this asked for {len(groups)} ({total})."})
+    if any(len(g["plan"]) > MAX_BRIEF_CHARS or len(g["revision_note"]) > MAX_NOTE_CHARS for g in groups):
+        raise HTTPException(status_code=400, detail={
+            "code": "USR-04", "message": ai_errors.message("USR-04") + f" Keep each post's brief under {MAX_BRIEF_CHARS} "
+            f"characters and a change request under {MAX_NOTE_CHARS}."})
+    prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
+    if not prof or not (prof.name or "").strip():
+        raise HTTPException(status_code=400, detail={"code": "USR-05", "message": ai_errors.message("USR-05")})
     existing = {row[0] for row in (await db.execute(
         select(SocialPost.id).where(SocialPost.id.in_([pid for g in groups for pid in g["post_ids"]]))
     )).all()}
     missing = [pid for g in groups for pid in g["post_ids"] if pid not in existing]
     if missing:
         raise HTTPException(status_code=409, detail=f"Save these posts before writing them: {missing[:5]}")
+    # Fair share: a company has at most MAX_BATCHES_PER_ORG requests waiting or running. A quick
+    # interactive rewrite of one post is never blocked behind its own big batches.
+    interactive_one = bool(payload.get("interactive")) and len(groups) == 1
+    if not interactive_one and await gen_queue.running_batches(db) >= gen_queue.MAX_BATCHES_PER_ORG:
+        raise HTTPException(status_code=429, detail={
+            "code": "USR-06", "message": ai_errors.message("USR-06") + f" At most {gen_queue.MAX_BATCHES_PER_ORG} "
+            "batches can be waiting or running at once for your company."})
     from app.services.credits import can_start
 
-    ok, why = await can_start(db, "ai_post")
+    # The first post must be affordable now; later ones are held one by one as they start, and
+    # the queue pauses at the first one the company cannot afford.
+    ok, why = await can_start(db, "ai_post", extra=[] if groups[0]["skip_image"] else [("ai_image", 1)])
     if not ok:
         raise HTTPException(status_code=402, detail=why)
     priority = PRIORITY_INTERACTIVE if payload.get("interactive") else 0
-    options = {"linkedinDirective": payload.get("linkedinDirective") or ""}
+    by = (getattr(request.state, "auth", None) or {}).get("operator_id", "")
+    batch = f"b_{uuid.uuid4().hex[:10]}"  # one request = one batch, for progress and its finish note
+    options = {"linkedinDirective": payload.get("linkedinDirective") or "", "batch": batch, "by": by,
+               "started": datetime.utcnow().isoformat()}
     job_ids = await gen_queue.enqueue(db, groups, priority=priority, options=options)
     await db.commit()
-    return {"status": "ok", "jobs": job_ids, "posts": total}
+    return {"status": "ok", "jobs": job_ids, "posts": total, "batch": batch}
+
+
+@router.get("/generate/progress")
+async def generation_progress(db: AsyncSession = Depends(get_db)):
+    """Stage, queue position and estimated time of this company's AI writing."""
+    return await gen_queue.progress(db)
+
+
+@router.get("/generate/paused")
+async def paused_generation(db: AsyncSession = Depends(get_db)):
+    """Writing paused because the company ran out of Post scheduler credits."""
+    rows = (await db.execute(select(SocialGenJob).where(SocialGenJob.state.in_(["paused", "image_paused"])))).scalars().all()
+    return {"jobs": len(rows), "posts": len({pid for j in rows for pid in (j.post_ids or [])})}
+
+
+@router.post("/generate/resume")
+async def resume_generation(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    """After a top-up: continue where the queue stopped ("continue") or drop what was waiting
+    and start afresh ("new"). Nothing paused was charged."""
+    action = str(payload.get("action") or "continue")
+    if action not in ("continue", "new"):
+        raise HTTPException(status_code=400, detail="action must be continue or new.")
+    rows = (await db.execute(select(SocialGenJob).where(SocialGenJob.state.in_(["paused", "image_paused"])))).scalars().all()
+    if not rows:
+        return {"status": "ok", "resumed": 0, "dropped": 0}
+    post_ids = [pid for j in rows for pid in (j.post_ids or [])]
+    if action == "new":
+        for j in rows:
+            j.state, j.error = "done", "cancelled"
+            await gen_queue.release_job(db, j.id)
+        await db.execute(update(SocialPost).where(SocialPost.id.in_(post_ids))
+                         .values(gen_state=None, gen_error=None).execution_options(synchronize_session=False))
+        await db.commit()
+        return {"status": "ok", "resumed": 0, "dropped": len(rows)}
+    from app.services.credits import can_start
+
+    ok, why = await can_start(db, "ai_image" if any(j.state == "image_paused" for j in rows) else "ai_post")
+    if not ok:
+        raise HTTPException(status_code=402, detail=why)
+    for j in rows:
+        image = j.state == "image_paused"
+        j.state = "image_queued" if image else "queued"
+        await db.execute(update(SocialPost).where(SocialPost.id.in_(j.post_ids or []))
+                         .values(gen_state="imaging" if image else "queued", gen_error=None).execution_options(synchronize_session=False))
+    await db.commit()
+    gen_queue.wake()
+    return {"status": "ok", "resumed": len(rows), "dropped": 0}
 
 
 @router.post("/generate/retry")
@@ -659,7 +633,7 @@ async def retry_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
     retried = 0
     for job in jobs:
         if ids & set(job.post_ids or []):
-            image_only = (job.error or "").startswith("Image:")
+            image_only = job.error == NO_IMAGE_AI or (job.error or "").startswith("Image:")
             job.state = "image_queued" if image_only else "queued"
             job.error = None
             job.attempts = 0
@@ -1328,23 +1302,27 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         await db.commit()
     if not (post.image_url or "").strip():
         from app.services.post_writer import create_topic_image_prompt
-        prefs = await _load_ai_settings(db)
         prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
-        try:
-            img = await generate_image_with_provider(
-                prompt=prompt,
-                style=prefs.get("imageStyle") or "modern_saas",
-                aspect_ratio=prefs.get("imageAspectRatio") or "4:5",
-                model=prefs.get("imageModel") or None,
-                provider=_auto_none(prefs.get("imageProvider")),
-                db=db,
-            )
-        except Exception:
-            logger.exception("Image generation before publish failed for %s", post.id)
-            img = {}
-        if img.get("imageUrl"):
+        from app.services import credits
+
+        # Drawn and charged like any AI image; with no credits left the post goes out without one.
+        ref = f"pubimg:{post.id}:{uuid.uuid4().hex[:8]}"
+        ok, _ = await credits.hold(db, [{"ref": ref, "item": "ai_image", "quantity": 1, "note": "AI image before publishing"}])
+        await db.commit()
+        img = {}
+        if ok:
+            try:
+                img = await asyncio.wait_for(_image_with_backup(db, {}, prompt), timeout=gen_queue.IMAGE_TIMEOUT_SECS)
+            except Exception:
+                logger.exception("Image generation before publish failed for %s", post.id)
+        hosted = _host_image(img["imageUrl"], request) if img.get("imageUrl") else None
+        if hosted:
             post.image_prompt = img.get("imagePrompt") or prompt
-            post.image_url = _host_image(img["imageUrl"], request)
+            post.image_url = hosted
+            await db.commit()
+            await credits.confirm_safely(db, ref, "ai_image", 1, "AI image before publishing")
+        elif ok:
+            await credits.release(db, [ref])
             await db.commit()
 
     bundled = await _publish_claimed(db, post, request)
@@ -1694,29 +1672,6 @@ def _calendar_lines(current_plan: Dict[str, Any], focus_id: str) -> str:
 async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
     prompt = payload.get("text") or payload.get("message") or ""
     messages = payload.get("messages") or []
-    text_ai = await _resolve_text_ai(db, payload)
-    api_key = text_ai["api_key"]
-    provider = text_ai["provider"]
-    model = text_ai["model"]
-    base_url = text_ai["base_url"]
-    if text_ai["error"]:
-        return {
-            "status": "error",
-            "reply": text_ai["error"],
-            "plan": None,
-            "posts": [],
-            "model": model,
-            "provider": provider,
-            "error": text_ai["error"],
-            "needsKey": True,
-        }
-
-    logger.info(
-        f"[Scheduler Chat] Incoming /chat-plan request: provider={provider}, model={model}, "
-        f"has_api_key={bool(api_key)}, key_len={len(api_key) if api_key else 0}, "
-        f"msgs_count={len(messages)}, prompt_snippet={prompt[:40]!r}"
-    )
-
     try:
         prof_res = await db.execute(select(CompanyProfile).limit(1))
         profile = prof_res.scalars().first()
@@ -1815,25 +1770,36 @@ Current calendar (id | date time | channel | status | headline):
 {_calendar_lines(current_plan if isinstance(current_plan, dict) else {}, focus_post_id)}
 """
 
-    try:
+    from app.services import platform_ai
+
+    async def attempt(slot: str) -> Dict[str, Any]:
+        ai = await _resolve_text_ai(db, None, slot)
+        if ai["error"]:
+            raise platform_ai.AIUnavailable(ai["error"])
         async with TEXT_SLOTS.slot(PRIORITY_INTERACTIVE):
-            llm_res = await call_open_chat_llm(
+            res = await call_open_chat_llm(
                 messages=chat_msgs,
                 system_prompt=system_prompt,
-                api_key=api_key,
-                provider=provider,
-                model=model,
-                base_url=base_url,
-                max_tokens=output_token_limit(provider, 6000),
+                api_key=ai["api_key"],
+                provider=ai["provider"],
+                model=ai["model"],
+                base_url=ai["base_url"],
+                max_tokens=output_token_limit(ai["provider"], 6000),
                 db=db,
             )
+        if not res.get("success", True) or res.get("error") or not (res.get("reply") or "").strip():
+            raise platform_ai.AIUnavailable(res.get("error") or "The writing AI returned an empty reply.")
+        return res
+
+    try:
+        llm_res = await platform_ai.run_with_backup(db, "text", attempt)
     except Exception as llm_err:
-        logger.error(f"[Scheduler Chat] Exception in call_open_chat_llm: {llm_err}")
-        llm_res = {
-            "success": False,
-            "error": str(llm_err),
-            "reply": f"⚠️ LLM Call Error: {llm_err}",
-        }
+        logger.error(f"[Scheduler Chat] writing AI failed on every configured engine: {llm_err}")
+        from app.services import ai_errors
+
+        msg = await ai_errors.failure(str(llm_err), "Plan AI chat")
+        return {"status": "error", "reply": msg, "plan": None, "posts": [], "error": "ai_unavailable",
+                "code": ai_errors.code_of(msg)}
 
     reply_raw = llm_res.get("reply", "")
     known_ids = {str(p.get("id")) for p in (current_plan.get("posts") or []) if isinstance(p, dict) and p.get("id")} if isinstance(current_plan, dict) else set()
@@ -1846,8 +1812,6 @@ Current calendar (id | date time | channel | status | headline):
             "plan": None,
             "posts": [],
             "error": "plan_cut_off",
-            "model": llm_res.get("model", model),
-            "provider": llm_res.get("provider", provider),
         }
     kept = await _protect_hand_edits(db, structured_plan, focus_post_id, _last_user_text(chat_msgs))
     reply_text = _spoken_reply(reply_raw, bool(structured_plan and structured_plan.get("posts")))
@@ -1864,7 +1828,5 @@ Current calendar (id | date time | channel | status | headline):
         "reply": reply_text,
         "plan": structured_plan,
         "posts": (structured_plan or {}).get("posts") or [],
-        "model": llm_res.get("model", model),
-        "provider": llm_res.get("provider", provider),
         "error": llm_res.get("error"),
     }

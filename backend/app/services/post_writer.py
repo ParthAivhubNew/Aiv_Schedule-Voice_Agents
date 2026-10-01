@@ -353,13 +353,14 @@ async def resolve_image_credentials(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Resolve the image engine.
+    """Resolve the image engine from OutReach's own keys (the platform record only).
 
     An explicitly chosen provider is honoured: "pollinations" stays free even when a paid
     key is saved, and "openai"/"stability"/"fal" use that provider's saved IMAGE key (OpenAI
     may also reuse the saved OpenAI LLM key - same account). Only when no provider is chosen
-    ("auto") does the first saved IMAGE connection, then OPENAI_API_KEY, then Pollinations win.
-    Never sends an xAI voice key to an image API.
+    ("auto") does the first saved IMAGE connection, then OPENAI_API_KEY, win. A chosen engine
+    without a key is reported as missing ("missing_key_for"); the free engine is never used
+    in its place. Never sends an xAI voice key to an image API.
     """
     from app.config import settings
     from sqlalchemy.future import select
@@ -384,7 +385,9 @@ async def resolve_image_credentials(
     openai_llm_key = ""
     if db is not None and not key:
         try:
-            res = await db.execute(select(Connection))
+            from app.core.platform import platform_org_id
+
+            res = await db.execute(select(Connection).where(Connection.org_id == platform_org_id()))
             for c in res.scalars().all():
                 cfg = c.config if isinstance(c.config, dict) else {}
                 k = config_get_secret(cfg, "api_key", "apiKey")
@@ -443,11 +446,8 @@ async def resolve_image_credentials(
     if prov and prov != "pollinations" and (key or (prov == "custom" and burl)):
         return {"provider": prov, "api_key": key, "model": mod, "base_url": burl}
 
-    # Chosen paid engine has no key: fall back to free, and say why.
-    result = {"provider": "pollinations", "api_key": "", "model": "", "base_url": ""}
-    if prov and prov != "pollinations":
-        result["missing_key_for"] = prov
-    return result
+    # The chosen engine (or, on automatic, any engine) has no key: report it, never swap engines.
+    return {"provider": prov or "", "api_key": "", "model": mod, "base_url": burl, "missing_key_for": prov or "image"}
 
 
 async def generate_image_with_provider(
@@ -484,10 +484,15 @@ async def generate_image_with_provider(
     h = int(height or def_h)
     fallback_warning = None
     if creds.get("missing_key_for"):
-        fallback_warning = (
-            f"No {creds['missing_key_for']} image key saved - used the free image engine. "
-            "Add the key in Accounts & AI."
-        )
+        return {
+            "status": "error",
+            "imageUrl": None,
+            "imagePrompt": clean_prompt,
+            "provider": prov,
+            "model": model,
+            "warning": f"No {creds['missing_key_for']} image key saved on the platform.",
+            "fallback": False,
+        }
 
     # 1. OpenAI (DALL-E 3 / gpt-image-1)
     if ("openai" in prov or "dall" in prov) and api_key and api_key.strip():
@@ -540,7 +545,7 @@ async def generate_image_with_provider(
             logger.warning(f"OpenAI image generation exception: {e}")
             fallback_warning = f"OpenAI image error ({e})"
     elif ("openai" in prov or "dall" in prov) and (not api_key or not api_key.strip()):
-        fallback_warning = "OpenAI/ChatGPT image key not found in Scheduler AI, Connections, or OPENAI_API_KEY."
+        fallback_warning = "No OpenAI image key saved on the platform."
 
     # 2. Stability AI (SDXL)
     elif ("stability" in prov or "sdxl" in prov) and api_key and api_key.strip():
@@ -579,12 +584,12 @@ async def generate_image_with_provider(
                             "height": sd_h
                         }
                 logger.warning(f"Stability AI generation returned {res.status_code}: {res.text[:200]}")
-                fallback_warning = f"Stability AI returned {res.status_code}. Switched to Pollinations FLUX."
+                fallback_warning = f"Stability AI returned {res.status_code}."
         except Exception as e:
             logger.warning(f"Stability AI image generation exception: {e}")
-            fallback_warning = f"Stability AI connection error ({e}). Switched to Pollinations FLUX."
+            fallback_warning = f"Stability AI connection error ({e})."
     elif ("stability" in prov or "sdxl" in prov) and (not api_key or not api_key.strip()):
-        fallback_warning = "Stability AI key not provided. Generated with Pollinations FLUX."
+        fallback_warning = "Stability AI key not provided."
 
     # 3. Fal.ai (FLUX.1 Pro / Schnell)
     elif "fal" in prov and api_key and api_key.strip():
@@ -615,12 +620,12 @@ async def generate_image_with_provider(
                             "width": w,
                             "height": h
                         }
-                fallback_warning = f"Fal.ai returned {res.status_code}. Switched to Pollinations FLUX."
+                fallback_warning = f"Fal.ai returned {res.status_code}."
         except Exception as e:
             logger.warning(f"Fal.ai image generation exception: {e}")
-            fallback_warning = f"Fal.ai connection error ({e}). Switched to Pollinations FLUX."
+            fallback_warning = f"Fal.ai connection error ({e})."
     elif "fal" in prov and (not api_key or not api_key.strip()):
-        fallback_warning = "Fal.ai key not provided. Generated with Pollinations FLUX."
+        fallback_warning = "Fal.ai key not provided."
 
     # 4. Custom endpoint (Automatic1111 / Comfy / OpenAI-compatible gpt-image)
     elif "custom" in prov and (base_url or "").strip():
@@ -704,18 +709,18 @@ async def generate_image_with_provider(
     else:
         fallback_warning = fallback_warning
 
-    if paid:
+    if paid or prov != "pollinations":
         return {
             "status": "error",
             "imageUrl": None,
             "imagePrompt": clean_prompt,
             "provider": prov,
             "model": model,
-            "warning": fallback_warning or f"{prov} image generation failed. Pollinations was not used because a paid image key is configured.",
+            "warning": fallback_warning or f"{prov or 'The image'} engine did not return an image.",
             "fallback": False,
         }
 
-    # Free fallback only when no ChatGPT/OpenAI (or other paid) image key exists
+    # Pollinations, only when staff chose it as the image engine.
     fallback_url = generate_image_url(clean_prompt, style=style, width=w, height=h, aspect_ratio=aspect_ratio)
     image_url = fallback_url
     try:
@@ -738,11 +743,8 @@ async def generate_image_with_provider(
         "aspect_ratio": aspect_ratio,
         "width": w,
         "height": h,
-        "fallback": True,
-        "warning": fallback_warning or (
-            None if _image_provider_id(provider) == "pollinations"
-            else "No OpenAI/ChatGPT image key saved — used free Pollinations."
-        ),
+        "fallback": False,
+        "warning": None,
     }
     return resp
 

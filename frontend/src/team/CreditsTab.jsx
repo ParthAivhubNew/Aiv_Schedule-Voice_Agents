@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CalendarDays, Coins, CreditCard, ExternalLink, Mail, PhoneCall, Search } from "lucide-react";
+import { AlertTriangle, CalendarDays, Coins, CreditCard, Download, ExternalLink, Mail, PhoneCall, Search } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { APPS } from "../hub/apps";
@@ -127,7 +127,9 @@ export function CreditsTab() {
       )}
       {error && <div role="alert" style={{ color: C.red, fontSize: 12.5, marginTop: 8 }}>{error}</div>}
 
-      <div style={heading}>History</div>
+      <MonthlyUsage wallets={data.wallets} />
+
+      <div style={heading}>Latest changes</div>
       {data.history.length === 0 ? (
         <div style={{ fontSize: 13, color: C.slate }}>Nothing yet.</div>
       ) : (
@@ -143,5 +145,94 @@ export function CreditsTab() {
         </div>
       )}
     </div>
+  );
+}
+
+const csvCell = (v) => {
+  const t = String(v ?? "");
+  const safe = /^[=+\-@]/.test(t) ? `'${t}` : t; // never a spreadsheet formula
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+};
+
+// One month of the company's credits: use per item and per day, every line, and a spreadsheet.
+function MonthlyUsage({ wallets }) {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [wallet, setWallet] = useState("");
+  const [usage, setUsage] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    setError("");
+    api.getCreditUsage(month, wallet).then((u) => live && setUsage(u), (err) => live && setError(err.message));
+    return () => { live = false; };
+  }, [month, wallet]);
+
+  const names = Object.fromEntries(wallets.map((w) => [w.key, w.label]));
+  const download = () => {
+    const rows = [["When (UTC)", "App", "Kind", "Item", "Quantity", "Credits", "Note", "By"],
+      ...usage.entries.map((e) => [e.at, names[e.wallet] || e.wallet, e.kind, e.item, e.quantity, e.amount, e.note, e.by])];
+    const blob = new Blob([rows.map((r) => r.map(csvCell).join(",")).join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `outreach-credits-${month}${wallet ? `-${wallet}` : ""}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const peak = Math.max(1, ...(usage?.days || []).map((d) => d.credits));
+  const cell = { padding: "7px 12px", borderTop: `1px solid ${C.border}`, fontSize: 12.5 };
+  return (
+    <>
+      <div style={{ ...heading, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span>Usage by month</span>
+        <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input type="month" aria-label="Month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} style={input} />
+          <select aria-label="App" value={wallet} onChange={(e) => setWallet(e.target.value)} style={input}>
+            <option value="">All apps</option>
+            {wallets.map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
+          </select>
+          <button type="button" style={btn(false, !usage?.entries.length)} disabled={!usage?.entries.length} onClick={download}><Download size={13} /> Spreadsheet</button>
+        </span>
+      </div>
+      {error && <div role="alert" style={{ color: C.red, fontSize: 12.5 }}>{error}</div>}
+      {usage && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 10 }}>
+            {[["Used", usage.totals.used], ["Added", usage.totals.added], ["Expired", usage.totals.expired]].map(([k, v]) => (
+              <div key={k} style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ fontSize: 12, color: C.slate, fontWeight: 600 }}>{k}</div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>{fmt(v)}</div>
+              </div>
+            ))}
+          </div>
+          {usage.days.length > 0 && (
+            <div aria-label="Credits used per day" style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 70, padding: "0 2px", marginBottom: 10, borderBottom: `1px solid ${C.border}` }}>
+              {usage.days.map((d) => (
+                <div key={d.day} title={`${d.day}: ${fmt(d.credits)} credits`} style={{ flex: 1, minWidth: 3, maxWidth: 18, height: `${Math.max(4, (d.credits / peak) * 100)}%`, background: WALLET_COLOUR[wallet] || C.cobalt, borderRadius: "3px 3px 0 0" }} />
+              ))}
+            </div>
+          )}
+          {usage.items.length === 0 ? (
+            <div style={{ fontSize: 13, color: C.slate }}>Nothing used this month.</div>
+          ) : (
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 360 }}>
+                <thead><tr>{["What", "App", "How many", "Credits"].map((h) => <th key={h} style={{ ...cell, borderTop: "none", textAlign: "left", fontSize: 11, color: C.slate, textTransform: "uppercase" }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {usage.items.map((it) => (
+                    <tr key={it.item}>
+                      <td style={cell}>{it.label}</td>
+                      <td style={{ ...cell, color: WALLET_COLOUR[it.wallet] || C.slate, fontWeight: 600 }}>{names[it.wallet] || it.wallet}</td>
+                      <td style={{ ...cell, fontFamily: FONT_MONO }}>{fmt(it.units)} {it.unit}{it.units === 1 || !it.unit || it.unit.includes(" ") ? "" : "s"}</td>
+                      <td style={{ ...cell, fontFamily: FONT_MONO }}>{fmt(it.credits)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </>
   );
 }

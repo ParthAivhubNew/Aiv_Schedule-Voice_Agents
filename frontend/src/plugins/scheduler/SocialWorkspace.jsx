@@ -35,7 +35,6 @@ import { NAV_TEXT,
   HUB_PAPER,
 } from "../../tokens";
 import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
-import { SchedulerAiPanel } from "./SchedulerAiPanel";
 import { ScheduleWindow } from "./ScheduleWindow";
 import { useEscapeLayer } from "./escapeLayers";
 import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
@@ -95,6 +94,63 @@ function queueProgress(p) {
   if (p.genState === "writing") return { pct: 45, label: "Writing the caption…" };
   if (p.genState === "imaging") return { pct: 80, label: "Creating the image…" };
   return null;
+}
+
+// The AI queue paused because Post scheduler credits ran out. Nothing paused was charged.
+function CreditsPaused({ count, reason, busy, onContinue, onStartNew, onTopUp }) {
+  if (!count) return null;
+  const b = (primary) => ({ height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.red}`, background: primary ? C.red : "#fff", color: primary ? "#fff" : C.red, fontWeight: 700, fontSize: 12, cursor: busy ? "wait" : "pointer" });
+  return (
+    <div role="alert" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "10px 16px 0", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.red}`, background: "#FFF5F5", fontSize: 12.5, color: C.red }}>
+      <span style={{ flex: "1 1 260px", minWidth: 0 }}>
+        <b>AI writing paused.</b> {reason || "Out of Post scheduler credits."} {count} post{count === 1 ? "" : "s"} waiting; nothing was charged for them.
+      </span>
+      {onTopUp ? <button type="button" style={b(false)} onClick={onTopUp}>Top up</button> : <span>Ask your admin to top up.</span>}
+      <button type="button" style={b(true)} disabled={busy} onClick={onContinue}>Continue where it stopped</button>
+      <button type="button" style={b(false)} disabled={busy} onClick={onStartNew}>Start new</button>
+    </div>
+  );
+}
+
+const etaText = (secs) => {
+  if (!secs) return "";
+  if (secs < 60) return "under a minute left";
+  const m = Math.round(secs / 60);
+  return `about ${m} minute${m === 1 ? "" : "s"} left`;
+};
+
+// What the AI writer is doing for each batch the user asked for: stage, place in the queue,
+// time left and a rotating tip. Writing carries on if the user leaves the page.
+function BatchProgress({ batches, tips }) {
+  const [tip, setTip] = useState(0);
+  const live = (batches || []).filter((b) => b.active && !b.paused);
+  useEffect(() => {
+    if (!live.length || !(tips || []).length) return undefined;
+    const t = window.setInterval(() => setTip((n) => n + 1), 7000);
+    return () => window.clearInterval(t);
+  }, [live.length, tips]);
+  if (!live.length) return null;
+  return (
+    <div role="status" aria-live="polite" style={{ margin: "10px 16px 0", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, display: "grid", gap: 8 }}>
+      {live.map((b) => {
+        const pct = b.total ? Math.round(((b.written + b.done) / (2 * b.total)) * 100) : 0;
+        return (
+          <div key={b.batch} style={{ display: "grid", gap: 5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <b style={{ color: C.textInk }}>{b.stage}</b>
+              <span style={{ color: C.slate }}>
+                {[b.queuePosition ? `Place in queue: ${b.queuePosition}` : "", etaText(b.etaSeconds)].filter(Boolean).join(" · ")}
+              </span>
+            </div>
+            <div style={{ height: 6, borderRadius: 99, background: C.paperSoft, overflow: "hidden" }}>
+              <div style={{ width: `${Math.max(4, pct)}%`, height: "100%", background: C.cobalt, transition: "width .6s ease" }} />
+            </div>
+          </div>
+        );
+      })}
+      {(tips || []).length ? <div style={{ color: C.slate, fontSize: 11.5 }}>Tip: {tips[tip % tips.length]}</div> : null}
+    </div>
+  );
 }
 
 function GenFailed({ post, onRetry }) {
@@ -1115,7 +1171,7 @@ function ApprovalsBoard({
                   {expandedPost.status === "failed" ? (
                     <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
                       <strong>Publishing failed.</strong> {expandedPost.lastError || "The network rejected the post."}
-                      <div style={{ color: C.slate, marginTop: 4 }}>Fix the cause (usually Accounts & AI → Reconnect), then Retry. It will not retry by itself.</div>
+                      <div style={{ color: C.slate, marginTop: 4 }}>Fix the cause (usually Accounts → Reconnect), then Retry. It will not retry by itself.</div>
                     </div>
                   ) : null}
                   <div style={{
@@ -2041,7 +2097,6 @@ function SimpleAccountsPage({
   setProfile,
   knowledgeSources,
   setKnowledgeSources,
-  platformOrg,
 }) {
   const [oauthApps, setOauthApps] = useState([]);
   const [setupPlat, setSetupPlat] = useState("linkedin");
@@ -2125,7 +2180,7 @@ function SimpleAccountsPage({
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Accounts & AI</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Accounts</div>
         <div style={{ fontSize: 13, color: C.slate, marginBottom: 20, lineHeight: 1.45 }}>
           1. Connect the networks you post to. 2. Choose the AI that writes and draws. 3. Tell it about your company.
           Everything here is saved on the server, so it works in any browser and posts go out even when this tab is closed.
@@ -2206,9 +2261,6 @@ function SimpleAccountsPage({
             );
           })}
         </div>
-
-        {/* AI keys and models are run by OutReach for client organisations. */}
-        {platformOrg && <SchedulerAiPanel showToast={showToast} />}
 
         <SimpleCompanyKnowledge
           profile={profile}
@@ -2756,6 +2808,9 @@ export function SocialWorkspace({
       groups.push({ lead: p, ids });
     });
     const allIds = groups.flatMap((g) => g.ids);
+    try {  // so we can tell them when a long batch is done while they are elsewhere
+      if (allIds.length > 1 && "Notification" in window && window.Notification.permission === "default") window.Notification.requestPermission();
+    } catch (_) { /* not supported */ }
     setPosts((ps) => ps.map((row) => (allIds.includes(row.id) ? { ...row, enriching: false, genState: "queued", genError: "" } : row)));
     const rows = allIds.map((id) => postsRef.current.find((r) => r.id === id) || seeds.find((r) => r.id === id)).filter(Boolean);
     await Promise.all(rows.map((r) => persistPost({ ...r, genState: "queued" })));
@@ -2783,7 +2838,7 @@ export function SocialWorkspace({
     } catch (e) {
       const msg = e.message || "Could not queue the writer.";
       showToast(msg);
-      if (/key saved|Accounts & AI/i.test(msg)) setPage("accounts");
+      if (/key saved|Accounts/i.test(msg)) setPage("accounts");
       setPosts((ps) => ps.map((row) => (allIds.includes(row.id) ? { ...row, genState: "failed", genError: msg } : row)));
     } finally {
       setCopyBusy((cur) => (allIds.includes(cur) ? "" : cur));
@@ -2800,6 +2855,21 @@ export function SocialWorkspace({
     }
   };
 
+  const pausedPosts = posts.filter((p) => p.genState === "paused");
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const resumeGeneration = async (action) => {
+    setResumeBusy(true);
+    try {
+      const r = await api.resumeGeneration(action);
+      showToast(action === "new" ? `Cleared ${r.dropped} waiting job${r.dropped === 1 ? "" : "s"}. Start a new plan when ready.` : "Carrying on where it stopped.");
+      refreshPosts();
+    } catch (e) {
+      showToast(e.message || "Could not continue.");
+    } finally {
+      setResumeBusy(false);
+    }
+  };
+
   // While anything is queued or being written, pull fresh copies from the server.
   const genActive = posts.some((p) => ["queued", "writing", "imaging"].includes(p.genState));
   useEffect(() => {
@@ -2807,6 +2877,40 @@ export function SocialWorkspace({
     const t = window.setInterval(() => { refreshPosts(); }, 2500);
     return () => window.clearInterval(t);
   }, [genActive, refreshPosts]);
+
+  // Progress of each batch, and a pop-up (plus a browser notification when the tab is hidden)
+  // when one finishes. Batches that finished before this page opened are not announced.
+  const [batchProgress, setBatchProgress] = useState({ batches: [], tips: [] });
+  const announcedRef = useRef(null);
+  useEffect(() => {
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await api.generationProgress();
+        if (stop || !r) return;
+        const batches = r.batches || [];
+        if (announcedRef.current === null) {
+          announcedRef.current = new Set(batches.filter((b) => !b.active).map((b) => b.batch));
+        }
+        batches.filter((b) => !b.active && !announcedRef.current.has(b.batch)).forEach((b) => {
+          announcedRef.current.add(b.batch);
+          const text = `AI writing finished: ${b.done} of ${b.total} post${b.total === 1 ? "" : "s"} ready`
+            + (b.failed ? `, ${b.failed} failed (${(b.codes || []).join(", ") || "see the posts"})` : "") + ".";
+          showToast(text);
+          try {
+            if (typeof window !== "undefined" && "Notification" in window && window.Notification.permission === "granted" && document.hidden) {
+              new window.Notification("OutReach Post scheduler", { body: text });
+            }
+          } catch (_) { /* browser notifications are a bonus */ }
+        });
+        setBatchProgress({ batches, tips: r.tips || [] });
+      } catch (_) { /* progress is a convenience; the posts still update */ }
+    };
+    load();
+    if (!genActive) return () => { stop = true; };
+    const t = window.setInterval(load, 3000);
+    return () => { stop = true; window.clearInterval(t); };
+  }, [genActive]);
 
   const unpinDate = (key, e) => {
     if (e) {
@@ -3094,7 +3198,7 @@ export function SocialWorkspace({
       if (!opts.quiet) {
         if (res && res.alreadyPublished) showToast("Already posted.");
         else if (ok && res.allOk === false) showToast("Posted, but some channels failed: " + (res.error || "see the post"));
-        else showToast(ok ? "Posted." : "Publish failed: " + ((res && res.error) || "check Accounts & AI"));
+        else showToast(ok ? "Posted." : "Publish failed: " + ((res && res.error) || "check Accounts"));
       }
       return { ok, status: ok ? "posted" : "failed", reason: ok ? undefined : "publish" };
     } catch (e) {
@@ -3726,7 +3830,7 @@ export function SocialWorkspace({
           }}
         >
           <Plug size={15} />
-          <span>Accounts & AI</span>
+          <span>Accounts</span>
         </button>
         {operator?.is_admin && (
           <button
@@ -3764,6 +3868,10 @@ export function SocialWorkspace({
       </div>
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
+          onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
+          onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />
+        <BatchProgress batches={batchProgress.batches} tips={batchProgress.tips} />
         {page === "accounts" ? (
           <SimpleAccountsPage
             accounts={accounts}
@@ -3775,7 +3883,6 @@ export function SocialWorkspace({
             setProfile={setProfile}
             knowledgeSources={knowledgeSources}
             setKnowledgeSources={setKnowledgeSources}
-            platformOrg={Boolean(operator?.is_platform_org)}
           />
         ) : page === "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
@@ -4159,7 +4266,7 @@ export function SocialWorkspace({
                     ) : null}
                     {m.kind === "needsKey" && !editing ? (
                       <button type="button" onClick={() => { setApprovalOpen(false); setPage("accounts"); }} style={{ ...secBtn, marginTop: 6, height: 28, fontSize: 11 }}>
-                        Open Accounts & AI
+                        Open Accounts
                       </button>
                     ) : null}
                   </div>

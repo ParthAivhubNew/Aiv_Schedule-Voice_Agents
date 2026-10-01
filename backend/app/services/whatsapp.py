@@ -1,9 +1,9 @@
-"""WhatsApp through Telnyx on the organisation's own numbers: inbox, AI replies, human replies.
+"""WhatsApp through Telnyx on the organisation's own numbers: inbox and replies by people.
 
 WhatsApp's rule: a free-form message can only be sent within 24 hours of the contact's last
 message. Outside that window only an approved template may be sent.
-AI replies use the company profile and FAQs; when the contact asks for a person (or the AI is
-unsure) it hands over: AI stops on that conversation and admins are told.
+WhatsApp is part of the Voice app and runs only on Telnyx. Auto-replies are off: OutReach's own
+AI never answers WhatsApp (see tell_admins).
 """
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from app.services.telnyx_client import TelnyxError
 logger = logging.getLogger("whatsapp")
 
 WINDOW = timedelta(hours=24)
-HANDOVER_TAG = "[HANDOVER]"
 _E164 = re.compile(r"\+?\d{8,15}")
 
 
@@ -140,78 +139,25 @@ async def update_status(db, telnyx_id: str, status: str, error: str = "") -> Non
                 msg.error = error[:500]
 
 
-# ── AI replies ─────────────────────────────────────────────────────────────
-async def _context(db) -> str:
-    from app.models.models import FAQ, CompanyProfile
-
-    prof = (await db.execute(select(CompanyProfile))).scalars().first()
-    faqs = (await db.execute(select(FAQ).limit(30))).scalars().all()
-    parts = []
-    if prof:
-        parts.append(f"Company: {prof.name}. {prof.pitch or ''}".strip())
-        if getattr(prof, "website", ""):
-            parts.append(f"Website: {prof.website}")
-    for f in faqs:
-        q, a = getattr(f, "question", "") or getattr(f, "q", ""), getattr(f, "answer", "") or getattr(f, "a", "")
-        if q and a:
-            parts.append(f"Q: {q}\nA: {a}")
-    return "\n\n".join(parts)[:6000]
-
-
-async def ai_reply(db, thread) -> Optional[Any]:
-    """Write and send the AI's reply to the latest message. Returns the sent message or None."""
-    from app.models.models import WhatsappMessage
-    from app.services.llm_gateway import call_open_chat_llm
-
-    history = (await db.execute(select(WhatsappMessage).where(WhatsappMessage.thread_id == thread.id)
-                                .order_by(WhatsappMessage.created_at.desc()).limit(12))).scalars().all()
-    history = list(reversed(history))
-    msgs = [{"role": "user" if m.direction == "inbound" else "assistant", "content": m.text or ""} for m in history if m.text]
-    system = (
-        "You reply to WhatsApp messages on behalf of the business below. Be brief (1-3 short sentences), friendly and "
-        "accurate. Only use the facts given; never invent prices, dates or promises. If the person asks for a human, "
-        f"complains, or you cannot answer from the facts, reply that a colleague will get back to them and end with {HANDOVER_TAG}.\n\n"
-        + (await _context(db))
-    )
-    res = await call_open_chat_llm(messages=msgs, system_prompt=system, temperature=0.4, max_tokens=300, db=db)
-    reply = (res or {}).get("reply") or ""
-    if not (res or {}).get("success") or not reply.strip():
-        return None
-    handover = HANDOVER_TAG in reply
-    reply = reply.replace(HANDOVER_TAG, "").strip()
-    sent = await send(db, thread, text=reply, sender="ai", sender_name="AI") if reply else None
-    if handover:
-        thread.ai_enabled = False
-        try:
-            from app.core.notify import notify
-            from app.config import settings
-
-            await notify("whatsapp_message", f"WhatsApp: {thread.contact_name or thread.contact_number} needs a person",
-                         [f"The AI handed this conversation over. Last message: “{(history[-1].text if history else '')[:200]}”"],
-                         {"label": "Open WhatsApp", "url": (settings.PUBLIC_BASE_URL or "").rstrip("/") + "/voice/whatsapp"})
-        except Exception:
-            pass
-    return sent
-
-
-def schedule_ai_reply(org_id: str, thread_id: str) -> None:
-    """Reply in the background so the webhook answers Telnyx at once."""
+# ── New messages: a person replies ──────────────────────────────────────────
+# Auto-replies are off: OutReach's own AI is never used for WhatsApp. Telnyx's AI assistant is
+# the only AI WhatsApp may use, once it is confirmed for WhatsApp on these numbers; until then
+# the company's admins are told about each conversation with something new to read.
+def tell_admins(thread, text: str) -> None:
+    """Email admins (whatsapp_message) when a conversation gets its first unread message."""
+    if (thread.unread or 0) != 1:
+        return  # already waiting for someone: no email per message
 
     async def run():
-        from app.core.tenancy import org_scope
-        from app.database import AsyncSessionLocal
-        from app.models.models import WhatsappThread
-
-        await asyncio.sleep(1.2)  # people often send two messages in a row
         try:
-            with org_scope(org_id):
-                async with AsyncSessionLocal() as db:
-                    t = (await db.execute(select(WhatsappThread).where(WhatsappThread.id == thread_id))).scalars().first()
-                    if t and t.ai_enabled:
-                        await ai_reply(db, t)
-                        await db.commit()
+            from app.config import settings
+            from app.core.notify import notify
+
+            await notify("whatsapp_message", f"WhatsApp from {thread.contact_name or thread.contact_number}",
+                         [f"“{(text or '')[:200]}”", "Auto-replies are off. Reply in the WhatsApp inbox."],
+                         {"label": "Open WhatsApp", "url": (settings.PUBLIC_BASE_URL or "").rstrip("/") + "/voice/whatsapp"})
         except Exception as err:
-            logger.warning(f"[whatsapp] AI reply failed: {err}")
+            logger.warning(f"[whatsapp] could not tell admins: {err}")
 
     try:
         asyncio.get_running_loop().create_task(run())

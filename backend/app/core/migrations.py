@@ -135,6 +135,25 @@ async def _platform_split(conn: AsyncConnection) -> None:
     await split_platform(conn)
 
 
+async def _ai_keys_owner_only(conn: AsyncConnection) -> None:
+    """AI keys belong to OutReach only. Aivhub's AI keys move to the platform record (unless the
+    platform already has one by that name); every other company's own AI keys are switched off
+    (kept, never used: the AI resolvers read the platform record only)."""
+    from app.core.platform import AIVHUB_ORG, platform_org_id
+
+    platform = platform_org_id()
+    if platform != AIVHUB_ORG:
+        await conn.execute(text(
+            "UPDATE connections SET org_id = :p WHERE org_id = :a AND group_name IN ('LLM', 'IMAGE') "
+            "AND lower(name) NOT IN (SELECT lower(name) FROM connections WHERE org_id = :p AND group_name IN ('LLM', 'IMAGE'))"),
+            {"p": platform, "a": AIVHUB_ORG})
+    off = await conn.execute(text(
+        "UPDATE connections SET status = 'disabled_by_platform' "
+        "WHERE org_id <> :p AND group_name IN ('LLM', 'IMAGE') AND coalesce(status, '') <> 'disabled_by_platform'"),
+        {"p": platform})
+    logger.info(f"[migrations] switched off {off.rowcount} company-owned AI keys")
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -147,6 +166,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_06_agent_studio", _agent_studio),
     ("2026_10_07_call_takeover", _call_takeover),
     ("2026_10_08_platform_split", _platform_split),
+    ("2026_10_09_ai_keys_owner_only", _ai_keys_owner_only),
 ]
 
 

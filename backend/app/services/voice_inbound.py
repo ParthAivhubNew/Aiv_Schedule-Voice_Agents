@@ -44,9 +44,24 @@ async def handle_incoming(body: Dict[str, Any]) -> Dict[str, Any]:
                                                                OrgPhoneNumber.status == "active"))).scalars().first()
         if number is None:  # not a number of this organisation: leave the call alone
             return {"status": "ignored", "reason": "unknown number"}
+        call_id = f"call_{uuid.uuid4().hex[:8]}"
+        # Prepaid: with no minutes left the number does not answer (the caller hears busy);
+        # otherwise the call holds the minutes left and is hung up when they run out.
+        from app.services.credits import reserve_call
+
+        allowed, why, time_limit = await reserve_call(db, call_id)
+        if not allowed:
+            await db.commit()
+            client = await VA._client(db)
+            try:
+                await client._req("POST", f"/calls/{ccid}/actions/reject", json={"cause": "USER_BUSY"})
+            except Exception as err:
+                logger.warning(f"[inbound] could not refuse {ccid}: {err}")
+            logger.info(f"[inbound] {number.e164}: not answered, out of call minutes")
+            return {"status": "refused", "reason": why}
+        await db.commit()
         owner = await VA.owner_of_number(db, ours)
         assistant = await VA.assistant_for(db, owner)
-        call_id = f"call_{uuid.uuid4().hex[:8]}"
         label = f"Caller ({caller[-4:]})" if caller else "Caller"
         variables = await VA.build_brief(db, call_id=call_id, direction="inbound", operator_id=owner,
                                          assistant_row_id=assistant.id, phone=caller, our_number=number.e164)
@@ -63,12 +78,19 @@ async def handle_incoming(body: Dict[str, Any]) -> Dict[str, Any]:
                                  webhook_url=f"{public_http_base()}/api/telnyx-assistant/call-control",
                                  record=variables.get("recorded") == "yes")
     except Exception:
+        from app.services.credits import CALL_HOLD, release
+
         async with AsyncSessionLocal() as db:
             rec = (await db.execute(select(LiveCall).where(LiveCall.id == call_id))).scalars().first()
             if rec:
                 rec.state, rec.ended = "failed", True
-                await db.commit()
+            await release(db, [f"{CALL_HOLD}{call_id}"])
+            await db.commit()
         raise
+    if time_limit:
+        from app.services.call_limits import watch
+
+        watch(ccid, time_limit, client.api_key, hang_up=True, assistant=True)
     register_outbound(ccid, call_id=call_id, to_number=caller, prospect=label, assistant_id=assistant.telnyx_assistant_id)
     await call_hub.broadcast("call_started", {"callId": call_id, "id": call_id, "prospect": label, "state": "calling",
                                               "duration": "00:00", "mission": "Inbound call", "channel": "voice", "ended": False})

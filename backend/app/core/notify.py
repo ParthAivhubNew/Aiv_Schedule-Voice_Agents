@@ -19,6 +19,7 @@ EVENTS = [
     ("meeting_booked", "A meeting is booked", "admins"),
     ("call_needs_review", "A call needs a person to follow up", "admins"),
     ("posts_awaiting_approval", "Posts are waiting for approval", "admins"),
+    ("posts_ready", "AI writing I started has finished (when it took a while and I'd left)", "everyone"),
     ("low_credits", "Credits are running low", "admins"),
     ("numbers", "Phone numbers and business verification updates", "admins"),
     ("whatsapp_message", "A WhatsApp message needs a person to reply", "admins"),

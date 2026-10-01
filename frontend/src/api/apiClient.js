@@ -131,6 +131,22 @@ export async function apiRequest(endpoint, options = {}) {
   return executeFetch();
 }
 
+// Low call minutes: the server warns before a call (or list) that may be cut short. The user
+// can call anyway; the call then ends when the minutes run out, with a wrap-up a minute before.
+const confirmShortCall = (send) => async (payload) => {
+  try {
+    return await send(payload);
+  } catch (e) {
+    if (e.code !== 'LOW_MINUTES' || typeof window === 'undefined') throw e;
+    if (!window.confirm(e.message)) {
+      const stop = new Error('Call not placed. Top up Voice credits in Plans & credits for longer calls.');
+      stop.code = 'CANCELLED';
+      throw stop;
+    }
+    return send({ ...payload, accept_capped: true });
+  }
+};
+
 export const api = {
   // Auth & Team
   login: async (username, password) => {
@@ -177,6 +193,7 @@ export const api = {
   patchWaThread: (id, data) => apiRequest(`/wa/threads/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
   startWaThread: (data) => apiRequest('/wa/threads', { method: 'POST', body: data }),
   getBillingOverview: () => apiRequest('/billing/overview'),
+  getCreditUsage: (month, wallet = '') => apiRequest(`/credits/usage?month=${encodeURIComponent(month)}&wallet=${encodeURIComponent(wallet)}`),
   startCheckout: (plans, topups, back = '/', quantities = {}) => apiRequest('/billing/checkout', { method: 'POST', body: { plans, topups, back, quantities } }),
   openBillingPortal: (back = '/') => apiRequest('/billing/portal', { method: 'POST', body: { back } }),
   getLivePlans: () => apiRequest('/billing/subscriptions'),
@@ -223,8 +240,8 @@ export const api = {
   handBackCall: (callId, note = '') => apiRequest(`/calls/live/${callId}/handback`, { method: 'POST', body: { note } }),
   confirmBooking: (callId) => apiRequest(`/calls/live/${callId}/confirm-booking`, { method: 'POST' }),
   getCallLogs: () => apiRequest('/calls/logs'),
-  dialOutbound: (payload) => apiRequest('/calls/outbound/dial', { method: 'POST', body: payload }),
-  dialOutboundBatch: (payload) => apiRequest('/calls/outbound/batch', { method: 'POST', body: payload }),
+  dialOutbound: confirmShortCall((payload) => apiRequest('/calls/outbound/dial', { method: 'POST', body: payload })),
+  dialOutboundBatch: confirmShortCall((payload) => apiRequest('/calls/outbound/batch', { method: 'POST', body: payload })),
   getCarrierPlugins: () => apiRequest('/calls/outbound/carriers'),
 
   // LiveKit WebRTC Voice Engine
@@ -255,6 +272,13 @@ export const api = {
   saveAgentStudioMe: (data) => apiRequest('/voice-studio/me', { method: 'PUT', body: data }),
   saveAgentStudioCompany: (data) => apiRequest('/voice-studio/company', { method: 'PUT', body: data }),
   setCampaignScript: (missionId, templateId) => apiRequest(`/voice-studio/campaigns/${encodeURIComponent(missionId)}`, { method: 'PUT', body: { templateId } }),
+  addVoiceClone: ({ file, name, language, gender, consent, refText = '' }) => {
+    const form = new FormData();
+    form.append('audio', file);
+    Object.entries({ name, language, gender, consent: consent ? 'true' : 'false', refText }).forEach(([k, v]) => form.append(k, v));
+    return apiRequest('/voice-studio/clones', { method: 'POST', body: form, timeoutMs: 120000 });
+  },
+  deleteVoiceClone: (id) => apiRequest(`/voice-studio/clones/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   agentStudioTestCall: (templateId = '') => apiRequest('/voice-studio/test-call', { method: 'POST', body: { templateId }, timeoutMs: 30000 }),
   getSources: () => apiRequest('/profile/sources'),
   addSource: (source) => apiRequest('/profile/sources', { method: 'POST', body: source }),
@@ -284,7 +308,7 @@ export const api = {
   updateConnectionConfig: (payload) => apiRequest('/connections/update-config', { method: 'POST', body: payload }),
   getTelnyxAssistantSettings: () => apiRequest('/connections/telnyx-assistant-settings'),
   saveTelnyxAssistantSettings: (payload) => apiRequest('/connections/telnyx-assistant-settings', { method: 'POST', body: payload }),
-  dialViaTelnyxAssistant: (payload) => apiRequest('/telnyx-assistant/dial', { method: 'POST', body: payload, timeoutMs: 15000 }),
+  dialViaTelnyxAssistant: confirmShortCall((payload) => apiRequest('/telnyx-assistant/dial', { method: 'POST', body: payload, timeoutMs: 15000 })),
   resetDemoData: () => apiRequest('/connections/reset-demo-data', { method: 'POST' }),
   getTelephonyHub: () => apiRequest('/connections/telephony-hub'),
   provisionTelephonyHub: (payload) => apiRequest('/connections/telephony-hub/provision', { method: 'POST', body: payload }),
@@ -326,6 +350,8 @@ export const api = {
   }),
   queueGeneration: (payload) => apiRequest('/scheduler/generate', { method: 'POST', body: payload }),
   retryGeneration: (payload) => apiRequest('/scheduler/generate/retry', { method: 'POST', body: payload }),
+  generationProgress: () => apiRequest('/scheduler/generate/progress', { timeoutMs: 10000 }),
+  resumeGeneration: (action) => apiRequest('/scheduler/generate/resume', { method: 'POST', body: { action } }),
   getApprovalStatus: () => apiRequest('/scheduler/approval/status'),
   resendApprovalEmails: () => apiRequest('/scheduler/approval/resend', { method: 'POST' }),
   listSchedules: () => apiRequest('/scheduler/schedules'),
@@ -340,9 +366,6 @@ export const api = {
   getSocialOauthApps: () => apiRequest('/scheduler/oauth/apps'),
   saveSocialOauthApp: (payload) => apiRequest('/scheduler/oauth/apps', { method: 'POST', body: payload }),
   startSocialOauth: (platform, frontend) => apiRequest(`/scheduler/oauth/${platform}/start${frontend ? `?frontend=${encodeURIComponent(frontend)}` : ''}`),
-  getSchedulerAiSettings: () => apiRequest('/scheduler/ai-settings'),
-  saveSchedulerAiSettings: (payload) => apiRequest('/scheduler/ai-settings', { method: 'POST', body: payload }),
-  testSchedulerAiSettings: () => apiRequest('/scheduler/ai-settings/test', { method: 'POST', timeoutMs: 30000 }),
 
   // Dedicated Process Logs (Multi-Subsystem)
   getCompliance: () => apiRequest('/profile/compliance'),

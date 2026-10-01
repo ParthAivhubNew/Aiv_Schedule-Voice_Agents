@@ -179,8 +179,28 @@ async def ensure_tenancy(conn: AsyncConnection) -> None:
     if await _table_exists(conn, "voices"):
         await conn.execute(text("ALTER TABLE voices DROP CONSTRAINT IF EXISTS uq_voices_provider_voice"))
         await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_voices_org_provider_voice ON voices (org_id, provider, voice_id)"))
+    await ensure_append_only(conn)
     _rls_ready = True
     logger.info("Organisation isolation (row-level security) is active on %d tables.", len(TENANT_TABLES))
+
+
+# Permanent records: rows can be added, never changed or deleted (by the app or anyone else).
+APPEND_ONLY_TABLES: List[str] = ["credit_awards"]
+
+
+async def ensure_append_only(conn: AsyncConnection) -> None:
+    await conn.execute(text("""
+        CREATE OR REPLACE FUNCTION refuse_change() RETURNS trigger AS $$
+        BEGIN
+          RAISE EXCEPTION '% is a permanent record: rows cannot be changed or deleted', TG_TABLE_NAME;
+        END $$ LANGUAGE plpgsql"""))
+    for table in APPEND_ONLY_TABLES:
+        if not await _table_exists(conn, table):
+            continue
+        await conn.execute(text(f"DROP TRIGGER IF EXISTS {table}_append_only ON {table}"))
+        await conn.execute(text(
+            f"CREATE TRIGGER {table}_append_only BEFORE UPDATE OR DELETE ON {table} "
+            f"FOR EACH ROW EXECUTE FUNCTION refuse_change()"))
 
 
 def mark_ready(value: bool = True) -> None:

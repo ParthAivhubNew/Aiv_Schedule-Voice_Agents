@@ -27,7 +27,7 @@ logger = logging.getLogger("voice_assistants")
 
 # Bump when the shell (instructions, greeting, tools) changes: every assistant is updated on
 # its next use.
-SHELL_VERSION = 2
+SHELL_VERSION = 3
 RESYNC_AFTER = timedelta(hours=24)  # also puts back anything edited by hand in Telnyx
 MANAGED_MARK = "Managed by OutReach: changes made in Telnyx are overwritten."
 
@@ -137,7 +137,8 @@ def shell_tools(base: str) -> List[Dict[str, Any]]:
     ]
 
 
-def shell_payload(name: str, description: str, voice: str = "", model: str = "") -> Dict[str, Any]:
+def shell_payload(name: str, description: str, voice: str = "", model: str = "",
+                  mine: Optional[Dict[str, Any]] = None, company: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.telephony_provider import public_http_base
 
     base = public_http_base()
@@ -150,14 +151,17 @@ def shell_payload(name: str, description: str, voice: str = "", model: str = "")
         "dynamic_variables": DEFAULT_VARIABLES,
         # Inbound calls: Telnyx asks us for the variables when the call starts.
         "dynamic_variables_webhook_url": f"{base}/api/telnyx-assistant/call-event",
+        # Telnyx records assistant calls unless told not to. We record on the call itself, and
+        # only when the company has chosen to (Agent Studio), so the assistant never records.
+        "telephony_settings": {"recording_settings": {"enabled": False}},
     }
     model = model or os.getenv("TELNYX_ASSISTANT_MODEL", "").strip()
     if model:
         payload["model"] = model
     voice = voice or os.getenv("TELNYX_ASSISTANT_VOICE", "").strip()
-    if voice:
-        payload["voice_settings"] = {"voice": voice}
-    return payload
+    from app.services import assistant_options
+
+    return assistant_options.apply(payload, voice, mine or {}, company or {})
 
 
 # ── Assistants per user ─────────────────────────────────────────────────────
@@ -201,8 +205,16 @@ async def assistant_for(db, operator_id: str = "") -> Any:
         return row
     name, description = await _names(db, operator_id)
     try:
+        from app.core.tenancy import current_org
+        from app.services import agent_studio, assistant_options
+
         client = await _client(db)
-        payload = shell_payload(name, description, row.voice or "", row.model or "")
+        if row.voice:
+            row.voice = await assistant_options.keep_alive(db, client, current_org(), row.voice)
+        p = await agent_studio.profile(db)
+        company = assistant_options.company_of(p.studio if p is not None else {})
+        mine = dict(row.settings or {})
+        payload = shell_payload(name, description, row.voice or "", row.model or "", mine, company)
         if row.telnyx_assistant_id:
             await client.update_assistant(row.telnyx_assistant_id, payload)
         else:
@@ -210,6 +222,11 @@ async def assistant_for(db, operator_id: str = "") -> Any:
             row.telnyx_assistant_id = str(made.get("id") or "")
             if not row.telnyx_assistant_id:
                 raise TelnyxError("Telnyx did not return an assistant id.")
+        try:  # what Telnyx really uses, so "Telnyx default" can show its name
+            mine["effective"] = assistant_options.effective(await client.get_assistant(row.telnyx_assistant_id))
+            row.settings = mine
+        except Exception as err:
+            logger.info(f"[voice-assistants] could not read back {row.telnyx_assistant_id}: {err}")
         row.shell_version, row.synced_at, row.status, row.last_error = SHELL_VERSION, datetime.utcnow(), "ready", ""
     except TelnyxError as err:
         row.status, row.last_error = "error", str(err)[:500]
