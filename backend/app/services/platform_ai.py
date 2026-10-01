@@ -161,10 +161,19 @@ async def catalogue(db) -> Dict[str, list]:
 async def catalogue_for_org(db, org_id: str) -> Dict[str, list]:
     """What one organisation may pick: shared voices plus its own private (cloned) ones. Which
     organisation owns a private voice is never shown to clients."""
+    from app.services import assistant_options
+
     cat = await catalogue(db)
-    voices = [{"id": v["id"], "label": v["label"], "sample": v["sample"], "private": bool(v["org"])}
-              for v in cat["voices"] if not v["org"] or v["org"] == org_id]
-    return {"voices": voices, "models": cat["models"]}
+    live = await assistant_options.telnyx_lists()
+    voices = [{"id": c["voice"], "label": c["name"], "sample": "", "private": True, "provider": "your voices",
+               "language": c["language"], "gender": c["gender"]}
+              for c in await assistant_options.clones(db, org_id) if c.get("voice")]
+    voices += [{"id": v["id"], "label": v["label"], "sample": v["sample"], "private": bool(v["org"]), "provider": "added by OutReach",
+                "language": "", "gender": ""} for v in cat["voices"] if not v["org"] or v["org"] == org_id]
+    seen = {v["id"] for v in voices}
+    voices += [v for v in live["voices"] if v["id"] not in seen]
+    models = list(cat["models"]) + [m for m in live["models"] if m["id"] not in {x["id"] for x in cat["models"]}]
+    return {"voices": voices, "models": models, "stt": live["stt"]}
 
 
 async def put_catalogue(db, voices: Any, models: Any) -> Dict[str, list]:

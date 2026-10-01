@@ -2,15 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { BookOpen, Pause, PhoneCall, Play, Save, ShieldCheck, UserRound } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 import { api } from "../../api/apiClient";
+import { BehaviourFields, CompanyVoices, VoiceFields, box, btn, input, label } from "./AssistantOptions";
 
-const box = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, display: "grid", gap: 12 };
-const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: "#fff", boxSizing: "border-box", width: "100%" };
-const label = { display: "grid", gap: 5, fontSize: 12, fontWeight: 600, color: C.slate };
-const btn = (primary, disabled) => ({
-  display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 9, cursor: disabled ? "not-allowed" : "pointer",
-  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.ink : "#fff", color: primary ? "#fff" : C.textInk,
-  fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, opacity: disabled ? 0.55 : 1, justifySelf: "start",
-});
 const title = (Icon, text) => (
   <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.textInk }}>
     <Icon size={16} color={C.cobalt} /> {text}
@@ -28,7 +21,7 @@ function Message({ msg }) {
 export function AgentStudio({ onOpenPage }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [me, setMe] = useState({ voice: "", model: "", phone: "" });
+  const [me, setMe] = useState({ voice: "", model: "", phone: "", settings: {} });
   const [company, setCompany] = useState(null);
   const [testScript, setTestScript] = useState("");
   const [msg, setMsg] = useState({ me: {}, company: {}, test: {}, campaign: {} });
@@ -42,7 +35,7 @@ export function AgentStudio({ onOpenPage }) {
     try {
       const d = await api.getAgentStudio();
       setData(d);
-      if (part === "all" || part === "me") setMe({ voice: d.me.voice, model: d.me.model, phone: d.me.phone });
+      if (part === "all" || part === "me") setMe({ voice: d.me.voice, model: d.me.model, phone: d.me.phone, settings: d.me.settings });
       if (part === "all" || part === "company") setCompany({ ...d.company, captureText: (d.company.captureFields || []).join(", ") });
     } catch (err) {
       setError(err.message);
@@ -97,31 +90,16 @@ export function AgentStudio({ onOpenPage }) {
           {status && ` Status: ${status.status === "ready" ? "ready" : status.status === "error" ? "needs attention" : "being set up"}.`}
           {status?.error && ` (${status.error})`}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-          <label style={label}>Voice
-            <div style={{ display: "flex", gap: 6 }}>
-              <select aria-label="Voice" value={me.voice} onChange={(e) => setMe({ ...me, voice: e.target.value })} style={input}>
-                <option value="">OutReach default</option>
-                {catalogue.voices.map((v) => <option key={v.id} value={v.id}>{v.label}{v.private ? " (your voice)" : ""}</option>)}
-              </select>
-              {chosenVoice?.sample && (
-                <button type="button" aria-label={playing === chosenVoice.id ? "Stop sample" : "Play sample"} onClick={() => play(chosenVoice)} style={btn(false)}>
-                  {playing === chosenVoice.id ? <Pause size={13} /> : <Play size={13} />}
-                </button>
-              )}
-            </div>
-          </label>
-          {catalogue.models.length > 0 && (
-            <label style={label}>Thinking model
-              <select aria-label="Model" value={me.model} onChange={(e) => setMe({ ...me, model: e.target.value })} style={input}>
-                <option value="">OutReach default</option>
-                {catalogue.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
-            </label>
-          )}
+        <VoiceFields catalogue={catalogue} me={me} setMe={setMe} effective={data.me.effective} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, alignItems: "end" }}>
           <label style={label}>Your phone (test calls, taking over calls)
             <input aria-label="Your phone" placeholder="+447700900123" value={me.phone} onChange={(e) => setMe({ ...me, phone: e.target.value })} style={input} />
           </label>
+          {chosenVoice?.sample && (
+            <button type="button" aria-label={playing === chosenVoice.id ? "Stop sample" : "Play sample"} onClick={() => play(chosenVoice)} style={btn(false)}>
+              {playing === chosenVoice.id ? <Pause size={13} /> : <Play size={13} />} Voice sample
+            </button>
+          )}
         </div>
         <button type="button" style={btn(true, busy === "me")} disabled={busy === "me"}
           onClick={() => run("me", () => api.saveAgentStudioMe(me), "Saved. Your next call uses it.")}>
@@ -141,6 +119,8 @@ export function AgentStudio({ onOpenPage }) {
           <Message msg={msg.test} />
         </div>
       </div>
+
+      <CompanyVoices clones={data.clones || []} onChanged={() => load("me")} />
 
       <div style={box}>
         {title(ShieldCheck, "Company rules for every call")}
@@ -189,11 +169,13 @@ export function AgentStudio({ onOpenPage }) {
               <input aria-label="Recording notice" value={company.disclosure} onChange={(e) => setCompany({ ...company, disclosure: e.target.value })} style={input} />
             </label>
           )}
+          <BehaviourFields a={company.assistant} set={(patch) => setCompany({ ...company, assistant: { ...company.assistant, ...patch } })} />
           <button type="button" style={btn(true, busy === "company")} disabled={busy === "company"}
             onClick={() => run("company", () => api.saveAgentStudioCompany({
               agentName: company.agentName, tone: company.tone, handoverWhen: company.handoverWhen, neverSay: company.neverSay,
               captureFields: company.captureText.split(",").map((s) => s.trim()).filter(Boolean), recordCalls: company.recordCalls,
               disclosure: company.disclosure, defaultOutboundTemplateId: company.defaultOutboundTemplateId, defaultInboundTemplateId: company.defaultInboundTemplateId,
+              assistant: company.assistant,
             }), "Saved. Every call from now on follows these rules.")}>
             <Save size={13} /> Save company rules
           </button>

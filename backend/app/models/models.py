@@ -1021,6 +1021,9 @@ class VoiceAssistant(Base):
     telnyx_assistant_id = Column(String, default="")
     voice = Column(String, default="")  # from the staff voice catalogue ("" = platform default)
     model = Column(String, default="")  # from the staff model catalogue ("" = platform default)
+    # How it speaks and listens (assistant_options.MINE): speed, sound, speech-to-text, language;
+    # plus "effective", what Telnyx actually uses, read back after each sync.
+    settings = Column(JSON, default=dict)
     shell_version = Column(Integer, default=0)
     status = Column(String, default="pending")  # pending, ready, error
     last_error = Column(Text, default="")
