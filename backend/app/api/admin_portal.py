@@ -315,7 +315,12 @@ async def add_credits(org_id: str, body: CreditBody, request: Request):
         await db.commit()
         return bal
 
-    return {"wallet": body.wallet, "balance": await _in_org(org_id, run)}
+    bal = await _in_org(org_id, run)
+    if body.amount > 0:
+        from app.services import voice_access
+
+        voice_access.kick(org_id)
+    return {"wallet": body.wallet, "balance": bal}
 
 
 class EnforceBody(BaseModel):

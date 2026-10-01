@@ -131,6 +131,22 @@ export async function apiRequest(endpoint, options = {}) {
   return executeFetch();
 }
 
+// Low call minutes: the server warns before a call (or list) that may be cut short. The user
+// can call anyway; the call then ends when the minutes run out, with a wrap-up a minute before.
+const confirmShortCall = (send) => async (payload) => {
+  try {
+    return await send(payload);
+  } catch (e) {
+    if (e.code !== 'LOW_MINUTES' || typeof window === 'undefined') throw e;
+    if (!window.confirm(e.message)) {
+      const stop = new Error('Call not placed. Top up Voice credits in Plans & credits for longer calls.');
+      stop.code = 'CANCELLED';
+      throw stop;
+    }
+    return send({ ...payload, accept_capped: true });
+  }
+};
+
 export const api = {
   // Auth & Team
   login: async (username, password) => {
@@ -223,8 +239,8 @@ export const api = {
   handBackCall: (callId, note = '') => apiRequest(`/calls/live/${callId}/handback`, { method: 'POST', body: { note } }),
   confirmBooking: (callId) => apiRequest(`/calls/live/${callId}/confirm-booking`, { method: 'POST' }),
   getCallLogs: () => apiRequest('/calls/logs'),
-  dialOutbound: (payload) => apiRequest('/calls/outbound/dial', { method: 'POST', body: payload }),
-  dialOutboundBatch: (payload) => apiRequest('/calls/outbound/batch', { method: 'POST', body: payload }),
+  dialOutbound: confirmShortCall((payload) => apiRequest('/calls/outbound/dial', { method: 'POST', body: payload })),
+  dialOutboundBatch: confirmShortCall((payload) => apiRequest('/calls/outbound/batch', { method: 'POST', body: payload })),
   getCarrierPlugins: () => apiRequest('/calls/outbound/carriers'),
 
   // LiveKit WebRTC Voice Engine
@@ -284,7 +300,7 @@ export const api = {
   updateConnectionConfig: (payload) => apiRequest('/connections/update-config', { method: 'POST', body: payload }),
   getTelnyxAssistantSettings: () => apiRequest('/connections/telnyx-assistant-settings'),
   saveTelnyxAssistantSettings: (payload) => apiRequest('/connections/telnyx-assistant-settings', { method: 'POST', body: payload }),
-  dialViaTelnyxAssistant: (payload) => apiRequest('/telnyx-assistant/dial', { method: 'POST', body: payload, timeoutMs: 15000 }),
+  dialViaTelnyxAssistant: confirmShortCall((payload) => apiRequest('/telnyx-assistant/dial', { method: 'POST', body: payload, timeoutMs: 15000 })),
   resetDemoData: () => apiRequest('/connections/reset-demo-data', { method: 'POST' }),
   getTelephonyHub: () => apiRequest('/connections/telephony-hub'),
   provisionTelephonyHub: (payload) => apiRequest('/connections/telephony-hub/provision', { method: 'POST', body: payload }),

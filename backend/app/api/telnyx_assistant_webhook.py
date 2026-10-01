@@ -42,6 +42,7 @@ class DialViaAssistantRequest(BaseModel):
     prospect_id: Optional[str] = None
     mission_id: Optional[str] = None
     from_number: Optional[str] = None
+    accept_capped: bool = False  # the user saw the low-minutes warning and calls anyway
 
 
 @router.post("/dial")
@@ -56,6 +57,12 @@ async def dial_via_assistant_endpoint(req: DialViaAssistantRequest, request: Req
     picked, number_err = await pick_caller_id(db, getattr(request.state, "auth", None), req.from_number)
     if number_err:
         return JSONResponse(status_code=403, content={"success": False, "error": number_err})
+    if not req.accept_capped:
+        from app.services.credits import short_call_warning
+
+        warning = await short_call_warning(db)
+        if warning:
+            return JSONResponse(status_code=409, content={"success": False, "error": warning["message"], **warning})
     result = await dial_via_telnyx_assistant(
         db,
         req.to,

@@ -716,6 +716,7 @@ class OutboundDialRequest(BaseModel):
     bridge_sip_uri: Optional[str] = None
     media_stream_url: Optional[str] = None
     status_callback_url: Optional[str] = None
+    accept_capped: bool = False  # the user saw the low-minutes warning and calls anyway
 
 
 class BatchDialProspect(BaseModel):
@@ -741,6 +742,7 @@ class BatchDialRequest(BaseModel):
     lunch_end: Optional[str] = "13:00"
     account_sid: Optional[str] = None
     api_key: Optional[str] = None
+    accept_capped: bool = False
 
 
 @router.get("/outbound/carriers")
@@ -877,6 +879,12 @@ async def dial_outbound_call(
             raise HTTPException(status_code=400, detail=" ".join(gate.reasons))
         for w in gate.warnings:
             logger.warning(f"[Compliance] {to_clean}: {w}")
+        if not req.accept_capped:
+            from app.services.credits import short_call_warning
+
+            warning = await short_call_warning(db)
+            if warning:
+                raise HTTPException(status_code=409, detail=warning)
 
         # 1. Caller ID: one of the organisation's numbers this user may use, else the old
         # saved caller ID (organisations with no numbers saved yet).
@@ -901,6 +909,14 @@ async def dial_outbound_call(
         prospect_label = req.prospect_name.strip() if req.prospect_name else f"Prospect ({to_clean[-4:]})"
         mission_label = req.mission_title or "Direct Outbound Outreach"
         call_id = f"call_{uuid.uuid4().hex[:8]}"
+        # Prepaid: the call holds the minutes left; Telnyx ends it when they run out.
+        from app.services.credits import CALL_HOLD, release, reserve_call
+        allowed, why, time_limit = await reserve_call(db, call_id)
+        if not allowed:
+            raise HTTPException(status_code=402, detail=why)
+        await db.commit()
+        if time_limit and "telnyx" in carrier_choice:
+            credentials = {**credentials, "time_limit_secs": time_limit}
 
         live_call = LiveCall(
             id=call_id,
@@ -978,6 +994,9 @@ async def dial_outbound_call(
             )
 
             carrier_sid = dial_res.get("call_id")
+            if carrier_sid and time_limit and "telnyx" in carrier_choice:
+                from app.services.call_limits import watch
+                watch(carrier_sid, time_limit, credentials.get("api_key") or "")
             if carrier_sid:
                 try:
                     alias_sip_first_call(call_id, carrier_sid)
@@ -1041,7 +1060,8 @@ async def dial_outbound_call(
                             duration=rec.duration,
                             force_outcome=True,
                         )
-                        await fail_session.commit()
+                    await release(fail_session, [f"{CALL_HOLD}{call_id}"])  # never connected
+                    await fail_session.commit()
             except Exception as update_err:
                 logger.warning(f"Could not update failed call state in DB: {update_err}")
 
@@ -1082,6 +1102,12 @@ async def dial_outbound_batch(req: BatchDialRequest, request: Request, db: Async
             "website": p.website,
         })
     title = (req.mission_title or "").strip() or f"Outbound list — {len(rows)} contacts"
+    if not req.accept_capped:
+        from app.services.credits import short_call_warning
+
+        warning = await short_call_warning(db, calls=len(rows))
+        if warning:
+            raise HTTPException(status_code=409, detail=warning)
     from app.services.numbers import pick_caller_id
     picked, number_err = await pick_caller_id(db, getattr(request.state, "auth", None), req.from_number)
     if number_err:
