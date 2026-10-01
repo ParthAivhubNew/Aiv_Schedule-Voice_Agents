@@ -3,7 +3,7 @@ a script per campaign; recording only when switched on; test calls to the user's
 import pytest
 
 from tests.conftest import make_user
-from tests.test_voice_assistants import FakeHttp, RealClient, fake, signed  # noqa: F401  (fixtures)
+from tests.voice_fakes import FakeHttp, RealClient
 
 pytestmark = pytest.mark.db
 
