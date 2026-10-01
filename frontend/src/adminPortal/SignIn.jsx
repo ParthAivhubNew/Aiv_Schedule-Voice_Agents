@@ -1,21 +1,51 @@
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import {
-  ShieldCheck,
-  Lock,
-  Mail,
-  KeyRound,
-  Copy,
-  Check,
-  Eye,
-  EyeOff,
-  ArrowRight,
-  ArrowLeft,
-  Shield,
-  Fingerprint,
-} from "lucide-react";
+import { Eye, EyeOff, AlertTriangle, ArrowLeft, Copy, Check } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
+import { BrandMark } from "../hub/BrandMark";
 import { adminApi, saveSession } from "./adminApi";
+
+const inputStyle = {
+  width: "100%",
+  height: 44,
+  borderRadius: 10,
+  border: `1px solid ${C.border}`,
+  background: "#F7F7F5",
+  padding: "0 14px",
+  fontFamily: FONT_BODY,
+  fontSize: 14,
+  color: C.textInk,
+  outline: "none",
+  boxSizing: "border-box",
+  transition: "border-color .15s, background .15s, box-shadow .15s",
+};
+
+const labelStyle = {
+  display: "block",
+  fontFamily: FONT_BODY,
+  fontSize: 12.5,
+  fontWeight: 600,
+  color: C.textInk,
+  marginBottom: 6,
+};
+
+const btnPrimary = {
+  width: "100%",
+  height: 44,
+  borderRadius: 10,
+  border: "none",
+  background: C.cobalt,
+  color: "#ffffff",
+  fontFamily: FONT_BODY,
+  fontSize: 14,
+  fontWeight: 600,
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  transition: "background .15s, transform .1s",
+};
 
 export function SignIn({ onSignedIn }) {
   const [form, setForm] = useState({ email: "", password: "", code: "" });
@@ -29,7 +59,7 @@ export function SignIn({ onSignedIn }) {
 
   useEffect(() => {
     if (!setup) return;
-    QRCode.toDataURL(setup.otpauth, { margin: 1, width: 220 }).then(setQr, () => setQr(""));
+    QRCode.toDataURL(setup.otpauth, { margin: 1, width: 180 }).then(setQr, () => setQr(""));
   }, [setup]);
 
   const done = ({ token, staff }) => {
@@ -67,7 +97,7 @@ export function SignIn({ onSignedIn }) {
         }
       }
     } catch (err) {
-      setError(err.message || "Authentication failed");
+      setError(err.message || "Invalid email or password.");
     }
     setBusy(false);
   };
@@ -79,260 +109,99 @@ export function SignIn({ onSignedIn }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#080d1a",
-        backgroundImage: `
-          radial-gradient(circle at 50% 20%, rgba(52, 87, 213, 0.18) 0%, transparent 60%),
-          linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px)
-        `,
-        backgroundSize: "100% 100%, 32px 32px, 32px 32px",
-        padding: "24px 16px",
+        background: C.paper,
+        padding: 20,
         fontFamily: FONT_BODY,
-        position: "relative",
-        overflow: "hidden",
       }}
     >
-      {/* Ambient background glow */}
-      <div
-        style={{
-          position: "absolute",
-          width: 500,
-          height: 350,
-          borderRadius: "50%",
-          background: "linear-gradient(135deg, rgba(52, 87, 213, 0.15), rgba(12, 140, 125, 0.15))",
-          filter: "blur(100px)",
-          pointerEvents: "none",
-          top: "20%",
-        }}
-      />
-
       <div
         style={{
           width: "100%",
-          maxWidth: 440,
-          background: "rgba(15, 23, 42, 0.85)",
-          backdropFilter: "blur(20px)",
-          border: "1px solid rgba(255, 255, 255, 0.1)",
-          borderRadius: 24,
-          padding: "32px 28px",
-          boxShadow: "0 25px 60px -15px rgba(0, 0, 0, 0.6), 0 0 35px rgba(52, 87, 213, 0.15)",
-          position: "relative",
-          zIndex: 10,
+          maxWidth: 400,
+          background: "#FFFFFF",
+          borderRadius: 16,
+          border: `1px solid ${C.border}`,
+          padding: "36px 32px",
+          boxShadow: "0 4px 24px rgba(0, 0, 0, 0.05)",
         }}
       >
-        {/* Header Branding & Status */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "between",
-            marginBottom: 24,
-            paddingBottom: 16,
-            borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                background: "rgba(52, 87, 213, 0.15)",
-                border: "1px solid rgba(52, 87, 213, 0.3)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#60a5fa",
-              }}
-            >
-              <ShieldCheck size={22} />
+        {/* Brand Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+          <BrandMark size={34} />
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>
+                OutReach
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: C.cobalt,
+                  background: C.cobaltSoft,
+                  padding: "1px 6px",
+                  borderRadius: 6,
+                }}
+              >
+                Staff
+              </span>
             </div>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span
-                  style={{
-                    fontFamily: FONT_DISPLAY,
-                    fontWeight: 700,
-                    fontSize: 18,
-                    color: "#ffffff",
-                    letterSpacing: "-0.02em",
-                  }}
-                >
-                  OutReach
-                </span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: "#93c5fd",
-                    background: "rgba(59, 130, 246, 0.15)",
-                    border: "1px solid rgba(59, 130, 246, 0.3)",
-                    padding: "2px 7px",
-                    borderRadius: 6,
-                  }}
-                >
-                  Staff Portal
-                </span>
-              </div>
-              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
-                Platform Operations & Security
-              </div>
+            <div style={{ fontSize: 12.5, color: C.slate, marginTop: 1 }}>
+              Admin portal for the Aivhub team
             </div>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "4px 10px",
-              borderRadius: 20,
-              background: "rgba(16, 185, 129, 0.12)",
-              border: "1px solid rgba(16, 185, 129, 0.25)",
-              color: "#34d399",
-              fontSize: 11,
-              fontWeight: 600,
-            }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: "#34d399",
-                boxShadow: "0 0 8px #34d399",
-              }}
-            />
-            2FA Active
           </div>
         </div>
 
         <form onSubmit={submit}>
-          {/* Step 1: Staff Email and Password */}
+          {/* Step 1: Direct Email & Password */}
           {step === "password" && (
             <div>
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff", marginBottom: 4 }}>
-                  Staff Authentication
-                </div>
-                <div style={{ fontSize: 12.5, color: "#94a3b8", lineHeight: 1.5 }}>
-                  Access client tenants, AI provider keys, telephony routing, and real-time operations.
-                </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle} htmlFor="staff-email">
+                  Email
+                </label>
+                <input
+                  id="staff-email"
+                  type="email"
+                  autoComplete="username"
+                  required
+                  autoFocus
+                  placeholder="parth.barot@aivhub.com"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  style={inputStyle}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = C.cobalt;
+                    e.target.style.background = "#FFFFFF";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = C.border;
+                    e.target.style.background = "#F7F7F5";
+                  }}
+                />
               </div>
 
-              {/* Email Input */}
-              <div style={{ marginBottom: 16 }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    color: "#cbd5e1",
-                    marginBottom: 6,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                  }}
-                  htmlFor="staff-email"
-                >
-                  Staff Email
+              <div style={{ marginBottom: 20 }}>
+                <label style={labelStyle} htmlFor="staff-password">
+                  Password
                 </label>
                 <div style={{ position: "relative" }}>
-                  <Mail
-                    size={16}
-                    style={{
-                      position: "absolute",
-                      left: 14,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "#64748b",
-                    }}
-                  />
-                  <input
-                    id="staff-email"
-                    type="email"
-                    autoComplete="username"
-                    required
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    placeholder="parth.barot@aivhub.com"
-                    style={{
-                      width: "100%",
-                      boxSizing: "border-box",
-                      background: "rgba(15, 23, 42, 0.9)",
-                      border: "1px solid rgba(100, 116, 139, 0.3)",
-                      borderRadius: 12,
-                      padding: "11px 14px 11px 40px",
-                      color: "#ffffff",
-                      fontSize: 14,
-                      outline: "none",
-                      transition: "border-color 0.2s, box-shadow 0.2s",
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.borderColor = "#3b82f6";
-                      e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.2)";
-                    }}
-                    onBlur={(e) => {
-                      e.target.style.borderColor = "rgba(100, 116, 139, 0.3)";
-                      e.target.style.boxShadow = "none";
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Password Input */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <label
-                    style={{
-                      fontSize: 11.5,
-                      fontWeight: 600,
-                      color: "#cbd5e1",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                    }}
-                    htmlFor="staff-password"
-                  >
-                    Password
-                  </label>
-                  <span style={{ fontSize: 11, color: "#64748b" }}>Argon2id Protected</span>
-                </div>
-                <div style={{ position: "relative" }}>
-                  <Lock
-                    size={16}
-                    style={{
-                      position: "absolute",
-                      left: 14,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "#64748b",
-                    }}
-                  />
                   <input
                     id="staff-password"
                     type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
                     required
+                    placeholder="Enter password"
                     value={form.password}
                     onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder="••••••••••••••••"
-                    style={{
-                      width: "100%",
-                      boxSizing: "border-box",
-                      background: "rgba(15, 23, 42, 0.9)",
-                      border: "1px solid rgba(100, 116, 139, 0.3)",
-                      borderRadius: 12,
-                      padding: "11px 42px 11px 40px",
-                      color: "#ffffff",
-                      fontSize: 14,
-                      outline: "none",
-                      transition: "border-color 0.2s, box-shadow 0.2s",
-                    }}
+                    style={{ ...inputStyle, paddingRight: 40 }}
                     onFocus={(e) => {
-                      e.target.style.borderColor = "#3b82f6";
-                      e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.2)";
+                      e.target.style.borderColor = C.cobalt;
+                      e.target.style.background = "#FFFFFF";
                     }}
                     onBlur={(e) => {
-                      e.target.style.borderColor = "rgba(100, 116, 139, 0.3)";
-                      e.target.style.boxShadow = "none";
+                      e.target.style.borderColor = C.border;
+                      e.target.style.background = "#F7F7F5";
                     }}
                   />
                   <button
@@ -345,11 +214,10 @@ export function SignIn({ onSignedIn }) {
                       transform: "translateY(-50%)",
                       background: "none",
                       border: "none",
-                      color: "#64748b",
+                      color: C.slate,
                       cursor: "pointer",
                       padding: 4,
                       display: "flex",
-                      alignItems: "center",
                     }}
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -359,116 +227,71 @@ export function SignIn({ onSignedIn }) {
             </div>
           )}
 
-          {/* Step 2: 2FA QR Setup (First Login) */}
+          {/* Step 2: 2FA Setup (First Login) */}
           {step === "setup" && setup && (
             <div>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff", marginBottom: 4 }}>
-                  Two-Factor Enrollment
-                </div>
-                <div style={{ fontSize: 12.5, color: "#94a3b8", lineHeight: 1.5 }}>
-                  Scan this QR code with Google Authenticator, Microsoft Authenticator, or 1Password.
-                </div>
+              <div style={{ fontSize: 13, color: C.textInk, lineHeight: 1.5, marginBottom: 16 }}>
+                Scan this with Google Authenticator or 1Password, then enter the 6-digit code.
               </div>
 
-              {/* QR Container */}
-              <div
-                style={{
-                  background: "#ffffff",
-                  padding: 14,
-                  borderRadius: 16,
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  marginBottom: 14,
-                  boxShadow: "0 4px 20px rgba(0, 0, 0, 0.3)",
-                }}
-              >
-                {qr ? (
-                  <img
-                    src={qr}
-                    alt="2FA QR Code"
-                    width={180}
-                    height={180}
-                    style={{ display: "block", borderRadius: 8 }}
-                  />
-                ) : (
-                  <div style={{ height: 180, display: "flex", alignItems: "center", color: "#64748b" }}>
-                    Generating QR code...
-                  </div>
-                )}
-              </div>
+              {qr && (
+                <div
+                  style={{
+                    background: "#FFFFFF",
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 12,
+                    padding: 12,
+                    display: "flex",
+                    justifyContent: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <img src={qr} alt="2FA QR Code" width={160} height={160} style={{ display: "block" }} />
+                </div>
+              )}
 
-              {/* Secret Key with Copy Button */}
               <div
                 style={{
-                  background: "rgba(15, 23, 42, 0.9)",
-                  border: "1px solid rgba(100, 116, 139, 0.25)",
-                  borderRadius: 12,
-                  padding: "8px 12px",
+                  background: "#F7F7F5",
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  padding: "6px 10px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
                   marginBottom: 16,
+                  fontSize: 11.5,
                 }}
               >
-                <div style={{ overflow: "hidden", marginRight: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
-                    Manual Setup Key
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: FONT_MONO,
-                      fontSize: 11.5,
-                      color: "#93c5fd",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      userSelect: "all",
-                    }}
-                  >
-                    {setup.secret}
-                  </div>
-                </div>
+                <span style={{ color: C.slate, overflow: "hidden", textOverflow: "ellipsis", marginRight: 8 }}>
+                  Key: <strong style={{ fontFamily: FONT_MONO, color: C.textInk }}>{setup.secret}</strong>
+                </span>
                 <button
                   type="button"
                   onClick={copySecret}
                   style={{
-                    background: copied ? "#059669" : "rgba(30, 41, 59, 0.9)",
-                    border: "1px solid rgba(100, 116, 139, 0.3)",
-                    borderRadius: 8,
-                    padding: "6px 10px",
-                    color: copied ? "#ffffff" : "#cbd5e1",
+                    background: copied ? C.green : C.paperSoft,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 6,
+                    padding: "3px 8px",
+                    color: copied ? "#FFFFFF" : C.textInk,
                     fontSize: 11,
                     fontWeight: 600,
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
                     gap: 4,
-                    transition: "all 0.2s",
                     flexShrink: 0,
                   }}
                 >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                  {copied ? <Check size={11} /> : <Copy size={11} />}
                   {copied ? "Copied" : "Copy"}
                 </button>
               </div>
 
-              {/* 6-Digit Code Input */}
-              <div style={{ marginBottom: 16 }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    color: "#cbd5e1",
-                    marginBottom: 6,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                  }}
-                  htmlFor="staff-code"
-                >
-                  6-Digit Verification Code
+              <div style={{ marginBottom: 18 }}>
+                <label style={labelStyle} htmlFor="staff-code">
+                  6-digit code
                 </label>
                 <input
                   id="staff-code"
@@ -477,22 +300,23 @@ export function SignIn({ onSignedIn }) {
                   pattern="[0-9 ]{6,7}"
                   required
                   autoFocus
-                  placeholder="000 000"
+                  placeholder="000000"
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value })}
                   style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    background: "rgba(15, 23, 42, 0.9)",
-                    border: "1px solid rgba(100, 116, 139, 0.3)",
-                    borderRadius: 12,
-                    padding: "10px 14px",
-                    color: "#ffffff",
+                    ...inputStyle,
                     fontFamily: FONT_MONO,
-                    fontSize: 20,
-                    letterSpacing: "0.3em",
+                    fontSize: 18,
+                    letterSpacing: 4,
                     textAlign: "center",
-                    outline: "none",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = C.cobalt;
+                    e.target.style.background = "#FFFFFF";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = C.border;
+                    e.target.style.background = "#F7F7F5";
                   }}
                 />
               </div>
@@ -502,30 +326,13 @@ export function SignIn({ onSignedIn }) {
           {/* Step 3: Returning 2FA Challenge */}
           {step === "code" && (
             <div>
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff", marginBottom: 4 }}>
-                  Two-Factor Challenge
-                </div>
-                <div style={{ fontSize: 12.5, color: "#94a3b8", lineHeight: 1.5 }}>
-                  Enter the 6-digit security code generated by your authenticator app.
-                </div>
+              <div style={{ fontSize: 13, color: C.slate, marginBottom: 16 }}>
+                Enter the 6-digit code from your authenticator app.
               </div>
 
               <div style={{ marginBottom: 20 }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    color: "#cbd5e1",
-                    marginBottom: 8,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    textAlign: "center",
-                  }}
-                  htmlFor="staff-code"
-                >
-                  6-Digit Authenticator Token
+                <label style={labelStyle} htmlFor="staff-code">
+                  6-digit code
                 </label>
                 <input
                   id="staff-code"
@@ -534,61 +341,54 @@ export function SignIn({ onSignedIn }) {
                   pattern="[0-9 ]{6,7}"
                   required
                   autoFocus
-                  placeholder="000 000"
+                  placeholder="000000"
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value })}
                   style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    background: "rgba(15, 23, 42, 0.9)",
-                    border: "1px solid rgba(100, 116, 139, 0.3)",
-                    borderRadius: 14,
-                    padding: "14px",
-                    color: "#ffffff",
+                    ...inputStyle,
                     fontFamily: FONT_MONO,
-                    fontSize: 22,
-                    fontWeight: 700,
-                    letterSpacing: "0.35em",
+                    fontSize: 18,
+                    letterSpacing: 4,
                     textAlign: "center",
-                    outline: "none",
                   }}
                   onFocus={(e) => {
-                    e.target.style.borderColor = "#3b82f6";
-                    e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.25)";
+                    e.target.style.borderColor = C.cobalt;
+                    e.target.style.background = "#FFFFFF";
                   }}
                   onBlur={(e) => {
-                    e.target.style.borderColor = "rgba(100, 116, 139, 0.3)";
-                    e.target.style.boxShadow = "none";
+                    e.target.style.borderColor = C.border;
+                    e.target.style.background = "#F7F7F5";
                   }}
                 />
               </div>
             </div>
           )}
 
-          {/* Error Message */}
+          {/* Error Notice */}
           {error && (
             <div
               role="alert"
               style={{
-                color: "#f87171",
-                background: "rgba(239, 68, 68, 0.12)",
-                border: "1px solid rgba(239, 68, 68, 0.3)",
-                borderRadius: 10,
-                padding: "8px 12px",
+                fontFamily: FONT_BODY,
                 fontSize: 12.5,
-                marginBottom: 16,
+                color: C.red,
+                background: C.redSoft,
+                border: `1px solid #F0C4B8`,
+                borderRadius: 10,
+                padding: "9px 12px",
                 display: "flex",
-                alignItems: "center",
+                alignItems: "flex-start",
                 gap: 8,
+                marginBottom: 16,
               }}
             >
-              <span style={{ fontSize: 14 }}>⚠️</span>
-              <span>{error}</span>
+              <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div>{error}</div>
             </div>
           )}
 
-          {/* Actions */}
-          <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          {/* Action Buttons */}
+          <div style={{ display: "flex", gap: 8 }}>
             {step !== "password" && (
               <button
                 type="button"
@@ -599,20 +399,19 @@ export function SignIn({ onSignedIn }) {
                   setError("");
                 }}
                 style={{
-                  width: "35%",
-                  background: "rgba(30, 41, 59, 0.8)",
-                  border: "1px solid rgba(100, 116, 139, 0.3)",
-                  borderRadius: 12,
-                  padding: "12px",
-                  color: "#cbd5e1",
+                  height: 44,
+                  borderRadius: 10,
+                  border: `1px solid ${C.border}`,
+                  background: "#FFFFFF",
+                  color: C.textInk,
+                  fontFamily: FONT_BODY,
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
+                  padding: "0 14px",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  transition: "all 0.2s",
+                  gap: 4,
                 }}
               >
                 <ArrowLeft size={14} /> Back
@@ -623,63 +422,21 @@ export function SignIn({ onSignedIn }) {
               type="submit"
               disabled={busy}
               style={{
-                flex: 1,
-                background: "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)",
-                border: "none",
-                borderRadius: 12,
-                padding: "12px 18px",
-                color: "#ffffff",
-                fontSize: 13.5,
-                fontWeight: 600,
-                cursor: busy ? "not-allowed" : "pointer",
+                ...btnPrimary,
                 opacity: busy ? 0.7 : 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                boxShadow: "0 4px 14px rgba(59, 130, 246, 0.35)",
-                transition: "all 0.2s",
+                cursor: busy ? "not-allowed" : "pointer",
               }}
             >
-              {step === "password" ? (
-                <>
-                  <span>Continue</span>
-                  <ArrowRight size={15} />
-                </>
-              ) : step === "setup" ? (
-                <>
-                  <KeyRound size={15} />
-                  <span>Activate 2FA & Enter</span>
-                </>
-              ) : (
-                <>
-                  <Fingerprint size={15} />
-                  <span>Verify & Sign In</span>
-                </>
-              )}
+              {busy
+                ? "Checking..."
+                : step === "password"
+                ? "Continue"
+                : step === "setup"
+                ? "Turn on two-factor and sign in"
+                : "Sign in"}
             </button>
           </div>
         </form>
-
-        {/* Security Badges Footer */}
-        <div
-          style={{
-            marginTop: 24,
-            paddingTop: 16,
-            borderTop: "1px solid rgba(255, 255, 255, 0.08)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            fontSize: 11,
-            color: "#64748b",
-          }}
-        >
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <Shield size={12} color="#60a5fa" /> Isolated Session
-          </span>
-          <span>TLS 1.3 Encrypted</span>
-          <span>Zero Client Access</span>
-        </div>
       </div>
     </div>
   );
