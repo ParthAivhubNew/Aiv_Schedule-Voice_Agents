@@ -147,3 +147,84 @@ async def margin_report(month: str) -> Dict[str, Any]:
     rows.sort(key=lambda r: -r["telnyxCost"])
     return {"month": month, "rows": rows, "unattributed": costs["unattributed"], "errors": costs["errors"],
             "fxUsdToGbp": os.getenv("FX_USD_TO_GBP", "") or None}
+
+
+# ── Monthly voice reconciliation ───────────────────────────────────────────
+# Once a month (from the 2nd, when Telnyx's report has caught up) the minutes Telnyx billed
+# each customer's billing group are checked against the minutes we charged in credits. A gap
+# above GAP_MINUTES and GAP_SHARE is flagged to staff (owner-portal banner and email). The
+# result is kept, one document per month, so it can be looked back on.
+RECON_KEY = "voice_reconciliation"
+GAP_MINUTES = 5
+GAP_SHARE = 0.05
+RECON_FROM_DAY = 2
+
+
+def previous_month(now: Optional[datetime] = None) -> str:
+    now = now or datetime.utcnow()
+    return f"{now.year - (now.month == 1)}-{(now.month - 2) % 12 + 1:02d}"
+
+
+def flag(row: Dict[str, Any]) -> bool:
+    ours, theirs = row["minutesBilled"], row["telnyxMinutes"]
+    gap = abs(theirs - ours)
+    return gap > GAP_MINUTES and gap > GAP_SHARE * max(ours, theirs)
+
+
+async def saved_reconciliation(db, month: str) -> Optional[Dict[str, Any]]:
+    from app.services.credits import _get_doc
+
+    return (await _get_doc(db, RECON_KEY)).get(month)
+
+
+async def reconcile(month: str) -> Dict[str, Any]:
+    """Check one month and keep the result. Raises TelnyxError when Telnyx cannot be read."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.services import ai_errors
+    from app.services.credits import _get_doc, _put_doc
+
+    report = await margin_report(month)
+    rows = []
+    for r in report["rows"]:
+        gap = r["telnyxMinutes"] - r["minutesBilled"]
+        rows.append({**r, "gapMinutes": gap, "flagged": flag(r)})
+    result = {"month": month, "at": datetime.utcnow().isoformat(timespec="seconds"), "rows": rows,
+              "flagged": sum(1 for r in rows if r["flagged"]), "unattributed": report["unattributed"],
+              "errors": report["errors"]}
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            doc = await _get_doc(db, RECON_KEY)
+            doc[month] = result
+            # Keep two years.
+            for old in sorted(doc)[:-24]:
+                doc.pop(old, None)
+            await _put_doc(db, RECON_KEY, doc)
+            await db.commit()
+    for r in rows:
+        if r["flagged"]:
+            more = "Telnyx billed more than we charged" if r["gapMinutes"] > 0 else "We charged more than Telnyx billed"
+            await ai_errors.alert_staff(
+                "BILL-01", f"{month}: {r['name']} — {more}: Telnyx {r['telnyxMinutes']} min, credits {r['minutesBilled']} min "
+                f"(gap {r['gapMinutes']:+d}). Check the call logs and settle runs for that month.", org_id=r["orgId"])
+    return result
+
+
+async def reconcile_due() -> Optional[str]:
+    """Check last month once, from the RECON_FROM_DAY of this month. Returns the month checked."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+
+    if not platform_key() or datetime.utcnow().day < RECON_FROM_DAY:
+        return None
+    month = previous_month()
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            if await saved_reconciliation(db, month):
+                return None
+    try:
+        await reconcile(month)
+    except TelnyxError as err:
+        logger.warning(f"[telnyx-usage] reconciliation for {month} postponed: {err}")
+        return None
+    return month

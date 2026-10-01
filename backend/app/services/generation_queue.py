@@ -45,6 +45,14 @@ LOCKED_POST_STATUSES = ("published", "publishing")
 ACTIVE_STATES = ("queued", "writing", "image_queued", "imaging", "paused", "image_paused")
 EMAIL_AFTER = timedelta(minutes=5)  # a batch that took longer emails its user if they left
 WATCHING_SECS = 90  # progress polled this recently: the user is still watching
+MAX_RUNNING_PER_ORG = 2  # AI calls (writing or drawing) one company can have running at once
+MAX_BATCHES_PER_ORG = 2  # requests one company can have waiting or running (USR-06 beyond)
+RUNNING_STATES = ("queued", "writing", "image_queued", "imaging")
+
+# Fair share between companies: each runs at most MAX_RUNNING_PER_ORG calls at once, and the
+# next free slot goes to the company served least recently (then priority, then first come).
+_running: Dict[str, int] = {}
+_served: Dict[str, float] = {}
 
 # Rolling averages (seconds) of one writing call and one image, for the estimated time.
 _avg = {"text": 45.0, "image": 25.0}
@@ -192,12 +200,25 @@ async def _set_posts(db, post_ids: List[str], **values) -> None:
     )
 
 
-async def _claim(from_state: str, to_state: str, limit: int, text_batch: bool) -> List[Dict[str, Any]]:
+async def _claim(from_state: str, to_state: str, limit: int, text_batch: bool,
+                 skip_orgs: Optional[set] = None) -> List[Dict[str, Any]]:
     async with AsyncSessionLocal() as db:
         base = select(SocialGenJob).where(SocialGenJob.state == from_state).order_by(
             SocialGenJob.priority.desc(), SocialGenJob.created_at
         )
-        first = (await db.execute(base.limit(1))).scalars().first()
+        # Each company's next job; the company served least recently goes first (an urgent
+        # job still beats a routine one).
+        heads: Dict[str, Any] = {}
+        for jid, org, prio, created in (await db.execute(
+                select(SocialGenJob.id, SocialGenJob.org_id, SocialGenJob.priority, SocialGenJob.created_at)
+                .where(SocialGenJob.state == from_state)
+                .order_by(SocialGenJob.priority.desc(), SocialGenJob.created_at).limit(5000))).all():
+            if org not in heads and org not in (skip_orgs or ()):
+                heads[org] = (-(prio or 0), _served.get(org, 0.0), created or datetime.min, jid)
+        if not heads:
+            return []
+        first_id = min(heads.values())[3]
+        first = (await db.execute(select(SocialGenJob).where(SocialGenJob.id == first_id))).scalars().first()
         if not first:
             return []
         rows = [first]
@@ -602,22 +623,52 @@ def _spawn(tasks: set, coro) -> None:
 
 
 async def _tick() -> None:
-    # The queue is shared by every organisation: jobs are picked across all of them, and each
-    # job then runs inside its own organisation.
-    from app.core.tenancy import in_org, system_scope
+    # The queue is shared by every organisation: jobs are picked across all of them, fairly (see
+    # _claim), and each job then runs inside its own organisation.
+    from app.core.tenancy import system_scope
 
     while len(_text_tasks) < TEXT_SLOTS.slots:
         with system_scope():
-            jobs = await _claim("queued", "writing", MAX_POSTS_PER_CALL, text_batch=True)
+            jobs = await _claim("queued", "writing", MAX_POSTS_PER_CALL, text_batch=True, skip_orgs=_busy_orgs())
         if not jobs:
             break
-        _spawn(_text_tasks, in_org(jobs[0]["org_id"], _run_text(jobs)))
+        _spawn(_text_tasks, _counted(jobs[0]["org_id"], _run_text(jobs)))
     while len(_image_tasks) < IMAGE_SLOTS.slots:
         with system_scope():
-            jobs = await _claim("image_queued", "imaging", 1, text_batch=False)
+            jobs = await _claim("image_queued", "imaging", 1, text_batch=False, skip_orgs=_busy_orgs())
         if not jobs:
             break
-        _spawn(_image_tasks, in_org(jobs[0]["org_id"], _run_image(jobs[0])))
+        _spawn(_image_tasks, _counted(jobs[0]["org_id"], _run_image(jobs[0])))
+
+
+def _busy_orgs() -> set:
+    return {org for org, n in _running.items() if n >= MAX_RUNNING_PER_ORG}
+
+
+def _counted(org_id: str, coro):
+    """One AI call, to run inside its organisation, counted against its fair share from now
+    (when it is claimed) until it ends."""
+    from app.core.tenancy import in_org
+
+    _running[org_id] = _running.get(org_id, 0) + 1
+    _served[org_id] = time.monotonic()
+
+    async def run() -> None:
+        try:
+            await in_org(org_id, coro)
+        finally:
+            _running[org_id] = _running.get(org_id, 1) - 1
+            if _running[org_id] <= 0:
+                _running.pop(org_id, None)
+            _wake.set()
+
+    return run()
+
+
+async def running_batches(db) -> int:
+    """Requests of the current company still waiting or running (USR-06 at MAX_BATCHES_PER_ORG)."""
+    rows = (await db.execute(select(SocialGenJob.options).where(SocialGenJob.state.in_(RUNNING_STATES)))).scalars().all()
+    return len({(o or {}).get("batch") or "" for o in rows})
 
 
 async def _recover() -> None:

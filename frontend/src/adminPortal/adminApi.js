@@ -79,6 +79,8 @@ export const adminApi = {
   stripePrices: () => request("/stripe-prices"),
   sellStripePrice: (priceId, wallet, credits) => request("/plans/from-stripe", { method: "POST", body: { priceId, wallet, credits } }),
   telnyxCosts: (month) => request(`/telnyx-costs?month=${q(month)}`),
+  voiceCheck: (month) => request(`/voice-reconciliation?month=${q(month)}`),
+  runVoiceCheck: (month) => request(`/voice-reconciliation/run?month=${q(month)}`, { method: "POST" }),
   rates: () => request("/rates"),
   setRates: (rates) => request("/rates", { method: "PUT", body: { rates } }),
   revenue: (month) => request(`/revenue?month=${q(month)}`),

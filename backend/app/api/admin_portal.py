@@ -564,6 +564,41 @@ async def telnyx_costs(request: Request, month: str = ""):
         raise HTTPException(status_code=502, detail=str(err))
 
 
+@router.get("/voice-reconciliation")
+async def voice_reconciliation(request: Request, month: str = ""):
+    """The saved monthly check of minutes charged against minutes Telnyx billed (None: not run)."""
+    import re
+
+    from app.services import telnyx_usage
+
+    _who(request)
+    month = month or telnyx_usage.previous_month()
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    async with AsyncSessionLocal() as db:
+        return {"month": month, "result": await telnyx_usage.saved_reconciliation(db, month)}
+
+
+@router.post("/voice-reconciliation/run")
+async def run_voice_reconciliation(request: Request, month: str = ""):
+    """Check a month now (again), keep the result and alert staff about gaps."""
+    import re
+
+    from app.services import telnyx_usage
+    from app.services.telnyx_client import TelnyxError, platform_key
+
+    _admin_only(request)
+    month = month or telnyx_usage.previous_month()
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    if not platform_key():
+        raise HTTPException(status_code=503, detail="Telnyx is not connected on the platform yet.")
+    try:
+        return {"month": month, "result": await telnyx_usage.reconcile(month)}
+    except TelnyxError as err:
+        raise HTTPException(status_code=502, detail=str(err))
+
+
 @router.post("/plans/{plan_id}/sync-stripe")
 async def sync_plan(plan_id: str, request: Request):
     from app.models.models import BillingPlan

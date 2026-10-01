@@ -193,6 +193,7 @@ export const api = {
   patchWaThread: (id, data) => apiRequest(`/wa/threads/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
   startWaThread: (data) => apiRequest('/wa/threads', { method: 'POST', body: data }),
   getBillingOverview: () => apiRequest('/billing/overview'),
+  getCreditUsage: (month, wallet = '') => apiRequest(`/credits/usage?month=${encodeURIComponent(month)}&wallet=${encodeURIComponent(wallet)}`),
   startCheckout: (plans, topups, back = '/', quantities = {}) => apiRequest('/billing/checkout', { method: 'POST', body: { plans, topups, back, quantities } }),
   openBillingPortal: (back = '/') => apiRequest('/billing/portal', { method: 'POST', body: { back } }),
   getLivePlans: () => apiRequest('/billing/subscriptions'),

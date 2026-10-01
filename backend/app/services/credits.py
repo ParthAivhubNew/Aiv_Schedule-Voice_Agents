@@ -744,6 +744,47 @@ async def usage_by_item(db, days: int = 30) -> Dict[str, dict]:
     return {item: {"quantity": float(q or 0), "credits": -int(a or 0)} for item, q, a in rows}
 
 
+async def usage_month(db, month: str, wallet: str = "") -> Dict[str, Any]:
+    """A company's credits for one calendar month (UTC): what it used per item, added, expired,
+    each day's use, and every ledger line (newest first)."""
+    from app.models.models import CreditEntry
+    from app.services.revenue import month_range
+
+    start, end = month_range(month)
+    q = select(CreditEntry).where(CreditEntry.created_at >= start, CreditEntry.created_at < end)
+    if wallet:
+        q = q.where(CreditEntry.wallet == wallet)
+    rows = (await db.execute(q.order_by(CreditEntry.created_at.desc()))).scalars().all()
+    items: Dict[str, Dict[str, Any]] = {}
+    days: Dict[str, Dict[str, int]] = {}
+    totals = {"used": 0, "added": 0, "expired": 0, "adjusted": 0}
+    for r in rows:
+        if r.kind == "usage":
+            it = items.setdefault(r.item or "other", {"item": r.item or "other", "wallet": r.wallet,
+                                                        "label": DEFAULT_RATES.get(r.item, {}).get("label", r.item or "Other"),
+                                                        "unit": DEFAULT_RATES.get(r.item, {}).get("unit", ""),
+                                                        "units": 0.0, "credits": 0})
+            it["units"] += float(r.quantity or 0)
+            it["credits"] -= int(r.amount)
+            totals["used"] -= int(r.amount)
+            day = r.created_at.strftime("%Y-%m-%d") if r.created_at else ""
+            days.setdefault(day, {}).setdefault(r.wallet, 0)
+            days[day][r.wallet] -= int(r.amount)
+        elif r.kind == "grant":
+            totals["added"] += int(r.amount)
+        elif r.kind == "expire":
+            totals["expired"] -= int(r.amount)
+        else:
+            totals["adjusted"] += int(r.amount)
+    return {
+        "month": month, "wallet": wallet or None, "totals": totals,
+        "items": sorted(({**v, "units": round(v["units"], 2)} for v in items.values()), key=lambda v: -v["credits"]),
+        "days": [{"day": d, "byWallet": w, "credits": sum(w.values())} for d, w in sorted(days.items())],
+        "entries": [{"id": r.id, "kind": r.kind, "wallet": r.wallet, "item": r.item, "quantity": r.quantity, "amount": r.amount,
+                     "note": r.note, "by": r.by, "at": r.created_at.isoformat() if r.created_at else None} for r in rows],
+    }
+
+
 # Kept for callers from before wallets (staff grants without a wallet go to Voice).
 async def grant(db, amount: int, note: str = "", by: str = "", wallet: str = "voice",
                 expires_at: Optional[datetime] = None) -> int:

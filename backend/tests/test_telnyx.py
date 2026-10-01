@@ -1,4 +1,5 @@
 """Telnyx numbers: account setup, verification, ordering, and WhatsApp, against a fake Telnyx."""
+import asyncio
 from datetime import datetime, timedelta
 
 import httpx
@@ -176,12 +177,12 @@ async def _wa_number(db):
 
 async def test_whatsapp_inbound_reply_window_and_status(client, anon, db, fake, monkeypatch):
     await _wa_number(db)
-    replies = []
+    told = []
 
-    def no_ai(org, tid):
-        replies.append(tid)
+    def tell(thread, text):
+        told.append(text)
 
-    monkeypatch.setattr("app.services.whatsapp.schedule_ai_reply", no_ai)
+    monkeypatch.setattr("app.services.whatsapp.tell_admins", tell)
     inbound = {"data": {"event_type": "message.received", "payload": {
         "id": "in_1", "type": "WhatsApp", "text": "Hi, are you open Saturday?",
         "from": {"phone_number": "+447700900123", "name": "Pat"}, "to": [{"phone_number": "+442079990000"}]}}}
@@ -189,7 +190,7 @@ async def test_whatsapp_inbound_reply_window_and_status(client, anon, db, fake, 
     assert (await anon.post("/api/telnyx/messaging-webhook", json=inbound)).status_code == 200  # retry: stored once
     threads = (await client.get("/api/wa/threads")).json()
     assert len(threads) == 1 and threads[0]["contactName"] == "Pat" and threads[0]["unread"] == 1 and threads[0]["windowOpen"]
-    assert len(replies) == 1  # the AI is asked once; the retried webhook is ignored
+    assert told == ["Hi, are you open Saturday?"]  # admins told once; the retried webhook is ignored
     tid = threads[0]["id"]
     msgs = (await client.get(f"/api/wa/threads/{tid}")).json()["messages"]
     assert [m["text"] for m in msgs] == ["Hi, are you open Saturday?"]
@@ -198,7 +199,7 @@ async def test_whatsapp_inbound_reply_window_and_status(client, anon, db, fake, 
     assert r.status_code == 200 and r.json()["status"] == "sent"
     sent = next(c[2] for c in fake.calls if c[1] == "/messages/whatsapp")
     assert sent["from"] == "+442079990000" and sent["whatsapp_message"]["text"]["body"] == "Yes, 9 to 1."
-    assert (await client.get("/api/wa/threads")).json()[0]["aiEnabled"] is False  # a person took over
+    assert (await client.get("/api/wa/threads")).json()[0]["aiEnabled"] is False  # auto-replies are off
 
     from app.models.models import WhatsappMessage
     from sqlalchemy.future import select as _select
@@ -225,25 +226,27 @@ async def test_whatsapp_inbound_reply_window_and_status(client, anon, db, fake, 
     assert tpl["type"] == "template" and tpl["template"]["name"] == "follow_up"
 
 
-async def test_whatsapp_ai_reply_and_handover(db, fake, monkeypatch):
+async def test_whatsapp_never_auto_replies_and_tells_admins_once(db, fake, monkeypatch):
+    """OutReach's own AI never answers WhatsApp; admins hear about a conversation's first unread message."""
     from app.core.tenancy import org_scope
     from app.services import whatsapp as WA
 
+    assert not hasattr(WA, "ai_reply") and not hasattr(WA, "schedule_ai_reply")
+    sent = []
+
+    async def fake_notify(event, subject, lines, button=None, only_user_ids=None):
+        sent.append(event)
+
+    monkeypatch.setattr("app.core.notify.notify", fake_notify)
     await _wa_number(db)
-    answers = iter(["We are open 9-5.", "A colleague will call you back. [HANDOVER]"])
-
-    async def fake_llm(**kw):
-        return {"success": True, "reply": next(answers)}
-
-    monkeypatch.setattr("app.services.llm_gateway.call_open_chat_llm", fake_llm)
     with org_scope("org_default"):
         t = await WA.record_inbound(db, "+442079990000", "+447700900555", "When are you open?")
-        await db.commit()
-        m = await WA.ai_reply(db, t)
-        assert m.sender == "ai" and m.text == "We are open 9-5." and t.ai_enabled
-        await WA.record_inbound(db, "+442079990000", "+447700900555", "I want to complain", telnyx_id="in_x")
-        m = await WA.ai_reply(db, t)
-        assert m.text == "A colleague will call you back." and t.ai_enabled is False
+        WA.tell_admins(t, "When are you open?")
+        await WA.record_inbound(db, "+442079990000", "+447700900555", "Hello?", telnyx_id="in_x")
+        WA.tell_admins(t, "Hello?")
+        await asyncio.sleep(0.05)
+    assert sent == ["whatsapp_message"]
+    assert not [c for c in fake.calls if c[1] == "/messages/whatsapp"]
 
 
 async def test_webhook_for_unknown_number_is_ignored(anon, db, fake):

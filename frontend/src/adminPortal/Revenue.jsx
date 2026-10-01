@@ -65,11 +65,20 @@ export function Revenue({ canEdit }) {
           </div>
           {!data.costsSet && <Note error>Our cost per unit is not set yet, so costs and margins show as 0. Set them below.</Note>}
 
-          <div style={heading}>Paid per app</div>
-          <Table head={["App", "Paid"]} minWidth={360}>
-            {Object.keys(data.revenue).length === 0 && <tr><td colSpan={2} style={{ ...cell, color: C.slate }}>No payments this month.</td></tr>}
-            {Object.entries(data.revenue).map(([wallet, byCur]) => (
-              <tr key={wallet}><td style={cell}>{data.appNames[wallet] || wallet}</td><td style={right}>{amounts(byCur)}</td></tr>
+          <div style={heading}>Per app</div>
+          <Table head={["App", "Paid", "Credits used", "Given free", "Our cost", "Margin"]} minWidth={560}>
+            {(data.apps || []).length === 0 && <tr><td colSpan={6} style={{ ...cell, color: C.slate }}>Nothing this month.</td></tr>}
+            {(data.apps || []).map((a) => (
+              <tr key={a.wallet}>
+                <td style={cell}>{a.name}</td>
+                <td style={right}>{amounts(a.paid)}</td>
+                <td style={right}>{fmt(a.credits)}</td>
+                <td style={right}>{fmt(a.given)}</td>
+                <td style={right}>{money(a.costCents, data.currency)}</td>
+                <td style={{ ...right, color: a.marginCents == null ? C.slate : a.marginCents < 0 ? C.red : C.teal }}>
+                  {a.marginCents == null ? "other currency" : money(a.marginCents, data.currency)}
+                </td>
+              </tr>
             ))}
           </Table>
 

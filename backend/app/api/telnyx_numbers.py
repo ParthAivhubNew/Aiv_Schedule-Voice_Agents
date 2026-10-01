@@ -287,7 +287,6 @@ async def provisioning_webhook(request: Request):
 async def messaging_webhook(request: Request):
     """WhatsApp messages and delivery updates. The auth middleware has already put us in the
     organisation that owns the number in the body."""
-    from app.core.tenancy import current_org
     from app.database import AsyncSessionLocal
     from app.services import whatsapp as WA
 
@@ -309,8 +308,8 @@ async def messaging_webhook(request: Request):
                 return {"ok": True}
             thread = await WA.record_inbound(db, our, contact, text, str(p.get("id") or ""), name)
             await db.commit()
-            if thread is not None and thread.ai_enabled:
-                WA.schedule_ai_reply(current_org(), thread.id)
+            if thread is not None:
+                WA.tell_admins(thread, text)
         elif event in ("message.sent", "message.delivered", "message.read", "message.failed", "message.finalized"):
             status = event.split(".", 1)[1]
             if status == "finalized":

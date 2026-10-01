@@ -5,8 +5,9 @@ import { btn, mono, when } from "./ui";
 
 const SHOWN = 3;
 
-// AI problems only staff can fix (our key or provider account, a model that is gone, unknown
-// errors with the reference the customer was given). Also emailed to STAFF_ADMIN_EMAIL.
+// Problems only staff can fix: AI (our key or provider account, a model that is gone, unknown
+// errors with the reference the customer was given) and billing (BILL-01: a month's call
+// minutes and Telnyx's disagree). Also emailed to STAFF_ADMIN_EMAIL.
 export function AlertsBanner({ go }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
@@ -28,10 +29,11 @@ export function AlertsBanner({ go }) {
       borderRadius: 12, padding: "10px 14px", marginBottom: 16, display: "grid", gap: 8 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
         <strong style={{ color: urgent ? C.red : C.textInk, fontSize: 13.5 }}>
-          {urgent ? "Urgent: " : ""}{items.length} AI alert{items.length === 1 ? "" : "s"} need a look
+          {urgent ? "Urgent: " : ""}{items.length} alert{items.length === 1 ? "" : "s"} need a look
         </strong>
         <span style={{ display: "flex", gap: 6 }}>
-          <button type="button" style={btn(false)} onClick={() => go("ai")}>Platform AI</button>
+          {items.some((a) => a.code.startsWith("AI")) && <button type="button" style={btn(false)} onClick={() => go("ai")}>Platform AI</button>}
+          {items.some((a) => a.code.startsWith("BILL")) && <button type="button" style={btn(false)} onClick={() => go("billing")}>Telnyx costs</button>}
           <button type="button" style={btn(false)} onClick={() => seen("all")}>Dismiss all</button>
         </span>
       </div>

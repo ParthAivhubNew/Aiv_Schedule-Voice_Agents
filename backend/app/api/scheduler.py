@@ -554,6 +554,13 @@ async def queue_generation(payload: Dict[str, Any], request: Request, db: AsyncS
     missing = [pid for g in groups for pid in g["post_ids"] if pid not in existing]
     if missing:
         raise HTTPException(status_code=409, detail=f"Save these posts before writing them: {missing[:5]}")
+    # Fair share: a company has at most MAX_BATCHES_PER_ORG requests waiting or running. A quick
+    # interactive rewrite of one post is never blocked behind its own big batches.
+    interactive_one = bool(payload.get("interactive")) and len(groups) == 1
+    if not interactive_one and await gen_queue.running_batches(db) >= gen_queue.MAX_BATCHES_PER_ORG:
+        raise HTTPException(status_code=429, detail={
+            "code": "USR-06", "message": ai_errors.message("USR-06") + f" At most {gen_queue.MAX_BATCHES_PER_ORG} "
+            "batches can be waiting or running at once for your company."})
     from app.services.credits import can_start
 
     # The first post must be affordable now; later ones are held one by one as they start, and

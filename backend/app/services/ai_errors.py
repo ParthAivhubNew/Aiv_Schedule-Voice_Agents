@@ -30,6 +30,8 @@ CODES: Dict[str, str] = {
     "AI-03": "The AI model is unavailable. Nothing was charged; our team has been told.",
     "AI-04": "The AI took too long to answer. Nothing was charged; try again.",
     "AI-99": "Something went wrong. Nothing was charged; our team has been told.",
+    # Staff only (never shown to customers).
+    "BILL-01": "Call minutes we charged and Telnyx's billed minutes disagree for a month.",
 }
 STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert"}
 ALERTS_KEY = "staff_alerts"
@@ -132,11 +134,12 @@ async def _email_staff(code: str, detail: str, ref: str, org: str) -> None:
         from app.core.mailer import render, send_system_email
 
         level = "URGENT: " if STAFF_CODES.get(code) == "urgent" else ""
-        subject = f"{level}OutReach AI {code} for {org}"
+        subject = f"{level}OutReach {'AI ' if code.startswith('AI') else ''}{code} for {org}"
         lines = [f"<b>{code}</b>: {CODES.get(code, '')}", f"Company: {org}", f"Detail: {detail[:800]}"]
         if ref:
             lines.append(f"Reference: {ref}")
-        lines.append("See the owner portal (Platform AI) for the provider's health.")
+        lines.append("See the owner portal (Platform AI) for the provider's health." if code.startswith("AI")
+                     else "See the owner portal (Plans & pricing → Telnyx costs).")
         msg = render(subject, lines, None)
         await send_system_email(to, subject, msg["html"], msg["text"])
     except Exception as err:
