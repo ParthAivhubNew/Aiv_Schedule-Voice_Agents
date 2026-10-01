@@ -88,6 +88,7 @@ async def dial_via_telnyx_assistant(
     prospect_id: Optional[str] = None,
     mission_id: Optional[str] = None,
     from_number_override: Optional[str] = None,
+    operator_id: str = "",
 ) -> dict:
     """
     Places a real outbound call that connects the callee to our configured Telnyx
@@ -96,7 +97,20 @@ async def dial_via_telnyx_assistant(
     webhook_url; telnyx_assistant_calls.handle_call_control_event() starts the
     assistant on call.answered and tracks the call until hangup.
     """
+    from app.services import voice_assistants as VA
+
     assistant_id = await resolve_telnyx_assistant_id(db)
+    managed = None  # the caller's own assistant (TELNYX_MANAGED_ASSISTANTS), else the pasted one
+    if VA.enabled():
+        try:
+            managed = await VA.assistant_for(db, operator_id)
+            assistant_id = managed.telnyx_assistant_id
+            await db.commit()
+        except Exception as va_err:
+            await db.rollback()
+            logger.warning(f"[TELNYX-ASSISTANT-DIAL] managed assistant unavailable: {va_err}")
+            if not assistant_id:
+                return {"success": False, "error": f"Your call assistant could not be set up: {va_err}"}
     if not assistant_id:
         return {"success": False, "error": "No Telnyx Assistant ID saved. Add it in AI config → Connections → Telnyx AI Assistant."}
 
@@ -120,14 +134,19 @@ async def dial_via_telnyx_assistant(
     if not from_number:
         return {"success": False, "error": "No Telnyx phone number saved (AI config → Connections → Telephony → Telnyx)."}
 
-    # A number can have its own assistant (e.g. a sales line and a support line).
+    # A number can have its own assistant (e.g. a sales line and a support line). Managed
+    # assistants belong to the caller, whichever of the organisation's numbers they call from.
     try:
+        if managed is not None:
+            raise LookupError("managed assistant")
         from app.models.models import OrgPhoneNumber
         from app.services.numbers import normalize as _norm_number
 
         line = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.e164 == _norm_number(from_number)))).scalars().first()
         if line and (line.assistant_id or "").strip():
             assistant_id = line.assistant_id.strip()
+    except LookupError:
+        pass
     except Exception as line_err:
         logger.debug(f"[TELNYX-ASSISTANT-DIAL] number lookup skipped: {line_err}")
 
@@ -163,12 +182,21 @@ async def dial_via_telnyx_assistant(
     call_id = f"call_{uuid.uuid4().hex[:8]}"
     label = (prospect_name or "").strip() or f"Prospect ({to_clean[-4:]})"
     mission = (mission_title or "").strip() or "Telnyx AI Assistant — outbound"
+    org_ref = ""
+    if managed is not None:
+        # This call's script, rendered now and handed to Telnyx when the call is answered.
+        from app.core.tenancy import current_org
+
+        await VA.build_brief(db, call_id=call_id, direction="outbound", operator_id=operator_id,
+                             assistant_row_id=managed.id, phone=to_clean, our_number=from_clean,
+                             prospect_id=prospect_id or "", mission_id=mission_id or "", prospect_name=label)
+        org_ref = current_org()
 
     payload = {
         "to": to_clean,
         "from": from_clean,
         "connection_id": connection_id,
-        "client_state": encode_client_state(assistant_id, call_id),
+        "client_state": encode_client_state(assistant_id, call_id, org_ref),
         # Route this call's events straight to the Assistant handler, whatever
         # webhook the Call Control App itself is configured with.
         "webhook_url": f"{public_http_base()}/api/telnyx-assistant/call-control",

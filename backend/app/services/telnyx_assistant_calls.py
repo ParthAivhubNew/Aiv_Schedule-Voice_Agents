@@ -47,15 +47,16 @@ _pollers: Dict[str, asyncio.Task] = {}
 
 # ── client_state marker ──────────────────────────────────────────────────────
 
-def encode_client_state(assistant_id: str, call_id: str) -> str:
-    raw = f"{DIAL_MARKER}:{assistant_id}:{call_id}"
+def encode_client_state(assistant_id: str, call_id: str, org_id: str = "") -> str:
+    raw = f"{DIAL_MARKER}:{assistant_id}:{call_id}" + (f"|{org_id}" if org_id else "")
     return base64.b64encode(raw.encode("utf-8")).decode("ascii")
 
 
 def decode_client_state(raw: Any) -> Optional[Dict[str, str]]:
-    """Returns {"assistant_id", "call_id"} for calls we dialed via the assistant, else None.
+    """Returns {"assistant_id", "call_id", "org_id"} for calls we dialed via the assistant, else None.
 
-    Accepts the legacy two-part form "marker:assistant_id" (no call id) too.
+    Accepts the legacy two-part form "marker:assistant_id" (no call id) too; org_id is "" for
+    calls dialed before it was added.
     """
     s = str(raw or "").strip()
     if not s:
@@ -67,9 +68,11 @@ def decode_client_state(raw: Any) -> Optional[Dict[str, str]]:
     if not decoded.startswith(f"{DIAL_MARKER}:"):
         return None
     parts = decoded.split(":", 2)
+    call_id, _, org_id = (parts[2] if len(parts) > 2 else "").partition("|")
     return {
         "assistant_id": parts[1] if len(parts) > 1 else "",
-        "call_id": parts[2] if len(parts) > 2 else "",
+        "call_id": call_id,
+        "org_id": org_id,
     }
 
 
@@ -103,8 +106,18 @@ def register_outbound(call_control_id: str, *, call_id: str, to_number: str, pro
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 async def _api_key() -> Optional[str]:
+    """The key for the current organisation's calls: its Telnyx setup (its managed account, or
+    our pay-as-you-go account) when it has one, else the key saved in AI config."""
     from app.services.telnyx_assistant_sync import _resolve_telnyx_api_key
     async with AsyncSessionLocal() as db:
+        try:
+            from app.services.telnyx_provisioning import client_for, get_setup
+
+            setup = await get_setup(db)
+            if setup is not None and setup.status == "ready":
+                return client_for(setup).api_key
+        except Exception:
+            pass
         return await _resolve_telnyx_api_key(db)
 
 
@@ -277,9 +290,23 @@ def _duration(payload: Dict[str, Any], rec: LiveCall) -> str:
 # ── event handling ───────────────────────────────────────────────────────────
 
 async def _start_assistant(call_control_id: str, assistant_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    # Managed assistants: this call's brief holds everything Telnyx needs, made when it was dialed.
+    from app.services import voice_assistants as VA
+
+    async with AsyncSessionLocal() as db:
+        call_brief = await VA.brief(db, state.get("call_id", ""))
+        if call_brief is not None:
+            try:
+                brief_key = (await VA._client(db)).api_key
+            except Exception as key_err:
+                return {"ok": False, "error": str(key_err)}
+    if call_brief is not None:
+        return await _post_assistant_start(brief_key, call_control_id, assistant_id, dict(call_brief.variables or {}))
+
     api_key = await _api_key()
     if not api_key:
         return {"ok": False, "error": "No Telnyx API key configured."}
+
     name = _real_name(state.get("prospect", ""))
     dynamic = {"call_direction": "outbound"}
     if name:
@@ -300,6 +327,10 @@ async def _start_assistant(call_control_id: str, assistant_id: str, state: Dict[
     except Exception as ctx_err:
         logger.debug(f"[TELNYX-ASSISTANT] Context resolve skipped: {ctx_err}")
 
+    return await _post_assistant_start(api_key, call_control_id, assistant_id, dynamic)
+
+
+async def _post_assistant_start(api_key: str, call_control_id: str, assistant_id: str, dynamic: Dict[str, Any]) -> Dict[str, Any]:
     body = {"assistant": {"id": assistant_id, "dynamic_variables": dynamic}}
     async with httpx.AsyncClient(timeout=10.0) as client:
         res = await client.post(
@@ -426,6 +457,9 @@ async def finish_call(call_control_id: str, payload: Optional[Dict[str, Any]] = 
         # "ended" is only ever set on answered calls; needed once _calls has dropped this call.
         answered = bool(state.get("answered")) or rec.state in ("pitching", "negotiating", "human_review", "ended")
         outcome = _hangup_outcome(cause, answered)
+        brief_note = None
+        if answered:
+            outcome, brief_note = await _reported(db, rec.id, outcome)
         already_ended = bool(rec.ended)
         if not already_ended:
             rec.duration = _duration(payload, rec)
@@ -437,7 +471,7 @@ async def finish_call(call_control_id: str, payload: Optional[Dict[str, Any]] = 
             db, rec,
             outcome=outcome,
             duration=rec.duration,
-            extra_note=(f"Summary: {summary}" if summary else None),
+            extra_note="\n".join(n for n in [f"Summary: {summary}" if summary else "", brief_note or ""] if n) or None,
         )
         await db.commit()
         call_id = rec.id
@@ -449,6 +483,21 @@ async def finish_call(call_control_id: str, payload: Optional[Dict[str, Any]] = 
         asyncio.create_task(_late_transcript_refresh(call_control_id, call_id))
     else:
         _calls.pop(call_control_id, None)
+
+
+async def _reported(db, call_id: str, outcome: str):
+    """(outcome, note) for Call history from what a managed assistant reported in this call
+    (save_outcome, a booking, request_human); unchanged for calls without a brief."""
+    from app.services import voice_assistants as VA
+    from app.services.voice_tools import HISTORY_OUTCOME
+
+    call_brief = await VA.brief(db, call_id)
+    if call_brief is None:
+        return outcome, None
+    parts = [f"Outcome: {call_brief.outcome.replace('_', ' ')}" if call_brief.outcome else "",
+             call_brief.notes or "",
+             "; ".join(f"{k}: {v}" for k, v in (call_brief.captured or {}).items())]
+    return HISTORY_OUTCOME.get(call_brief.outcome or "", outcome), ("\n".join(p for p in parts if p) or None)
 
 
 async def _late_transcript_refresh(call_control_id: str, call_id: str) -> None:
@@ -471,7 +520,8 @@ async def _late_transcript_refresh(call_control_id: str, call_id: str) -> None:
                 return
             tail = [l for l in (rec.transcript or []) if isinstance(l, str) and l.startswith("System: Call ended")]
             rec.transcript = list(state.get("base_lines") or []) + lines + tail
-            await upsert_call_log_from_live(db, rec, outcome="contacted", duration=rec.duration)
+            outcome, brief_note = await _reported(db, rec.id, "contacted")
+            await upsert_call_log_from_live(db, rec, outcome=outcome, duration=rec.duration, extra_note=brief_note)
             await db.commit()
     except Exception as err:
         logger.debug(f"[TELNYX-ASSISTANT] Late transcript refresh skipped: {err}")

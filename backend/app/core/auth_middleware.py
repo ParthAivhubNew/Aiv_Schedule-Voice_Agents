@@ -35,7 +35,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"sip-webhook/?$",
     _OPT_API + r"sip-webhook/(test|health)$",
     _OPT_API + r"sip/webhook$",
-    _OPT_API + r"telnyx-assistant/(call-control|call-event|tool/[^/]+)$",
+    _OPT_API + r"telnyx-assistant/(call-control|call-event|tools?/[^/]+)$",
     _OPT_API + r"calls/(telnyx|twilio)/[^/]+$",
     _OPT_API + r"twilio/(voice|inbound)$",
     _OPT_API + r"(vapi|retell|custom-voice|livekit)/webhook$",
