@@ -103,7 +103,10 @@ _SOCIAL_SCHEDULE_EXTRA_COLS = [
 # A post in one of these states must never be edited back to draft/approved by a client
 # save: that is how a stale browser tab re-queued already-published posts (double posting).
 LOCKED_STATUSES = ("published", "publishing")
-MAX_POSTS_PER_REQUEST = 90
+MAX_POSTS_PER_REQUEST = 90  # post rows, counting each channel copy
+MAX_WRITTEN_PER_REQUEST = 50  # pieces of content written (one per group)
+MAX_BRIEF_CHARS = 4000
+MAX_NOTE_CHARS = 2000
 
 
 async def ensure_social_schema() -> None:
@@ -476,18 +479,27 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
         prompt = f"Modern professional illustration representing {theme}, clean vector style, high quality"
 
     hosted = None
+    failed = "The image AI returned no image."
     try:
         async with IMAGE_SLOTS.slot(PRIORITY_INTERACTIVE):
             img = await asyncio.wait_for(_image_with_backup(db, payload, prompt, width=width, height=height),
                                          timeout=gen_queue.IMAGE_TIMEOUT_SECS)
         hosted = _host_image(img.get("imageUrl"), request)
+    except asyncio.TimeoutError:
+        failed = f"No image within {gen_queue.IMAGE_TIMEOUT_SECS // 60} minutes."
+        img = {}
     except Exception as err:
         logger.warning(f"[Scheduler] image failed on every configured engine: {err}")
+        failed = str(err) or failed
         img = {}
     if not hosted:
         await credits.release(db, [ref])  # a failed image is free
         await db.commit()
-        return {"status": "error", "imageUrl": None, "imagePrompt": prompt, "prompt": prompt, "warning": NO_IMAGE_AI}
+        from app.services import ai_errors
+
+        msg = await ai_errors.failure(failed, "Image redraw")
+        return {"status": "error", "imageUrl": None, "imagePrompt": prompt, "prompt": prompt, "warning": msg,
+                "code": ai_errors.code_of(msg)}
     await credits.confirm_safely(db, ref, "ai_image", 1, "AI image redraw")
     return {
         "status": "ok",
@@ -501,7 +513,7 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
 
 
 @router.post("/generate")
-async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+async def queue_generation(payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
     """Queue AI writing for posts. groups: [{postIds, plan, headline, channel, date,
     revisionNote, existingCopy, skipImage}]; posts sharing one group get the same content."""
     groups_in = payload.get("groups") or []
@@ -523,8 +535,19 @@ async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
     total = sum(len(g["post_ids"]) for g in groups)
     if not groups:
         raise HTTPException(status_code=400, detail="Nothing to write.")
-    if total > MAX_POSTS_PER_REQUEST:
-        raise HTTPException(status_code=400, detail=f"At most {MAX_POSTS_PER_REQUEST} posts per request ({total} asked). Split the plan.")
+    from app.services import ai_errors
+
+    if total > MAX_POSTS_PER_REQUEST or len(groups) > MAX_WRITTEN_PER_REQUEST:
+        raise HTTPException(status_code=400, detail={
+            "code": "USR-02", "message": ai_errors.message("USR-02") + f" At most {MAX_WRITTEN_PER_REQUEST} posts "
+            f"({MAX_POSTS_PER_REQUEST} with channel copies) at once; this asked for {len(groups)} ({total})."})
+    if any(len(g["plan"]) > MAX_BRIEF_CHARS or len(g["revision_note"]) > MAX_NOTE_CHARS for g in groups):
+        raise HTTPException(status_code=400, detail={
+            "code": "USR-04", "message": ai_errors.message("USR-04") + f" Keep each post's brief under {MAX_BRIEF_CHARS} "
+            f"characters and a change request under {MAX_NOTE_CHARS}."})
+    prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
+    if not prof or not (prof.name or "").strip():
+        raise HTTPException(status_code=400, detail={"code": "USR-05", "message": ai_errors.message("USR-05")})
     existing = {row[0] for row in (await db.execute(
         select(SocialPost.id).where(SocialPost.id.in_([pid for g in groups for pid in g["post_ids"]]))
     )).all()}
@@ -539,10 +562,19 @@ async def queue_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
     if not ok:
         raise HTTPException(status_code=402, detail=why)
     priority = PRIORITY_INTERACTIVE if payload.get("interactive") else 0
-    options = {"linkedinDirective": payload.get("linkedinDirective") or ""}
+    by = (getattr(request.state, "auth", None) or {}).get("operator_id", "")
+    batch = f"b_{uuid.uuid4().hex[:10]}"  # one request = one batch, for progress and its finish note
+    options = {"linkedinDirective": payload.get("linkedinDirective") or "", "batch": batch, "by": by,
+               "started": datetime.utcnow().isoformat()}
     job_ids = await gen_queue.enqueue(db, groups, priority=priority, options=options)
     await db.commit()
-    return {"status": "ok", "jobs": job_ids, "posts": total}
+    return {"status": "ok", "jobs": job_ids, "posts": total, "batch": batch}
+
+
+@router.get("/generate/progress")
+async def generation_progress(db: AsyncSession = Depends(get_db)):
+    """Stage, queue position and estimated time of this company's AI writing."""
+    return await gen_queue.progress(db)
 
 
 @router.get("/generate/paused")
@@ -1756,7 +1788,11 @@ Current calendar (id | date time | channel | status | headline):
         llm_res = await platform_ai.run_with_backup(db, "text", attempt)
     except Exception as llm_err:
         logger.error(f"[Scheduler Chat] writing AI failed on every configured engine: {llm_err}")
-        return {"status": "error", "reply": NO_TEXT_AI, "plan": None, "posts": [], "error": "ai_unavailable"}
+        from app.services import ai_errors
+
+        msg = await ai_errors.failure(str(llm_err), "Plan AI chat")
+        return {"status": "error", "reply": msg, "plan": None, "posts": [], "error": "ai_unavailable",
+                "code": ai_errors.code_of(msg)}
 
     reply_raw = llm_res.get("reply", "")
     known_ids = {str(p.get("id")) for p in (current_plan.get("posts") or []) if isinstance(p, dict) and p.get("id")} if isinstance(current_plan, dict) else set()

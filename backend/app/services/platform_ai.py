@@ -99,6 +99,10 @@ async def note(kind: str, slot: str, error: Optional[str] = None) -> None:
                 await db.commit()
     except Exception as err:  # health is a convenience; the work itself matters more
         logger.warning(f"[platform_ai] could not record health: {err}")
+    if error:
+        from app.services import ai_errors
+
+        await ai_errors.provider_failed(kind, slot, str(error))
 
 
 async def run_with_backup(db, kind: str, attempt: Callable[[str], Awaitable[T]]) -> T:

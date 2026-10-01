@@ -10,6 +10,10 @@ Rules (organisation-wide, one process):
   part by part as each succeeds, and given back for a part that fails or times out. When a
   company cannot afford the next post, it and the rest of the company's queue pause (nothing
   overspends); after a top-up the company continues where it stopped or starts afresh.
+- Progress: each request is a batch (options["batch"]); progress() gives its stage, queue
+  position and estimated time. When a batch finishes, the company's bell gets a note, and the
+  user who started it an email if it took over 5 minutes and they are no longer watching.
+- Failures carry an error code (ai_errors): users see the code and a plain message.
 """
 from __future__ import annotations
 
@@ -17,8 +21,10 @@ import asyncio
 import heapq
 import itertools
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import update
@@ -36,6 +42,18 @@ PRIORITY_INTERACTIVE = 10
 TEXT_TIMEOUT_SECS = 300  # one writing call (up to MAX_POSTS_PER_CALL posts)
 IMAGE_TIMEOUT_SECS = 120  # one image
 LOCKED_POST_STATUSES = ("published", "publishing")
+ACTIVE_STATES = ("queued", "writing", "image_queued", "imaging", "paused", "image_paused")
+EMAIL_AFTER = timedelta(minutes=5)  # a batch that took longer emails its user if they left
+WATCHING_SECS = 90  # progress polled this recently: the user is still watching
+
+# Rolling averages (seconds) of one writing call and one image, for the estimated time.
+_avg = {"text": 45.0, "image": 25.0}
+_polled: Dict[str, float] = {}  # batch -> last time its progress was asked for
+_announced: set = set()
+
+
+def _note_duration(kind: str, secs: float) -> None:
+    _avg[kind] = round(_avg[kind] * 0.8 + secs * 0.2, 1)
 
 
 class PriorityLimiter:
@@ -206,14 +224,18 @@ async def _claim(from_state: str, to_state: str, limit: int, text_batch: bool) -
         return [_job_dict(j) for j in claimed]
 
 
-async def _finish(job: Dict[str, Any], state: str, error: Optional[str] = None, post_state: Optional[str] = None, solo: Optional[bool] = None) -> None:
+async def _finish(job: Dict[str, Any], state: str, error: Optional[str] = None, post_state: Optional[str] = None,
+                  solo: Optional[bool] = None, post_error: Optional[str] = None) -> None:
     async with AsyncSessionLocal() as db:
         values: Dict[str, Any] = {"state": state, "error": error}
         if solo is not None:
             values["solo"] = solo
         await db.execute(update(SocialGenJob).where(SocialGenJob.id == job["id"]).values(**values).execution_options(synchronize_session=False))
-        await _set_posts(db, job["post_ids"], gen_state=post_state, gen_error=(error if post_state == "failed" else None))
+        await _set_posts(db, job["post_ids"], gen_state=post_state,
+                         gen_error=((post_error or error) if post_state == "failed" else None))
         await db.commit()
+    if state in ("done", "failed"):
+        await _batch_finished(job)
     if state == "done":
         from app.services import approval_mail
 
@@ -318,9 +340,9 @@ async def _release(job: Dict[str, Any], items: List[str]) -> None:
 
 
 async def _run_text(jobs: List[Dict[str, Any]]) -> None:
-    from app.services import platform_ai
+    from app.services import ai_errors, platform_ai
     from app.services.post_writer import BatchWriteError, generate_complete_social_package, write_post_batch
-    from app.api.scheduler import NO_TEXT_AI, _resolve_text_ai
+    from app.api.scheduler import _resolve_text_ai
 
     # The whole post (writing, and its image unless skipped) is held at today's price first.
     # A post that would take the company below zero pauses, with everything after it.
@@ -374,8 +396,10 @@ async def _run_text(jobs: List[Dict[str, Any]]) -> None:
                 except asyncio.TimeoutError:
                     raise platform_ai.AIUnavailable(f"No reply within {TEXT_TIMEOUT_SECS // 60} minutes.")
 
+            started = time.monotonic()
             async with AsyncSessionLocal() as db:
                 results = await platform_ai.run_with_backup(db, "text", timed)
+            _note_duration("text", time.monotonic() - started)
         for j in jobs:
             await _apply_text(j, results[j["id"]], company["name"])
             await _charge(j, "ai_post")
@@ -390,21 +414,24 @@ async def _run_text(jobs: List[Dict[str, Any]]) -> None:
                 await _finish(j, "queued", None, "queued", solo=True)
         else:
             await _release(jobs[0], ["ai_post", "ai_image"])
-            await _finish(jobs[0], "failed", NO_TEXT_AI, "failed")
+            await _finish(jobs[0], "failed", await ai_errors.failure(f"Unreadable reply: {err}", "Post writing"), "failed")
     except Exception as err:
         logger.warning(f"[GenQueue] Writing failed: {err}")
+        msg = None
         for j in jobs:
             if j["attempts"] < MAX_ATTEMPTS:
                 await _finish(j, "queued", None, "queued", solo=True)  # keeps its hold for the retry
             else:
                 await _release(j, ["ai_post", "ai_image"])  # failed work is free
-                await _finish(j, "failed", NO_TEXT_AI, "failed")
+                msg = msg or await ai_errors.failure(str(err) or err.__class__.__name__, "Post writing")
+                await _finish(j, "failed", msg, "failed")
     finally:
         wake()
 
 
 async def _run_image(job: Dict[str, Any]) -> None:
-    from app.api.scheduler import NO_IMAGE_AI, _host_image, _image_with_backup, _resolve_image_prefs
+    from app.api.scheduler import _host_image, _image_with_backup, _resolve_image_prefs
+    from app.services import ai_errors
     from app.services.post_writer import ASPECT_RATIOS
 
     # Normally held with the writing; a retried image (or a hold that expired) is held again here.
@@ -420,11 +447,13 @@ async def _run_image(job: Dict[str, Any]) -> None:
                 post = (await db.execute(select(SocialPost).where(SocialPost.id.in_(job["post_ids"])))).scalars().first()
                 prompt = ((post.image_prompt if post else "") or job["plan"] or job["headline"]).strip()
                 width, height = ASPECT_RATIOS.get(prefs["aspect_ratio"], (1080, 1350))
+                started = time.monotonic()
                 try:
                     img = await asyncio.wait_for(_image_with_backup(db, {}, prompt, width=width, height=height),
                                                  timeout=IMAGE_TIMEOUT_SECS)
                 except asyncio.TimeoutError:
                     raise RuntimeError(f"No image within {IMAGE_TIMEOUT_SECS // 60} minutes.")
+                _note_duration("image", time.monotonic() - started)
             url = _host_image(img.get("imageUrl"), None) or img.get("imageUrl")
             if not url:
                 raise RuntimeError(img.get("warning") or "The image AI returned no image.")
@@ -438,9 +467,132 @@ async def _run_image(job: Dict[str, Any]) -> None:
     except Exception as err:
         logger.warning(f"[GenQueue] Image failed: {err}")
         await _release(job, ["ai_image"])  # a failed image is free; the written post stays charged
-        await _finish(job, "failed", NO_IMAGE_AI, "failed")
+        msg = await ai_errors.failure(str(err) or err.__class__.__name__, "Post image")
+        await _finish(job, "failed", f"Image: {msg}", "failed", post_error=f"Image failed. {msg}")
     finally:
         wake()
+
+
+# ── Progress and finishing ──────────────────────────────────────────────────
+def _batch_of(j: SocialGenJob) -> str:
+    return str((j.options or {}).get("batch") or "")
+
+
+def _written(j: SocialGenJob) -> bool:
+    """Its writing is over (written, or failed for good)."""
+    return j.state in ("image_queued", "imaging", "image_paused", "done", "failed")
+
+
+async def _batch_jobs(db, batch: str) -> List[SocialGenJob]:
+    since = datetime.utcnow() - timedelta(days=2)
+    rows = (await db.execute(select(SocialGenJob).where(SocialGenJob.created_at >= since))).scalars().all()
+    return [j for j in rows if _batch_of(j) == batch and j.error not in ("superseded", "cancelled")]
+
+
+def _summary(jobs: List[SocialGenJob]) -> Dict[str, Any]:
+    failed = [j for j in jobs if j.state == "failed"]
+    from app.services.ai_errors import code_of
+
+    codes = sorted({code_of((j.error or "").removeprefix("Image: ")) for j in failed} - {""})
+    return {"total": len(jobs), "done": sum(1 for j in jobs if j.state == "done"), "failed": len(failed), "codes": codes}
+
+
+async def _batch_finished(job: Dict[str, Any]) -> None:
+    """The last job of a batch just ended: a bell note for the company, and an email to the user
+    who started it when it took over EMAIL_AFTER and they are no longer watching. Never raises."""
+    batch = str((job.get("options") or {}).get("batch") or "")
+    if not batch or batch in _announced:
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            jobs = await _batch_jobs(db, batch)
+            if not jobs or any(j.state in ACTIVE_STATES for j in jobs):
+                return
+            _announced.add(batch)
+            sm = _summary(jobs)
+            text = f"AI writing finished: {sm['done']} of {sm['total']} post{'s' if sm['total'] != 1 else ''} ready"
+            if sm["failed"]:
+                text += f", {sm['failed']} failed ({', '.join(sm['codes']) or 'see the posts'})"
+            from app.models.models import Notification
+
+            db.add(Notification(id=f"n_{uuid.uuid4().hex[:8]}", text=text + ".", type="alert" if sm["failed"] else "success"))
+            await db.commit()
+        opts = job.get("options") or {}
+        started = datetime.fromisoformat(opts["started"]) if opts.get("started") else None
+        watching = time.monotonic() - _polled.get(batch, 0) < WATCHING_SECS
+        if opts.get("by") and started and datetime.utcnow() - started > EMAIL_AFTER and not watching:
+            from app.core.notify import notify
+
+            await notify("posts_ready", text, [text + ".", "Open the Post scheduler to review and approve them."],
+                         only_user_ids=[opts["by"]])
+    except Exception as err:
+        logger.warning(f"[GenQueue] batch {batch} finish note skipped: {err}")
+
+
+TIPS = [
+    "You can leave this page: writing carries on, and you'll get a note when it's done.",
+    "Posts are written 5 at a time; images are drawn as each post is written.",
+    "Failed writing or images are never charged.",
+    "Edit any post by hand after it's written; your edits are kept.",
+    "Ask the Plan AI to rewrite one post if it doesn't sound right.",
+]
+
+
+async def progress(db) -> Dict[str, Any]:
+    """This company's AI writing: per batch the counts, a stage message, the place in the queue
+    and an estimated time; batches that finished in the last 2 minutes come back once more so
+    the page can say they are done."""
+    from app.core.tenancy import system_scope
+
+    since = datetime.utcnow() - timedelta(days=2)
+    rows = (await db.execute(select(SocialGenJob).where(SocialGenJob.created_at >= since))).scalars().all()
+    batches: Dict[str, List[SocialGenJob]] = {}
+    for j in rows:
+        b = _batch_of(j)
+        if b and j.error not in ("superseded", "cancelled"):
+            batches.setdefault(b, []).append(j)
+    # Everyone's waiting writing, in the order it will be taken.
+    with system_scope():
+        async with AsyncSessionLocal() as sdb:
+            line = (await sdb.execute(select(SocialGenJob.id).where(SocialGenJob.state == "queued").order_by(
+                SocialGenJob.priority.desc(), SocialGenJob.created_at))).scalars().all()
+    place = {jid: i for i, jid in enumerate(line)}
+    recent = datetime.utcnow() - timedelta(minutes=2)
+    out = []
+    for b, jobs in batches.items():
+        active = [j for j in jobs if j.state in ACTIVE_STATES]
+        if not active and max((j.updated_at or j.created_at) for j in jobs) < recent:
+            continue
+        _polled[b] = time.monotonic()
+        sm = _summary(jobs)
+        written = sum(1 for j in jobs if _written(j))
+        writing = [j for j in jobs if j.state == "writing"]
+        imaging = [j for j in jobs if j.state == "imaging"]
+        queued = [j for j in jobs if j.state == "queued"]
+        images_left = sum(1 for j in jobs if not j.skip_image and j.state in ("queued", "writing", "image_queued", "imaging"))
+        paused = sum(1 for j in jobs if j.state in ("paused", "image_paused"))
+        ahead = min((place[j.id] for j in queued if j.id in place), default=None)
+        if paused:
+            stage = f"Paused: {paused} post{'s' if paused != 1 else ''} waiting for a top-up."
+        elif writing:
+            stage = f"Writing post{'s' if len(writing) > 1 else ''} {written + 1}" + (
+                f"–{written + len(writing)}" if len(writing) > 1 else "") + f" of {len(jobs)}…"
+        elif imaging or any(j.state == "image_queued" for j in jobs):
+            drawn = sum(1 for j in jobs if j.state in ("done", "failed") and not j.skip_image)
+            total_images = sum(1 for j in jobs if not j.skip_image)
+            stage = f"Drawing image {min(drawn + 1, total_images)} of {total_images}…"
+        elif queued:
+            stage = f"Waiting in line: {ahead} post{'s' if ahead != 1 else ''} ahead." if ahead else "Starting…"
+        else:
+            stage = "Done."
+        calls_left = -(-((ahead or 0) + len(queued) + len(writing)) // MAX_POSTS_PER_CALL)
+        eta = 0 if not active or paused else int(calls_left / TEXT_SLOTS.slots * _avg["text"]
+                                                  + images_left / IMAGE_SLOTS.slots * _avg["image"])
+        out.append({**sm, "batch": b, "active": bool(active), "written": written, "paused": paused,
+                    "queuePosition": (ahead + 1) if ahead is not None else None, "etaSeconds": eta, "stage": stage,
+                    "postIds": [pid for j in jobs for pid in (j.post_ids or [])]})
+    out.sort(key=lambda x: (not x["active"], x["batch"]))
+    return {"batches": out, "tips": TIPS}
 
 
 def _spawn(tasks: set, coro) -> None:

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ClipboardList, Coins, KeyRound, LayoutDashboard, LogOut, PoundSterling, ScrollText, ShieldCheck, Sparkles, Users, UserCog } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
+import { AlertsBanner } from "./Alerts";
 import { Billing } from "./Billing";
 import { Clients } from "./Clients";
 import { Dashboard } from "./Dashboard";
@@ -103,6 +104,7 @@ export function AdminApp() {
         </div>
       </nav>
       <main style={{ padding: "24px 16px 48px", minWidth: 0, maxWidth: 1240, width: "100%", boxSizing: "border-box", margin: "0 auto" }}>
+        <AlertsBanner go={go} />
         {page === "dashboard" && <Dashboard go={go} />}
         {page === "clients" && <Clients canEdit={canEdit} openId={id} open={(cid) => go("clients", cid)} />}
         {page === "queue" && <Queue canEdit={canEdit} openClient={(cid) => go("clients", cid)} />}
