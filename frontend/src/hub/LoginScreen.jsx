@@ -353,6 +353,11 @@ export function LoginScreen({ onLogin }) {
               )}
             </form>
           )}
+          <nav className="auth-legal" aria-label="Legal">
+            <a href="/terms" target="_blank" rel="noreferrer">Terms</a>
+            <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a>
+            <a href="/data-deletion" target="_blank" rel="noreferrer">Data deletion</a>
+          </nav>
         </div>
       </main>
     </div>
@@ -404,6 +409,9 @@ button.auth-link:hover, button.auth-secondary:hover, button.auth-eye:hover { tra
 .auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: ${C.border}; }
 .auth-foot { font-size: 12px; color: ${C.slate}; text-align: center; margin: 2px 0 0; line-height: 1.5; }
 .auth-foot a { color: ${C.slate}; }
+.auth-legal { display: flex; justify-content: center; gap: 16px; margin-top: 28px; font-size: 12px; }
+.auth-legal a { color: ${C.slateLight}; text-decoration: none; }
+.auth-legal a:hover { color: ${C.ink}; text-decoration: underline; }
 .auth-tabs { position: relative; display: grid; grid-template-columns: 1fr 1fr; background: #F1F0EC; border-radius: 12px; padding: 4px; margin-bottom: 22px; }
 .auth-tabs button { position: relative; z-index: 1; height: 36px; border: none; background: none; font-family: ${FONT_BODY}; font-weight: 600; font-size: 13.5px; color: ${C.slate}; cursor: pointer; border-radius: 9px; }
 .auth-tabs button[aria-selected="true"] { color: ${C.ink}; }

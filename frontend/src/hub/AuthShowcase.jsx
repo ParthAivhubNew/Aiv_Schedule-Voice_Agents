@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { PhoneCall, CalendarCheck, MessageCircle, Sparkles } from "lucide-react";
+import { PhoneCall, CalendarCheck, Mail, Search, Share2, Sparkles } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { BrandMark } from "./BrandMark";
 
-// The left half of the sign-in page: a moving picture of what OutReach does.
+// The left half of the sign-in page: a moving picture of what OutReach does across its apps
+// (AI Voice, Lead generation, Email campaigns, Post scheduler).
 // Purely decorative (hidden from screen readers); the sample figures are illustrations.
 
 const TRANSCRIPT = [
@@ -54,7 +55,7 @@ export function AuthShowcase() {
       </div>
 
       <div className="sh-card sh-calls" style={{ animationDelay: ".1s" }}>
-        <div className="sh-label">Calls today <span className="sh-up">↑ 18%</span></div>
+        <div className="sh-label"><Search size={12} /> Leads found <span className="sh-up">↑ 24%</span></div>
         <div className="sh-big"><Counter to={1284} /></div>
         <div className="sh-bars">
           {[38, 52, 44, 66, 58, 74, 90].map((h, i) => (
@@ -64,11 +65,12 @@ export function AuthShowcase() {
       </div>
 
       <div className="sh-card sh-status" style={{ animationDelay: ".25s" }}>
-        <div className="sh-row-head"><span className="sh-label">Agents</span><span className="sh-live"><i /> Live</span></div>
+        <div className="sh-row-head"><span className="sh-label">Your apps</span><span className="sh-live"><i /> Live</span></div>
         {[
-          ["Outbound calls", 88, C.cobalt],
-          ["Inbound calls", 64, C.teal],
-          ["WhatsApp replies", 72, "#8B5CF6"],
+          ["AI Voice", 88, C.cobalt],
+          ["Lead generation", 74, "#F59E0B"],
+          ["Email campaigns", 64, C.teal],
+          ["Post scheduler", 72, "#8B5CF6"],
         ].map(([label, w, colour], i) => (
           <div key={label} className="sh-line">
             <span>{label}</span>
@@ -79,7 +81,7 @@ export function AuthShowcase() {
 
       <div className="sh-card sh-transcript" style={{ animationDelay: ".4s" }}>
         <div className="sh-row-head">
-          <span className="sh-label"><PhoneCall size={12} /> Live call · Sam, Acme Ltd</span>
+          <span className="sh-label"><PhoneCall size={12} /> AI call · Sam, Acme Ltd</span>
           <span className="sh-wave">{[0, 1, 2, 3, 4].map((i) => <i key={i} style={{ animationDelay: `${i * 0.12}s` }} />)}</span>
         </div>
         <div className="sh-msgs">
@@ -99,25 +101,24 @@ export function AuthShowcase() {
           </defs>
         </svg>
         <div className="sh-ring-num"><Counter to={82} />%</div>
-        <div className="sh-ring-label">Answer rate</div>
+        <div className="sh-ring-label"><Mail size={11} /> Email open rate</div>
       </div>
 
-      <div className="sh-card sh-booked" style={{ animationDelay: ".7s" }}>
-        <CalendarCheck size={16} color="#19B3A0" />
-        <div>
-          <div className="sh-booked-t">Meeting booked</div>
-          <div className="sh-booked-d">Thu 10:30 · invite sent</div>
-        </div>
+      <div className="sh-card sh-post" style={{ animationDelay: ".7s" }}>
+        <div className="sh-row-head"><span className="sh-label"><Share2 size={12} /> Post scheduled</span><span className="sh-when">Tue 09:00</span></div>
+        <div className="sh-post-img" />
+        <div className="sh-post-text">New case study: how Acme booked 40 meetings in a month.</div>
+        <div className="sh-nets">{["LinkedIn", "Instagram", "Facebook", "X"].map((n) => <span key={n}>{n}</span>)}</div>
       </div>
 
       <div className="sh-card sh-chip" style={{ animationDelay: ".85s" }}>
-        <MessageCircle size={14} color="#8B5CF6" /> WhatsApp follow-up sent
+        <CalendarCheck size={14} color="#19B3A0" /> Meeting booked · invite sent
       </div>
 
       <div className="sh-foot">
-        <div className="sh-tag"><Sparkles size={14} /> AI voice agents, scheduling and outreach</div>
-        <h2>Call <span>·</span> Book <span>·</span> Grow</h2>
-        <p>AI calls that sound human, book meetings into your calendar and follow up on WhatsApp and email, all from one place.</p>
+        <div className="sh-tag"><Sparkles size={14} /> AI calls, leads, email and social posts</div>
+        <h2>Find <span>·</span> Reach <span>·</span> Book <span>·</span> Grow</h2>
+        <p>Find new leads, call them with an AI agent that sounds human, follow up by email and WhatsApp, and keep your social pages busy, all from one place.</p>
       </div>
     </aside>
   );
@@ -139,10 +140,10 @@ const SHOW_CSS = `
 .sh-label { font-size: 11.5px; font-weight: 600; color: ${C.slate}; display: inline-flex; align-items: center; gap: 6px; letter-spacing: .02em; }
 .sh-up { color: #16A34A; font-weight: 700; }
 .sh-big { font-family: ${FONT_DISPLAY}; font-weight: 700; font-size: 30px; letter-spacing: -0.03em; margin: 2px 0 8px; }
-.sh-calls { left: 7%; top: 17%; width: 200px; }
+.sh-calls { left: 7%; top: 17%; width: 210px; }
 .sh-bars { display: flex; align-items: flex-end; gap: 5px; height: 38px; }
 .sh-bars span { flex: 1; border-radius: 4px 4px 2px 2px; background: linear-gradient(180deg, #5B7BFF, #3457D5); transform-origin: bottom; animation: shGrow 1s cubic-bezier(.16,1,.3,1) both; }
-.sh-status { right: 7%; top: 13%; width: 250px; animation-duration: .8s, 8s; }
+.sh-status { right: 7%; top: 13%; width: 270px; animation-duration: .8s, 8s; }
 .sh-row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .sh-live { font-size: 11.5px; font-weight: 700; color: #16A34A; display: inline-flex; align-items: center; gap: 6px; }
 .sh-live i { width: 7px; height: 7px; border-radius: 50%; background: #16A34A; box-shadow: 0 0 0 0 rgba(22,163,74,.6); animation: shPulse 1.6s infinite; }
@@ -156,15 +157,18 @@ const SHOW_CSS = `
 .sh-msg.caller { background: #F1F0EC; color: ${C.textInk}; border-bottom-right-radius: 4px; align-self: flex-end; }
 .sh-wave { display: inline-flex; align-items: center; gap: 3px; height: 16px; }
 .sh-wave i { width: 3px; height: 100%; border-radius: 2px; background: ${C.cobalt}; animation: shWave 1s ease-in-out infinite; }
-.sh-ring { right: 12%; top: 46%; width: 132px; text-align: center; padding: 16px 12px 12px; animation-duration: .8s, 6.5s; }
+.sh-ring { right: 14%; top: 40%; width: 132px; text-align: center; padding: 16px 12px 12px; animation-duration: .8s, 6.5s; }
 .sh-ring svg { display: block; margin: 0 auto; }
 .sh-ring-arc { animation: shArc 1.8s .6s cubic-bezier(.16,1,.3,1) forwards; }
 .sh-ring-num { position: absolute; top: 40px; left: 0; right: 0; font-family: ${FONT_DISPLAY}; font-weight: 700; font-size: 16px; }
-.sh-ring-label { font-size: 11.5px; font-weight: 600; color: ${C.slate}; margin-top: 6px; }
-.sh-booked { right: 9%; top: 71%; display: flex; align-items: center; gap: 10px; padding: 10px 14px; animation-duration: .8s, 7.5s; }
-.sh-booked-t { font-weight: 700; font-size: 13px; }
-.sh-booked-d { font-size: 11.5px; color: ${C.slate}; }
-.sh-chip { left: 16%; top: 77%; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; padding: 9px 13px; border-radius: 999px; animation-duration: .8s, 8.5s; }
+.sh-ring-label { font-size: 11.5px; font-weight: 600; color: ${C.slate}; margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.sh-post { right: 7%; top: 58%; width: 250px; padding: 12px 14px; animation-duration: .8s, 7.5s; }
+.sh-when { font-size: 11px; font-weight: 700; color: #8B5CF6; }
+.sh-post-img { height: 40px; border-radius: 10px; background: linear-gradient(120deg, #E0E7FF, #EDE9FE 50%, #CCFBF1); background-size: 200% 100%; animation: shShine 4s ease-in-out infinite alternate; }
+.sh-post-text { font-size: 12px; line-height: 1.4; margin: 8px 0; }
+.sh-nets { display: flex; gap: 4px; }
+.sh-nets span { font-size: 10.5px; font-weight: 600; color: ${C.slate}; background: #F1F0EC; border-radius: 999px; padding: 2px 8px; }
+.sh-chip { left: 14%; top: 66%; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; padding: 9px 13px; border-radius: 999px; animation-duration: .8s, 8.5s; }
 .sh-foot { position: absolute; left: 48px; right: 48px; bottom: 44px; z-index: 2; }
 .sh-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #BFD0FF; background: rgba(91,123,255,.16); border: 1px solid rgba(143,166,255,.3); padding: 5px 10px; border-radius: 999px; margin-bottom: 14px; }
 .sh-foot h2 { font-family: ${FONT_DISPLAY}; font-size: 34px; letter-spacing: -0.03em; margin: 0 0 8px; }
@@ -178,6 +182,7 @@ const SHOW_CSS = `
 @keyframes shPulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.6); } 70% { box-shadow: 0 0 0 8px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }
 @keyframes shMsg { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes shWave { 0%,100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+@keyframes shShine { from { background-position: 0% 0; } to { background-position: 100% 0; } }
 @keyframes shArc { to { stroke-dashoffset: 34; } }
-@media (max-height: 760px) { .sh-chip, .sh-booked { display: none; } }
+@media (max-height: 760px) { .sh-chip, .sh-post { display: none; } }
 `;
