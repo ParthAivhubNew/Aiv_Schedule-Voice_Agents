@@ -77,6 +77,8 @@ export const adminApi = {
   telnyxCosts: (month) => request(`/telnyx-costs?month=${q(month)}`),
   rates: () => request("/rates"),
   setRates: (rates) => request("/rates", { method: "PUT", body: { rates } }),
+  platformAi: () => request("/platform-ai"),
+  setPlatformAi: (body) => request("/platform-ai", { method: "PUT", body }),
   logs: (orgId = "") => request(`/logs?limit=300${orgId ? `&org_id=${q(orgId)}` : ""}`),
   staff: () => request("/staff"),
   addStaff: (body) => request("/staff", { method: "POST", body }),

@@ -159,3 +159,27 @@ async def test_client_organisations_cannot_change_provider_settings(client, db):
         me = (await c.get("/api/auth/me")).json()
     assert me["is_platform_org"] is False
     assert (await client.get("/api/auth/me")).json()["is_platform_org"] is True
+
+
+async def test_staff_choose_the_post_scheduler_ai_for_clients(staff, db):
+    from app.api.scheduler import _load_ai_settings, _resolve_image_prefs
+    from app.core.tenancy import org_scope
+
+    got = (await staff.get("/api/admin-api/platform-ai")).json()
+    assert got["chosen"] == {"textProvider": "", "textModel": "", "imageProvider": "", "imageModel": ""}
+    assert "openai" in got["textProviders"] and "fal" in got["imageProviders"]
+    assert (await staff.put("/api/admin-api/platform-ai", json={"textProvider": "nope"})).status_code == 400
+    r = await staff.put("/api/admin-api/platform-ai", json={"textProvider": "openai", "textModel": "gpt-test", "imageProvider": "fal"})
+    assert r.status_code == 200 and r.json()["imageProvider"] == "fal"
+    support = await make_staff(db, "support2@outreach.test", "staff_support")
+    async with _as(support) as c:
+        assert (await c.put("/api/admin-api/platform-ai", json={"imageProvider": "openai"})).status_code == 403
+
+    await make_user(db, "acme_admin", "Admin", org_id="org_acme")
+    with org_scope("org_acme"):  # a client: staff's choice, whatever the request asks for
+        prefs = await _load_ai_settings(db)
+        assert (prefs["textProvider"], prefs["textModel"], prefs["imageProvider"]) == ("openai", "gpt-test", "fal")
+        img = await _resolve_image_prefs(db, {"image_provider": "pollinations", "image_api_key": "sk-x"})
+        assert img["provider"] == "fal" and img["api_key"] is None
+    # OutReach's own organisation keeps its own choice.
+    assert (await _load_ai_settings(db))["textProvider"] == "auto"

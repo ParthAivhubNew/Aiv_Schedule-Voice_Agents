@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { ClipboardList, Coins, LayoutDashboard, LogOut, ScrollText, ShieldCheck, Users, UserCog } from "lucide-react";
+import { ClipboardList, Coins, LayoutDashboard, LogOut, ScrollText, ShieldCheck, Sparkles, Users, UserCog } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
 import { Billing } from "./Billing";
 import { Clients } from "./Clients";
 import { Dashboard } from "./Dashboard";
 import { Logs } from "./Logs";
+import { PlatformAi } from "./PlatformAi";
 import { Queue } from "./Queue";
 import { SignIn } from "./SignIn";
 import { Staff } from "./Staff";
@@ -15,6 +16,7 @@ const PAGES = [
   { id: "clients", label: "Clients", icon: Users },
   { id: "queue", label: "Queue", icon: ClipboardList },
   { id: "billing", label: "Plans & pricing", icon: Coins },
+  { id: "ai", label: "Platform AI", icon: Sparkles },
   { id: "logs", label: "Logs", icon: ScrollText },
   { id: "staff", label: "Staff", icon: UserCog },
 ];
@@ -101,6 +103,7 @@ export function AdminApp() {
         {page === "clients" && <Clients canEdit={canEdit} openId={id} open={(cid) => go("clients", cid)} />}
         {page === "queue" && <Queue canEdit={canEdit} openClient={(cid) => go("clients", cid)} />}
         {page === "billing" && <Billing canEdit={canEdit} />}
+        {page === "ai" && <PlatformAi canEdit={canEdit} />}
         {page === "logs" && <Logs />}
         {page === "staff" && <Staff me={staff} canEdit={canEdit} />}
       </main>

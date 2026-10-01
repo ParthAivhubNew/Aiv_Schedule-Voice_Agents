@@ -551,7 +551,8 @@ function MainApp({ onSignedOut }) {
       } catch (_) {}
       try {
         const s = await api.getSources();
-        if (s && Array.isArray(s) && s.length) {
+        // The organisation's real sources, even none: never the demo list.
+        if (Array.isArray(s)) {
           setKnowledgeSources(s);
           try { localStorage.setItem("aivhub_sources", JSON.stringify(s)); } catch (_) {}
         }
