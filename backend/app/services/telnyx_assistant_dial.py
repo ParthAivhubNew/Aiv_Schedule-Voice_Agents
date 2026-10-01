@@ -114,8 +114,6 @@ async def dial_via_telnyx_assistant(
                 api_key, org_connection_id = own_key, (setup.connection_id or "")
     except Exception as setup_err:
         logger.debug(f"[TELNYX-ASSISTANT-DIAL] organisation Telnyx setup skipped: {setup_err}")
-    if not api_key:
-        return {"success": False, "error": "No Telnyx API key saved. Add it in AI config → Connections → Telephony → Telnyx."}
 
     # The organisation's chosen number when it has numbers saved; else the saved Telnyx number.
     from_number = from_number_override or await _resolve_telnyx_from_number(db)
@@ -133,6 +131,16 @@ async def dial_via_telnyx_assistant(
     except Exception as line_err:
         logger.debug(f"[TELNYX-ASSISTANT-DIAL] number lookup skipped: {line_err}")
 
+    # A number we bought for the organisation on our pay-as-you-go account: dial with our key
+    # through its own app, so Telnyx bills the call to its billing group.
+    from app.services.telnyx_provisioning import outbound_route
+
+    route = await outbound_route(db, from_number)
+    if route:
+        api_key, org_connection_id = route
+    if not api_key:
+        return {"success": False, "error": "No Telnyx API key saved. Add it in AI config → Connections → Telephony → Telnyx."}
+
     connection_id = org_connection_id or await _resolve_call_control_app_id(db, api_key)
     if not connection_id:
         return {"success": False, "error": "No Telnyx Call Control Application found on this account. Run Line setup once to create it."}
@@ -148,6 +156,9 @@ async def dial_via_telnyx_assistant(
     if not gate.allowed:
         return {"success": False, "error": " ".join(gate.reasons), "compliance": {"blocked": True, "reasons": gate.reasons}}
     compliance_warnings = list(gate.warnings)
+    from app.services.credits import call_time_limit
+
+    time_limit = await call_time_limit(db)  # prepaid: the call ends when the minutes run out
 
     call_id = f"call_{uuid.uuid4().hex[:8]}"
     label = (prospect_name or "").strip() or f"Prospect ({to_clean[-4:]})"
@@ -163,6 +174,8 @@ async def dial_via_telnyx_assistant(
         "webhook_url": f"{public_http_base()}/api/telnyx-assistant/call-control",
         "webhook_url_method": "POST",
     }
+    if time_limit:
+        payload["time_limit_secs"] = time_limit
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=12.0) as client:

@@ -24,14 +24,14 @@ function WeekGrid({ days, onChange, disabled }) {
         const spec = days[d] || { open: false, start: "09:00", end: "17:30" };
         const bad = spec.open && mins(spec.end) <= mins(spec.start);
         return (
-          <div key={d} style={{ display: "grid", gridTemplateColumns: "120px 90px 1fr", alignItems: "center", gap: 10, opacity: disabled ? 0.55 : 1 }}>
+          <div key={d} className="day-row" style={{ display: "grid", gridTemplateColumns: "120px 90px minmax(0, 1fr)", alignItems: "center", gap: 10, opacity: disabled ? 0.55 : 1 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: C.textInk }}>{d}</span>
             <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: disabled ? "default" : "pointer" }}>
               <input type="checkbox" disabled={disabled} checked={spec.open} onChange={(e) => onChange(d, { ...spec, open: e.target.checked })} />
               {spec.open ? "Open" : "Closed"}
             </label>
             {spec.open ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <input type="time" aria-label={`${d} from`} disabled={disabled} value={spec.start} onChange={(e) => onChange(d, { ...spec, start: e.target.value })} style={time} />
                 <span style={{ color: C.slate, fontSize: 12.5 }}>to</span>
                 <input type="time" aria-label={`${d} to`} disabled={disabled} value={spec.end} onChange={(e) => onChange(d, { ...spec, end: e.target.value })} style={time} />
@@ -146,7 +146,7 @@ export function WorkingHoursTab({ operator }) {
   const lateCalls = custom && DAYS.some((d) => rules.schedule.days[d].open && (mins(rules.schedule.days[d].start) < mins("08:00") || mins(rules.schedule.days[d].end) > mins("21:00")));
 
   return (
-    <div style={{ fontFamily: FONT_BODY, display: "grid", gap: 16, maxWidth: 860 }}>
+    <div style={{ fontFamily: FONT_BODY, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, maxWidth: 860 }}>
       {!canEdit && <div style={{ fontSize: 12.5, color: C.slate }}>You can view these hours. Only admins or people with Company profile: Full access can change them.</div>}
       {error && <div style={{ color: C.red, background: C.redSoft, padding: "8px 12px", borderRadius: 8, fontSize: 13 }}>{error}</div>}
       {msg && <div style={{ color: C.green, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}><Check size={14} /> {msg}</div>}

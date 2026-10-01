@@ -49,6 +49,14 @@ services:
       - ./backend:/app
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
+    # .env.local is in git: Stripe TEST keys, so every developer can try payments.
+    # .env comes second, so a server's own values win: production puts its live Stripe keys
+    # (and any other variable from docs/SECURITY_SETUP.md not listed below) in .env.
+    env_file:
+      - path: .env.local
+        required: false
+      - path: .env
+        required: false
     environment:
       TZ: ${TZ:-Europe/Berlin}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aivhub}

@@ -408,6 +408,8 @@ class TelnyxCarrierAdapter(BaseCarrierAdapter):
             "stream_bidirectional_codec": "PCMU",
             "client_state": base64.b64encode(internal_call_id.encode("utf-8")).decode("ascii"),
         }
+        if creds.get("time_limit_secs"):
+            payload["time_limit_secs"] = int(creds["time_limit_secs"])
         logger.info(f"Dispatching Telnyx stream-bridge outbound: To={to_clean} connection_id={connection_id} stream={media_stream_url}")
 
         async with httpx.AsyncClient(timeout=12.0) as client:

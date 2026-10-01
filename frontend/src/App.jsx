@@ -6,7 +6,8 @@ import { INITIAL_COMMON_AI_CONFIG, INITIAL_COMPANY_PROFILE, INITIAL_FAQ, INITIAL
 import { AppChrome } from "./app/ui";
 import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
 import { LoginScreen } from "./hub/LoginScreen";
-import { PluginHub, UniversalCallNotificationBanner } from "./hub/PluginHub";
+import { AppHome } from "./hub/AppHome";
+import { UniversalCallNotificationBanner } from "./hub/PluginHub";
 import { ProfileSettingsModal } from "./hub/ProfileSettingsModal";
 import { OrgSettingsProvider } from "./org/orgSettings";
 import { CalcomAdminModal } from "./plugins/calendar/CalcomAdminModal";
@@ -637,7 +638,7 @@ function MainApp({ onSignedOut }) {
     <OrgSettingsProvider>
       {!plugin && (
         <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
-          <PluginHub
+          <AppHome
             operator={operator}
             onPick={handlePickPlugin}
             onLogout={handleLogout}

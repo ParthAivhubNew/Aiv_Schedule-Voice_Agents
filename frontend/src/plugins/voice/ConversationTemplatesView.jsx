@@ -335,7 +335,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         />
       )}
 
-      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+      <div className="stack-flex" style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {/* Left Sidebar: Template Directory */}
         <div style={{ width: 320, minWidth: 320, borderRight: `1px solid ${C.border}`, background: "#FFFFFF", display: "flex", flexDirection: "column" }}>
           {/* Header & Filter Controls */}
@@ -481,8 +481,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         {/* Main Workspace */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#F8FAFC" }}>
           {/* Top Bar for active template */}
-          <div style={{ padding: "14px 28px", background: "#fff", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div className="wrap-narrow" style={{ padding: "14px 28px", background: "#fff", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div className="wrap-narrow" style={{ display: "flex", alignItems: "center", gap: 16 }}>
               <div style={{ display: "flex", background: C.paperSoft, padding: 3, borderRadius: 8 }}>
                 <button
                   onClick={() => setActiveTab("editor")}
@@ -621,7 +621,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 14 }}>
                     Template Information
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                     <div>
                       <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Template Name</label>
                       <input

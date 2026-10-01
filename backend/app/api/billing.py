@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_middleware import current
@@ -57,6 +57,8 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
 class CheckoutBody(BaseModel):
     plans: List[str] = []
     topups: List[str] = []
+    back: str = Field("/", pattern=r"^/[a-z/]*$")  # page of the app to return to after paying
+    quantities: Dict[str, int] = {}  # top-up id -> how many (1 when missing)
 
 
 @router.post("/checkout")
@@ -66,7 +68,8 @@ async def checkout(body: CheckoutBody, request: Request, db: AsyncSession = Depe
         raise HTTPException(status_code=503, detail="Payments are not switched on yet.")
     try:
         url = await B.create_checkout(db, org_id=ctx["org_id"], email=ctx.get("email") or "",
-                                      plan_ids=body.plans, topup_ids=body.topups, base_url=_base())
+                                      plan_ids=body.plans, topup_ids=body.topups, base_url=_base(), back=body.back,
+                                      quantities=body.quantities)
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
     except B.StripeError as err:
@@ -75,13 +78,69 @@ async def checkout(body: CheckoutBody, request: Request, db: AsyncSession = Depe
     return {"url": url}
 
 
-@router.post("/portal")
-async def portal(request: Request, db: AsyncSession = Depends(get_db)):
+# ── A plugin's plan, managed from its Subscription page ────────────────────
+@router.get("/subscriptions")
+async def subscriptions(request: Request, db: AsyncSession = Depends(get_db)):
+    """Each plugin's plan as Stripe has it now: which plan, when it renews, whether it is ending."""
+    _admin(request)
+    if not B.configured():
+        return {}
+    try:
+        live = await B.live_plans(db)
+    except B.StripeError as err:
+        raise HTTPException(status_code=502, detail=str(err))
+    return {w: {k: v[k] for k in ("planId", "status", "periodEnd", "ending", "alone")} for w, v in live.items()}
+
+
+class PlanBody(BaseModel):
+    plan: str
+
+
+@router.post("/plan")
+async def change_plan(body: PlanBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """Switch a plugin to another of its plans. url is set when the bank wants the upgrade
+    payment confirmed on Stripe's page first."""
     _admin(request)
     if not B.configured():
         raise HTTPException(status_code=503, detail="Payments are not switched on yet.")
     try:
-        return {"url": await B.portal_url(db, _base())}
+        return {"url": await B.change_plan(db, body.plan)}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except B.StripeError as err:
+        raise HTTPException(status_code=502, detail=str(err))
+
+
+class CancelBody(BaseModel):
+    wallet: str
+    cancel: bool = True  # False: keep the plan after all
+
+
+@router.post("/cancel")
+async def cancel_plan(body: CancelBody, request: Request, db: AsyncSession = Depends(get_db)):
+    _admin(request)
+    if not B.configured():
+        raise HTTPException(status_code=503, detail="Payments are not switched on yet.")
+    try:
+        await B.set_ending(db, body.wallet, body.cancel)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except B.StripeError as err:
+        raise HTTPException(status_code=502, detail=str(err))
+    return {"wallet": body.wallet, "ending": body.cancel}
+
+
+class PortalBody(BaseModel):
+    back: str = Field("/", pattern=r"^/[a-z/]*$")
+
+
+@router.post("/portal")
+async def portal(request: Request, body: Optional[PortalBody] = None, db: AsyncSession = Depends(get_db)):
+    _admin(request)
+    if not B.configured():
+        raise HTTPException(status_code=503, detail="Payments are not switched on yet.")
+    try:
+        return {"url": await B.portal_url(db, _base(), body.back if body else "/")}
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
     except B.StripeError as err:

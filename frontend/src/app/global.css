@@ -1,0 +1,163 @@
+/* Styles that need a selector (hover, screen width); everything else is styled inline. */
+
+/* The page fills the window with no default margin (Lead Generation and Email Outreach used
+   to sit 8px in from every edge, which also made the page scroll a little). */
+* {
+  box-sizing: border-box;
+}
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Buttons and fields do not inherit the page font by themselves: they fall back to the
+   browser's own, which is why some menu items looked different from the rest. */
+button, input, select, textarea {
+  font-family: inherit;
+}
+
+/* Square corners everywhere. Almost every box, button and field sets its rounding inline, so
+   this one rule takes it away; only true circles (border-radius: 50%: spinners, radio dots) keep
+   theirs. Delete this rule to get the rounded look back, or change 0 to a small value such as 4px
+   for slightly softened corners. */
+[style*="border-radius"]:not([style*="border-radius: 50%"]) {
+  border-radius: 0 !important;
+}
+
+/* Home page app cards: the border takes the app's colour and the shadow deepens. No jump. */
+.app-card {
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.app-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 14px 34px rgba(18, 20, 28, 0.08);
+}
+
+@media (max-width: 480px) {
+  .hide-narrow {
+    display: none;
+  }
+}
+
+/* Phones and narrow windows: an app's sidebar becomes a bar across the top that scrolls
+   sideways, and the page below it takes the full width. */
+@media (max-width: 820px) {
+  .app-shell {
+    flex-direction: column !important;
+  }
+  .app-sidebar {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    flex: 0 0 auto;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 4px;
+    padding: 8px 10px !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .app-sidebar::-webkit-scrollbar {
+    display: none;
+  }
+  /* The app's name block: the highlighted app in the switcher says where you are, and the room
+     is better spent on the page links. */
+  .app-sidebar > :first-child {
+    display: none !important;
+  }
+  .app-sidebar-nav {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 4px;
+  }
+  .app-sidebar > *,
+  .app-sidebar-nav > * {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+    white-space: nowrap;
+  }
+  .app-sidebar-spacer,
+  .app-sidebar-extra {
+    display: none !important;
+  }
+  .app-main {
+    height: auto !important;
+    flex: 1 1 auto !important;
+    min-height: 0;
+  }
+
+  /* Two panes side by side (a main area and a fixed-width side panel) stack instead: the main
+     area on top, the side panel below it. */
+  .split-view {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+  .split-main {
+    flex: 0 0 auto !important;
+    overflow: visible !important;
+  }
+  .split-side {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: 1 0 70vh !important;
+    border-left: none !important;
+    border-top: 1px solid #E4E1D9;
+  }
+  .split-resize {
+    display: none !important;
+  }
+
+  /* Card grids collapse to one column (metric tiles to two), and wide tables scroll sideways
+     inside their own box instead of stretching the whole page. */
+  .stack-narrow {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .grid-2-narrow {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .wrap-narrow {
+    flex-wrap: wrap !important;
+  }
+  /* A row of panes (a list beside an editor) becomes a column that scrolls as a whole. */
+  .stack-flex {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+  .stack-flex > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+    border-right: none !important;
+  }
+
+  /* Voice: pages scroll as a whole, and the list page shows its side panel below the list. */
+  .app-page {
+    overflow-y: auto !important;
+    padding: 14px 14px 24px !important;
+  }
+  .list-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    flex: 0 0 auto !important;
+    min-height: auto !important;
+  }
+  .list-grid > :last-child {
+    min-height: 520px;
+  }
+  /* Working hours: the day, then Open/Closed, then the times on a line of their own. */
+  .day-row {
+    grid-template-columns: 96px minmax(0, 1fr) !important;
+  }
+  .day-row > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .scroll-narrow {
+    overflow-x: auto !important;
+  }
+  .scroll-narrow > * {
+    min-width: 640px;
+  }
+}

@@ -29,11 +29,14 @@ import {
   Layers,
   Activity,
   Globe,
-  Tag
+  Tag,
+  CreditCard
 } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
+import { AppSwitcher } from "../../hub/AppSwitcher";
+import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
+import { SubscriptionPage } from "../../team/SubscriptionPage";
 
 const INITIAL_DUMMY_LEADS = [
   {
@@ -415,6 +418,7 @@ export default function LeadGenerationPlugin({
     { id: "contacts", label: "Decision Makers", icon: Users, count: leads.length },
     { id: "dossiers", label: "Account Dossiers", icon: FileText },
     { id: "import_export", label: "Import & Export", icon: FileSpreadsheet },
+    ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard }] : []),
   ];
 
   const viewTitles = {
@@ -424,13 +428,15 @@ export default function LeadGenerationPlugin({
     contacts: { title: "Verified Decision Makers", desc: "Direct phone numbers, email addresses, and executive titles for key buyers." },
     dossiers: { title: "Intelligence Dossiers", desc: "Deep operational briefings, verified tech stacks, and personalized conversation angles." },
     import_export: { title: "Import & Export", desc: "Bulk CSV upload, data hygiene verification, and account list export." },
+    subscription: { title: "Subscription", desc: "Your lead generation plan and credits. Change plan, top up, or cancel." },
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden" }}>
+    <div className="app-shell" style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden" }}>
       
       {/* ----------------- LEFT DARK SIDEBAR (MATCHING OTHER PLUGINS) ----------------- */}
       <div
+        className="app-sidebar"
         style={{
           width: 232,
           minWidth: 232,
@@ -464,33 +470,10 @@ export default function LeadGenerationPlugin({
           </span>
         </div>
 
-        {/* Back to Workspace button */}
-        {onBackToHub && (
-          <button
-            onClick={onBackToHub}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              margin: "0 4px 16px 4px",
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: `1px solid ${C.inkLine}`,
-              background: "transparent",
-              color: "#C8CCD6",
-              fontFamily: FONT_BODY,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <LayoutGrid size={14} /> All plugins
-          </button>
-        )}
+        <AppSwitcher current="leadgen" onHome={onBackToHub} />
 
         {/* Navigation items */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+        <div className="app-sidebar-nav" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
@@ -508,9 +491,7 @@ export default function LeadGenerationPlugin({
                   cursor: "pointer",
                   background: active ? "rgba(255,255,255,0.09)" : "transparent",
                   color: active ? "#fff" : "#9AA0AE",
-                  fontFamily: FONT_BODY,
-                  fontSize: 13.5,
-                  fontWeight: active ? 600 : 500,
+                  ...NAV_TEXT,
                   textAlign: "left",
                   transition: "all 0.12s",
                 }}
@@ -537,7 +518,7 @@ export default function LeadGenerationPlugin({
         </div>
 
         {/* Sidebar Footer: Operator & Sign Out */}
-        <div style={{ marginTop: "auto", padding: "12px 10px", borderTop: `1px solid ${C.inkLine}` }}>
+        <div className="app-sidebar-extra" style={{ marginTop: "auto", padding: "12px 10px", borderTop: `1px solid ${C.inkLine}` }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#6B7280", marginBottom: 8 }}>
             Logged in as
           </div>
@@ -591,7 +572,7 @@ export default function LeadGenerationPlugin({
       </div>
 
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
+      <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
         
         {/* Top Header Bar: Clean, consistent */}
         <div
@@ -667,8 +648,8 @@ export default function LeadGenerationPlugin({
               
               {/* Search Hero Card */}
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
-                <form onSubmit={handleSimulatedSearch} style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <div style={{ position: "relative", flex: 1 }}>
+                <form className="wrap-narrow" onSubmit={handleSimulatedSearch} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <div style={{ position: "relative", flex: "1 1 200px", minWidth: 0 }}>
                     <Search size={18} color={C.slate} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }} />
                     <input
                       type="text"
@@ -777,7 +758,7 @@ export default function LeadGenerationPlugin({
                   </span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                   {filteredLeads.map((lead) => (
                     <div
                       key={lead.id}
@@ -865,7 +846,7 @@ export default function LeadGenerationPlugin({
           {view === "accounts" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* Metric stats row */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+              <div className="grid-2-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
                 {[
                   { label: "Target Accounts", val: leads.length, color: "#8B5CF6" },
                   { label: "High Intent (>90%)", val: leads.filter((l) => l.matchScore >= 90).length, color: "#059669" },
@@ -880,7 +861,7 @@ export default function LeadGenerationPlugin({
               </div>
 
               {/* Table of Accounts */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+              <div className="scroll-narrow" style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1.4fr 1.8fr 1fr 1.2fr", padding: "12px 18px", background: HUB_PAPER, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>
                   <div>Company & Domain</div>
                   <div>Industry</div>
@@ -921,7 +902,7 @@ export default function LeadGenerationPlugin({
 
           {/* VIEW 3: DECISION MAKERS */}
           {view === "contacts" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {leads.map((lead) => (
                 <div key={lead.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
@@ -994,7 +975,7 @@ export default function LeadGenerationPlugin({
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14 }}>
+                  <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14 }}>
                     <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 4 }}>Verified Pain Point & Hook</div>
                       <div style={{ fontSize: 12.5, color: C.textInk, lineHeight: 1.5 }}>{lead.openingHook}</div>
@@ -1016,6 +997,8 @@ export default function LeadGenerationPlugin({
           )}
 
           {/* VIEW 5: IMPORT & EXPORT */}
+          {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}
+
           {view === "import_export" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ background: "#fff", border: `1px dashed ${C.border}`, borderRadius: 14, padding: "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -1130,7 +1113,7 @@ export default function LeadGenerationPlugin({
                   style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5 }}
                 />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 3 }}>Decision Maker</label>
                   <input
@@ -1150,7 +1133,7 @@ export default function LeadGenerationPlugin({
                   />
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 3 }}>Phone</label>
                   <input
