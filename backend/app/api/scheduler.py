@@ -307,7 +307,31 @@ async def _load_ai_settings(db: AsyncSession) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"Could not load scheduler AI settings: {e}")
         await db.rollback()
+    # Client organisations write and draw with the AI staff chose for the platform.
+    from app.services import platform_ai
+
+    if platform_ai.applies_here():
+        try:
+            chosen = await platform_ai.get(db)
+        except Exception as e:
+            logger.warning(f"Could not load the platform AI choice: {e}")
+            await db.rollback()
+            chosen = {}
+        for field, value in chosen.items():
+            if value:
+                out[field] = value
+                if field == "textProvider" and not chosen.get("textModel"):
+                    out["textModel"] = ""
+                if field == "imageProvider" and not chosen.get("imageModel"):
+                    out["imageModel"] = ""
     return out
+
+
+async def _platform_locked(db: AsyncSession, field: str) -> bool:
+    """A client organisation whose staff-chosen provider must not be overridden per request."""
+    from app.services import platform_ai
+
+    return platform_ai.applies_here() and bool((await platform_ai.get(db)).get(field))
 
 
 async def _saved_ai_keys(db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
@@ -344,6 +368,8 @@ async def _resolve_text_ai(db: AsyncSession, payload: Dict[str, Any]) -> Dict[st
 
     api_key = (payload.get("apiKey") or payload.get("api_key") or "").strip() or None
     req_provider = (payload.get("provider") or "").strip() or None
+    if await _platform_locked(db, "textProvider"):
+        api_key = req_provider = None
     explicit = bool(api_key or req_provider)
     if explicit:
         provider = req_provider
@@ -377,6 +403,10 @@ async def _resolve_text_ai(db: AsyncSession, payload: Dict[str, Any]) -> Dict[st
 async def _resolve_image_prefs(db: AsyncSession, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Image engine choice: request fields win, else the saved scheduler choice."""
     prefs = await _load_ai_settings(db)
+    if await _platform_locked(db, "imageProvider"):
+        payload = {k: v for k, v in payload.items() if k not in (
+            "image_provider", "imageProvider", "imageEngine", "image_api_key", "imageApiKey",
+            "image_model", "imageModel", "image_base_url", "imageBaseUrl")}
     provider = (
         payload.get("image_provider") or payload.get("imageProvider") or payload.get("imageEngine")
         or _auto_none(prefs.get("imageProvider"))

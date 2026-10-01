@@ -911,16 +911,18 @@ export function CallingWorkspace({
     const load = () => api.getTelnyxAssistantSettings()
       .then((res) => {
         if (cancelled) return;
-        const ok = !!(res && res.assistantId);
+        const ok = !!(res && (res.ready || res.assistantId));
         setTelnyxAssistantConfigured(ok);
         if (!ok) setCallViaState("engine");
+        // Clients never choose an engine: their calls go through their own Telnyx assistant.
+        else if (!operator?.is_platform_org) setCallViaState("assistant");
       })
       .catch(() => {});
     load();
     // Saving the assistant in AI config takes effect here without a reload.
     window.addEventListener("aivhub_telnyx_assistant_saved", load);
     return () => { cancelled = true; window.removeEventListener("aivhub_telnyx_assistant_saved", load); };
-  }, []);
+  }, [operator?.is_platform_org]);
   const [liveKitModalOpen, setLiveKitModalOpen] = useState(false);
   const [liveKitTarget, setLiveKitTarget] = useState({ name: "Browser Caller", phone: "Browser WebRTC", company: "" });
   const [logQuery, setLogQuery] = useState("");
@@ -2585,7 +2587,7 @@ export function CallingWorkspace({
                         </select>
                       </div>
                     )}
-                    {telnyxAssistantConfigured && (
+                    {telnyxAssistantConfigured && operator?.is_platform_org && (
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>Call using:</span>
                         <select
@@ -3141,7 +3143,7 @@ export function CallingWorkspace({
                               <td style={{ padding: "8px 10px", borderBottom: `1px solid ${C.borderLight}`, whiteSpace: "nowrap" }}>
                                 {canDial ? (
                                   <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
-                                    <button type="button" disabled={busy === "direct"} onClick={() => callOneRow({ ...r, phone })} style={miniAct()} title="AI call via Twilio">
+                                    <button type="button" disabled={busy === "direct"} onClick={() => callOneRow({ ...r, phone })} style={miniAct()} title="AI call">
                                       <Phone size={12} /> Call
                                     </button>
                                     <button type="button" onClick={() => openChannel("sms", phone, r.contact || r.name, r.company || brandForMsg())} style={miniAct()} title="Open SMS">

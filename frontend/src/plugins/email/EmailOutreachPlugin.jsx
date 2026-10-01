@@ -32,11 +32,13 @@ import {
   BookOpen,
   LogOut,
   Layers,
-  MessageSquare
+  MessageSquare,
+  CreditCard
 } from "lucide-react";
 import { AppSwitcher } from "../../hub/AppSwitcher";
 import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
 import { api } from "../../api/apiClient";
+import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 
 const INITIAL_CAMPAIGN_SEQUENCES = [
@@ -413,6 +415,7 @@ export default function EmailOutreachPlugin({
     { id: "inbox", label: "Replies & Inbox", icon: Mail, count: inboxThreads.filter((t) => t.unread).length },
     { id: "templates", label: "Template Library", icon: BookOpen, count: templates.length },
     { id: "analytics", label: "Deliverability & Stats", icon: BarChart3 },
+    ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard }] : []),
   ];
 
   const viewTitles = {
@@ -422,6 +425,7 @@ export default function EmailOutreachPlugin({
     inbox: { title: "Unified Replies Inbox", desc: "Incoming client responses, sentiment tagging, and 1-click AI reply drafting." },
     templates: { title: "Email Template Library", desc: "Battle-tested B2B templates with dynamic personalization merge variables." },
     analytics: { title: "Deliverability & Domain Health", desc: "SPF/DKIM/DMARC status, inbox placement rates, and spam-trigger auditing." },
+    subscription: { title: "Subscription", desc: "Your email outreach plan and credits. Change plan, top up, or cancel." },
   };
 
   return (
@@ -1202,6 +1206,8 @@ export default function EmailOutreachPlugin({
               ))}
             </div>
           )}
+
+          {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="email" back="/emailoutreach/subscription" />}
 
           {/* VIEW 5: ANALYTICS & DELIVERABILITY */}
           {view === "analytics" && (

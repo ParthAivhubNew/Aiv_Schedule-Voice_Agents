@@ -651,13 +651,23 @@ async def get_telnyx_assistant_settings(db: AsyncSession = Depends(get_db)):
     env vars if nothing is saved yet, matching the same DB-first-then-env
     resolution order used everywhere else in this file.
     """
+    from app.core.auth_middleware import platform_org
+    from app.core.tenancy import current_org
+    from app.services import voice_assistants as VA
+
     res = await db.execute(select(Connection).where(Connection.id == TELNYX_ASSISTANT_SETTINGS_ID))
     row = res.scalars().first()
     cfg = row.config if (row and isinstance(row.config, dict)) else {}
+    assistant_id = cfg.get("assistant_id") or getattr(settings, "TELNYX_ASSISTANT_ID", None) or ""
+    if current_org() != platform_org():
+        # Client organisations only need to know their calls go through their assistant.
+        return {"managed": VA.enabled(), "ready": VA.enabled() or bool(assistant_id)}
     return {
-        "assistantId": cfg.get("assistant_id") or getattr(settings, "TELNYX_ASSISTANT_ID", None) or "",
+        "assistantId": assistant_id,
         "publicKey": cfg.get("public_key") or getattr(settings, "TELNYX_ASSISTANT_PUBLIC_KEY", None) or "",
         "savedInDatabase": bool(row),
+        "managed": VA.enabled(),
+        "ready": VA.enabled() or bool(assistant_id),
     }
 
 

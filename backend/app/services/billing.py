@@ -218,6 +218,8 @@ async def create_checkout(db, *, org_id: str, email: str, plan_ids: List[str], t
         raise ValueError("One of those plans is no longer available. Reload and try again.")
     if len({p.wallet for p in chosen_plans}) != len(chosen_plans):
         raise ValueError("Pick one plan per app.")
+    if len({p.wallet for p in chosen_plans + chosen_topups}) > 1:
+        raise ValueError("Each app is paid for on its own. Buy from that app's Subscription page.")
     missing = [p.name for p in chosen_plans + chosen_topups if not p.stripe_price_id]
     if missing:
         raise ValueError(f"Not ready for sale yet: {', '.join(missing)}.")

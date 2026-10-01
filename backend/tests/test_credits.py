@@ -366,10 +366,16 @@ async def test_prices_made_in_stripe_go_on_sale(client, staff, db, monkeypatch):
 
     # A USD plan made here cannot share a Checkout with a GBP price.
     usd = (await staff.post("/api/admin-api/plans", json={
-        "wallet": "scheduler", "kind": "plan", "name": "Posts", "priceUsdCents": 2900, "credits": 100})).json()
+        "wallet": "voice", "kind": "plan", "name": "Calls USD", "priceUsdCents": 2900, "credits": 100})).json()
     assert (await staff.post(f"/api/admin-api/plans/{usd['id']}/sync-stripe")).json()["currency"] == "usd"
     r = await client.post("/api/billing/checkout", json={"plans": [usd["id"]], "topups": [hour["id"]]})
     assert r.status_code == 400 and "currencies" in r.json()["detail"]
+    # Each app is paid for on its own.
+    posts = (await staff.post("/api/admin-api/plans", json={
+        "wallet": "scheduler", "kind": "plan", "name": "Posts", "priceUsdCents": 2900, "credits": 100})).json()
+    await staff.post(f"/api/admin-api/plans/{posts['id']}/sync-stripe")
+    r = await client.post("/api/billing/checkout", json={"plans": [posts["id"]], "topups": [hour["id"]]})
+    assert r.status_code == 400 and "paid for on its own" in r.json()["detail"]
 
 
 async def test_each_plugin_bought_separately_keeps_its_own_plan(client, staff, anon, db, monkeypatch):

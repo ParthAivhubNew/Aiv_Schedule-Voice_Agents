@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, Check, Coins, CreditCard, ExternalLink, Mail, PhoneCall, RefreshCw, Search } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, CalendarDays, Coins, CreditCard, ExternalLink, Mail, PhoneCall, Search } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
+import { APPS } from "../hub/apps";
 
 const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: "#fff", boxSizing: "border-box" };
 export const btn = (primary, disabled) => ({
@@ -38,12 +39,11 @@ export function WalletCard({ w }) {
   );
 }
 
-// The organisation's wallets per plugin, plans and top-ups (one checkout), and history.
+// The organisation's wallets per app, each app's plan (bought on that app's Subscription page), and history.
 // OutReach staff manage plans, credits and the rate card in the admin portal (/admin).
 export function CreditsTab() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [pick, setPick] = useState({ plans: {}, topups: {} });
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
@@ -58,35 +58,11 @@ export function CreditsTab() {
     load();
   }, [load]);
 
-  const byWallet = useMemo(() => {
-    const out = {};
-    (data?.plans || []).forEach((p) => {
-      (out[p.wallet] = out[p.wallet] || { plan: [], topup: [] })[p.kind].push(p);
-    });
-    return out;
-  }, [data]);
-
   if (error && !data) return <div style={{ color: C.red, fontSize: 12.5 }}>{error}</div>;
   if (!data) return <div style={{ color: C.slate, fontSize: 13 }}>Loading…</div>;
 
-  const chosenPlans = Object.values(pick.plans).filter(Boolean);
-  const chosenTopups = Object.entries(pick.topups).filter(([, v]) => v).map(([k]) => k);
-  const chosen = [...chosenPlans, ...chosenTopups].map((id) => data.plans.find((p) => p.id === id)).filter(Boolean);
-  const total = chosen.reduce((a, p) => a + p.priceUsdCents, 0);
   // Plugins already on a plan change it on their Subscription page; the others can still be bought.
   const subscribed = ["active", "past_due", "trialing"].includes(data.subscription.status) ? data.subscription.plans : {};
-
-  const checkout = async () => {
-    setBusy("checkout");
-    setError("");
-    try {
-      const { url } = await api.startCheckout(chosenPlans, chosenTopups);
-      window.location.assign(url);
-    } catch (err) {
-      setError(err.message);
-      setBusy("");
-    }
-  };
 
   const portal = async () => {
     setBusy("portal");
@@ -117,7 +93,7 @@ export function CreditsTab() {
       </div>
 
       <div style={{ ...heading, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>Plans & top-ups</span>
+        <span>Plans</span>
         {data.subscription.hasCustomer && (
           <button type="button" style={btn(false, busy === "portal")} onClick={portal} disabled={busy === "portal"}>
             <CreditCard size={13} /> Manage billing <ExternalLink size={11} />
@@ -126,52 +102,26 @@ export function CreditsTab() {
       </div>
       {!data.stripeReady ? (
         <div style={{ fontSize: 13, color: C.slate, background: C.paperSoft, padding: "10px 12px", borderRadius: 10 }}>Online payments are coming soon. Until then the OutReach team adds credits for you.</div>
-      ) : data.plans.length === 0 ? (
-        <div style={{ fontSize: 13, color: C.slate }}>No plans on sale yet.</div>
       ) : (
         <>
-          <div style={{ display: "grid", gap: 12 }}>
-            {Object.entries(byWallet).map(([wallet, group]) => (
-              <div key={wallet} style={{ border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }}>
-                <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                  {React.createElement(WALLET_ICON[wallet] || Coins, { size: 15, color: WALLET_COLOUR[wallet] })}
-                  {data.wallets.find((w) => w.key === wallet)?.label || wallet}
-                  {subscribed[wallet] && <span style={{ fontSize: 11, color: C.teal, background: C.tealSoft, padding: "1px 8px", borderRadius: 99 }}>Subscribed</span>}
+          <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 8 }}>Each app has its own plan and is paid for on its own, from that app's Subscription page.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 }}>
+            {APPS.filter((app) => app.plans).map((app) => {
+              const plan = data.plans.find((p) => p.id === subscribed[app.wallet]);
+              return (
+                <div key={app.id} style={{ border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}>
+                    {React.createElement(WALLET_ICON[app.wallet] || Coins, { size: 15, color: WALLET_COLOUR[app.wallet] })} {app.name}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: plan ? C.teal : C.slate }}>
+                    {plan ? `${plan.name} · ${money(plan.priceUsdCents, plan.currency)} a month` : "No plan yet"}
+                  </div>
+                  <button type="button" style={{ ...btn(!plan), alignSelf: "flex-start" }} onClick={() => window.location.assign(app.plans.replace(/^#/, ""))}>
+                    <CreditCard size={13} /> {plan ? "Manage plan" : "See plans"}
+                  </button>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                  {group.plan.map((p) => {
-                    const on = pick.plans[wallet] === p.id;
-                    const current = subscribed[wallet] === p.id;
-                    const hasSub = Boolean(subscribed[wallet]);
-                    return (
-                      <button key={p.id} type="button" disabled={hasSub} onClick={() => setPick({ ...pick, plans: { ...pick.plans, [wallet]: on ? "" : p.id } })}
-                        style={{ textAlign: "left", padding: 12, borderRadius: 12, cursor: hasSub ? "default" : "pointer", border: `2px solid ${on || current ? C.cobalt : C.border}`, background: on ? C.cobaltSoft : "#fff" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 13 }}>{p.name}{(on || current) && <Check size={14} color={C.cobalt} />}</div>
-                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 11.5, color: C.slate, fontWeight: 500 }}> /month</span></div>
-                        <div style={{ fontSize: 12, color: C.slate }}>{fmt(p.credits)} credits every month</div>
-                      </button>
-                    );
-                  })}
-                  {group.topup.map((p) => {
-                    const on = Boolean(pick.topups[p.id]);
-                    return (
-                      <button key={p.id} type="button" onClick={() => setPick({ ...pick, topups: { ...pick.topups, [p.id]: !on } })}
-                        style={{ textAlign: "left", padding: 12, borderRadius: 12, cursor: "pointer", border: `2px dashed ${on ? C.teal : C.border}`, background: on ? C.tealSoft : "#fff" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 13 }}>{p.name}{on && <Check size={14} color={C.teal} />}</div>
-                        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 11.5, color: C.slate, fontWeight: 500 }}> once</span></div>
-                        <div style={{ fontSize: 12, color: C.slate }}>{fmt(p.credits)} credits · never expire</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 12, color: C.slate }}>Cards from other countries see and pay in their own currency at Stripe's rate.</div>
-            <button type="button" style={btn(true, !total || busy === "checkout")} disabled={!total || busy === "checkout"} onClick={checkout}>
-              {busy === "checkout" ? <RefreshCw size={13} /> : <CreditCard size={13} />} Pay {total ? money(total, chosen[0].currency) : ""}
-            </button>
+              );
+            })}
           </div>
         </>
       )}

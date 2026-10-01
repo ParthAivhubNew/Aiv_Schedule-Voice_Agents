@@ -536,6 +536,47 @@ async def put_rates(body: RatesBody, request: Request):
         return out
 
 
+# ── Platform AI (Post scheduler) ────────────────────────────────────────────
+@router.get("/platform-ai")
+async def get_platform_ai(request: Request):
+    """The writing and image AI every client's Post scheduler uses, and which providers OutReach
+    has keys for (saved in its own organisation's AI config)."""
+    from app.api.scheduler import _saved_ai_keys
+    from app.core.auth_middleware import platform_org
+    from app.core.tenancy import org_scope
+    from app.services import platform_ai
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        chosen = await platform_ai.get(db)
+    with org_scope(platform_org()):
+        async with AsyncSessionLocal() as db:
+            keys = await _saved_ai_keys(db)
+    return {"chosen": chosen, "textProviders": platform_ai.TEXT_PROVIDERS, "imageProviders": platform_ai.IMAGE_PROVIDERS,
+            "keys": {"text": [k["provider"] for k in keys["text"]], "image": [k["provider"] for k in keys["image"]]}}
+
+
+class PlatformAiBody(BaseModel):
+    textProvider: Optional[str] = None
+    textModel: Optional[str] = None
+    imageProvider: Optional[str] = None
+    imageModel: Optional[str] = None
+
+
+@router.put("/platform-ai")
+async def put_platform_ai(body: PlatformAiBody, request: Request):
+    from app.services import platform_ai
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            out = await platform_ai.put(db, body.model_dump())
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        await db.commit()
+    return out
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────
 @router.get("/logs")
 async def logs(request: Request, org_id: str = "", limit: int = 200):
