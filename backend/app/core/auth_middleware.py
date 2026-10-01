@@ -244,8 +244,10 @@ class AuthMiddleware:
         if need and not P.allows(ctx["perms"], need[0], need[1]):
             return await _deny(scope, receive, send, 403, "You do not have access to this.", code="forbidden", section=need[0])
 
-        if rel.startswith("/connections") and ctx["org_id"] != platform_org() and (method != "GET" or rel.startswith("/connections/telephony-hub/")):
-            # Provider keys and engines are run by OutReach for client organisations.
+        managed = (rel.startswith("/connections") and (method != "GET" or rel.startswith("/connections/telephony-hub/"))) or \
+            (rel.startswith("/scheduler/ai-settings") and method != "GET")
+        if managed and ctx["org_id"] != platform_org():
+            # Provider keys, AI models and engines are run by OutReach for client organisations.
             return await _deny(scope, receive, send, 403, "This is managed by the OutReach team.", code="managed_by_outreach")
 
         scope.setdefault("state", {})["auth"] = ctx

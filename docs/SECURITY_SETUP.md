@@ -62,7 +62,8 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `TELNYX_ASSISTANT_PUBLIC_KEY` | Telnyx public key (Mission Control → Keys & Credentials); every Telnyx webhook is checked against it |
 | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. `.env.local` (in git) holds the sandbox's TEST keys so every developer can try payments; the app then shows "test mode". On the live server put the `sk_live_…`/`pk_live_…` keys and the live webhook secret in `.env`, which overrides `.env.local`; never commit live keys. A server without its own keys runs in test mode |
 | `STRIPE_AUTOMATIC_TAX` | `true` once Stripe Tax is set up (section 6): Checkout adds VAT/sales tax and asks business customers for a VAT number |
-| `PLATFORM_ORG_ID` | Organisation whose admins are OutReach staff: they add credits and set rates (default `org_default`) |
+| `PLATFORM_ORG_ID` | OutReach's own organisation (default `org_default`). Only its admins see and change AI, carrier and provider keys (AI config); every other organisation uses the keys OutReach runs. It gives no staff powers: those are in the staff admin portal (section 7) |
+| `STAFF_ADMIN_EMAIL`, `STAFF_ADMIN_PASSWORD` | First staff admin of the staff admin portal (`/admin`), created at startup when there is no staff account yet. Remove the password from the env file after the first sign-in |
 | `CALL_WINDOW_ENFORCEMENT` | Default calling-hours mode if an organisation has not chosen one |
 | `EXPOSE_API_DOCS` | `true` only if you want `/docs` public (off by default) |
 
@@ -84,7 +85,8 @@ This replaces `xlsx@0.18.5`, which has known security issues when opening untrus
    `https://outreach.aivhub.com/api/telnyx/messaging-webhook`.
 4. WhatsApp per number: the client presses *Turn on WhatsApp* on the Numbers page; complete the
    Meta business signup for that number in the Telnyx portal, then switch the number on for them
-   (staff portal). Until then the number shows "WhatsApp requested".
+   (staff admin portal → Queue → *Switch WhatsApp on*; the client is told). Until then the number
+   shows "WhatsApp requested".
 
 Webhooks only make the app re-read the order or verification from Telnyx, so a forged webhook
 cannot mark anything approved. The Numbers page also re-checks pending items every minute.
@@ -105,8 +107,8 @@ prices; they pay us (Stripe) and we pay Telnyx from one balance.
   enforced (set when its outbound profile is made): a call is refused when its Voice credits are
   gone, and each call is capped at the minutes left plus 5 minutes' grace.
 - **Margin.** Clients pay our prices (plans, top-ups, and a monthly price per number set in the
-  rate card as "Phone number, per month"; 0 = included). Team → Plans & credits → *Telnyx costs
-  and margin* (staff) shows, per client and month, Telnyx's cost for its billing group (Telnyx
+  rate card as "Phone number, per month"; 0 = included). Staff admin portal → Plans & pricing →
+  *Telnyx costs and margin* shows, per client and month, Telnyx's cost for its billing group (Telnyx
   usage reports), the minutes we billed against the minutes Telnyx billed, what the client paid
   us, and the margin. Products Telnyx does not report per billing group (Telnyx could not confirm
   this for Voice AI charges) appear as account-wide totals, never split by guesswork.
@@ -124,7 +126,7 @@ prices; they pay us (Stripe) and we pay Telnyx from one balance.
    `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`.
    Copy its signing secret into `STRIPE_WEBHOOK_SECRET`.
 3. Settings → Billing → **Customer portal**: turn it on (clients change card, plans, invoices there).
-4. In the app (staff, Team → Plans & credits), put plans and top-ups on sale either way:
+4. In the staff admin portal (`/admin` → Plans & pricing), put plans and top-ups on sale either way:
    - Products already made in Stripe (monthly = plan, one-off = top-up) are listed under
      *Already in your Stripe account*: check the app (guessed from the product name), enter
      the credits each gives (a Voice credit is a minute of calls, so 1 hour = 60 credits) and press
@@ -148,3 +150,27 @@ renewal, with nothing refunded and this period's credits kept.
 Credits are only granted from signed Stripe webhooks, and each Stripe event is applied once.
 Plan credits expire at the next renewal (no rollover); top-ups never expire; the batch closest to
 expiry is spent first.
+
+## 7. Staff admin portal (`/admin`)
+
+The Aivhub team runs the platform from its own site at `https://outreach.aivhub.com/admin`,
+separate from the client app:
+
+- **Own accounts.** Staff accounts are not client users: no client role can become staff, a client
+  sign-in never opens `/api/admin-api`, and a staff sign-in never opens the client app. The first
+  staff admin comes from `STAFF_ADMIN_EMAIL` / `STAFF_ADMIN_PASSWORD`; add the rest under *Staff*.
+- **Two-factor sign-in is required.** At the first sign-in the portal shows a QR code for an
+  authenticator app (Google Authenticator, Microsoft Authenticator, 1Password); every sign-in
+  after that needs the 6-digit code. Wrong passwords or codes are limited to 6 per 15 minutes.
+  A lost phone: another staff admin presses *Reset two-factor* for that person.
+- **Roles.** *Admin* can change things; *Support* can look at everything but change nothing.
+- **Pages.** Dashboard (totals and platform services), Clients (wallets, adding or removing
+  credits, stop-at-zero, numbers and WhatsApp, verification, users, orders, credit history,
+  suspend/reactivate), Queue (business verifications and WhatsApp requests waiting on us),
+  Plans & pricing (plans, prices made in Stripe, the rate card, Telnyx costs and margin), Logs
+  (all clients) and Staff.
+- **Suspending a client** signs everyone in it out at once; nobody in it can sign in until it is
+  reactivated.
+- **Hosting.** nginx serves `admin.html` for every `/admin` path (not cached, not indexed, not
+  framed). To limit it further, allow only office/VPN addresses on that location in nginx.
+

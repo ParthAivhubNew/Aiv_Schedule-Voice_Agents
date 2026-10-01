@@ -1,8 +1,28 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'node:path';
+
+// The staff admin portal is its own page (admin.html), served for every /admin path.
+const adminPortalPaths = {
+  name: 'admin-portal-paths',
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      if (/^\/admin(\/|$|\?)/.test(req.url || '')) req.url = '/admin.html';
+      next();
+    });
+  },
+};
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), adminPortalPaths],
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(import.meta.dirname, 'index.html'),
+        admin: resolve(import.meta.dirname, 'admin.html'),
+      },
+    },
+  },
   server: {
     port: 5173,
     host: true,
