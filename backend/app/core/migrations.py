@@ -114,6 +114,16 @@ async def _payg_columns(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE credit_grants ADD COLUMN IF NOT EXISTS paid_currency VARCHAR DEFAULT ''"))
 
 
+async def _agent_studio(conn: AsyncConnection) -> None:
+    """Agent Studio: a user's own phone, company call rules, a script per campaign, and each
+    managed assistant's voice and model."""
+    await conn.execute(text("ALTER TABLE operators ADD COLUMN IF NOT EXISTS phone VARCHAR DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS studio JSON"))
+    await conn.execute(text("ALTER TABLE missions ADD COLUMN IF NOT EXISTS template_id VARCHAR DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE voice_assistants ADD COLUMN IF NOT EXISTS voice VARCHAR DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE voice_assistants ADD COLUMN IF NOT EXISTS model VARCHAR DEFAULT ''"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -123,6 +133,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_03_credit_wallets", _credit_wallets),
     ("2026_10_04_billing_plan_currency", _billing_plan_currency),
     ("2026_10_05_payg_columns", _payg_columns),
+    ("2026_10_06_agent_studio", _agent_studio),
 ]
 
 

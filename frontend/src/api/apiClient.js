@@ -250,6 +250,11 @@ export const api = {
   updateProfile: (profile) => apiRequest('/profile', { method: 'PUT', body: profile }),
   getOrgSettings: () => apiRequest('/profile/org'),
   saveOrgSettings: (payload) => apiRequest('/profile/org', { method: 'PUT', body: payload }),
+  getAgentStudio: () => apiRequest('/voice-studio'),
+  saveAgentStudioMe: (data) => apiRequest('/voice-studio/me', { method: 'PUT', body: data }),
+  saveAgentStudioCompany: (data) => apiRequest('/voice-studio/company', { method: 'PUT', body: data }),
+  setCampaignScript: (missionId, templateId) => apiRequest(`/voice-studio/campaigns/${encodeURIComponent(missionId)}`, { method: 'PUT', body: { templateId } }),
+  agentStudioTestCall: (templateId = '') => apiRequest('/voice-studio/test-call', { method: 'POST', body: { templateId }, timeoutMs: 30000 }),
   getSources: () => apiRequest('/profile/sources'),
   addSource: (source) => apiRequest('/profile/sources', { method: 'POST', body: source }),
   uploadSource: (file, name = '') => {

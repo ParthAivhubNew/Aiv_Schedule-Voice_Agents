@@ -42,12 +42,14 @@ import {
   Download,
   Play,
   Pause,
+  SlidersHorizontal,
 } from "lucide-react";
 import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
 import { PluginCredits } from "../../../team/PluginCredits";
 import { AppSwitcher } from "../../../hub/AppSwitcher";
 import { SubscriptionPage } from "../../../team/SubscriptionPage";
+import { AgentStudio } from "../AgentStudio";
 import { api } from "../../../api/apiClient";
 import { WebSocketClient } from "../../../api/wsClient";
 import { withToken } from "../../../api/authStore";
@@ -75,6 +77,7 @@ const PAGES = [
   { id: "schedule", label: "Schedule", icon: PhoneCall, section: "calling" },
   { id: "analytics", label: "Analytics", icon: BarChart3, section: "analytics" },
   { id: "templates", label: "AI Templates", icon: Sparkles, section: "calling" },
+  { id: "studio", label: "Agent Studio", icon: SlidersHorizontal, section: "calling" },
   { id: "ai", label: "AI config", icon: Plug, section: "connections" },
   { id: "company", label: "Company", icon: Users, section: "company" },
   { id: "hours", label: "Working hours", icon: Clock, section: "company" },
@@ -3763,6 +3766,7 @@ export function CallingWorkspace({
 
           {page === "numbers" && operator?.is_admin && <NumbersPage />}
           {page === "subscription" && operator?.is_admin && <SubscriptionPage wallet="voice" back="/voice/subscription" />}
+          {page === "studio" && <AgentStudio onOpenPage={goPage} />}
           {page === "whatsapp" && canSee(operator, "calling") && <WhatsappInbox />}
 
           {page === "hours" && canSee(operator, "company") && (

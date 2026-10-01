@@ -78,6 +78,8 @@ export const adminApi = {
   rates: () => request("/rates"),
   setRates: (rates) => request("/rates", { method: "PUT", body: { rates } }),
   platformAi: () => request("/platform-ai"),
+  voiceCatalogue: () => request("/voice-catalogue"),
+  setVoiceCatalogue: (body) => request("/voice-catalogue", { method: "PUT", body }),
   setPlatformAi: (body) => request("/platform-ai", { method: "PUT", body }),
   logs: (orgId = "") => request(`/logs?limit=300${orgId ? `&org_id=${q(orgId)}` : ""}`),
   staff: () => request("/staff"),

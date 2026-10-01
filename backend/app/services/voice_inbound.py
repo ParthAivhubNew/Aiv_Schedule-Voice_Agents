@@ -60,7 +60,8 @@ async def handle_incoming(body: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         await client.answer_call(ccid, client_state=encode_client_state(assistant.telnyx_assistant_id, call_id, current_org()),
-                                 webhook_url=f"{public_http_base()}/api/telnyx-assistant/call-control")
+                                 webhook_url=f"{public_http_base()}/api/telnyx-assistant/call-control",
+                                 record=variables.get("recorded") == "yes")
     except Exception:
         async with AsyncSessionLocal() as db:
             rec = (await db.execute(select(LiveCall).where(LiveCall.id == call_id))).scalars().first()

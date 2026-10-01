@@ -113,8 +113,11 @@ class TelnyxClient:
         body = await self._req("GET", f"/ai/assistants/{assistant_id}")
         return body.get("data", body)
 
-    async def answer_call(self, call_control_id: str, client_state: str = "", webhook_url: str = "") -> Dict[str, Any]:
+    async def answer_call(self, call_control_id: str, client_state: str = "", webhook_url: str = "",
+                          record: bool = False) -> Dict[str, Any]:
         payload: Dict[str, Any] = {}
+        if record:
+            payload.update({"record": "record-from-answer", "record_format": "mp3", "record_channels": "dual"})
         if client_state:
             payload["client_state"] = client_state
         if webhook_url:
