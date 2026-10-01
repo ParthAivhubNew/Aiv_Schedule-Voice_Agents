@@ -64,6 +64,7 @@ async def dial_via_assistant_endpoint(req: DialViaAssistantRequest, request: Req
         mission_title=req.mission_title,
         prospect_id=req.prospect_id,
         mission_id=req.mission_id,
+        operator_id=(getattr(request.state, "auth", None) or {}).get("operator_id", ""),
     )
     if not result.get("success"):
         return JSONResponse(status_code=400, content=result)
@@ -85,15 +86,57 @@ async def handle_assistant_call_control(request: Request):
     except Exception:
         return JSONResponse(status_code=400, content={"error": "Malformed JSON payload"})
 
+    from app.core.tenancy import org_scope
     from app.services.telnyx_assistant_calls import tagged_event, handle_call_control_event
     tagged = tagged_event(body if isinstance(body, dict) else {})
     if not tagged:
-        return {"status": "ignored", "reason": "not an assistant-dialed call"}
+        # A call coming in on one of our numbers (its Call Control app points here).
+        from app.services.voice_inbound import handle_incoming
+        try:
+            return await handle_incoming(body if isinstance(body, dict) else {})
+        except Exception as err:
+            logger.error(f"[TELNYX-ASSISTANT] inbound handling failed: {err}")
+            return {"status": "error", "error": str(err)}
     try:
+        if tagged["state"].get("org_id"):  # calls dialed for an organisation carry it
+            with org_scope(tagged["state"]["org_id"]):
+                return await handle_call_control_event(tagged["event_type"], tagged["payload"], tagged["state"])
         return await handle_call_control_event(tagged["event_type"], tagged["payload"], tagged["state"])
     except Exception as err:
         logger.error(f"[TELNYX-ASSISTANT] call-control handling failed: {err}")
         return {"status": "error", "error": str(err)}
+
+
+@router.post("/tools/{tool_name}")
+async def managed_assistant_tool(tool_name: str, request: Request):
+    """Tools of our managed assistants (see voice_assistants.shell_tools). Telnyx signs the
+    request; the call's signed reference (?ref=) says which organisation and call it is for, so
+    a tool can only ever touch that call's own data."""
+    raw_body, is_valid = await _read_and_verify(request)
+    if not is_valid:
+        logger.error(f"[TELNYX-ASSISTANT] Rejected managed tool call '{tool_name}' — invalid signature.")
+        return JSONResponse(status_code=401, content={"error": "Invalid webhook signature"})
+    try:
+        body = json.loads(raw_body) if raw_body else {}
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Malformed JSON payload"})
+    if not isinstance(body, dict):
+        body = {}
+    from app.core.tenancy import org_scope
+    from app.services import voice_assistants as VA
+    from app.services.voice_tools import run
+
+    ref = request.query_params.get("ref") or request.headers.get("x-call-ref") or str(body.pop("call_ref", "") or "")
+    found = VA.read_ref(ref)
+    if not found:
+        return {"success": False, "error": "This call is not recognised."}
+    org_id, call_id = found
+    with org_scope(org_id):
+        try:
+            return await run(tool_name, call_id, body)
+        except Exception as err:
+            logger.error(f"[TELNYX-ASSISTANT] managed tool '{tool_name}' failed: {err}")
+            return {"success": False, "error": "That did not work. Offer to have someone follow up."}
 
 
 @router.post("/tool/{tool_name}")
@@ -162,6 +205,27 @@ async def handle_telnyx_tool_call(tool_name: str, request: Request):
     return tool_result
 
 
+async def _brief_variables(call_control_id: str) -> Optional[Dict[str, Any]]:
+    if not call_control_id:
+        return None
+    from sqlalchemy.future import select as _select
+
+    from app.core.tenancy import org_scope, system_scope
+    from app.models.models import LiveCall
+    from app.services import voice_assistants as VA
+    # Telnyx's call id comes from a signed webhook; find the call in whichever organisation it
+    # belongs to, then read its brief inside that organisation.
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(_select(LiveCall.id, LiveCall.org_id).where(LiveCall.carrier_sid == call_control_id))).first()
+    if not row:
+        return None
+    with org_scope(row[1]):
+        async with AsyncSessionLocal() as db:
+            found = await VA.brief(db, row[0])
+            return dict(found.variables or {}) if found else None
+
+
 @router.post("/call-event")
 async def handle_telnyx_assistant_call_event(request: Request):
     """
@@ -201,6 +265,14 @@ async def handle_telnyx_assistant_call_event(request: Request):
 
     if event_type == "assistant.initialization":
         caller_phone = str(payload.get("telnyx_end_user_target") or "").strip()
+
+        # A call with a brief (managed assistants): give Telnyx exactly what that call was set up with.
+        from app.services import voice_assistants as VA
+        if VA.enabled():
+            from app.services.telnyx_assistant_calls import call_control_id_from_assistant_payload
+            known_vars = await _brief_variables(call_control_id_from_assistant_payload(payload))
+            if known_vars:
+                return {"dynamic_variables": known_vars}
 
         # Calls we dialed ourselves (telnyx_assistant_dial.py) tag the call at
         # dial time with a base64 client_state marker so the sip_webhook.py

@@ -97,6 +97,30 @@ class TelnyxClient:
             payload["outbound"] = {"outbound_voice_profile_id": outbound_voice_profile_id}
         return (await self._req("POST", "/call_control_applications", json=payload)).get("data", {})
 
+    async def update_call_control_application(self, app_id: str, **fields) -> Dict[str, Any]:
+        return (await self._req("PATCH", f"/call_control_applications/{app_id}", json=fields)).get("data", {})
+
+    # ── AI Assistants ─────────────────────────────────────────────────────
+    async def create_assistant(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        body = await self._req("POST", "/ai/assistants", json=payload)
+        return body.get("data", body)
+
+    async def update_assistant(self, assistant_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        body = await self._req("POST", f"/ai/assistants/{assistant_id}", json=payload)
+        return body.get("data", body)
+
+    async def get_assistant(self, assistant_id: str) -> Dict[str, Any]:
+        body = await self._req("GET", f"/ai/assistants/{assistant_id}")
+        return body.get("data", body)
+
+    async def answer_call(self, call_control_id: str, client_state: str = "", webhook_url: str = "") -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        if client_state:
+            payload["client_state"] = client_state
+        if webhook_url:
+            payload["webhook_url"], payload["webhook_url_method"] = webhook_url, "POST"
+        return (await self._req("POST", f"/calls/{call_control_id}/actions/answer", json=payload)).get("data", {})
+
     async def create_messaging_profile(self, name: str, webhook_url: str) -> Dict[str, Any]:
         payload = {"name": name[:100], "webhook_url": webhook_url, "webhook_api_version": "2", "whitelisted_destinations": ["GB"]}
         return (await self._req("POST", "/messaging_profiles", json=payload)).get("data", {})

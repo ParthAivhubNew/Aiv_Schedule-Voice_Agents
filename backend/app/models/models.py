@@ -975,3 +975,43 @@ class PhoneNumberAssignment(Base):
 
     number_id = Column(String, ForeignKey("org_phone_numbers.id", ondelete="CASCADE"), primary_key=True)
     operator_id = Column(String, ForeignKey("operators.id", ondelete="CASCADE"), primary_key=True)
+
+
+class VoiceAssistant(Base):
+    """A Telnyx AI Assistant we manage: one per user (operator_id) plus one per organisation for
+    numbers nobody is assigned to (operator_id ""). Its instructions are our fixed shell; the
+    script, company and prospect arrive per call as dynamic variables (see CallBrief)."""
+    __tablename__ = "voice_assistants"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    operator_id = Column(String, default="", index=True)
+    telnyx_assistant_id = Column(String, default="")
+    shell_version = Column(Integer, default=0)
+    status = Column(String, default="pending")  # pending, ready, error
+    last_error = Column(Text, default="")
+    synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CallBrief(Base):
+    """Everything one call needs from us: who placed it, the script rendered for this prospect,
+    and what the assistant reported back (outcome, captured fields). id is the call's id."""
+    __tablename__ = "call_briefs"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    operator_id = Column(String, default="")
+    direction = Column(String, default="outbound")
+    assistant_id = Column(String, default="")  # VoiceAssistant.id
+    template_id = Column(String, default="")
+    mission_id = Column(String, default="")
+    prospect_id = Column(String, default="")
+    phone = Column(String, default="")  # the other party
+    our_number = Column(String, default="")
+    variables = Column(JSON, default=dict)  # what Telnyx got as dynamic variables
+    script = Column(Text, default="")  # the full rendered script (variables may hold a part)
+    outcome = Column(String, default="")
+    captured = Column(JSON, default=dict)
+    notes = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

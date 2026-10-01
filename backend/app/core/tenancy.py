@@ -41,6 +41,7 @@ TENANT_TABLES: List[str] = [
     "process_logs", "conversation_templates", "conversation_variables", "org_phone_numbers",
     "credit_ledger", "org_telnyx", "verification_submissions", "number_orders",
     "whatsapp_threads", "whatsapp_messages", "credit_grants", "billing_subscriptions",
+    "voice_assistants", "call_briefs",
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.

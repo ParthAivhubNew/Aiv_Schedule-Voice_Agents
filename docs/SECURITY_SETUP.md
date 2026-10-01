@@ -60,6 +60,9 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `FX_USD_TO_GBP` | Optional. Staff margin report: converts Telnyx's USD costs to GBP (e.g. `0.79`); without it the margin column is left blank |
 | `TELNYX_CONNECTION_ID`, `TELNYX_MESSAGING_PROFILE_ID` | billing_group mode: the Call Control app and messaging profile new numbers attach to (managed accounts get their own automatically) |
 | `TELNYX_ASSISTANT_PUBLIC_KEY` | Telnyx public key (Mission Control → Keys & Credentials); every Telnyx webhook is checked against it |
+| `TELNYX_MANAGED_ASSISTANTS` | `true` to give every user their own Telnyx AI Assistant, made and kept up to date by the app (section 8). Off: calls use the assistant ID pasted in AI config, as before |
+| `TELNYX_ASSISTANT_MODEL`, `TELNYX_ASSISTANT_VOICE` | Optional. The model and voice the managed assistants use (Telnyx's names, e.g. as shown in the Telnyx portal); empty = Telnyx's defaults |
+| `TELNYX_SCRIPT_VAR_LIMIT` | Optional. How many characters of a script are sent with each call (default 6000); the assistant reads the rest with a tool |
 | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments. `.env.local` (in git) holds the sandbox's TEST keys so every developer can try payments; the app then shows "test mode". On the live server put the `sk_live_…`/`pk_live_…` keys and the live webhook secret in `.env`, which overrides `.env.local`; never commit live keys. A server without its own keys runs in test mode |
 | `STRIPE_AUTOMATIC_TAX` | `true` once Stripe Tax is set up (section 6): Checkout adds VAT/sales tax and asks business customers for a VAT number |
 | `PLATFORM_ORG_ID` | OutReach's own organisation (default `org_default`). Only its admins see and change AI, carrier and provider keys (AI config); every other organisation uses the keys OutReach runs. It gives no staff powers: those are in the staff admin portal (section 7) |
@@ -173,4 +176,24 @@ separate from the client app:
   reactivated.
 - **Hosting.** nginx serves `admin.html` for every `/admin` path (not cached, not indexed, not
   framed). To limit it further, allow only office/VPN addresses on that location in nginx.
+
+## 8. Managed voice assistants (`TELNYX_MANAGED_ASSISTANTS=true`)
+
+- **One assistant per user,** made in Telnyx the first time they call (and one per organisation
+  for numbers nobody is assigned to). Named `OutReach · <company> · <user>`; nobody pastes IDs.
+- **The assistant in Telnyx is a fixed shell**: rules and placeholders only. Scripts, company
+  details and the prospect are sent with every call, so editing a script never needs Telnyx and
+  two scripts can never clash. Changes made by hand in Telnyx are put back within a day, or at
+  once when the shell changes in a release.
+- **During the call** the assistant calls our tools at `/api/telnyx-assistant/tools/...`:
+  look up knowledge, check availability, book a meeting, ask for a person, save the outcome,
+  read the rest of a long script. Every tool request is signed by Telnyx and carries the call's
+  own signed reference, so it only touches that call's organisation and data.
+- **Numbers:** a user calls from any of the organisation's numbers they may use; their own
+  assistant talks. Incoming calls are answered by the assistant of the user the number is
+  assigned to, or the organisation's shared one.
+- **Set-up:** point the webhook of the Call Control app your numbers use (`TELNYX_CONNECTION_ID`)
+  to `https://outreach.aivhub.com/api/telnyx-assistant/call-control`, so incoming calls reach
+  the app. Calls we dial set their own webhook, so nothing else changes.
+- **Before switching it on for clients:** make one test call each way with a real number.
 
