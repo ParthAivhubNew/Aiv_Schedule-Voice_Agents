@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, File, Form, HTTPException, BackgroundTasks, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -158,7 +158,8 @@ async def list_sources(db: AsyncSession = Depends(get_db)):
         "id": s.id,
         "name": s.name,
         "type": s.type,
-        "value": s.value,
+        # An uploaded file's whole text is only needed for indexing; the list shows the start.
+        "value": (s.value or "")[:300] if s.type == "File upload" else s.value,
         "status": s.status or "indexed",
         "synced": s.synced or "Just now",
         "chunkCount": s.chunk_count or 0,
@@ -192,6 +193,38 @@ async def add_source(
         "status": "pending",
         "message": "Knowledge source added. Background indexing and vector generation started."
     }
+
+@router.post("/sources/upload", response_model=dict)
+async def upload_source(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """A PDF, Word, text, Markdown or CSV file for the AI's knowledge. Its text is indexed like
+    any other source; the file itself is not kept."""
+    from app.services.document_text import MAX_BYTES, extract_text
+
+    data = await file.read(MAX_BYTES + 1)
+    try:
+        text = extract_text(file.filename or "", data)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    source = KnowledgeSource(
+        id=f"k_{uuid.uuid4().hex[:6]}",
+        name=(name or file.filename or "Uploaded file").strip()[:200],
+        type="File upload",
+        value=text,
+        status="pending",
+        synced="Just now",
+        chunk_count=0,
+    )
+    db.add(source)
+    await db.commit()
+    background_tasks.add_task(crawl_and_index_source_task, source.id, AsyncSessionLocal)
+    return {"id": source.id, "status": "pending", "name": source.name, "characters": len(text),
+            "message": "File added. Indexing started."}
+
 
 @router.post("/sources/{source_id}/resync", response_model=dict)
 async def resync_source(

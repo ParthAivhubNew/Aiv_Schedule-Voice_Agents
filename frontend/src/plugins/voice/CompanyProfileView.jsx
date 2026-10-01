@@ -44,6 +44,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
   const [saved, setSaved] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", type: "Website URL", value: "" });
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const [activeChunkModal, setActiveChunkModal] = useState(null);
   const [testQuery, setTestQuery] = useState("");
   const [testResults, setTestResults] = useState(null);
@@ -195,6 +197,31 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
   );
 
   const addSource = async () => {
+    if (newSource.type === "File upload") {
+      if (!newSource.file) return;
+      const file = newSource.file;
+      const name = (newSource.name || file.name).trim();
+      setUploadError("");
+      setUploading(true);
+      try {
+        await api.uploadSource(file, name);
+        setNewSource({ name: "", type: "Website URL", value: "" });
+        setAddingSource(false);
+        setNotifications((ns) => [{ id: "n_" + Date.now(), text: `✓ ${name} added. Indexing started.`, time: "just now", unread: true, type: "info" }, ...ns]);
+        const fresh = await api.getSources().catch(() => null);
+        if (Array.isArray(fresh)) setSources(fresh);
+        setTimeout(async () => {
+          try {
+            const later = await api.getSources();
+            if (Array.isArray(later)) setSources(later);
+          } catch (_) {}
+        }, 3500);
+      } catch (err) {
+        setUploadError(err.message);
+      }
+      setUploading(false);
+      return;
+    }
     if (!newSource.name || !newSource.value) return;
     const tempId = "k_" + Date.now();
     const item = { id: tempId, ...newSource, status: "crawling", synced: "just now", chunkCount: 0 };
@@ -767,9 +794,21 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
 
                     <div>
                       <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
-                        3. {newSource.type === "Manual text" ? "Content / Script Notes" : "URL / Document Path"}
+                        3. {newSource.type === "Manual text" ? "Content / Script Notes" : newSource.type === "File upload" ? "File" : "URL / Document Path"}
                       </label>
-                      {newSource.type === "Manual text" ? (
+                      {newSource.type === "File upload" ? (
+                        <input
+                          type="file"
+                          aria-label="Knowledge file"
+                          accept=".pdf,.docx,.txt,.md,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv"
+                          onChange={(e) => {
+                            const file = e.target.files && e.target.files[0];
+                            setUploadError(file && file.size > 10 * 1024 * 1024 ? "That file is over 10 MB." : "");
+                            setNewSource((n) => ({ ...n, file: file || null, name: n.name || (file ? file.name.replace(/\.[^.]+$/, "") : "") }));
+                          }}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, background: "#fff" }}
+                        />
+                      ) : newSource.type === "Manual text" ? (
                         <textarea
                           value={newSource.value}
                           onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
@@ -788,11 +827,12 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                       <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
                         {SOURCE_TYPES.find((st) => st.id === (newSource.type || "Website URL"))?.hint}
                       </div>
+                      {uploadError && <div role="alert" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.red, marginTop: 6 }}>{uploadError}</div>}
                     </div>
 
                     <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                      <button onClick={addSource} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-                        Start Crawl & Ingest
+                      <button onClick={addSource} disabled={uploading} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+                        {newSource.type === "File upload" ? (uploading ? "Uploading…" : "Upload & index") : "Start Crawl & Ingest"}
                       </button>
                       <button onClick={() => setAddingSource(false)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>
                         Cancel

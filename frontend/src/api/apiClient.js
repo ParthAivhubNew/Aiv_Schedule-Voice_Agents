@@ -252,6 +252,12 @@ export const api = {
   saveOrgSettings: (payload) => apiRequest('/profile/org', { method: 'PUT', body: payload }),
   getSources: () => apiRequest('/profile/sources'),
   addSource: (source) => apiRequest('/profile/sources', { method: 'POST', body: source }),
+  uploadSource: (file, name = '') => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('name', name);
+    return apiRequest('/profile/sources/upload', { method: 'POST', body: form, timeoutMs: 120000 });
+  },
   resyncSource: (sourceId) => apiRequest(`/profile/sources/${sourceId}/resync`, { method: 'POST' }),
   deleteSource: (sourceId) => apiRequest(`/profile/sources/${sourceId}`, { method: 'DELETE' }),
   getSourceChunks: (sourceId) => apiRequest(`/profile/sources/${sourceId}/chunks`),

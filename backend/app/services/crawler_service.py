@@ -138,7 +138,7 @@ async def crawl_and_index_source_task(source_id: str, db_session_maker):
                     raw_text = content
                 except Exception as fetch_err:
                     raise RuntimeError(f"Failed to crawl website: {str(fetch_err)}")
-            elif source.type == "Manual text":
+            elif source.type in ("Manual text", "File upload"):
                 raw_text = source.value
             else:
                 # Document upload / Drive links
