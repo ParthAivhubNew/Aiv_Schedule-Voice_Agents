@@ -557,6 +557,12 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
     width = int(payload.get("width", w))
     height = int(payload.get("height", h))
 
+    from app.services.credits import can_start
+
+    ok, why = await can_start(db, "ai_image")  # Post scheduler credits; stop at zero
+    if not ok:
+        raise HTTPException(status_code=402, detail=why)
+
     if not prompt and title:
         prompt = create_topic_image_prompt(title, theme=theme, style=style)
     elif not prompt:
@@ -576,6 +582,18 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
             db=db,
         )
     hosted = _host_image(img.get("imageUrl"), request)
+    if hosted and not img.get("fallback") and (img.get("status") or "ok") == "ok":
+        # A real new image: one "AI image redraw" (a placeholder after a failure is free).
+        import uuid as _uuid
+
+        from app.services.credits import charge
+
+        try:
+            await charge(db, "ai_image", 1, f"img:{_uuid.uuid4().hex[:16]}", "AI image redraw")
+            await db.commit()
+        except Exception as charge_err:
+            logger.warning(f"[credits] image charge skipped: {charge_err}")
+            await db.rollback()
     return {
         "status": img.get("status") or "ok",
         "imageUrl": hosted,

@@ -70,3 +70,30 @@ async def test_lead_generation_pays_per_lead_found_and_stops_at_zero(db, monkeyp
         # Other apps' chat never touches Lead generation credits.
         r = await c.post("/api/enrichment/copilot-chat", json={**body, "plugin": "voice"})
         assert r.status_code == 200
+
+
+async def test_image_redraw_costs_one_post_scheduler_credit(client, db, monkeypatch):
+    from app.services import credits as K
+
+    async def fake_image(**kwargs):
+        return {"status": "ok", "imageUrl": "https://img.example.com/a.png", "provider": "fal"}
+
+    monkeypatch.setattr("app.api.scheduler.generate_image_with_provider", fake_image)
+    monkeypatch.setattr("app.api.scheduler._host_image", lambda url, request: url)
+    await K.add_credits(db, "scheduler", 1, source="grant", note="Trial")
+    await K.set_org_settings(db, {"enforce": True})
+    await db.commit()
+    assert (await client.post("/api/scheduler/generate-image", json={"prompt": "a van"})).status_code == 200
+    assert await K.wallet_balance(db, "scheduler") == 0
+    r = await client.post("/api/scheduler/generate-image", json={"prompt": "a van"})
+    assert r.status_code == 402 and "Post scheduler" in r.json()["detail"]
+
+    # A placeholder after a failed draw is free.
+    async def failed(**kwargs):
+        return {"status": "ok", "imageUrl": "https://img.example.com/placeholder.png", "fallback": True}
+
+    monkeypatch.setattr("app.api.scheduler.generate_image_with_provider", failed)
+    await K.add_credits(db, "scheduler", 5, source="grant", note="More")
+    await db.commit()
+    assert (await client.post("/api/scheduler/generate-image", json={"prompt": "a van"})).status_code == 200
+    assert await K.wallet_balance(db, "scheduler") == 5

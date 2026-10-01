@@ -213,7 +213,7 @@ the same page), margin per client, failed payments, live subscriptions and the m
 live plans. Telnyx's real cost per client is under Plans & pricing → Telnyx costs and margin.
 
 What uses credits: call minutes, WhatsApp messages and phone numbers (Voice), AI-written posts
-(Post scheduler) and leads found in Lead generation (one credit per lead by default; staff can
+and AI image redraws (Post scheduler; the planning chat is free so clients plan more posts) and leads found in Lead generation (one credit per lead by default; staff can
 change it in the rate card). Email sends are priced but not charged: Email outreach does not send
 outreach emails yet.
 
