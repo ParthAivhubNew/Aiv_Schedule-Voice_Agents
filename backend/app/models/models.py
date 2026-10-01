@@ -657,6 +657,33 @@ class CreditGrant(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class CreditAward(Base):
+    """Credits given by OutReach staff from the owner portal: a permanent record (the database
+    refuses to change or delete a row; see tenancy.ensure_append_only). Not per-organisation:
+    staff and finance read every company's. label says how it was paid for: given (no payment),
+    offline (paid outside Stripe, with its reference) or paid (paid, with its reference)."""
+    __tablename__ = "credit_awards"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, nullable=False, index=True)
+    org_name = Column(String, default="")
+    wallet = Column(String, nullable=False)
+    amount = Column(Integer, nullable=False)
+    label = Column(String, nullable=False)  # given | offline | paid
+    reason = Column(Text, nullable=False)
+    payment_ref = Column(String, default="")
+    paid_cents = Column(Integer, default=0)
+    paid_currency = Column(String, default="")
+    expires_at = Column(DateTime, nullable=True)
+    balance_before = Column(Integer, nullable=False)
+    balance_after = Column(Integer, nullable=False)
+    confirmed_with = Column(String, default="")  # amount | password
+    staff_id = Column(String, nullable=False)
+    staff_email = Column(String, default="")
+    staff_name = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class BillingPlan(Base):
     """What we sell, per plugin: monthly plans and one-off top-ups (platform-wide, set by staff)."""
     __tablename__ = "billing_plans"

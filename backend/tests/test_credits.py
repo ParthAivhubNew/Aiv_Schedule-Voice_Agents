@@ -145,15 +145,20 @@ async def test_admin_sees_wallets_operator_does_not(client, db):
         assert (await c.get("/api/billing/overview")).status_code == 403
 
 
+_GIVE = {"wallet": "voice", "amount": 1000, "label": "given", "reason": "Trial extension"}
+
+
 async def test_only_platform_staff_grant(admin_token, staff, db):
     _, other_admin = await make_user(db, "acme_admin", "Admin", org_id="org_acme")
     for tok in (other_admin, admin_token):
         async with _as(tok) as c:  # no client token opens the admin portal, not even the platform's
-            assert (await c.post("/api/admin-api/clients/org_acme/credits", json={"wallet": "voice", "amount": 1000})).status_code == 401
+            assert (await c.post("/api/admin-api/clients/org_acme/credit-awards/preview", json=_GIVE)).status_code == 401
             assert (await c.post("/api/admin-api/plans", json={"wallet": "voice", "name": "x", "priceUsdCents": 100, "credits": 1})).status_code == 401
 
-    r = await staff.post("/api/admin-api/clients/org_acme/credits", json={"wallet": "leadgen", "amount": 250, "expires_in_days": 30})
-    assert r.status_code == 200 and r.json()["balance"] == 250
+    p = (await staff.post("/api/admin-api/clients/org_acme/credit-awards/preview",
+                          json={**_GIVE, "wallet": "leadgen", "amount": 250, "expiresInDays": 30})).json()
+    r = await staff.post(f"/api/admin-api/credit-awards/{p['id']}/approve", json={"confirm": "250"})
+    assert r.status_code == 200 and r.json()["after"] == 250
     r = await staff.put("/api/admin-api/clients/org_acme/enforce", json={"enforce": True})
     assert r.json()["enforce"] is True
     orgs = {o["id"]: o for o in (await staff.get("/api/admin-api/clients")).json()}
@@ -162,7 +167,7 @@ async def test_only_platform_staff_grant(admin_token, staff, db):
         mine = (await c.get("/api/billing/overview")).json()
     leadgen = next(w for w in mine["wallets"] if w["key"] == "leadgen")
     assert leadgen["balance"] == 250 and leadgen["nextExpiry"]["amount"] == 250
-    assert (await staff.post("/api/admin-api/clients/nope/credits", json={"wallet": "voice", "amount": 5})).status_code == 404
+    assert (await staff.post("/api/admin-api/clients/nope/credit-awards/preview", json=_GIVE)).status_code == 404
 
 
 async def test_signup_gets_starter_credits_in_every_wallet(anon, db, monkeypatch):

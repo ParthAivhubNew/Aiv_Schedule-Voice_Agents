@@ -77,6 +77,11 @@ async def report(db, month: str) -> Dict[str, Any]:
         client(org_id)["paid"][cur] += int(cents or 0)
         payments += int(n or 0)
 
+    # Credits staff gave free of charge (never revenue), per app.
+    given = dict((await db.execute(text(
+        "SELECT wallet, sum(amount) FROM credit_grants WHERE source = 'given' AND created_at >= :s AND created_at < :e "
+        "GROUP BY 1"), window)).all())
+
     # What they used, and what that cost us.
     used = (await db.execute(text(
         "SELECT org_id, item, sum(quantity), -sum(amount) FROM credit_ledger "
@@ -122,6 +127,7 @@ async def report(db, month: str) -> Dict[str, Any]:
         "revenue": {w: dict(v) for w, v in by_app.items()},
         "appNames": WALLETS,
         "payments": payments,
+        "given": {w: int(v or 0) for w, v in given.items()},
         "failedPayments": int(failed),
         "subscriptions": {k or "none": int(v) for k, v in subs.items()},
         "monthlyPlans": dict(monthly),

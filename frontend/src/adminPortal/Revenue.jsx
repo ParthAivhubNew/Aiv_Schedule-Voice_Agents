@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { C, FONT_DISPLAY } from "../tokens";
 import { adminApi } from "./adminApi";
+import { AwardsTable } from "./GiveCredits";
 import { Note, PageTitle, Table, btn, card, cell, fmt, heading, input, mono, money, useAction, useLoad } from "./ui";
 
 const right = { ...cell, textAlign: "right", ...mono, whiteSpace: "nowrap" };
@@ -22,7 +23,8 @@ export function Revenue({ canEdit }) {
     setBusy(true);
     setError("");
     try {
-      setData(await adminApi.revenue(month));
+      const [report, awards] = await Promise.all([adminApi.revenue(month), adminApi.awards({ month })]);
+      setData({ ...report, awards });
     } catch (err) {
       setError(err.message);
     }
@@ -59,6 +61,7 @@ export function Revenue({ canEdit }) {
             {tile("Live subscriptions", fmt((subs.active || 0) + (subs.trialing || 0)))}
             {tile("Behind on payment", fmt(subs.past_due || 0), subs.past_due ? C.amber : undefined)}
             {tile("Live plans, per month", amounts(data.monthlyPlans))}
+            {tile("Credits given free", fmt(Object.values(data.given || {}).reduce((a, b) => a + b, 0)), C.amber)}
           </div>
           {!data.costsSet && <Note error>Our cost per unit is not set yet, so costs and margins show as 0. Set them below.</Note>}
 
@@ -84,6 +87,10 @@ export function Revenue({ canEdit }) {
             ))}
           </Table>
           <div style={{ fontSize: 12, color: C.slate, marginTop: 6 }}>Telnyx's own cost per client (from Telnyx's usage report) is under Plans & pricing → Telnyx costs and margin.</div>
+
+          <div style={heading}>Credits given by staff</div>
+          <AwardsTable rows={data.awards || []} showClient />
+          <div style={{ fontSize: 12, color: C.slate, marginTop: 6 }}>"Given (no payment)" is never revenue. Offline and other payments count in "Paid" above, in the currency paid.</div>
 
           <div style={heading}>Per client</div>
           <Table head={["Client", "Paid", "Credits used", "Our cost", "Margin"]}>

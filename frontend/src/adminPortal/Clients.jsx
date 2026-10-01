@@ -1,7 +1,8 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { ArrowLeft, Ban, Check, Plus, Search } from "lucide-react";
+import { ArrowLeft, Ban, Check, Search } from "lucide-react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
+import { AwardsTable, GiveCredits } from "./GiveCredits";
 import { Note, PageTitle, Pill, Table, btn, card, cell, fmt, heading, input, mono, useAction, useLoad, when } from "./ui";
 
 const WALLETS = ["voice", "leadgen", "email", "scheduler"];
@@ -45,7 +46,8 @@ function ClientDetail({ id, canEdit, back }) {
   const load = useCallback(() => adminApi.client(id), [id]);
   const [c, err, reload] = useLoad(load, [load]);
   const [msg, run] = useAction(reload);
-  const [grant, setGrant] = useState({ wallet: "voice", amount: "", days: "", note: "" });
+  const loadAwardList = useCallback(() => adminApi.awards({ orgId: id }), [id]);
+  const [awards, awardsErr, loadAwards] = useLoad(loadAwardList, [loadAwardList]);
   const [temp, setTemp] = useState(null);
 
   if (!c) return <><button type="button" style={btn(false)} onClick={back}><ArrowLeft size={13} /> Clients</button><Note error>{err}</Note></>;
@@ -86,21 +88,11 @@ function ClientDetail({ id, canEdit, back }) {
         <input type="checkbox" checked={c.enforce} disabled={!canEdit} onChange={() => run(() => adminApi.setEnforce(c.id, !c.enforce), "Saved.")} />
         Stop each app when its credits reach zero
       </label>
-      {canEdit && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-          <select aria-label="Wallet" value={grant.wallet} onChange={(e) => setGrant({ ...grant, wallet: e.target.value })} style={input}>
-            {c.wallets.map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
-          </select>
-          <input aria-label="Credits" type="number" placeholder="Credits (negative removes)" value={grant.amount} onChange={(e) => setGrant({ ...grant, amount: e.target.value })} style={{ ...input, width: 180 }} />
-          <input aria-label="Expires in days" type="number" min="0" placeholder="Expire in days (empty = never)" value={grant.days} onChange={(e) => setGrant({ ...grant, days: e.target.value })} style={{ ...input, width: 210 }} />
-          <input aria-label="Note" placeholder="Note" value={grant.note} onChange={(e) => setGrant({ ...grant, note: e.target.value })} style={{ ...input, flex: 1, minWidth: 140 }} />
-          <button type="button" style={btn(true)} onClick={() => run(async () => {
-            if (!Number(grant.amount)) throw new Error("Enter an amount.");
-            await adminApi.addCredits(c.id, { wallet: grant.wallet, amount: Number(grant.amount), note: grant.note, expires_in_days: grant.days ? Number(grant.days) : null });
-            setGrant({ ...grant, amount: "", note: "" });
-          }, "Credits updated.")}><Plus size={13} /> Add credits</button>
-        </div>
-      )}
+      {canEdit && <GiveCredits client={c} onDone={() => { reload(); loadAwards(); }} />}
+
+      <div style={heading}>Credits given by staff</div>
+      <AwardsTable rows={awards || []} />
+      <Note error>{awardsErr}</Note>
 
       <div style={heading}>Phone numbers</div>
       <Table head={["Number", "Status", "Provider", "Capabilities", "WhatsApp"]}>
