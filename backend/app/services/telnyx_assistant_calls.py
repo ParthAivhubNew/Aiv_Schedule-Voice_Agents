@@ -394,6 +394,11 @@ async def handle_call_control_event(event_type: str, payload: Dict[str, Any], st
     if event_type in ("call.initiated", "call.ringing"):
         return {"status": "ok", "event": event_type}
 
+    if event_type == "call.recording.saved":
+        from app.services.voice_takeover import save_recording
+        saved = await save_recording(state.get("call_id") or state_marker.get("call_id", ""), payload)
+        return {"status": "recording_saved" if saved else "recording_skipped"}
+
     if event_type == "call.answered":
         if state.get("answered"):
             return {"status": "ok", "event": event_type, "note": "duplicate"}
@@ -457,6 +462,9 @@ async def finish_call(call_control_id: str, payload: Optional[Dict[str, Any]] = 
         # "ended" is only ever set on answered calls; needed once _calls has dropped this call.
         answered = bool(state.get("answered")) or rec.state in ("pitching", "negotiating", "human_review", "ended")
         outcome = _hangup_outcome(cause, answered)
+        from app.services.voice_takeover import end_user_leg
+        await end_user_leg(db, rec.id)  # a user who took over is hung up too
+        rec.taken = False
         brief_note = None
         if answered:
             outcome, brief_note = await _reported(db, rec.id, outcome)

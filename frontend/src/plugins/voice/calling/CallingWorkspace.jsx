@@ -2353,6 +2353,26 @@ export function CallingWorkspace({
     }
   };
 
+  // Calls run by a Telnyx assistant: taking over rings the user's own phone and joins them.
+  const phoneTakeover = async (id) => {
+    try {
+      await api.toggleTakeover(id);
+      pushNote("Ringing your phone: answer it to talk to them.", "info");
+    } catch (e) {
+      showToast(e.message || "Could not take over");
+    }
+    await refreshLive();
+  };
+  const handBack = async (id, note) => {
+    try {
+      await api.handBackCall(id, note);
+      pushNote("Handed back to the assistant.", "info");
+    } catch (e) {
+      showToast(e.message || "Could not hand back");
+    }
+    await refreshLive();
+  };
+
   const endCall = async (id) => {
     try {
       await api.endLiveCall(id);
@@ -3381,6 +3401,8 @@ export function CallingWorkspace({
                     confirmingEnd={endingId === id}
                     onListen={() => toggleListen(id)}
                     onTakeover={() => toggleTakeover(id)}
+                    onPhoneTakeover={() => phoneTakeover(id)}
+                    onHandBack={(note) => handBack(id, note)}
                     onBook={() => bookMeeting(id)}
                     onAskEnd={() => setEndingId(id)}
                     onCancelEnd={() => setEndingId(null)}
@@ -3486,7 +3508,7 @@ export function CallingWorkspace({
                         <div>
                           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>{name}</div>
                           <div style={{ marginTop: 4, fontSize: 12.5, color: C.slate }}>
-                            {[l.canonicalName && l.canonicalName !== name ? l.canonicalName : "", l.duration, l.startedAt || l.endedAt]
+                            {[l.canonicalName && l.canonicalName !== name ? l.canonicalName : "", l.duration, l.creditsUsed ? `${l.creditsUsed} credits` : "", l.startedAt || l.endedAt]
                               .filter(Boolean)
                               .join(" · ")}
                           </div>

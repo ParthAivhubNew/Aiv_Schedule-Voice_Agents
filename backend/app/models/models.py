@@ -1020,4 +1020,6 @@ class CallBrief(Base):
     outcome = Column(String, default="")
     captured = Column(JSON, default=dict)
     notes = Column(Text, default="")
+    supervisor_leg = Column(String, default="")  # the user's own call while they have taken over
+    supervisor_id = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
