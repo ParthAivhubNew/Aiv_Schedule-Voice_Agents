@@ -293,34 +293,70 @@ async def reset_user_password(org_id: str, user_id: str, request: Request):
     return {"username": username, "temporaryPassword": temp}
 
 
-class CreditBody(BaseModel):
+# Giving credits takes several confirmations (preview → approve → retype) and leaves a
+# permanent record; see app.services.credit_awards. There is no instant add.
+class AwardBody(BaseModel):
     wallet: str
     amount: int
-    expires_in_days: Optional[int] = None
-    note: str = ""
+    label: str
+    reason: str = ""
+    paymentRef: str = ""
+    paidCents: int = 0
+    currency: str = ""
+    expiresInDays: int = 0
 
 
-@router.post("/clients/{org_id}/credits")
-async def add_credits(org_id: str, body: CreditBody, request: Request):
-    from app.services import credits as K
+class ApproveBody(BaseModel):
+    confirm: str = ""
+
+
+@router.post("/clients/{org_id}/credit-awards/preview")
+async def preview_award(org_id: str, body: AwardBody, request: Request):
+    from app.services import credit_awards as A
 
     staff = _admin_only(request)
-    if body.wallet not in K.WALLETS or not body.amount or abs(body.amount) > 10_000_000:
-        raise HTTPException(status_code=400, detail="Pick a wallet and a non-zero amount.")
-    expires = datetime.utcnow() + timedelta(days=body.expires_in_days) if body.expires_in_days else None
+    async with AsyncSessionLocal() as db:
+        if not (await db.execute(text("SELECT 1 FROM organizations WHERE id = :i AND coalesce(status, 'active') <> 'platform'"), {"i": org_id})).first():
+            raise HTTPException(status_code=404, detail="Client not found.")
+        try:
+            return await A.preview(db, org_id, staff, body.model_dump())
+        except A.AwardError as err:
+            raise HTTPException(status_code=400, detail=str(err))
 
-    async def run(db):
-        bal = await K.grant(db, body.amount, note=body.note or "Added by OutReach", by=staff["name"] or staff["email"],
-                            wallet=body.wallet, expires_at=expires)
-        await db.commit()
-        return bal
 
-    bal = await _in_org(org_id, run)
-    if body.amount > 0:
-        from app.services import voice_access
+@router.post("/credit-awards/{pending_id}/approve")
+async def approve_award(pending_id: str, body: ApproveBody, request: Request):
+    from app.services import credit_awards as A
 
-        voice_access.kick(org_id)
-    return {"wallet": body.wallet, "balance": bal}
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            return await A.approve(db, pending_id, staff, body.confirm)
+        except A.AwardError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+
+@router.post("/credit-awards/{pending_id}/cancel")
+async def cancel_award(pending_id: str, request: Request):
+    from app.services import credit_awards as A
+
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        return {"cancelled": await A.cancel(db, pending_id, staff)}
+
+
+@router.get("/credit-awards")
+async def list_awards(request: Request, org_id: str = "", month: str = ""):
+    """The permanent record of credits staff gave, newest first (one company, or one month)."""
+    import re
+
+    from app.services import credit_awards as A
+
+    _who(request)
+    if month and not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    async with AsyncSessionLocal() as db:
+        return await A.history(db, org_id, month)
 
 
 class EnforceBody(BaseModel):

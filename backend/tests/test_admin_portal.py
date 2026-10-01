@@ -102,7 +102,8 @@ async def test_support_staff_can_look_but_not_change(db):
         assert (await c.get("/api/admin-api/logs")).status_code == 200
         for verb, url, body in [
             ("post", "/api/admin-api/clients/org_acme/status", {"status": "suspended"}),
-            ("post", "/api/admin-api/clients/org_acme/credits", {"wallet": "voice", "amount": 100}),
+            ("post", "/api/admin-api/clients/org_acme/credit-awards/preview",
+             {"wallet": "voice", "amount": 100, "label": "given", "reason": "Trial extension"}),
             ("put", "/api/admin-api/clients/org_acme/enforce", {"enforce": False}),
             ("put", "/api/admin-api/rates", {"rates": {"voice_minute": 1}}),
             ("post", "/api/admin-api/plans", {"wallet": "voice", "name": "x", "priceUsdCents": 100, "credits": 1}),
