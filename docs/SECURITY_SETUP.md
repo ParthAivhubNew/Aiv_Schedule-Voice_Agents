@@ -196,4 +196,24 @@ separate from the client app:
   to `https://outreach.aivhub.com/api/telnyx-assistant/call-control`, so incoming calls reach
   the app. Calls we dial set their own webhook, so nothing else changes.
 - **Before switching it on for clients:** make one test call each way with a real number.
+- **Agent Studio** (Voice → Agent Studio): each user picks their assistant's voice and model from
+  the list staff keep in the admin portal (Platform AI → Call assistant voices and models; use
+  Telnyx's exact names) and adds their own phone. Admins set the company's call rules (handover,
+  never say, what to find out, recording) and a script per campaign. Recording is off by default;
+  when on, Telnyx records the call and the agent says the recording notice first.
+- **Taking over a call:** Live → Take over pauses the assistant and rings the user's own phone
+  from the call's number; answering joins them to the call. Hand back (with an optional note)
+  hangs up their phone and the assistant carries on from the note. Hanging up also hands back.
+
+## 9. Revenue and costs (admin portal → Revenue)
+
+Per month: what clients paid per app (from Stripe payments), usage per item (call minutes,
+WhatsApp messages, AI posts, leads), our cost (units × "our cost per unit", which staff enter on
+the same page), margin per client, failed payments, live subscriptions and the monthly value of
+live plans. Telnyx's real cost per client is under Plans & pricing → Telnyx costs and margin.
+
+What uses credits: call minutes, WhatsApp messages and phone numbers (Voice), AI-written posts
+(Post scheduler) and leads found in Lead generation (one credit per lead by default; staff can
+change it in the rate card). Email sends are priced but not charged: Email outreach does not send
+outreach emails yet.
 

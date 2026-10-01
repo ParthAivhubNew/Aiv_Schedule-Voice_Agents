@@ -21,6 +21,31 @@ from app.services.llm_gateway import call_open_chat_llm
 
 router = APIRouter(prefix="/enrichment", tags=["AI Lead Radar & Enrichment"])
 
+
+async def _can_research(db: AsyncSession) -> None:
+    """Lead research uses Lead generation credits; refuse when they ran out (stop at zero)."""
+    from app.services.credits import can_start
+
+    ok, why = await can_start(db, "lead_lookup")
+    if not ok:
+        raise HTTPException(status_code=402, detail=why)
+
+
+async def _charge_leads(db: AsyncSession, count: int, what: str) -> None:
+    """Charge leads researched, once each. Never fails the request."""
+    import uuid
+
+    from app.services.credits import charge
+
+    if count <= 0:
+        return
+    try:
+        await charge(db, "lead_lookup", count, f"lead:{uuid.uuid4().hex[:16]}", what)
+        await db.commit()
+    except Exception as err:
+        logging.getLogger(__name__).warning(f"[credits] lead charge skipped: {err}")
+        await db.rollback()
+
 # Explicit gap-fill phrases only. Bare words like "research" / "missing" / "ok"
 # must not kick off enrichment during strategy chat.
 _FILL_PHRASES = (
@@ -117,12 +142,15 @@ async def enrich_prospect(req: EnrichRequest, db: AsyncSession = Depends(get_db)
     Enriches an existing prospect or candidate with live web search results,
     phone numbers, email patterns, company overview, and personalized AI hook.
     """
+    await _can_research(db)
     try:
         data = await enrich_prospect_intelligence(
             name=req.name,
             company=req.company,
             domain=req.domain
         )
+        if data:
+            await _charge_leads(db, 1, f"Researched {req.name or req.company or 'a lead'}")
         
         if req.prospect_id:
             res = await db.execute(select(Prospect).where(Prospect.id == req.prospect_id))
@@ -139,15 +167,17 @@ async def enrich_prospect(req: EnrichRequest, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/discover-accounts")
-async def discover_accounts(req: DiscoverAccountsRequest):
+async def discover_accounts(req: DiscoverAccountsRequest, db: AsyncSession = Depends(get_db)):
     """
     Scours live web and search queries to discover new target accounts.
     """
+    await _can_research(db)
     try:
         leads = await discover_new_target_accounts(
             query_or_domain=req.query,
             target_role=req.target_role
         )
+        await _charge_leads(db, len(leads or []), f"Found {len(leads or [])} accounts for \"{(req.query or '')[:60]}\"")
         return {
             "success": True,
             "query": req.query,
@@ -244,6 +274,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
         ])
 
         discovered_leads = []
+        if is_lead_search and plugin_type == "leadgen":
+            await _can_research(db)  # Lead generation pays per lead found
         if is_lead_search:
             try:
                 discovered_leads = await discover_new_target_accounts(
@@ -346,6 +378,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             else:
                 reply_text = "I received your message. How can I further assist your outreach or strategy?"
 
+        if plugin_type == "leadgen" and discovered_leads:
+            await _charge_leads(db, len(discovered_leads), f"Found {len(discovered_leads)} leads")
         return {
             "success": True,
             "reply": reply_text,
@@ -356,5 +390,7 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             "provider": llm_response.get("provider", prov) if isinstance(llm_response, dict) else prov
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
