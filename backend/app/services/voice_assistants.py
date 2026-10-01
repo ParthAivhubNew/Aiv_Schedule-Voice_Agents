@@ -150,6 +150,9 @@ def shell_payload(name: str, description: str, voice: str = "", model: str = "")
         "dynamic_variables": DEFAULT_VARIABLES,
         # Inbound calls: Telnyx asks us for the variables when the call starts.
         "dynamic_variables_webhook_url": f"{base}/api/telnyx-assistant/call-event",
+        # Telnyx records assistant calls unless told not to. We record on the call itself, and
+        # only when the company has chosen to (Agent Studio), so the assistant never records.
+        "telephony_settings": {"recording_settings": {"enabled": False}},
     }
     model = model or os.getenv("TELNYX_ASSISTANT_MODEL", "").strip()
     if model:
