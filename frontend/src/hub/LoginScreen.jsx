@@ -340,11 +340,27 @@ export function LoginScreen({ onLogin }) {
               {(mode === "forgot" || mode === "reset") && (
                 <button type="button" className="auth-link" style={{ justifyContent: "center" }} onClick={() => setMode("signin")}><ArrowLeft size={13} /> Back to sign in</button>
               )}
-              {mode === "signin" && config && !config.allowSignup && (
-                <p className="auth-foot">Need an account? Ask your admin to add you.</p>
+              {mode === "signin" && (
+                <p className="auth-foot">
+                  {config && !config.allowSignup ? (
+                    "Need an account? Ask your admin to add you."
+                  ) : (
+                    <>
+                      Don&apos;t have an account?{" "}
+                      <button type="button" className="auth-link" style={{ display: "inline", padding: 0, fontWeight: 600 }} onClick={() => setMode("signup")}>
+                        Create an account
+                      </button>
+                    </>
+                  )}
+                </p>
               )}
               {mode === "signup" && (
                 <p className="auth-foot">
+                  Already have an account?{" "}
+                  <button type="button" className="auth-link" style={{ display: "inline", padding: 0, fontWeight: 600 }} onClick={() => setMode("signin")}>
+                    Sign in
+                  </button>
+                  <br />
                   By creating an account you agree to our <a href="/terms" target="_blank" rel="noreferrer">Terms</a> and <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.
                 </p>
               )}
