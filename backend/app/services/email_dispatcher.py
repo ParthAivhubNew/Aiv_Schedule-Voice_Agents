@@ -28,7 +28,7 @@ from app.models.models import (
     EmailSendLog,
     EmailSuppression,
 )
-from app.services.secret_box import unseal
+from app.services.secret_box import open_secret
 
 logger = logging.getLogger("email_dispatcher")
 
@@ -134,8 +134,11 @@ async def send_cold_email(
     try:
         # If SMTP credentials configured
         if mailbox.provider == "smtp" and mailbox.credentials_encrypted:
-            import aiosmtplib
-            creds = json.loads(unseal(mailbox.credentials_encrypted) or "{}")
+            try:
+                import aiosmtplib
+            except ImportError:
+                raise RuntimeError("aiosmtplib is required for SMTP email delivery.")
+            creds = json.loads(open_secret(mailbox.credentials_encrypted) or "{}")
             host = creds.get("host", "smtp.gmail.com")
             port = int(creds.get("port", 587))
             user = creds.get("username", mailbox.email)
