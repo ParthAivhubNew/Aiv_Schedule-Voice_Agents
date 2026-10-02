@@ -44,6 +44,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"billing/webhook$",  # Stripe-signed; checked in the handler  # Ed25519-signed; checked in the handlers
     # Signed links in emails and the social OAuth return page
     _OPT_API + r"scheduler/(review|schedule-extend)$",
+    _OPT_API + r"email/u/[A-Za-z0-9_.-]+$",  # unsubscribe links in cold emails (signed)
     _OPT_API + r"scheduler/oauth/[^/]+/callback$",
     # Images social networks and email clients fetch
     _OPT_API + r"scheduler/media/[^/]+$",

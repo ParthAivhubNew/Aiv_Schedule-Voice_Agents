@@ -1090,6 +1090,15 @@ class EmailMailbox(Base):
     dns_check_details = Column(JSON, default=dict)
     
     last_sync_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, default="")
+    signature = Column(Text, default="")
+    # IMAP: the highest message UID already read from INBOX (new mail is read above it).
+    imap_last_uid = Column(Integer, default=0)
+    # Today's plan from the warmup engine (re-planned once a day).
+    plan_date = Column(String, default="")
+    warmup_quota = Column(Integer, default=0)
+    campaign_quota = Column(Integer, default=0)
+    last_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1121,6 +1130,7 @@ class EmailMessage(Base):
     campaign_id = Column(String, index=True, default="")
     sequence_step_id = Column(String, default="")
     prospect_id = Column(String, index=True, default="")
+    enrollment_id = Column(String, index=True, default="")
     
     message_id = Column(String, index=True, default="")  # RFC 2822 Message-ID
     thread_id = Column(String, index=True, default="")
@@ -1134,6 +1144,7 @@ class EmailMessage(Base):
     bounce_reason = Column(Text, default="")
     reply_category = Column(String, default="")  # interested, not_interested, ooo, unsubscribe, question
     reply_snippet = Column(Text, default="")
+    reply_from = Column(String, default="")
     
     sent_at = Column(DateTime, nullable=True)
     replied_at = Column(DateTime, nullable=True)
@@ -1177,6 +1188,7 @@ class EmailSequenceStep(Base):
     __tablename__ = "email_sequence_steps"
 
     id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
     campaign_id = Column(String, ForeignKey("email_campaigns.id", ondelete="CASCADE"), index=True, nullable=False)
     step_number = Column(Integer, nullable=False)
     channel = Column(String, default="email")  # email, voice_call
@@ -1201,7 +1213,14 @@ class EmailEnrollment(Base):
     id = Column(String, primary_key=True)
     org_id = Column(String, index=True, server_default=FetchedValue())
     campaign_id = Column(String, ForeignKey("email_campaigns.id", ondelete="CASCADE"), index=True, nullable=False)
-    prospect_id = Column(String, ForeignKey("prospects.id", ondelete="CASCADE"), index=True, nullable=False)
+    prospect_id = Column(String, index=True, nullable=True)  # optional link to a voice prospect
+    email = Column(String, index=True, default="")
+    first_name = Column(String, default="")
+    last_name = Column(String, default="")
+    company = Column(String, default="")
+    mailbox_id = Column(String, default="")  # the mailbox that sent step 1; follow-ups stay on it
+    last_message_id = Column(String, default="")  # threads follow-ups under the previous email
+    last_subject = Column(Text, default="")
     current_step = Column(Integer, default=1)
     status = Column(String, default="active")  # active, paused, completed, replied, bounced, unsubscribed
     last_action_at = Column(DateTime, nullable=True)
@@ -1228,6 +1247,7 @@ class PersonCache(Base):
     # Email Verification
     verification_status = Column(String, default="unverified")  # verified, risky, catch_all, invalid
     verified_at = Column(DateTime, nullable=True)
+    source = Column(String, default="")  # the provider that found it
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
