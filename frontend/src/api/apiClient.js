@@ -14,7 +14,7 @@ const inFlightGetRequests = new Map();
 
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
-  const { timeoutMs, signal: outerSignal, ...fetchOptions } = options;
+  const { timeoutMs, signal: outerSignal, asBlob, ...fetchOptions } = options;
   const isGet = (!fetchOptions.method || fetchOptions.method.toUpperCase() === 'GET');
 
   // Deduplicate identical concurrent GET requests
@@ -100,7 +100,7 @@ export async function apiRequest(endpoint, options = {}) {
         throw apiErr;
       }
 
-      return await response.json();
+      return asBlob ? await response.blob() : await response.json();
     } catch (error) {
       if (timedOut) {
         throw new Error("Request timed out — backend may be restarting or unreachable. Try again.");
@@ -279,6 +279,7 @@ export const api = {
     return apiRequest('/voice-studio/clones', { method: 'POST', body: form, timeoutMs: 120000 });
   },
   deleteVoiceClone: (id) => apiRequest(`/voice-studio/clones/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  agentStudioVoicePreview: (voice) => apiRequest(`/voice-studio/preview?voice=${encodeURIComponent(voice)}`, { asBlob: true, timeoutMs: 30000 }),
   agentStudioTestCall: (templateId = '') => apiRequest('/voice-studio/test-call', { method: 'POST', body: { templateId }, timeoutMs: 30000 }),
   getSources: () => apiRequest('/profile/sources'),
   addSource: (source) => apiRequest('/profile/sources', { method: 'POST', body: source }),

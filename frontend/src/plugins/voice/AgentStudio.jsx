@@ -58,13 +58,22 @@ export function AgentStudio({ onOpenPage }) {
     setBusy("");
   };
 
-  const play = (voice) => {
+  // Staff-picked voices carry their own sample; any other voice is read out by Telnyx once and
+  // kept on our side, so a preview costs nothing after the first play.
+  const play = async (voice) => {
     if (audio.current) audio.current.pause();
     if (playing === voice.id) return setPlaying("");
-    audio.current = new Audio(voice.sample);
-    audio.current.onended = () => setPlaying("");
-    audio.current.play().catch(() => setPlaying(""));
+    say("me", "");
     setPlaying(voice.id);
+    try {
+      const src = voice.sample || URL.createObjectURL(await api.agentStudioVoicePreview(voice.id));
+      audio.current = new Audio(src);
+      audio.current.onended = () => setPlaying("");
+      await audio.current.play();
+    } catch (err) {
+      setPlaying("");
+      say("me", err.message || "Could not play this voice.", true);
+    }
   };
 
   if (error && !data) return <div role="alert" style={{ color: C.red, fontSize: 13 }}>{error}</div>;
@@ -74,6 +83,24 @@ export function AgentStudio({ onOpenPage }) {
   const inbound = templates.filter((t) => t.direction === "inbound");
   const chosenVoice = catalogue.voices.find((v) => v.id === me.voice);
   const status = data.me.assistant;
+
+  // Nothing here does anything until the company has a number to call from.
+  if (data.hasNumber === false) {
+    return (
+      <div style={{ ...box, maxWidth: 640, fontFamily: FONT_BODY }}>
+        {title(PhoneCall, "Get a phone number first")}
+        <div style={{ fontSize: 13, color: C.slate }}>
+          Your assistant's voice, AI model and call rules are set up here once your company has a number to call from.
+          {data.canChangeCompany ? "" : " Ask your admin to add one."}
+        </div>
+        {data.canChangeCompany && onOpenPage && (
+          <button type="button" style={btn(true)} onClick={() => onOpenPage("numbers")}>
+            <PhoneCall size={13} /> Get a number
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "grid", gap: 14, maxWidth: 980, fontFamily: FONT_BODY }}>
@@ -95,9 +122,9 @@ export function AgentStudio({ onOpenPage }) {
           <label style={label}>Your phone (test calls, taking over calls)
             <input aria-label="Your phone" placeholder="+447700900123" value={me.phone} onChange={(e) => setMe({ ...me, phone: e.target.value })} style={input} />
           </label>
-          {chosenVoice?.sample && (
+          {chosenVoice && (
             <button type="button" aria-label={playing === chosenVoice.id ? "Stop sample" : "Play sample"} onClick={() => play(chosenVoice)} style={btn(false)}>
-              {playing === chosenVoice.id ? <Pause size={13} /> : <Play size={13} />} Voice sample
+              {playing === chosenVoice.id ? <Pause size={13} /> : <Play size={13} />} Hear this voice
             </button>
           )}
         </div>

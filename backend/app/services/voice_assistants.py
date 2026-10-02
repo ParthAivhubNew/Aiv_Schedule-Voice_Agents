@@ -234,6 +234,9 @@ async def assistant_for(db, operator_id: str = "") -> Any:
         row.settings = mine
 
         row.shell_version, row.synced_at, row.status, row.last_error = SHELL_VERSION, datetime.utcnow(), "ready", ""
+        wrong = assistant_options.mismatch({"voice": row.voice or "", "model": row.model or ""}, mine.get("effective") or {})
+        if wrong:  # calls still work, on Telnyx's choice; the user sees why
+            row.status, row.last_error = "error", wrong
     except TelnyxError as err:
         row.status, row.last_error = "error", str(err)[:500]
         logger.warning(f"[voice-assistants] sync failed for {row.id}: {err}")

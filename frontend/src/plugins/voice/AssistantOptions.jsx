@@ -20,45 +20,70 @@ const telnyxDefault = (picked) => `Telnyx default${picked ? ` (${picked})` : ""}
 // How the user's own assistant speaks and listens: every voice, model and speech-to-text engine
 // Telnyx offers. Voices are many, so they are narrowed by provider and language first.
 export function VoiceFields({ catalogue, me, setMe, effective = {} }) {
-  const [provider, setProvider] = useState("");
-  const [lang, setLang] = useState("");
+  const [f, setF] = useState({ provider: "", engine: "", lang: "", gender: "", q: "" });
   const s = me.settings;
   const set = (patch) => setMe({ ...me, settings: { ...s, ...patch } });
-  const providers = useMemo(() => [...new Set(catalogue.voices.map((v) => v.provider || "other"))], [catalogue.voices]);
-  const languages = useMemo(() => [...new Set(catalogue.voices.map((v) => v.language).filter(Boolean))].sort(), [catalogue.voices]);
-  const shown = catalogue.voices.filter((v) => v.id === me.voice
-    || ((!provider || (v.provider || "other") === provider) && (!lang || v.language === lang)));
+  const voices = catalogue.voices;
+  // Each filter narrows the next: provider -> voice model -> language -> gender -> name.
+  const pass = (v, upTo) => ["provider", "engine", "lang", "gender"].slice(0, upTo).every((k) => {
+    const val = k === "lang" ? v.language : v[k];
+    return !f[k] || (val || "") === f[k];
+  });
+  const opts = (key, field, upTo) => [...new Set(voices.filter((v) => pass(v, upTo)).map((v) => v[field] || "").filter(Boolean))].sort();
+  const providers = useMemo(() => opts("provider", "provider", 0), [voices]); // eslint-disable-line react-hooks/exhaustive-deps
+  const engines = opts("engine", "engine", 1);
+  const languages = opts("lang", "language", 2);
+  const genders = opts("gender", "gender", 3);
+  const q = f.q.trim().toLowerCase();
+  const shown = voices.filter((v) => v.id === me.voice
+    || (pass(v, 4) && (!q || `${v.label} ${v.id}`.toLowerCase().includes(q))));
+  const filter = (key, text, list, all) => (
+    <label style={label}>{text}
+      <select aria-label={text} value={f[key]} onChange={(e) => setF({ ...f, [key]: e.target.value, ...(key === "provider" ? { engine: "", lang: "", gender: "" } : {}) })} style={input}>
+        <option value="">{all}</option>
+        {list.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+    </label>
+  );
+  const models = catalogue.models;
+  const group = (title, rows) => rows.length > 0 && (
+    <optgroup label={title}>
+      {rows.map((m) => (
+        <option key={m.id} value={m.id} disabled={m.needsKey && m.id !== me.model}>
+          {m.label}{m.price ? ` · ${m.price}` : ""}{m.needsKey ? " · needs your own key" : ""}
+        </option>
+      ))}
+    </optgroup>
+  );
   const stt = (catalogue.stt || []).find((m) => m.id === s.sttModel);
   const sttLanguages = stt?.languages?.length ? stt.languages : [];
 
   return (
     <>
       <div style={grid}>
-        <label style={label}>Voice provider
-          <select aria-label="Voice provider" value={provider} onChange={(e) => setProvider(e.target.value)} style={input}>
-            <option value="">All ({catalogue.voices.length} voices)</option>
-            {providers.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
+        {filter("provider", "Voice provider", providers, `All providers (${voices.length} voices)`)}
+        {filter("engine", "Voice model (text-to-speech)", engines, "Any model")}
+        {filter("lang", "Voice language", languages, "Any language")}
+        {filter("gender", "Gender", genders, "Any")}
+        <label style={label}>Search voices
+          <input aria-label="Search voices" placeholder="Name, e.g. Clara" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} style={input} />
         </label>
-        <label style={label}>Voice language
-          <select aria-label="Voice language" value={lang} onChange={(e) => setLang(e.target.value)} style={input}>
-            <option value="">Any language</option>
-            {languages.map((l) => <option key={l} value={l}>{l}</option>)}
-          </select>
-        </label>
-        <label style={label}>Voice
+        <label style={label}>Voice ({shown.length})
           <select aria-label="Voice" value={me.voice} onChange={(e) => setMe({ ...me, voice: e.target.value })} style={input}>
             <option value="">{telnyxDefault(effective.voice)}</option>
-            {shown.slice(0, 500).map((v) => (
-              <option key={v.id} value={v.id}>{v.label}{v.private ? " (your company's voice)" : ""}{v.language ? ` · ${v.language}` : ""}{v.gender ? ` · ${v.gender}` : ""}</option>
+            {shown.map((v) => (
+              <option key={v.id} value={v.id}>{v.label}{v.engine ? ` · ${v.engine}` : ""}{v.language ? ` · ${v.language}` : ""}{v.gender ? ` · ${v.gender}` : ""}</option>
             ))}
           </select>
         </label>
-        <label style={label}>Thinking model
+        <label style={label}>AI model (the brain)
           <select aria-label="Model" value={me.model} onChange={(e) => setMe({ ...me, model: e.target.value })} style={input}>
             <option value="">{telnyxDefault(effective.model)}</option>
-            {catalogue.models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.price ? ` · ${m.price}` : ""}</option>)}
+            {group("Recommended for calls", models.filter((m) => m.recommended || m.recommended === undefined))}
+            {group("Other Telnyx-hosted models", models.filter((m) => m.recommended === false && !m.needsKey))}
+            {group("Needs your own provider key", models.filter((m) => m.recommended === false && m.needsKey))}
           </select>
+          <span style={hint}>Reasoning is switched off on calls by Telnyx, so faster models answer quicker.</span>
         </label>
         <label style={label}>Speaking speed: {Number(s.voiceSpeed).toFixed(2)}×
           <input aria-label="Speaking speed" type="range" min="0.5" max="2" step="0.05" value={s.voiceSpeed} onChange={(e) => set({ voiceSpeed: Number(e.target.value) })} />

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -94,6 +94,21 @@ class TelnyxClient:
             logger.warning(f"[telnyx] {method} {path} -> {r.status_code}: {str(body)[:300]}")
             raise TelnyxError(_message(body, r.status_code), r.status_code, body)
         return body
+
+    async def speech(self, text: str, voice: str) -> Tuple[bytes, str]:
+        """Text read out in a voice: (audio bytes, content type)."""
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            r = await client.post(f"{BASE}/text-to-speech/speech", headers=headers,
+                                  json={"text": text, "voice": voice, "output_type": "binary_output"})
+        if r.status_code >= 400 or not r.content:
+            try:
+                body = r.json()
+            except ValueError:
+                body = {}
+            logger.warning(f"[telnyx] text-to-speech {voice} -> {r.status_code}: {str(body)[:300]}")
+            raise TelnyxError(_message(body, r.status_code), r.status_code, body)
+        return r.content, (r.headers.get("content-type") or "audio/mpeg").split(";")[0]
 
     # ── Accounts ──────────────────────────────────────────────────────────
     async def create_managed_account(self, business_name: str, email: Optional[str] = None) -> Dict[str, Any]:
