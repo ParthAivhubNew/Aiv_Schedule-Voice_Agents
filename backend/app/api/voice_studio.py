@@ -44,6 +44,12 @@ async def _has_number(db: AsyncSession, org_id: str) -> bool:
                                                               OrgPhoneNumber.status == "active").limit(1))).first() is not None
 
 
+async def _need_number(db: AsyncSession, org_id: str) -> None:
+    """The assistant is set up only once the company has a number to call from (same as the page)."""
+    if not await _has_number(db, org_id):
+        raise HTTPException(status_code=409, detail="Add a phone number first: your assistant is set up once your company has one.")
+
+
 @router.get("")
 async def studio(request: Request, db: AsyncSession = Depends(get_db)):
     from app.models.models import ConversationTemplate, Mission, VoiceAssistant
@@ -60,6 +66,7 @@ async def studio(request: Request, db: AsyncSession = Depends(get_db)):
         "managed": VA.enabled(),
         "hasNumber": await _has_number(db, ctx["org_id"]),
         "canChangeCompany": _can_change_company(ctx),
+        "isAdmin": bool(ctx.get("is_admin")),  # only admins open the Numbers page
         "me": {"voice": mine.voice if mine else "", "model": mine.model if mine else "", "phone": op.phone or "",
                "settings": assistant_options.clean_mine({}, (mine.settings or {}) if mine else {}),
                "effective": ((mine.settings or {}).get("effective") if mine else None) or {},
@@ -95,6 +102,7 @@ async def update_me(body: MeBody, request: Request, db: AsyncSession = Depends(g
     from app.services import platform_ai
 
     ctx = current(request)
+    await _need_number(db, ctx["org_id"])
     op = await _me(db, ctx)
     cat = await platform_ai.catalogue_for_org(db, ctx["org_id"])
     if body.phone is not None:
@@ -276,6 +284,7 @@ async def add_clone(request: Request, audio: UploadFile = File(...), name: str =
     from app.services.telnyx_client import TelnyxError
 
     ctx = current(request)
+    await _need_number(db, ctx["org_id"])
     content = await audio.read(assistant_options.CLONE_MAX_BYTES + 1)
     try:
         item = await assistant_options.add_clone(db, await VA._client(db), ctx["org_id"], name=name, language=language,

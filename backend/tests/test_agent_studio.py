@@ -8,6 +8,16 @@ from tests.voice_fakes import FakeHttp, RealClient
 pytestmark = pytest.mark.db
 
 
+async def give_number(db, org_id, e164="+442070000001"):
+    """Agent Studio settings are saved only once the company has a number."""
+    from app.core.tenancy import org_scope
+    from app.models.models import OrgPhoneNumber
+
+    with org_scope(org_id):
+        db.add(OrgPhoneNumber(id=f"num_{org_id}", e164=e164, provider="telnyx", status="active"))
+        await db.commit()
+
+
 def _as(token):
     import httpx
 
@@ -34,6 +44,7 @@ async def test_users_pick_their_voice_from_the_staff_list(db, staff, fake):
 
     await _catalogue(staff)
     bob, token = await make_user(db, "bob", "Operator", org_id="org_acme")
+    await give_number(db, "org_acme")
     async with _as(token) as c:
         s = (await c.get("/api/voice-studio")).json()
         assert s["canChangeCompany"] is False and [v["id"] for v in s["catalogue"]["voices"]][0] == "Telnyx.NaturalHD.astra"
@@ -135,6 +146,8 @@ async def test_test_call_rings_the_users_own_phone(db, fake, monkeypatch):
 async def test_a_cloned_voice_is_only_seen_by_its_own_company(db, staff):
     _, acme = await make_user(db, "ann", "Admin", org_id="org_acme")
     _, other = await make_user(db, "zed", "Admin", org_id="org_other")
+    await give_number(db, "org_acme")
+    await give_number(db, "org_other", "+442070000002")
     r = await staff.put("/api/admin-api/voice-catalogue", json={"voices": [
         {"id": "Telnyx.NaturalHD.astra", "label": "Astra"},
         {"id": "Telnyx.Clone.acme-owner", "label": "Acme owner", "org": "org_acme"}], "models": []})

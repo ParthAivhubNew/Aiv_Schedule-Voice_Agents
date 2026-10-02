@@ -91,9 +91,9 @@ export function AgentStudio({ onOpenPage }) {
         {title(PhoneCall, "Get a phone number first")}
         <div style={{ fontSize: 13, color: C.slate }}>
           Your assistant's voice, AI model and call rules are set up here once your company has a number to call from.
-          {data.canChangeCompany ? "" : " Ask your admin to add one."}
+          {data.isAdmin ? "" : " Ask your admin to add one."}
         </div>
-        {data.canChangeCompany && onOpenPage && (
+        {data.isAdmin && onOpenPage && (
           <button type="button" style={btn(true)} onClick={() => onOpenPage("numbers")}>
             <PhoneCall size={13} /> Get a number
           </button>

@@ -4,7 +4,7 @@ and companies add their own voices for free, made again from the sample if Telny
 import pytest
 
 from tests.conftest import make_user
-from tests.test_agent_studio import _as
+from tests.test_agent_studio import _as, give_number
 
 pytestmark = pytest.mark.db
 
@@ -59,6 +59,11 @@ async def test_users_get_telnyx_lists_and_admins_set_call_behaviour(db, fake):
         assert cat["voices"][0]["id"] == "Telnyx.Ultra.Clara" and cat["stt"][0]["id"] == "deepgram/nova-3"
         assert s["hasNumber"] is False and cat["voices"][0]["engine"] == "Ultra" and cat["models"][0]["recommended"] is True
         assert s["me"]["settings"]["voiceSpeed"] == 1.0 and s["company"]["assistant"]["speaksFirst"] is True
+        assert s["isAdmin"] is False  # no "Get a number" button: the Numbers page is admins' only
+        r = await c.put("/api/voice-studio/me", json={"voice": "Telnyx.Ultra.Clara"})
+        assert r.status_code == 409 and "phone number" in r.json()["detail"]  # no number yet
+        await give_number(db, "org_acme")
+        assert (await c.get("/api/voice-studio")).json()["hasNumber"] is True
         assert (await c.put("/api/voice-studio/me", json={"settings": {"sttModel": "made/up"}})).status_code == 400
         r = await c.put("/api/voice-studio/me", json={"voice": "Telnyx.Ultra.Clara", "settings": {"sttModel": "deepgram/nova-3", "voiceSpeed": 0.9}})
         assert r.status_code == 200
@@ -90,6 +95,11 @@ async def test_a_company_clones_a_voice_for_free_and_it_comes_back_if_telnyx_dro
     from app.services import voice_assistants as VA
 
     bob, tok = await make_user(db, "bob3", "Operator", org_id="org_acme")
+    sample_ok = ("me.wav", b"RIFF" + b"\0" * 2000, "audio/wav")
+    async with _as(tok) as c:  # no number yet: nothing is sent to Telnyx
+        r = await c.post("/api/voice-studio/clones", data={"name": "x", "language": "en", "gender": "male", "consent": "true"}, files={"audio": sample_ok})
+        assert r.status_code == 409
+    await give_number(db, "org_acme")
     sample = ("me.wav", b"RIFF" + b"\0" * 2000, "audio/wav")
     form = {"name": "My voice", "language": "en", "gender": "male"}
     async with _as(tok) as c:
