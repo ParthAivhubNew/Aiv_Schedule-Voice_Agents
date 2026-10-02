@@ -37,6 +37,11 @@ async def split_platform(conn: AsyncConnection) -> None:
     be the platform) to it, so they keep working for everyone. Aivhub keeps its own mailboxes,
     calendars and data, and gets its real name."""
     platform = platform_org_id()
+    try:
+        await conn.execute(text("ALTER TABLE connections ADD COLUMN IF NOT EXISTS org_id VARCHAR DEFAULT 'org_default'"))
+        await conn.execute(text("UPDATE connections SET org_id = 'org_default' WHERE org_id IS NULL"))
+    except Exception:
+        pass
     await conn.execute(text(
         "INSERT INTO organizations (id, name, slug, status) VALUES (:i, :n, 'outreach-platform', :s) "
         "ON CONFLICT (id) DO UPDATE SET status = :s"), {"i": platform, "n": PLATFORM_NAME, "s": PLATFORM_STATUS})

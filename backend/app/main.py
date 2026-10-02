@@ -290,7 +290,7 @@ async def lifespan(app: FastAPI):
                     pass
 
         # Safe migration for multi-tenant org_id
-        for tbl in ["operators", "company_profile", "missions", "live_calls"]:
+        for tbl in ["operators", "company_profile", "missions", "live_calls", "connections"]:
             try:
                 await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS org_id VARCHAR;"))
             except Exception:
