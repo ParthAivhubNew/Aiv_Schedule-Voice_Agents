@@ -3,7 +3,7 @@ import { AlertTriangle, Check, CheckCircle2, CreditCard, ExternalLink } from "lu
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { takeBillingParam } from "../hub/BillingReturnBanner";
-import { btn, day, fmt, heading, money, WalletCard, WALLET_COLOUR } from "./CreditsTab";
+import { btn, day, fmt, heading, money, MonthlyUsage, WalletCard, WALLET_COLOUR } from "./CreditsTab";
 
 const card = { border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", background: "#fff" };
 const stepBtn = { width: 30, height: 32, border: "none", background: C.paperSoft, color: C.textInk, fontSize: 16, fontWeight: 700, cursor: "pointer" };
@@ -230,7 +230,9 @@ export function SubscriptionPage({ wallet, back }) {
         </>
       )}
 
-      <div style={heading}>History</div>
+      <MonthlyUsage wallets={data.wallets} only={wallet} />
+
+      <div style={heading}>Latest activity</div>
       {history.length === 0 ? (
         <div style={{ fontSize: 13, color: C.slate }}>Nothing yet.</div>
       ) : (

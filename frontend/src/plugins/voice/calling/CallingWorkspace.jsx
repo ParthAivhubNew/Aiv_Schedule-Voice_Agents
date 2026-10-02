@@ -10,7 +10,6 @@ import {
   Headphones,
   History,
   LayoutGrid,
-  ScrollText,
   List,
   LogOut,
   MapPin,
@@ -60,7 +59,6 @@ import { ImportMapper } from "./ImportMapper";
 import { WorkingHoursTab } from "./WorkingHoursTab";
 import { NumbersPage } from "./NumbersPage";
 import { WhatsappInbox } from "./WhatsappInbox";
-import { SystemLogsTab } from "./SystemLogsTab";
 import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../../../components/LiveKitBrowserCallModal";
 import { VoicePicker } from "../VoicePicker";
@@ -83,7 +81,6 @@ const PAGES = [
   { id: "hours", label: "Working hours", icon: Clock, section: "company" },
   { id: "numbers", label: "Numbers", icon: Phone, section: "admin" },
   { id: "subscription", label: "Subscription", icon: CreditCard, section: "admin" },
-  { id: "systemlogs", label: "System logs", icon: ScrollText, section: "process_logs" },
 ];
 
 function canSee(operator, section) {
@@ -2446,7 +2443,6 @@ export function CallingWorkspace({
     numbers: ["Numbers", "Verify your business, buy UK numbers and turn on WhatsApp."],
     subscription: ["Subscription", "Your calling plan and credits. Change plan, top up, or cancel."],
     whatsapp: ["WhatsApp", "Conversations on your own numbers. You reply; you are emailed when something new arrives."],
-    systemlogs: ["System logs", "Technical activity of calls, providers and background jobs."],
   };
 
   return (
@@ -3796,11 +3792,6 @@ export function CallingWorkspace({
             <WorkingHoursTab operator={operator} />
           )}
 
-          {page === "systemlogs" && canSee(operator, "process_logs") && (
-            <div style={{ maxWidth: 1240 }}>
-              <SystemLogsTab />
-            </div>
-          )}
         </div>
       </div>
 

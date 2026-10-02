@@ -394,6 +394,59 @@ async def set_enforce(org_id: str, body: EnforceBody, request: Request):
     return {"enforce": await _in_org(org_id, run)}
 
 
+class AttachNumberBody(BaseModel):
+    e164: str
+
+
+@router.post("/clients/{org_id}/numbers/attach")
+async def attach_number(org_id: str, body: AttachNumberBody, request: Request):
+    """Give a company a number we already have on our Telnyx account (e.g. Aivhub's own line):
+    it appears on its Numbers page, its incoming calls reach that company and, in billing-group
+    mode, Telnyx bills it to the company's billing group. The number's call routing is kept."""
+    from app.models.models import OrgPhoneNumber
+    from app.services import telnyx_provisioning as TP
+    from app.services.numbers import normalize, org_for_numbers
+    from app.services.telnyx_client import TelnyxClient, TelnyxError, platform_key, refresh_saved_key
+
+    _admin_only(request)
+    e164 = normalize(body.e164 or "")
+    if not e164.startswith("+") or len(e164) < 8:
+        raise HTTPException(status_code=400, detail="Enter the number with its country code, like +447700900123.")
+    await refresh_saved_key()
+    if not platform_key():
+        raise HTTPException(status_code=400, detail="Save the Telnyx key in Platform keys first.")
+    owner = await org_for_numbers(e164)
+    if owner and owner != org_id:
+        raise HTTPException(status_code=409, detail=f"{e164} already belongs to another company ({owner}).")
+    try:
+        found = await TelnyxClient(platform_key()).find_phone_number(e164)
+    except TelnyxError as err:
+        raise HTTPException(status_code=502, detail=f"Telnyx: {err}")
+    if not found:
+        raise HTTPException(status_code=404, detail=f"{e164} is not on our Telnyx account.")
+
+    async def run(db):
+        name = (await db.execute(text("SELECT name FROM organizations WHERE id = :i"), {"i": org_id})).scalar() or ""
+        warning = ""
+        setup = await TP.ensure_setup(db, name)
+        if TP.account_mode() == "billing_group" and setup.billing_group_id and found.get("billing_group_id") != setup.billing_group_id:
+            try:
+                await TelnyxClient(platform_key()).update_phone_number(str(found.get("id")), billing_group_id=setup.billing_group_id)
+            except TelnyxError as err:
+                warning = f"Added, but Telnyx did not move it to the company's billing group: {err}"
+        n = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.e164 == e164))).scalars().first()
+        if n is None:
+            has_default = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.is_default.is_(True)))).scalars().first()
+            n = OrgPhoneNumber(id=f"num_{uuid.uuid4().hex[:10]}", e164=e164, label="", provider="telnyx",
+                               capabilities=["voice"], is_default=not has_default)
+            db.add(n)
+        n.provider_ref, n.status = str(found.get("id") or ""), "active"
+        await db.commit()
+        return {"id": n.id, "e164": e164, "warning": warning}
+
+    return await _in_org(org_id, run)
+
+
 class WhatsappBody(BaseModel):
     enabled: bool
 
@@ -694,7 +747,11 @@ async def platform_keys_save(body: Dict[str, Any], request: Request):
         req = C.TestKeyRequest(**body)
     except Exception:
         raise HTTPException(status_code=400, detail="Check the provider and key.")
-    return await _as_platform(C.test_and_save_connection, req)
+    out = await _as_platform(C.test_and_save_connection, req)
+    from app.services.telnyx_client import refresh_saved_key
+
+    await refresh_saved_key()
+    return out
 
 
 @router.post("/platform-keys/clear")
@@ -706,7 +763,11 @@ async def platform_keys_clear(body: Dict[str, Any], request: Request):
         req = C.ClearKeyRequest(**body)
     except Exception:
         raise HTTPException(status_code=400, detail="Say which key to remove.")
-    return await _as_platform(C.clear_connection_key, req)
+    out = await _as_platform(C.clear_connection_key, req)
+    from app.services.telnyx_client import refresh_saved_key
+
+    await refresh_saved_key()
+    return out
 
 
 @router.post("/platform-keys/assistant")

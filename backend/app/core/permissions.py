@@ -21,7 +21,6 @@ _RANK = {NONE: 0, VIEW: 1, FULL: 2}
 SECTIONS: List[Tuple[str, str, str, str]] = [
     ("calling", "Calling", "Voice", "Contact lists, dialling, live calls, call history, schedule and AI templates."),
     ("analytics", "Analytics", "Voice", "Call and meeting results, trends and team performance."),
-    ("process_logs", "System logs", "Voice", "Technical activity log of calls, providers and background jobs."),
     ("scheduler", "Post scheduler", "Social", "Planning, writing, approving and publishing social posts."),
     ("leadgen", "Lead generation", "Growth", "Finding and enriching companies and contacts."),
     ("email", "Email outreach", "Growth", "Email campaigns and sequences."),

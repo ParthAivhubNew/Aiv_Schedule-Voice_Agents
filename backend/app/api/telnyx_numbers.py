@@ -74,6 +74,9 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
 
     ctx = _admin(request)
     staff = _staff(ctx)
+    from app.services.telnyx_client import refresh_saved_key
+
+    await refresh_saved_key()
     setup = await TP.get_setup(db)
     if setup is not None and setup.status == "ready" and TP.platform_ready():
         try:
