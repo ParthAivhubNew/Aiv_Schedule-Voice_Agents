@@ -18,7 +18,7 @@ import re
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("assistant_options")
 
@@ -285,6 +285,44 @@ def effective(assistant: Dict[str, Any]) -> Dict[str, str]:
     return {"model": str(a.get("model") or ""),
             "voice": str((a.get("voice_settings") or {}).get("voice") or ""),
             "sttModel": str((a.get("transcription") or {}).get("model") or "")}
+
+
+# ── Voice previews ──────────────────────────────────────────────────────────
+PREVIEW_LINES = {
+    "en": "Hi, this is your assistant. I can call your prospects, answer questions and book meetings.",
+    "es": "Hola, soy tu asistente. Puedo llamar a tus clientes, responder preguntas y reservar reuniones.",
+    "fr": "Bonjour, je suis votre assistant. J'appelle vos prospects, je réponds aux questions et je prends des rendez-vous.",
+    "de": "Hallo, ich bin Ihr Assistent. Ich rufe Ihre Kontakte an, beantworte Fragen und buche Termine.",
+    "it": "Ciao, sono il tuo assistente. Chiamo i tuoi contatti, rispondo alle domande e fisso appuntamenti.",
+    "pt": "Olá, sou o seu assistente. Ligo para os seus contactos, respondo a perguntas e marco reuniões.",
+    "nl": "Hallo, ik ben uw assistent. Ik bel uw prospects, beantwoord vragen en plan afspraken in.",
+    "hi": "नमस्ते, मैं आपका सहायक हूँ। मैं आपके ग्राहकों को कॉल कर सकता हूँ और मीटिंग बुक कर सकता हूँ।",
+}
+_AUDIO_EXT = {"audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/ogg": ".ogg"}
+
+
+def _preview_dir() -> str:
+    return os.getenv("VOICE_PREVIEW_DIR", os.path.join("data", "voice_previews"))
+
+
+async def preview(client, voice: str, language: str = "") -> Tuple[bytes, str]:
+    """A short line read in this voice. Made once by Telnyx, then served from disk, so the
+    thousands of voices cost one synthesis each at most."""
+    import hashlib
+
+    key = hashlib.sha256(voice.encode()).hexdigest()[:32]
+    folder = _preview_dir()
+    for ctype, ext in (("audio/mpeg", ".mp3"), ("audio/wav", ".wav"), ("audio/ogg", ".ogg")):
+        path = os.path.join(folder, key + ext)
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                return f.read(), ctype
+    line = PREVIEW_LINES.get((language or "en")[:2].lower(), PREVIEW_LINES["en"])
+    audio, ctype = await client.speech(line, voice)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, key + _AUDIO_EXT.get(ctype, ".mp3")), "wb") as f:
+        f.write(audio)
+    return audio, ctype
 
 
 # ── Voice clones (free) ─────────────────────────────────────────────────────

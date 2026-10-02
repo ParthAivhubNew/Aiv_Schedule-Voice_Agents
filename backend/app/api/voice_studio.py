@@ -245,6 +245,28 @@ async def test_call(body: TestCallBody, request: Request, db: AsyncSession = Dep
     return result
 
 
+@router.get("/preview")
+async def voice_preview(voice: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Hear a voice before picking it. Only voices this organisation may pick."""
+    from fastapi.responses import Response
+
+    from app.services import platform_ai
+    from app.services.telnyx_client import TelnyxClient, TelnyxError, platform_key
+
+    ctx = current(request)
+    cat = await platform_ai.catalogue_for_org(db, ctx["org_id"])
+    item = next((v for v in cat["voices"] if v["id"] == voice), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Pick a voice from the list.")
+    try:
+        audio, ctype = await assistant_options.preview(TelnyxClient(platform_key()), voice, item.get("language") or "")
+    except TelnyxError as err:
+        raise HTTPException(status_code=502, detail=f"Telnyx could not read this voice out: {err}")
+    except Exception:
+        raise HTTPException(status_code=503, detail="Voice previews are not available yet.")
+    return Response(content=audio, media_type=ctype, headers={"Cache-Control": "private, max-age=86400"})
+
+
 # ── The company's own voices (clones, free) ─────────────────────────────────
 @router.post("/clones")
 async def add_clone(request: Request, audio: UploadFile = File(...), name: str = Form(...), language: str = Form(...),

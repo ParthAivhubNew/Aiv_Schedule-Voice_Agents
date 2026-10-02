@@ -144,3 +144,23 @@ def test_a_voice_telnyx_swapped_for_its_default_is_reported():
     assert AO.mismatch({"voice": "aws.Polly.Joanna", "model": ""}, {"voice": "Telnyx.KokoroTTS.af_heart"}).startswith("Telnyx did not accept the voice")
     assert AO.mismatch({"voice": "Telnyx.Ultra.Clara"}, {"voice": "Telnyx.Ultra.Clara"}) == ""
     assert AO.mismatch({"voice": ""}, {"voice": "Telnyx.Ultra.Clara"}) == ""  # Telnyx default chosen
+
+
+async def test_a_voice_preview_is_made_once_then_served_from_disk(db, fake, monkeypatch, tmp_path):
+    from app.services.telnyx_client import TelnyxClient
+
+    monkeypatch.setenv("VOICE_PREVIEW_DIR", str(tmp_path))
+    said = []
+
+    async def speech(self, text, voice):
+        said.append((text, voice))
+        return b"ID3audio", "audio/mpeg"
+
+    monkeypatch.setattr(TelnyxClient, "speech", speech)
+    _, tok = await make_user(db, "pat", "Operator", org_id="org_acme")
+    async with _as(tok) as c:
+        assert (await c.get("/api/voice-studio/preview", params={"voice": "Made.Up.voice"})).status_code == 404
+        for _ in range(2):
+            r = await c.get("/api/voice-studio/preview", params={"voice": "Telnyx.Ultra.Clara"})
+            assert r.status_code == 200 and r.content == b"ID3audio" and r.headers["content-type"] == "audio/mpeg"
+    assert said == [(said[0][0], "Telnyx.Ultra.Clara")]  # Telnyx asked once
