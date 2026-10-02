@@ -78,6 +78,11 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret1234567890abcdef1234567890abcdef}
       SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      FIREBASE_API_KEY: ${FIREBASE_API_KEY:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_AUTH_DOMAIN: ${FIREBASE_AUTH_DOMAIN:-}
+      FIREBASE_APP_ID: ${FIREBASE_APP_ID:-}
       # Cal.com is optional - users can connect via UI settings (Cloud or self-hosted)
       # CALCOM_BASE_URL and CALCOM_API_KEY are configured through the admin panel
     depends_on:

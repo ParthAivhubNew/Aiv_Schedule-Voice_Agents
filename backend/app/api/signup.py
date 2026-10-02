@@ -49,7 +49,8 @@ FIREBASE_KEYS = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@
 
 
 def signup_allowed() -> bool:
-    return os.getenv("ALLOW_SIGNUP", "").strip().lower() in ("1", "true", "yes")
+    val = os.getenv("ALLOW_SIGNUP", "true").strip().lower()
+    return val in ("1", "true", "yes")
 
 
 def firebase_config() -> Dict[str, str]:
