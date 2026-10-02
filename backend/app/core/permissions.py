@@ -109,6 +109,8 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/enrichment/copilot-chat$"), None),  # shared AI chat used by every plugin
     (re.compile(r"^/enrichment"), "leadgen"),
     (re.compile(r"^/scheduler"), "scheduler"),
+    (re.compile(r"^/email/u/"), None),  # unsubscribe links (public; signed)
+    (re.compile(r"^/email"), "email"),
     (re.compile(r"^/calcom"), "calcom"),
     (re.compile(r"^/profile/org$"), "company"),
     (re.compile(r"^/profile/notifications$"), None),

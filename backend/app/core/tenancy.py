@@ -42,11 +42,13 @@ TENANT_TABLES: List[str] = [
     "credit_ledger", "org_telnyx", "verification_submissions", "number_orders",
     "whatsapp_threads", "whatsapp_messages", "credit_grants", "billing_subscriptions",
     "voice_assistants", "call_briefs",
+    "email_mailboxes", "email_send_logs", "email_messages", "email_campaigns", "email_sequence_steps",
+    "email_enrollments", "enrichment_attempts",
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.
 SHARED_PROVIDER_GROUPS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Embeddings",
-                          "Business Discovery", "Messaging", "IMAGE", "Telnyx AI Assistant"]
+                          "Business Discovery", "Messaging", "IMAGE", "Telnyx AI Assistant", "Email Finder"]
 PER_ORG_SINGLETONS = ["company_profile", "calcom_settings", "scheduler_settings", "conversation_templates"]
 
 ORG_DEFAULT_SQL = f"coalesce(nullif(current_setting('app.org_id', true), ''), '{DEFAULT_ORG}')"

@@ -1,6 +1,7 @@
 """System email: messages sent by OutReach by Aivhub itself (invites, password resets, alerts).
 
-One mailbox for the whole platform, configured in the environment:
+One mailbox for the whole platform: the one staff set in the owner portal (Platform mailbox),
+or else the environment:
     SYSTEM_MAIL_HOST, SYSTEM_MAIL_PORT (587), SYSTEM_MAIL_USER, SYSTEM_MAIL_PASSWORD,
     SYSTEM_MAIL_FROM (defaults to the user), SYSTEM_MAIL_FROM_NAME, SYSTEM_MAIL_TLS
     ("starttls" default, "ssl" for port 465, "none").
@@ -27,11 +28,33 @@ logger = logging.getLogger("mailer")
 BRAND = "OutReach by Aivhub"
 
 
+def _saved() -> Dict[str, Any]:
+    """The platform mailbox staff set in the owner portal (wins over the environment)."""
+    from app.services.platform_mailbox import cached
+
+    return cached()
+
+
 def configured() -> bool:
+    if _saved():
+        return True
     return bool(os.getenv("SYSTEM_MAIL_HOST") and os.getenv("SYSTEM_MAIL_USER") and os.getenv("SYSTEM_MAIL_PASSWORD"))
 
 
+def _sender() -> tuple:
+    saved = _saved()
+    if saved:
+        return saved.get("from_name") or BRAND, saved["email"]
+    return os.getenv("SYSTEM_MAIL_FROM_NAME", BRAND), os.getenv("SYSTEM_MAIL_FROM") or os.getenv("SYSTEM_MAIL_USER", "")
+
+
 def _send_sync(msg: EmailMessage) -> None:
+    saved = _saved()
+    if saved:
+        from app.services.mail_transport import _send_sync as send_with
+
+        send_with(saved["settings"], msg)
+        return
     host = os.getenv("SYSTEM_MAIL_HOST", "")
     port_env = os.getenv("SYSTEM_MAIL_PORT", "").strip()
     # Port 465 means SSL from the first byte (e.g. one.com send.one.com:465); 587 means STARTTLS.
@@ -82,10 +105,10 @@ async def send_system_email(to: str, subject: str, html_body: str, text_body: st
     if not configured():
         logger.info(f"[mailer] System mailbox not configured; skipped '{subject}' to {to}.")
         return {"ok": False, "skipped": True, "error": "System mailbox is not configured yet."}
-    sender = os.getenv("SYSTEM_MAIL_FROM") or os.getenv("SYSTEM_MAIL_USER", "")
+    from_name, sender = _sender()
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = formataddr((os.getenv("SYSTEM_MAIL_FROM_NAME", BRAND), sender))
+    msg["From"] = formataddr((from_name, sender))
     msg["To"] = to
     msg["Message-ID"] = make_msgid(domain=sender.split("@")[-1] if "@" in sender else None)
     if reply_to:

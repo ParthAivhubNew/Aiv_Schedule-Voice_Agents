@@ -1,14 +1,12 @@
-"""Lead Enrichment Waterfall Engine with PECR Compliance Gating and Telemetry.
+"""Find a person's work email: shared cache first, then each email-finder provider in turn.
 
-Waterfall Cascade Order:
-1. Local Shared Cache (Free, £0 / 0 ms)
-2. Icypeas API
-3. Hunter API
-4. Findymail API
-5. LeadMagic API
-6. BetterContact API
+Order: cache (free) -> Icypeas -> Hunter -> Findymail -> LeadMagic -> BetterContact. Only the
+providers whose key staff saved in the owner portal (Platform keys -> Email Finder) are tried.
+A provider is trusted only when it says the address is verified/deliverable; guesses are never
+returned or stored. The company pays 1 credit (lead_lookup) only when an email is found.
 
-Charges 1 flat credit per verified lead discovered.
+Each provider adapter follows that provider's public API documentation; check them once with
+the trial keys (a failing provider is skipped and logged, never charged).
 Evaluates UK PECR entity status: corporate (Ltd/PLC/LLP/Public) vs individual vs unknown.
 """
 from __future__ import annotations
@@ -72,6 +70,154 @@ def classify_pecr_entity(company_name: str, email: str = "") -> str:
     return "unknown"
 
 
+PROVIDERS = ["icypeas", "hunter", "findymail", "leadmagic", "bettercontact"]
+LABELS = {"icypeas": "Icypeas", "hunter": "Hunter", "findymail": "Findymail", "leadmagic": "LeadMagic", "bettercontact": "BetterContact"}
+# What one successful search costs us on each provider's entry plan (USD, for the margin report).
+COST_USD = {"icypeas": 0.01, "hunter": 0.03, "findymail": 0.03, "leadmagic": 0.02, "bettercontact": 0.05}
+HTTP_TIMEOUT = httpx.Timeout(20.0, connect=8.0)
+
+
+class ProviderError(RuntimeError):
+    """The provider failed (bad key, out of credits, down); the next one is tried."""
+
+
+async def finder_keys() -> Dict[str, str]:
+    """{provider: key} for the Email Finder providers staff saved, in waterfall order."""
+    from app.core.platform import platform_org_id
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import Connection
+    from app.services.secret_box import config_get_secret, open_config
+
+    found: Dict[str, str] = {}
+    try:
+        with org_scope(platform_org_id()):
+            async with AsyncSessionLocal() as s:
+                rows = (await s.execute(select(Connection).where(Connection.group_name == "Email Finder"))).scalars().all()
+        for c in rows:
+            name = re.sub(r"[^a-z]", "", (c.name or "").lower())
+            prov = next((p for p in PROVIDERS if p in name), "")
+            if prov and prov not in found:
+                key = config_get_secret(open_config(c.config if isinstance(c.config, dict) else {}), "api_key", "auth_token")
+                if key:
+                    found[prov] = key.strip()
+    except Exception as err:
+        logger.warning(f"Email Finder keys not read: {err}")
+    return {p: found[p] for p in PROVIDERS if p in found}
+
+
+def _check(res: httpx.Response, provider: str) -> Any:
+    if res.status_code in (401, 403):
+        raise ProviderError(f"{LABELS[provider]}: key rejected ({res.status_code}).")
+    if res.status_code == 402:
+        raise ProviderError(f"{LABELS[provider]}: out of credits.")
+    if res.status_code == 429:
+        raise ProviderError(f"{LABELS[provider]}: rate limited.")
+    if res.status_code == 404:
+        return {}
+    if res.status_code >= 400:
+        raise ProviderError(f"{LABELS[provider]}: HTTP {res.status_code} {res.text[:160]}")
+    try:
+        return res.json()
+    except Exception:
+        raise ProviderError(f"{LABELS[provider]}: unreadable answer.")
+
+
+# Each adapter: (key, person) -> (email, status). status is "verified", "catch_all" or "" (none).
+async def _hunter(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
+    params = {"first_name": p["first_name"], "last_name": p["last_name"], "api_key": key}
+    params["domain" if p["domain"] else "company"] = p["domain"] or p["company"]
+    data = (_check(await client.get("https://api.hunter.io/v2/email-finder", params=params), "hunter") or {}).get("data") or {}
+    email_addr = data.get("email") or ""
+    status = ((data.get("verification") or {}).get("status") or "").lower()
+    if email_addr and (status == "valid" or (not status and int(data.get("score") or 0) >= 90)):
+        return email_addr, "verified"
+    if email_addr and status == "accept_all":
+        return email_addr, "catch_all"
+    return "", ""
+
+
+async def _findymail(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
+    body = {"name": f"{p['first_name']} {p['last_name']}".strip(), "domain": p["domain"] or p["company"]}
+    res = await client.post("https://app.findymail.com/api/search/name", json=body,
+                            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"})
+    contact = (_check(res, "findymail") or {}).get("contact") or {}
+    email_addr = contact.get("email") or ""
+    return (email_addr, "verified") if email_addr else ("", "")  # Findymail returns verified emails only
+
+
+async def _leadmagic(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
+    body = {"first_name": p["first_name"], "last_name": p["last_name"], "domain": p["domain"], "company_name": p["company"]}
+    res = await client.post("https://api.leadmagic.io/email-finder", json=body, headers={"X-API-Key": key})
+    data = _check(res, "leadmagic") or {}
+    email_addr = data.get("email") or ""
+    status = str(data.get("status") or data.get("email_status") or "").lower()
+    if email_addr and status in ("valid", "verified", "deliverable"):
+        return email_addr, "verified"
+    if email_addr and "catch" in status:
+        return email_addr, "catch_all"
+    return "", ""
+
+
+async def _icypeas(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
+    headers = {"Authorization": key, "Content-Type": "application/json"}
+    body = {"firstname": p["first_name"], "lastname": p["last_name"], "domainOrCompany": p["domain"] or p["company"]}
+    started = _check(await client.post("https://app.icypeas.com/api/email-search", json=body, headers=headers), "icypeas") or {}
+    search_id = ((started.get("item") or {}).get("_id")) or ""
+    if not search_id:
+        raise ProviderError("Icypeas: search not started.")
+    for _ in range(10):  # the search runs in the background; it usually finishes in a few seconds
+        await asyncio.sleep(1.5)
+        read = _check(await client.post("https://app.icypeas.com/api/bulk-single-searchs/read",
+                                         json={"id": search_id}, headers=headers), "icypeas") or {}
+        item = (read.get("items") or [{}])[0]
+        if item.get("status") in ("DEBITED", "FOUND", "NOT_FOUND", "DEBITED_NOT_FOUND", "BAD_INPUT", "INSUFFICIENT_FUNDS", "ABORTED"):
+            emails = ((item.get("results") or {}).get("emails")) or []
+            best = next((e for e in emails if str(e.get("certainty", "")).lower() in ("ultra_sure", "sure")), None)
+            if best and best.get("email"):
+                return best["email"], "verified"
+            return "", ""
+    return "", ""
+
+
+async def _bettercontact(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
+    headers = {"X-API-Key": key, "Content-Type": "application/json"}
+    body = {"data": [{"first_name": p["first_name"], "last_name": p["last_name"], "company": p["company"],
+                      "company_domain": p["domain"]}], "enrich_email_address": True, "enrich_phone_number": False}
+    started = _check(await client.post("https://app.bettercontact.rocks/api/v2/async", json=body, headers=headers), "bettercontact") or {}
+    req_id = started.get("id") or ""
+    if not req_id:
+        raise ProviderError("BetterContact: request not started.")
+    for _ in range(12):  # BetterContact runs its own waterfall; allow it up to ~30 seconds
+        await asyncio.sleep(2.5)
+        got = _check(await client.get(f"https://app.bettercontact.rocks/api/v2/async/{req_id}", headers=headers), "bettercontact") or {}
+        if str(got.get("status") or "").lower() in ("terminated", "completed", "done"):
+            row = (got.get("data") or [{}])[0]
+            email_addr = row.get("contact_email_address") or ""
+            status = str(row.get("contact_email_address_status") or "").lower()
+            if email_addr and status in ("deliverable", "valid", "verified"):
+                return email_addr, "verified"
+            if email_addr and "catch" in status:
+                return email_addr, "catch_all"
+            return "", ""
+    return "", ""
+
+
+ADAPTERS = {"icypeas": _icypeas, "hunter": _hunter, "findymail": _findymail, "leadmagic": _leadmagic, "bettercontact": _bettercontact}
+
+
+def _person_out(email_addr: str, p: Dict[str, str], entity: str, status: str, source: str) -> Dict[str, Any]:
+    return {"found": True, "email": email_addr, "first_name": p["first_name"], "last_name": p["last_name"],
+            "company_name": p["company"], "domain": p["domain"] or email_addr.split("@")[-1],
+            "entity_type": entity, "verification_status": status, "source": source, "cost_credits": 1}
+
+
+def _domain_of(raw: str) -> str:
+    d = (raw or "").strip().lower()
+    d = re.sub(r"^https?://", "", d).split("/")[0]
+    return d[4:] if d.startswith("www.") else d
+
+
 async def lookup_person_waterfall(
     db: AsyncSession,
     org_id: str,
@@ -81,172 +227,72 @@ async def lookup_person_waterfall(
     domain: str = "",
     pdl_person_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Cascades through cache and enrichment providers to find a verified email."""
-    start_time = time.time()
-    clean_fn = first_name.strip()
-    clean_ln = last_name.strip()
-    clean_company = company_name.strip()
-    clean_domain = domain.strip().lower()
+    """Finds a verified work email; charges 1 credit only when one is found."""
+    p = {"first_name": (first_name or "").strip(), "last_name": (last_name or "").strip(),
+         "company": (company_name or "").strip(), "domain": _domain_of(domain)}
+    if not (p["first_name"] and p["last_name"] and (p["domain"] or p["company"])):
+        return {"found": False, "error": "bad_input", "detail": "Give a first name, last name and the company's website or name."}
+    query = f"{p['first_name']} {p['last_name']} @ {p['domain'] or p['company']}"
 
-    query_repr = f"{clean_fn} {clean_ln} @ {clean_company or clean_domain}".strip()
-
-    # Step 0: Check if org has credit available
     ok, why = await can_start(db, "lead_lookup")
     if not ok:
-        return {"error": "insufficient_credits", "detail": why}
+        return {"found": False, "error": "insufficient_credits", "detail": why}
 
-    # Step 1: Check Local Shared Cache
-    cache_query = select(PersonCache)
+    # 1. Shared cache: a verified address found earlier, for anyone.
+    q = select(PersonCache).where(PersonCache.verification_status.in_(("verified", "catch_all")))
     if pdl_person_id:
-        cache_query = cache_query.where(PersonCache.pdl_person_id == pdl_person_id)
-    elif clean_domain and (clean_fn or clean_ln):
-        cache_query = cache_query.where(
-            PersonCache.first_name.ilike(clean_fn),
-            PersonCache.last_name.ilike(clean_ln),
-            PersonCache.domain == clean_domain
-        )
+        q = q.where(PersonCache.pdl_person_id == pdl_person_id)
     else:
-        cache_query = None
+        q = q.where(PersonCache.first_name.ilike(p["first_name"]), PersonCache.last_name.ilike(p["last_name"]))
+        q = q.where(PersonCache.domain == p["domain"]) if p["domain"] else q.where(PersonCache.company_name.ilike(p["company"]))
+    cached = (await db.execute(q.order_by(PersonCache.updated_at.desc()))).scalars().first()
+    if cached and cached.email:
+        db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider="cache",
+                                 found_email=cached.email, cost_usd=0.0, latency_ms=0, hit=True))
+        await charge(db, "lead_lookup", 1, f"lead:{uuid.uuid4().hex[:16]}", f"Email found: {query}")
+        await db.commit()
+        return _person_out(cached.email, p, cached.entity_type, cached.verification_status, "cache")
 
-    if cache_query is not None:
-        cache_res = await db.execute(cache_query)
-        cached_entry = cache_res.scalars().first()
-        if cached_entry and cached_entry.email:
-            # Log cache hit telemetry (£0 cost)
-            attempt = EnrichmentAttempt(
-                id=str(uuid.uuid4()),
-                org_id=org_id,
-                query=query_repr,
-                provider="cache",
-                found_email=cached_entry.email,
-                cost_usd=0.0,
-                latency_ms=int((time.time() - start_time) * 1000),
-                hit=True,
-            )
-            db.add(attempt)
-            
-            # Charge 1 credit for successful lookup
-            await charge(db, "lead_lookup", 1, f"lead:{attempt.id[:16]}", f"Enrichment: {query_repr}")
-            await db.commit()
-            
-            return {
-                "email": cached_entry.email,
-                "first_name": cached_entry.first_name,
-                "last_name": cached_entry.last_name,
-                "company_name": cached_entry.company_name,
-                "domain": cached_entry.domain,
-                "entity_type": cached_entry.entity_type,
-                "verification_status": cached_entry.verification_status,
-                "source": "cache",
-                "cost_credits": 1,
-            }
-
-    # Step 2: Waterfall through external providers
-    providers = ["icypeas", "hunter", "findymail", "leadmagic", "bettercontact"]
-    found_email = ""
-    winning_provider = ""
-    provider_cost = 0.0
-
-    for provider in providers:
-        # Check circuit breaker
-        now = time.time()
-        if _PROVIDER_BACKOFF_UNTIL.get(provider, 0) > now:
-            logger.info(f"Skipping {provider} (circuit breaker active)")
-            continue
-
-        prov_start = time.time()
-        try:
-            # Adapter call (mockable / API integration)
-            email_result, cost = await _call_provider_adapter(provider, clean_fn, clean_ln, clean_company, clean_domain)
-            prov_latency = int((time.time() - prov_start) * 1000)
-
-            hit = bool(email_result)
-            attempt = EnrichmentAttempt(
-                id=str(uuid.uuid4()),
-                org_id=org_id,
-                query=query_repr,
-                provider=provider,
-                found_email=email_result or "",
-                cost_usd=cost,
-                latency_ms=prov_latency,
-                hit=hit,
-            )
-            db.add(attempt)
-
-            if hit:
-                found_email = email_result
-                winning_provider = provider
-                provider_cost = cost
+    # 2. Providers, in order, until one finds a verified address.
+    keys = await finder_keys()
+    if not keys:
+        return {"found": False, "error": "not_configured",
+                "detail": "Email finding isn't set up yet. The OutReach team adds it in the owner portal."}
+    found_email, status, winner, catch_all = "", "", "", None
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        for provider, key in keys.items():
+            if _PROVIDER_BACKOFF_UNTIL.get(provider, 0) > time.time():
+                continue
+            started = time.time()
+            try:
+                email_addr, st = await ADAPTERS[provider](client, key, p)
                 _PROVIDER_FAILS[provider] = 0
+            except Exception as err:
+                logger.warning(f"[Email Finder] {provider} failed: {err}")
+                _PROVIDER_FAILS[provider] = _PROVIDER_FAILS.get(provider, 0) + 1
+                if _PROVIDER_FAILS[provider] >= CIRCUIT_FAIL_LIMIT:
+                    _PROVIDER_BACKOFF_UNTIL[provider] = time.time() + CIRCUIT_RESET_SECONDS
+                continue
+            db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider=provider,
+                                     found_email=email_addr or "", cost_usd=COST_USD[provider] if email_addr else 0.0,
+                                     latency_ms=int((time.time() - started) * 1000), hit=st == "verified"))
+            if st == "verified":
+                found_email, status, winner = email_addr, st, provider
                 break
-        except Exception as prov_err:
-            logger.warning(f"Provider {provider} failed: {prov_err}")
-            _PROVIDER_FAILS[provider] = _PROVIDER_FAILS.get(provider, 0) + 1
-            if _PROVIDER_FAILS[provider] >= CIRCUIT_FAIL_LIMIT:
-                _PROVIDER_BACKOFF_UNTIL[provider] = now + CIRCUIT_RESET_SECONDS
-                logger.error(f"Circuit tripped for {provider} for {CIRCUIT_RESET_SECONDS}s")
-
+            if st == "catch_all" and not catch_all:
+                catch_all = (email_addr, provider)  # kept in case nobody verifies it
+    if not found_email and catch_all:
+        found_email, winner = catch_all
+        status = "catch_all"
     if not found_email:
         await db.commit()
-        return {"found": False, "query": query_repr}
+        return {"found": False, "query": query, "detail": "No verified email found for this person."}
 
-    # Step 3: Classify PECR entity type
-    entity_type = classify_pecr_entity(clean_company, found_email)
-
-    # Step 4: Save to shared PersonCache for future instant hits
-    new_cache = PersonCache(
-        id=str(uuid.uuid4()),
-        pdl_person_id=pdl_person_id,
-        email=found_email,
-        first_name=clean_fn,
-        last_name=clean_ln,
-        company_name=clean_company,
-        domain=clean_domain or (found_email.split("@")[1] if "@" in found_email else ""),
-        entity_type=entity_type,
-        entity_verified=True,
-        verification_status="verified",
-        verified_at=datetime.utcnow(),
-    )
-    db.add(new_cache)
-
-    # Step 5: Charge 1 flat credit for found verified lead
-    await charge(db, "lead_lookup", 1, f"lead:{new_cache.id[:16]}", f"Enrichment: {query_repr}")
+    entity = classify_pecr_entity(p["company"], found_email)
+    db.add(PersonCache(id=str(uuid.uuid4()), pdl_person_id=pdl_person_id or None, email=found_email.lower(),
+                       first_name=p["first_name"], last_name=p["last_name"], company_name=p["company"],
+                       domain=p["domain"] or found_email.split("@")[-1].lower(), entity_type=entity,
+                       entity_verified=False, verification_status=status, verified_at=datetime.utcnow(), source=winner))
+    await charge(db, "lead_lookup", 1, f"lead:{uuid.uuid4().hex[:16]}", f"Email found: {query}")
     await db.commit()
-
-    return {
-        "email": found_email,
-        "first_name": clean_fn,
-        "last_name": clean_ln,
-        "company_name": clean_company,
-        "domain": clean_domain,
-        "entity_type": entity_type,
-        "verification_status": "verified",
-        "source": winning_provider,
-        "cost_credits": 1,
-    }
-
-
-async def _call_provider_adapter(
-    provider: str,
-    first_name: str,
-    last_name: str,
-    company: str,
-    domain: str
-) -> Tuple[str, float]:
-    """Provider API adapter stub with configurable provider calls."""
-    # Simulation / Live fallback when credentials are configured
-    # Estimated wholesale provider costs
-    costs = {
-        "icypeas": 0.015,
-        "hunter": 0.020,
-        "findymail": 0.025,
-        "leadmagic": 0.030,
-        "bettercontact": 0.040,
-    }
-    
-    # In live mode or test fixtures, returns generated valid domain address if company domain is present
-    if domain and first_name and last_name:
-        generated = f"{first_name.lower()}.{last_name.lower()}@{domain.lower()}"
-        return generated, costs.get(provider, 0.02)
-
-    return "", costs.get(provider, 0.02)
+    return _person_out(found_email.lower(), p, entity, status, winner)
