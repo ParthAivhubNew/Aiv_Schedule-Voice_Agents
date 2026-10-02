@@ -19,7 +19,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, Optional, Tuple
 
-import aiosmtplib
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -135,6 +134,7 @@ async def send_cold_email(
     try:
         # If SMTP credentials configured
         if mailbox.provider == "smtp" and mailbox.credentials_encrypted:
+            import aiosmtplib
             creds = json.loads(unseal(mailbox.credentials_encrypted) or "{}")
             host = creds.get("host", "smtp.gmail.com")
             port = int(creds.get("port", 587))

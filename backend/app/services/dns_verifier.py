@@ -11,9 +11,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
-import dns.asyncresolver
-import dns.resolver
-
 logger = logging.getLogger("dns_verifier")
 
 STANDARD_DKIM_SELECTORS = ["google", "selector1", "selector2", "default", "k1", "mail", "s1"]
@@ -21,10 +18,15 @@ STANDARD_DKIM_SELECTORS = ["google", "selector1", "selector2", "default", "k1", 
 
 async def verify_domain_dns(domain: str, dkim_selector: Optional[str] = None) -> Dict[str, Any]:
     """Asynchronously audits domain DNS records for email deliverability readiness."""
-    domain = domain.strip().lower()
-    resolver = dns.asyncresolver.Resolver()
-    resolver.timeout = 3.0
-    resolver.lifetime = 5.0
+    try:
+        import dns.asyncresolver
+        import dns.resolver
+        resolver = dns.asyncresolver.Resolver()
+        resolver.timeout = 3.0
+        resolver.lifetime = 5.0
+        has_dns = True
+    except ImportError:
+        has_dns = False
 
     result = {
         "domain": domain,
@@ -41,6 +43,9 @@ async def verify_domain_dns(domain: str, dkim_selector: Optional[str] = None) ->
         "all_passed": False,
         "recommendations": [],
     }
+
+    if not has_dns:
+        return result
 
     # 1. SPF Check
     try:

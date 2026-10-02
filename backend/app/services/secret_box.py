@@ -101,6 +101,10 @@ def open_secret(value: Optional[str]) -> str:
         return ""
 
 
+seal = seal_secret
+unseal = open_secret
+
+
 def seal_config(cfg: Optional[Dict[str, Any]], extra_keys: Iterable[str] = ()) -> Dict[str, Any]:
     data = dict(cfg or {})
     keys = set(SECRET_FIELD_NAMES) | {k for k in extra_keys if k}
