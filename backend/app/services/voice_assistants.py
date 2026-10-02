@@ -199,8 +199,12 @@ async def assistant_for(db, operator_id: str = "") -> Any:
         row = VoiceAssistant(id=f"va_{uuid.uuid4().hex[:12]}", operator_id=operator_id or "", status="pending")
         db.add(row)
         await db.flush()
+    from app.services.telephony_provider import public_http_base
+
+    # A new PUBLIC_BASE_URL (e.g. a fresh ngrok address) re-points the tools straight away.
     stale = (row.shell_version != SHELL_VERSION or not row.synced_at
-             or datetime.utcnow() - row.synced_at > RESYNC_AFTER)
+             or datetime.utcnow() - row.synced_at > RESYNC_AFTER
+             or (row.settings or {}).get("base") != public_http_base())
     if row.telnyx_assistant_id and not stale:
         return row
     name, description = await _names(db, operator_id)
@@ -224,9 +228,11 @@ async def assistant_for(db, operator_id: str = "") -> Any:
                 raise TelnyxError("Telnyx did not return an assistant id.")
         try:  # what Telnyx really uses, so "Telnyx default" can show its name
             mine["effective"] = assistant_options.effective(await client.get_assistant(row.telnyx_assistant_id))
-            row.settings = mine
         except Exception as err:
             logger.info(f"[voice-assistants] could not read back {row.telnyx_assistant_id}: {err}")
+        mine["base"] = public_http_base()
+        row.settings = mine
+
         row.shell_version, row.synced_at, row.status, row.last_error = SHELL_VERSION, datetime.utcnow(), "ready", ""
     except TelnyxError as err:
         row.status, row.last_error = "error", str(err)[:500]

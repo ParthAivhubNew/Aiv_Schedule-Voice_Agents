@@ -248,9 +248,10 @@ class AuthMiddleware:
             return await _deny(scope, receive, send, 403, "You do not have access to this.", code="forbidden", section=need[0])
 
         managed = (rel.startswith("/connections") and (method != "GET" or rel.startswith("/connections/telephony-hub/"))) or \
-            (rel.startswith("/scheduler/ai-settings") and method != "GET")
+            (rel.startswith("/scheduler/ai-settings") and method != "GET") or \
+            re.match(r"^/logs(/|$)", rel) is not None  # system logs: staff read them in the admin portal
         if managed and ctx["org_id"] != platform_org():
-            # Provider keys, AI models and engines are run by OutReach for client organisations.
+            # Provider keys, AI models, engines and system logs are run by OutReach for client organisations.
             return await _deny(scope, receive, send, 403, "This is managed by the OutReach team.", code="managed_by_outreach")
 
         scope.setdefault("state", {})["auth"] = ctx

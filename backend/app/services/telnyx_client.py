@@ -23,11 +23,43 @@ class TelnyxError(Exception):
         self.body = body
 
 
+_saved_key = ""  # the Telnyx key staff saved in the admin portal (Platform keys → Telephony)
+
+
 def platform_key() -> str:
-    """Our own (manager) Telnyx API key. Clients never see it."""
+    """Our own (manager) Telnyx API key: TELNYX_API_KEY, else the one saved in the admin portal.
+    Clients never see it."""
     from app.config import settings
 
-    return (os.getenv("TELNYX_API_KEY") or getattr(settings, "TELNYX_API_KEY", "") or "").strip()
+    return (os.getenv("TELNYX_API_KEY") or getattr(settings, "TELNYX_API_KEY", "") or _saved_key or "").strip()
+
+
+async def refresh_saved_key() -> str:
+    """Re-read the admin-portal Telnyx key (at startup, after staff change it, and when a page
+    needs it). Never raises: on any error the last known key stays."""
+    global _saved_key
+    try:
+        from sqlalchemy.future import select
+
+        from app.core.platform import platform_org_id
+        from app.core.tenancy import org_scope
+        from app.database import AsyncSessionLocal
+        from app.models.models import Connection
+        from app.services.secret_box import config_get_secret, open_config
+
+        key = ""
+        with org_scope(platform_org_id()):
+            async with AsyncSessionLocal() as db:
+                rows = (await db.execute(select(Connection).where(Connection.group_name == "Telephony"))).scalars().all()
+        for c in rows:
+            if "telnyx" in (c.name or "").lower():
+                key = config_get_secret(open_config(c.config if isinstance(c.config, dict) else {}), "api_key", "auth_token") or ""
+                if key:
+                    break
+        _saved_key = key.strip()
+    except Exception as err:
+        logger.debug(f"saved Telnyx key not read: {err}")
+    return _saved_key
 
 
 def _message(body: Any, status: int) -> str:
@@ -103,6 +135,9 @@ class TelnyxClient:
         if outbound_voice_profile_id:
             payload["outbound"] = {"outbound_voice_profile_id": outbound_voice_profile_id}
         return (await self._req("POST", "/call_control_applications", json=payload)).get("data", {})
+
+    async def get_call_control_application(self, app_id: str) -> Dict[str, Any]:
+        return (await self._req("GET", f"/call_control_applications/{app_id}")).get("data", {})
 
     async def update_call_control_application(self, app_id: str, **fields) -> Dict[str, Any]:
         return (await self._req("PATCH", f"/call_control_applications/{app_id}", json=fields)).get("data", {})
@@ -180,6 +215,11 @@ class TelnyxClient:
 
     async def get_phone_number(self, number_or_id: str) -> Dict[str, Any]:
         return (await self._req("GET", f"/phone_numbers/{number_or_id}")).get("data", {})
+
+    async def find_phone_number(self, e164: str) -> Dict[str, Any]:
+        """A number on this account by its E.164 form, or {} when the account has no such number."""
+        rows = (await self._req("GET", "/phone_numbers", params={"filter[phone_number]": e164})).get("data") or []
+        return next((r for r in rows if r.get("phone_number") == e164), {})
 
     async def update_phone_number(self, number_id: str, **fields) -> Dict[str, Any]:
         return (await self._req("PATCH", f"/phone_numbers/{number_id}", json=fields)).get("data", {})

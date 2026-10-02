@@ -179,7 +179,37 @@ async def outbound_route(db, from_number: str) -> Optional[Tuple[str, str]]:
         OrgPhoneNumber.provider_ref != "", OrgPhoneNumber.status == "active"))).scalars().first()
     if not ours:
         return None
+    await keep_webhook(db, setup)
     return platform_key(), setup.outbound_connection_id
+
+
+async def keep_webhook(db, setup) -> None:
+    """Point the organisation's call app at today's PUBLIC_BASE_URL (it is set when the app is
+    made, so a new ngrok address or domain would otherwise leave calls talking to the old one).
+    Never raises: the call goes ahead either way."""
+    from app.services import credits as K
+    from app.services.telephony_provider import public_http_base
+
+    app_id = setup.outbound_connection_id if setup.mode != "managed_account" else setup.connection_id
+    if not app_id:
+        return
+    path = "/api/telnyx-assistant/call-control" if setup.mode == "managed_account" else "/api/sip-webhook"
+    url = f"{public_http_base()}{path}"
+    key = f"telnyx_webhook:{_org()}"
+    try:
+        doc = await K._get_doc(db, key)
+        if doc.get(app_id) == url:
+            return
+        client = client_for(setup)
+        # Telnyx wants the name with every update, so send the one the app already has.
+        current = await client.get_call_control_application(app_id)
+        if current.get("webhook_event_url") != url:
+            await client.update_call_control_application(
+                app_id, application_name=current.get("application_name") or "OutReach calls", webhook_event_url=url)
+        await K._put_doc(db, key, {**doc, app_id: url})
+        await db.commit()
+    except Exception as err:
+        logger.warning(f"call app {app_id} webhook not updated: {err}")
 
 
 # ── Regulatory requirements ────────────────────────────────────────────────

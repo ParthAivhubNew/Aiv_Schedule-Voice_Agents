@@ -44,7 +44,13 @@ async def _resolve_telnyx_from_number(db: AsyncSession) -> Optional[str]:
     Our Telnyx caller ID: the saved Telnyx Telephony connection's phone first
     ("phone" from the Connections card, "phoneNumber" from Line setup), then
     TELNYX_PHONE_NUMBER — same order as get_telephony_hub_status().
+    That line is Aivhub's own (it predates companies): other companies call from their numbers.
     """
+    from app.core.platform import AIVHUB_ORG
+    from app.core.tenancy import current_org
+
+    if current_org() != AIVHUB_ORG:
+        return None
     cfg = await _telnyx_telephony_config(db)
     phone = (cfg.get("phone") or cfg.get("phoneNumber") or "").strip()
     if phone:
@@ -133,7 +139,7 @@ async def dial_via_telnyx_assistant(
     # The organisation's chosen number when it has numbers saved; else the saved Telnyx number.
     from_number = from_number_override or await _resolve_telnyx_from_number(db)
     if not from_number:
-        return {"success": False, "error": "No Telnyx phone number saved (AI config → Connections → Telephony → Telnyx)."}
+        return {"success": False, "error": "No phone number yet. Add one on the Numbers page."}
 
     # A number can have its own assistant (e.g. a sales line and a support line). Managed
     # assistants belong to the caller, whichever of the organisation's numbers they call from.

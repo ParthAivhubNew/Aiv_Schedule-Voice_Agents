@@ -154,10 +154,11 @@ const csvCell = (v) => {
   return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 
-// One month of the company's credits: use per item and per day, every line, and a spreadsheet.
-function MonthlyUsage({ wallets }) {
+// `only`: one app's credits (its Subscription page), without the app picker.
+export function MonthlyUsage({ wallets, only = "" }) {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const [wallet, setWallet] = useState("");
+  const [picked, setWallet] = useState("");
+  const wallet = only || picked;
   const [usage, setUsage] = useState(null);
   const [error, setError] = useState("");
 
@@ -184,13 +185,15 @@ function MonthlyUsage({ wallets }) {
   return (
     <>
       <div style={{ ...heading, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span>Usage by month</span>
+        <span>{only ? "Where your credits went" : "Usage by month"}</span>
         <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input type="month" aria-label="Month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} style={input} />
-          <select aria-label="App" value={wallet} onChange={(e) => setWallet(e.target.value)} style={input}>
-            <option value="">All apps</option>
-            {wallets.map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
-          </select>
+          {!only && (
+            <select aria-label="App" value={wallet} onChange={(e) => setWallet(e.target.value)} style={input}>
+              <option value="">All apps</option>
+              {wallets.map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
+            </select>
+          )}
           <button type="button" style={btn(false, !usage?.entries.length)} disabled={!usage?.entries.length} onClick={download}><Download size={13} /> Spreadsheet</button>
         </span>
       </div>

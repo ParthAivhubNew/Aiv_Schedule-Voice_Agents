@@ -77,6 +77,7 @@ function ClientDetail({ id, canEdit, back }) {
   const loadAwardList = useCallback(() => adminApi.awards({ orgId: id }), [id]);
   const [awards, awardsErr, loadAwards] = useLoad(loadAwardList, [loadAwardList]);
   const [temp, setTemp] = useState(null);
+  const [existing, setExisting] = useState("");
 
   if (!c) return <><button type="button" style={btn(false)} onClick={back}><ArrowLeft size={13} /> Clients</button><Note error>{err}</Note></>;
   const suspended = c.status === "suspended";
@@ -147,6 +148,21 @@ function ClientDetail({ id, canEdit, back }) {
           );
         })}
       </Table>
+
+      {canEdit && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+          <input aria-label="Number already on our Telnyx account" placeholder="+447700900123" value={existing}
+            onChange={(e) => setExisting(e.target.value)} style={{ ...input, width: 200 }} />
+          <button type="button" style={btn(false)} disabled={!existing.trim()}
+            onClick={() => run(async () => {
+              const r = await adminApi.attachNumber(c.id, existing.trim());
+              setExisting("");
+              return r;
+            }, "Number added. It shows on their Numbers page and its calls reach this company.")}>
+            Add a number we already own
+          </button>
+        </div>
+      )}
 
       <div style={heading}>Business verification</div>
       <Table head={["Submitted", "Status", "Type", "Documents", "Reason"]}>

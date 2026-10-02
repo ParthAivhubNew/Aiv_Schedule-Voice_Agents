@@ -329,6 +329,8 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await split_platform(conn)
     await resolve_signing_key()
+    from app.services.telnyx_client import refresh_saved_key
+    await refresh_saved_key()
     from app.core.staff import ensure_bootstrap_staff
     await ensure_bootstrap_staff()
     try:
