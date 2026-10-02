@@ -61,9 +61,10 @@ def setup_ticket(staff_id: str) -> str:
 
 
 async def ensure_bootstrap_staff() -> None:
-    """First staff admin from STAFF_ADMIN_EMAIL / STAFF_ADMIN_PASSWORD when there is none yet."""
+    """First staff admin from STAFF_ADMIN_EMAIL / STAFF_ADMIN_PASSWORD when configured."""
     import uuid
 
+    from sqlalchemy import func
     from sqlalchemy.future import select
 
     from app.core.security import hash_password, password_problem
@@ -77,7 +78,11 @@ async def ensure_bootstrap_staff() -> None:
         return
     with system_scope():
         async with AsyncSessionLocal() as db:
-            if (await db.execute(select(StaffUser).limit(1))).scalars().first():
+            existing = (await db.execute(select(StaffUser).where(func.lower(StaffUser.email) == email))).scalars().first()
+            if existing:
+                existing.hashed_password = hash_password(password)
+                existing.is_active = True
+                await db.commit()
                 return
             db.add(StaffUser(id=f"stf_{uuid.uuid4().hex[:10]}", email=email, name="Staff admin", role="staff_admin",
                              hashed_password=hash_password(password)))

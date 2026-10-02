@@ -70,9 +70,10 @@ HOLD_TTL = timedelta(hours=6)  # holds left by work that never finished are give
 
 def starter_credits() -> int:
     try:
-        return max(0, int(os.getenv("STARTER_CREDITS", "0")))
+        val = os.getenv("STARTER_CREDITS")
+        return int(val) if val is not None else 25
     except ValueError:
-        return 0
+        return 25
 
 
 def wallet_of(item: str) -> str:
