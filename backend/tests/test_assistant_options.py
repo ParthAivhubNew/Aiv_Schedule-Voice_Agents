@@ -57,6 +57,7 @@ async def test_users_get_telnyx_lists_and_admins_set_call_behaviour(db, fake):
         cat = s["catalogue"]
         assert [m["id"] for m in cat["models"]] == ["moonshotai/Kimi-K2.6"] and "0.5" in cat["models"][0]["price"]
         assert cat["voices"][0]["id"] == "Telnyx.Ultra.Clara" and cat["stt"][0]["id"] == "deepgram/nova-3"
+        assert s["hasNumber"] is False and cat["voices"][0]["engine"] == "Ultra" and cat["models"][0]["recommended"] is True
         assert s["me"]["settings"]["voiceSpeed"] == 1.0 and s["company"]["assistant"]["speaksFirst"] is True
         assert (await c.put("/api/voice-studio/me", json={"settings": {"sttModel": "made/up"}})).status_code == 400
         r = await c.put("/api/voice-studio/me", json={"voice": "Telnyx.Ultra.Clara", "settings": {"sttModel": "deepgram/nova-3", "voiceSpeed": 0.9}})
@@ -122,3 +123,24 @@ async def test_a_company_clones_a_voice_for_free_and_it_comes_back_if_telnyx_dro
         assert (await c.delete(f"/api/voice-studio/clones/{clone['id']}")).status_code == 200
         s = (await c.get("/api/voice-studio")).json()
         assert s["clones"] == [] and s["me"]["voice"] == ""  # back to the default voice
+
+
+def test_voice_ids_match_what_telnyx_assistants_take():
+    from app.services import assistant_options as AO
+
+    assert AO._voice_id("telnyx", "Telnyx.KokoroTTS.af_heart") == "Telnyx.KokoroTTS.af_heart"
+    assert AO._voice_id("xai", "eve") == "xAI.eve" and AO._voice_id("azure", "en-US-AvaNeural") == "azure.en-US-AvaNeural"
+    assert AO._voice_id("soniox", "Maya") == "Soniox.tts-rt-v2.Maya"
+    assert AO._voice_id("minimax", "English_radiant_girl") == ""  # model unknown: would fail on the call
+    assert AO.voice_engine("Telnyx.Ultra.Clara") == "Ultra" and AO.voice_engine("xAI.eve") == ""
+    assert AO.voice_engine("aws.Polly.Generative.Lucia") == "Polly Generative"
+    assert AO.voice_engine("aws.Polly.Danielle-Neural") == "Polly Neural"
+    assert AO.needs_key("openai/gpt-4o") and not AO.needs_key("moonshotai/Kimi-K2.6")
+
+
+def test_a_voice_telnyx_swapped_for_its_default_is_reported():
+    from app.services import assistant_options as AO
+
+    assert AO.mismatch({"voice": "aws.Polly.Joanna", "model": ""}, {"voice": "Telnyx.KokoroTTS.af_heart"}).startswith("Telnyx did not accept the voice")
+    assert AO.mismatch({"voice": "Telnyx.Ultra.Clara"}, {"voice": "Telnyx.Ultra.Clara"}) == ""
+    assert AO.mismatch({"voice": ""}, {"voice": "Telnyx.Ultra.Clara"}) == ""  # Telnyx default chosen

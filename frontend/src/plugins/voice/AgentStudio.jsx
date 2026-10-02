@@ -75,6 +75,24 @@ export function AgentStudio({ onOpenPage }) {
   const chosenVoice = catalogue.voices.find((v) => v.id === me.voice);
   const status = data.me.assistant;
 
+  // Nothing here does anything until the company has a number to call from.
+  if (data.hasNumber === false) {
+    return (
+      <div style={{ ...box, maxWidth: 640, fontFamily: FONT_BODY }}>
+        {title(PhoneCall, "Get a phone number first")}
+        <div style={{ fontSize: 13, color: C.slate }}>
+          Your assistant's voice, AI model and call rules are set up here once your company has a number to call from.
+          {data.canChangeCompany ? "" : " Ask your admin to add one."}
+        </div>
+        {data.canChangeCompany && onOpenPage && (
+          <button type="button" style={btn(true)} onClick={() => onOpenPage("numbers")}>
+            <PhoneCall size={13} /> Get a number
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "grid", gap: 14, maxWidth: 980, fontFamily: FONT_BODY }}>
       {!data.managed && (

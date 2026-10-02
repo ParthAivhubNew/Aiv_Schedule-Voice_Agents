@@ -24,7 +24,15 @@ logger = logging.getLogger("assistant_options")
 
 # ── Live lists from Telnyx ──────────────────────────────────────────────────
 LIST_TTL = 6 * 3600
-VOICE_PROVIDERS = ["telnyx", "aws", "azure", "minimax", "resemble", "xai", "soniox"]  # ElevenLabs needs its own key
+# provider name for /text-to-speech/voices -> how its voice ids start on an assistant. ElevenLabs
+# needs its own key, so it is not offered.
+VOICE_PROVIDERS = ["telnyx", "aws", "azure", "minimax", "resemble", "xai", "soniox", "inworld", "fishaudio", "humain"]
+_VOICE_PREFIX = {"telnyx": "Telnyx", "aws": "aws.Polly", "azure": "azure", "xai": "xAI",
+                 "resemble": "Resemble.Turbo", "soniox": "Soniox.tts-rt-v2"}
+PROVIDER_LABELS = {"telnyx": "Telnyx", "aws": "AWS Polly", "azure": "Azure", "minimax": "Minimax", "resemble": "Resemble",
+                   "xai": "xAI Grok", "soniox": "Soniox", "inworld": "Inworld", "fishaudio": "Fish Audio", "humain": "Humain"}
+# Models Telnyx only runs with the client's own key (llm_api_key_ref), which we do not hold yet.
+KEY_MODEL_PREFIXES = tuple(p.strip().lower() for p in os.getenv("TELNYX_KEY_MODEL_PREFIXES", "openai/").split(",") if p.strip())
 _lists: Dict[str, Any] = {"at": 0.0, "data": None}
 
 
@@ -36,11 +44,30 @@ def _price(pricing: Any) -> str:
     return ", ".join(parts) + (f" ({unit})" if parts and unit else "")
 
 
+def needs_key(model_id: str) -> bool:
+    return str(model_id or "").lower().startswith(KEY_MODEL_PREFIXES)
+
+
 def _voice_id(provider: str, raw: str) -> str:
+    """The id an assistant takes in voice_settings.voice. Telnyx usually lists full ids
+    (Telnyx.KokoroTTS.af_heart); a bare one is completed with the provider's documented prefix.
+    "" when the format needs a model we do not know: offering it would fail on the call."""
     raw = str(raw or "").strip()
     if not raw or "." in raw:
-        return raw  # already the full id, e.g. Telnyx.KokoroTTS.af_heart
-    return f"{provider}.{raw}"
+        return raw
+    prefix = _VOICE_PREFIX.get(provider.lower())
+    return f"{prefix}.{raw}" if prefix else ""
+
+
+def voice_engine(voice_id: str) -> str:
+    """The text-to-speech model inside a voice id: Telnyx.Ultra.Clara -> Ultra,
+    aws.Polly.Generative.Lucia -> Polly Generative, azure.en-US-Ava -> ""."""
+    parts = str(voice_id or "").split(".")
+    if len(parts) < 3:
+        return ""
+    if parts[1] == "Polly":
+        return "Polly " + (parts[2] if len(parts) > 3 else ("Neural" if parts[-1].endswith("-Neural") else "Standard"))
+    return parts[1]
 
 
 async def _fetch() -> Dict[str, list]:
@@ -51,21 +78,23 @@ async def _fetch() -> Dict[str, list]:
     try:
         rows = (await client._req("GET", "/ai/openai/models")).get("data") or []
         rows = [m for m in rows if isinstance(m, dict) and m.get("id") and m.get("task", "text-generation") == "text-generation"]
-        if any(m.get("recommended_for_assistants") for m in rows):
-            rows = [m for m in rows if m.get("recommended_for_assistants")]
+        rows.sort(key=lambda m: (not m.get("recommended_for_assistants"), needs_key(m["id"]), str(m["id"]).lower()))
         out["models"] = [{"id": str(m["id"]), "label": str(m["id"]), "price": _price(m.get("pricing")),
-                          "tier": str(m.get("tier") or "")} for m in rows]
+                          "tier": str(m.get("tier") or ""), "recommended": bool(m.get("recommended_for_assistants")),
+                          "needsKey": needs_key(m["id"]), "context": int(m.get("context_length") or 0)} for m in rows]
     except Exception as err:
         logger.warning(f"[assistant-options] models: {err}")
     for provider in VOICE_PROVIDERS:
         try:
             body = await client._req("GET", "/text-to-speech/voices", params={"provider": provider})
             for v in body.get("voices") or body.get("data") or []:
-                vid = _voice_id(str(v.get("provider") or provider), v.get("voice_id") or v.get("id"))
+                if v.get("hosted") is False:
+                    continue  # needs the client's own account with that provider
+                vid = _voice_id(provider, v.get("voice_id") or v.get("id"))
                 if vid:
-                    out["voices"].append({"id": vid, "label": str(v.get("name") or vid), "provider": provider,
-                                          "language": str(v.get("language") or ""), "gender": str(v.get("gender") or ""),
-                                          "sample": "", "private": False})
+                    out["voices"].append({"id": vid, "label": str(v.get("name") or vid), "provider": PROVIDER_LABELS[provider],
+                                          "engine": voice_engine(vid), "language": str(v.get("language") or ""),
+                                          "gender": str(v.get("gender") or ""), "sample": "", "private": False})
         except Exception as err:
             logger.warning(f"[assistant-options] voices {provider}: {err}")
     try:
@@ -239,6 +268,15 @@ def apply(payload: Dict[str, Any], voice: str, mine: Dict[str, Any], company: Di
     if company["textCaller"]:
         tools.append({"type": "send_message", "send_message": {}})
     return payload
+
+
+def mismatch(asked: Dict[str, str], used: Dict[str, str]) -> str:
+    """Why Telnyx is not using what the user picked ("" when it is): Telnyx silently swaps an
+    id it does not accept for its own default."""
+    for key, what in (("voice", "voice"), ("model", "AI model")):
+        if asked.get(key) and used.get(key) and asked[key] != used[key]:
+            return f"Telnyx did not accept the {what} {asked[key]} and is using {used[key]}. Pick another {what}."
+    return ""
 
 
 def effective(assistant: Dict[str, Any]) -> Dict[str, str]:
