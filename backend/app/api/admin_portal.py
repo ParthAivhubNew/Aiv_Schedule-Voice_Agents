@@ -7,6 +7,7 @@ inside that client's organisation. staff_support can look; staff_admin can also 
 from __future__ import annotations
 
 import os
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -171,7 +172,7 @@ def platform_status() -> Dict[str, Any]:
         "telnyx": platform_ready(), "telnyxMode": account_mode(),
         "telnyxWebhookKey": bool(os.getenv("TELNYX_ASSISTANT_PUBLIC_KEY")),
         "stripe": billing.configured(), "stripeTestMode": billing.test_mode(), "stripeWebhook": bool(billing.webhook_secret()),
-        "mail": mailer.configured(), "google": bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")),
+        "mail": mailer.configured(), "google": bool(os.getenv("FIREBASE_API_KEY") and os.getenv("FIREBASE_PROJECT_ID")),
         "signup": os.getenv("ALLOW_SIGNUP", "").lower() in ("1", "true", "yes"),
     }
 
@@ -775,6 +776,15 @@ async def platform_keys(request: Request):
     have = {g["group"] for g in groups}
     groups += [{"group": g, "desc": "", "items": []} for g in SHARED_PROVIDER_GROUPS
                if g not in have and g != "Telnyx AI Assistant"]
+    # Email Finder: the providers the waterfall knows, in its order, so staff see what to fill.
+    from app.services.enrichment_waterfall import LABELS, PROVIDERS
+
+    for g in groups:
+        if g["group"] == "Email Finder":
+            g["desc"] = g.get("desc") or "Finds work emails. Tried top to bottom; only providers with a key are used."
+            saved = {re.sub(r"[^a-z]", "", (it.get("name") or "").lower()) for it in g["items"]}
+            g["items"] += [{"id": f"new:{p}", "name": LABELS[p], "status": "not_set"}
+                           for p in PROVIDERS if not any(p in n for n in saved)]
     assistant = await _as_platform(C.get_telnyx_assistant_settings)
     return {"groups": groups, "assistant": assistant}
 
@@ -821,6 +831,64 @@ async def platform_keys_assistant(body: Dict[str, Any], request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Check the assistant ID and public key.")
     return await _as_platform(C.save_telnyx_assistant_settings, req)
+
+
+# ── Platform mailbox (system email + warmup partner) ────────────────────────
+@router.get("/platform-mailbox")
+async def get_platform_mailbox(request: Request):
+    from app.core.tenancy import system_scope
+    from app.services import platform_mailbox as PM
+    from app.services.mail_transport import PRESETS
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            saved = await PM.load(db)
+    return {**PM.public(saved), "presets": PRESETS}
+
+
+@router.put("/platform-mailbox")
+async def put_platform_mailbox(body: Dict[str, Any], request: Request):
+    """Logs in to SMTP and IMAP first; a blank password keeps the saved one."""
+    from app.core.tenancy import system_scope
+    from app.services import mail_transport as T
+    from app.services import platform_mailbox as PM
+
+    _admin_only(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            try:
+                out = await PM.save(db, body or {})
+            except T.MailError as err:
+                raise HTTPException(status_code=400, detail=str(err))
+            await db.commit()
+    return out
+
+
+@router.delete("/platform-mailbox")
+async def delete_platform_mailbox(request: Request):
+    from app.core.tenancy import system_scope
+    from app.services import platform_mailbox as PM
+
+    _admin_only(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            await PM.clear(db)
+            await db.commit()
+    return {"configured": False}
+
+
+@router.post("/platform-mailbox/test")
+async def test_platform_mailbox(request: Request):
+    """Sends a test email from the platform mailbox to the signed-in staff member."""
+    from app.core.mailer import render, send_system_email
+
+    to = _who(request).get("email") or ""
+    parts = render("Platform mailbox works", ["This test was sent from OutReach's platform mailbox."])
+    res = await send_system_email(to, "OutReach platform mailbox test", parts["html"], parts["text"])
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("error") or "Not sent.")
+    return {"ok": True, "to": to}
 
 
 # ── Staff alerts (AI errors only staff can fix) ─────────────────────────────

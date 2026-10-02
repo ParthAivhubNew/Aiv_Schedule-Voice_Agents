@@ -164,8 +164,8 @@ export const api = {
   forgotPassword: (email) => apiRequest('/auth/forgot-password', { method: 'POST', body: { email } }),
   resetPassword: (token, password) => apiRequest('/auth/reset-password', { method: 'POST', body: { token, password } }),
   resendVerification: (email) => apiRequest('/auth/resend-verification', { method: 'POST', body: { email } }),
-  googleExchange: async (code) => {
-    const res = await apiRequest('/auth/google/exchange', { method: 'POST', body: { code } });
+  firebaseSignIn: async (idToken) => {
+    const res = await apiRequest('/auth/firebase', { method: 'POST', body: { idToken } });
     setSession(res);
     return res;
   },
@@ -430,14 +430,28 @@ export const api = {
   // 5-Point Universal Diagnostics
   runVoiceAndBookingDiagnostics: () => apiRequest('/diagnostics/test-voice-and-booking', { method: 'POST' }),
 
-  // Cold Email, Warmup & Waterfall Enrichment
-  getEmailMailboxes: () => apiRequest('/email/mailboxes'),
-  connectEmailMailbox: (payload) => apiRequest('/email/mailboxes', { method: 'POST', body: payload }),
-  checkMailboxDns: (id) => apiRequest(`/email/mailboxes/${id}/dns-check`, { method: 'POST' }),
-  toggleMailboxWarmup: (id) => apiRequest(`/email/mailboxes/${id}/warmup/toggle`, { method: 'POST' }),
-  lookupEnrichWaterfall: (payload) => apiRequest('/email/enrich/lookup', { method: 'POST', body: payload }),
-  getEmailSuppressions: () => apiRequest('/email/suppression'),
-  addEmailSuppression: (payload) => apiRequest('/email/suppression', { method: 'POST', body: payload }),
-  getUnifiedInbox: (category) => apiRequest(`/email/inbox${category ? `?category=${encodeURIComponent(category)}` : ''}`),
+  // Email outreach: mailboxes, warmup, campaigns, finding emails, replies, do-not-email list
+  emailOverview: () => apiRequest('/email/overview'),
+  emailMailboxes: () => apiRequest('/email/mailboxes'),
+  emailConnectMailbox: (body) => apiRequest('/email/mailboxes', { method: 'POST', body, timeoutMs: 60000 }),
+  emailUpdateMailbox: (id, body) => apiRequest(`/email/mailboxes/${id}`, { method: 'PATCH', body, timeoutMs: 60000 }),
+  emailDeleteMailbox: (id) => apiRequest(`/email/mailboxes/${id}`, { method: 'DELETE' }),
+  emailTestMailbox: (id) => apiRequest(`/email/mailboxes/${id}/test`, { method: 'POST', timeoutMs: 60000 }),
+  emailCheckDns: (id) => apiRequest(`/email/mailboxes/${id}/dns-check`, { method: 'POST', timeoutMs: 30000 }),
+  emailWarmup: (id, action) => apiRequest(`/email/mailboxes/${id}/warmup`, { method: 'POST', body: { action }, timeoutMs: 30000 }),
+  emailCampaigns: () => apiRequest('/email/campaigns'),
+  emailCampaign: (id) => apiRequest(`/email/campaigns/${id}`),
+  emailCreateCampaign: (body) => apiRequest('/email/campaigns', { method: 'POST', body }),
+  emailUpdateCampaign: (id, body) => apiRequest(`/email/campaigns/${id}`, { method: 'PUT', body }),
+  emailCampaignStatus: (id, status) => apiRequest(`/email/campaigns/${id}/status`, { method: 'POST', body: { status } }),
+  emailDeleteCampaign: (id) => apiRequest(`/email/campaigns/${id}`, { method: 'DELETE' }),
+  emailAddLeads: (id, leads) => apiRequest(`/email/campaigns/${id}/leads`, { method: 'POST', body: { leads } }),
+  emailRemoveLead: (id, leadId) => apiRequest(`/email/campaigns/${id}/leads/${leadId}`, { method: 'DELETE' }),
+  emailFind: (body) => apiRequest('/email/find', { method: 'POST', body, timeoutMs: 90000 }),
+  emailReplies: (category) => apiRequest(`/email/replies${category ? `?category=${encodeURIComponent(category)}` : ''}`),
+  emailReplyCategory: (id, category) => apiRequest(`/email/replies/${id}/category`, { method: 'POST', body: { category } }),
+  emailSuppressions: () => apiRequest('/email/suppression'),
+  emailAddSuppression: (email) => apiRequest('/email/suppression', { method: 'POST', body: { email } }),
+  emailRemoveSuppression: (id) => apiRequest(`/email/suppression/${id}`, { method: 'DELETE' }),
 };
 

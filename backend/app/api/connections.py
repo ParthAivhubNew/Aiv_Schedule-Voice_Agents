@@ -112,6 +112,7 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
         "Messaging": "Sends automated confirmations and follow-ups via WhatsApp and SMS.",
         "Calendar": "Checks availability and books confirmed meetings.",
         "Business Discovery": "Finds and researches prospect businesses on the web.",
+        "Email Finder": "Finds a person's work email from their name and company (tried in order until one finds it).",
         "Embeddings": "Generates 384-dimensional vector embeddings for website crawls and knowledge base semantic retrieval.",
         "Other": "Anything else your team connects — CRM, spreadsheets, custom internal tools."
     }

@@ -5,14 +5,14 @@ Signup is off unless ALLOW_SIGNUP=true. It creates an organisation, its starter 
 owner (an admin). When the platform mailbox is set up, the organisation stays "pending" and
 nobody can sign in until the owner clicks the link in the verification email.
 
-Google sign-in (OpenID Connect, authorisation code + PKCE) appears once GOOGLE_CLIENT_ID and
-GOOGLE_CLIENT_SECRET are set. It signs in an existing user by their Google account or verified
-email; with signup on, an unknown Google account gets a new organisation. The browser never
-sees tokens in a URL: the callback hands over a one-time code that the app exchanges.
+Google sign-in runs through Firebase Authentication and appears once FIREBASE_API_KEY and
+FIREBASE_PROJECT_ID are set. The browser signs in with Google in a Firebase popup and posts the
+Firebase ID token here; we verify it ourselves (no Firebase admin key needed). It signs in an
+existing user by their Google account or verified email; with signup on, an unknown Google
+account gets a new organisation.
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import html
 import os
@@ -23,7 +23,6 @@ import uuid
 from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any, Deque, Dict, Optional
-from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -43,22 +42,31 @@ from app.models.models import Operator, Organization
 router = APIRouter(prefix="/auth", tags=["Signup"])
 
 VERIFY_TTL_S = 3 * 24 * 3600
-EXCHANGE_TTL_S = 120
-STATE_TTL_S = 10 * 60
 PENDING = "pending_verification"
 
-GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
-GOOGLE_CERTS = "https://www.googleapis.com/oauth2/v3/certs"
-GOOGLE_ISSUERS = ("https://accounts.google.com", "accounts.google.com")
+# Firebase signs its ID tokens with these keys (JWK form of the documented securetoken certs).
+FIREBASE_KEYS = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
 
 
 def signup_allowed() -> bool:
     return os.getenv("ALLOW_SIGNUP", "").strip().lower() in ("1", "true", "yes")
 
 
-def google_ready() -> bool:
-    return bool(os.getenv("GOOGLE_CLIENT_ID", "").strip() and os.getenv("GOOGLE_CLIENT_SECRET", "").strip())
+def firebase_config() -> Dict[str, str]:
+    """The Firebase web app settings (from the Firebase console's web app config). They are
+    public by design: the sign-in page needs them in the browser."""
+    project = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+    return {
+        "apiKey": os.getenv("FIREBASE_API_KEY", "").strip(),
+        "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN", "").strip() or (f"{project}.firebaseapp.com" if project else ""),
+        "projectId": project,
+        "appId": os.getenv("FIREBASE_APP_ID", "").strip(),
+    }
+
+
+def firebase_ready() -> bool:
+    c = firebase_config()
+    return bool(c["apiKey"] and c["projectId"])
 
 
 def _base_url() -> str:
@@ -220,7 +228,8 @@ async def _send_verification(op: Operator) -> bool:
 # ── Public: what the sign-in page offers ────────────────────────────────────
 @router.get("/signup-config")
 async def signup_config():
-    return {"allowSignup": signup_allowed(), "google": google_ready()}
+    ready = firebase_ready()
+    return {"allowSignup": signup_allowed(), "google": ready, **({"firebase": firebase_config()} if ready else {})}
 
 
 class SignupBody(BaseModel):
@@ -355,84 +364,62 @@ async def reset_password_with_link(body: ResetBody, db: AsyncSession = Depends(g
     return {"ok": True, "username": op.username}
 
 
-# ── Sign in with Google ─────────────────────────────────────────────────────
-def _redirect_uri() -> str:
-    return f"{_base_url()}/api/auth/google/callback"
-
-
-def _pkce_pair() -> tuple:
-    verifier = secrets.token_urlsafe(64)
-    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    return verifier, challenge
-
-
-@router.get("/google/start")
-async def google_start():
-    if not google_ready():
-        raise HTTPException(status_code=404, detail="Google sign-in is not set up.")
-    state, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
-    verifier, challenge = _pkce_pair()
-    params = {
-        "client_id": os.getenv("GOOGLE_CLIENT_ID", "").strip(),
-        "redirect_uri": _redirect_uri(),
-        "response_type": "code",
-        "scope": "openid email profile",
-        "state": state,
-        "nonce": nonce,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-        "prompt": "select_account",
-    }
-    resp = RedirectResponse(f"{GOOGLE_AUTH}?{urlencode(params)}", status_code=302)
-    cookie = _sign({"typ": "google_state", "state": state, "nonce": nonce, "v": verifier}, STATE_TTL_S)
-    resp.set_cookie("g_state", cookie, max_age=STATE_TTL_S, httponly=True, secure=_base_url().startswith("https"),
-                    samesite="lax", path="/api/auth/google")
-    return resp
-
-
-async def _google_identity(code: str, verifier: str, nonce: str) -> Dict[str, Any]:
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+# ── Sign in with Google (Firebase Authentication) ───────────────────────────
+async def _firebase_keys() -> Dict[str, Any]:
     async with httpx.AsyncClient(timeout=10.0) as client:
-        tok = await client.post(GOOGLE_TOKEN, data={
-            "code": code,
-            "client_id": client_id,
-            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
-            "redirect_uri": _redirect_uri(),
-            "grant_type": "authorization_code",
-            "code_verifier": verifier,
-        })
-        tok.raise_for_status()
-        id_token = tok.json().get("id_token") or ""
-        certs = (await client.get(GOOGLE_CERTS)).json()
-    claims = jwt.decode(id_token, certs, algorithms=["RS256"], audience=client_id,
-                        options={"verify_at_hash": False})
-    if claims.get("iss") not in GOOGLE_ISSUERS or claims.get("nonce") != nonce:
-        raise ValueError("id token issuer or nonce mismatch")
+        return (await client.get(FIREBASE_KEYS)).json()
+
+
+async def _firebase_claims(id_token: str) -> Dict[str, Any]:
+    """Check a Firebase ID token the way Firebase documents it: Google's signature, our project
+    as audience and issuer, a user id, and not expired. Raises ValueError when it is not valid."""
+    project = firebase_config()["projectId"]
+    keys = await _firebase_keys()
+    try:
+        claims = jwt.decode(id_token, keys, algorithms=["RS256"], audience=project,
+                            issuer=f"https://securetoken.google.com/{project}", options={"verify_at_hash": False})
+    except JWTError as err:
+        raise ValueError(str(err))
+    if not str(claims.get("sub") or "") or int(claims.get("auth_time") or 0) > time.time() + 300:
+        raise ValueError("bad subject or sign-in time")
     return claims
 
 
-def _back(reason: str) -> RedirectResponse:
-    resp = RedirectResponse(f"{_base_url()}/?google_error={reason}", status_code=303)
-    resp.delete_cookie("g_state", path="/api/auth/google")
-    return resp
+def _google_sub(claims: Dict[str, Any]) -> str:
+    """The Google account id (same as plain Google sign-in gave, so linked users stay linked)."""
+    ids = ((claims.get("firebase") or {}).get("identities") or {}).get("google.com") or []
+    return str(ids[0]) if ids else ""
 
 
-@router.get("/google/callback")
-async def google_callback(request: Request, code: str = "", state: str = "", error: str = "",
-                          db: AsyncSession = Depends(get_db)):
-    if not google_ready():
+GOOGLE_ERRORS = {
+    "failed": "Google sign-in did not work. Try again.",
+    "no_account": "No OutReach account uses this Google email. Create one, or ask your admin to add you.",
+    "disabled": "This account is switched off. Ask your admin.",
+}
+
+
+class FirebaseBody(BaseModel):
+    idToken: str
+
+
+@router.post("/firebase")
+async def firebase_sign_in(body: FirebaseBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """The sign-in page signs in with Google through Firebase and sends us the ID token; we check
+    it and sign the user in to OutReach (or create their company when signup is on)."""
+    from app.api.auth import sign_in_as
+
+    if not firebase_ready():
         raise HTTPException(status_code=404, detail="Google sign-in is not set up.")
-    saved = _read(request.cookies.get("g_state", ""), "google_state", once=True)
-    if error or not code or not saved or not secrets.compare_digest(saved.get("state", ""), state or ""):
-        return _back("cancelled" if error else "expired")
     try:
-        g = await _google_identity(code, saved["v"], saved["nonce"])
+        g = await _firebase_claims(body.idToken or "")
     except Exception:
-        return _back("failed")
-    sub, email = str(g.get("sub") or ""), str(g.get("email") or "").strip()
+        raise HTTPException(status_code=401, detail=GOOGLE_ERRORS["failed"])
+    if (g.get("firebase") or {}).get("sign_in_provider") != "google.com":
+        raise HTTPException(status_code=401, detail=GOOGLE_ERRORS["failed"])
+    sub, email = _google_sub(g), str(g.get("email") or "").strip()
     verified = g.get("email_verified") in (True, "true")
     if not sub:
-        return _back("failed")
+        raise HTTPException(status_code=401, detail=GOOGLE_ERRORS["failed"])
 
     op = (await db.execute(select(Operator).where(Operator.google_sub == sub))).scalars().first()
     if not op and email and verified:
@@ -442,37 +429,17 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
             op.email_verified = True
     if not op:
         if not (signup_allowed() and email and verified):
-            return _back("no_account")
+            raise HTTPException(status_code=403, detail=GOOGLE_ERRORS["no_account"])
         name = str(g.get("name") or email.split("@")[0])
         domain = email.split("@")[1]
         company = name + "'s company" if domain in ("gmail.com", "googlemail.com") else domain.split(".")[0].title()
         op = await _create_org(db, company, name, email, None, "active", google_sub=sub)
     if op.is_active is False:
-        return _back("disabled")
+        raise HTTPException(status_code=403, detail=GOOGLE_ERRORS["disabled"])
     org = (await db.execute(select(Organization).where(Organization.id == op.org_id))).scalars().first()
     if org and org.status == PENDING and verified and (op.email or "").lower() == email.lower():
         org.status = "active"  # Google already confirmed this email
     await db.commit()
-    one_time = _sign({"typ": "google_exchange", "sub": op.id}, EXCHANGE_TTL_S)
-    resp = RedirectResponse(f"{_base_url()}/?google={one_time}", status_code=303)
-    resp.delete_cookie("g_state", path="/api/auth/google")
-    return resp
-
-
-class ExchangeBody(BaseModel):
-    code: str
-
-
-@router.post("/google/exchange")
-async def google_exchange(body: ExchangeBody, request: Request, db: AsyncSession = Depends(get_db)):
-    from app.api.auth import sign_in_as
-
-    claims = _read(body.code, "google_exchange", once=True)
-    if not claims:
-        raise HTTPException(status_code=401, detail="That sign-in link has expired. Try again.")
-    op = (await db.execute(select(Operator).where(Operator.id == claims["sub"]))).scalars().first()
-    if not op:
-        raise HTTPException(status_code=401, detail="That sign-in link has expired. Try again.")
     return await sign_in_as(db, op, request)
 
 

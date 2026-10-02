@@ -30,7 +30,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     r"^/health$",
     r"^/(privacy|privacy-policy|terms|terms-of-service|data-deletion)$",
     _OPT_API + r"auth/(login|refresh|signup|signup-config|verify-email|resend-verification|forgot-password|reset-password)$",
-    _OPT_API + r"auth/google/(start|callback|exchange)$",
+    _OPT_API + r"auth/firebase$",  # Google sign-in through Firebase
     # Carrier / provider webhooks (verified by their own signatures inside the handlers)
     _OPT_API + r"sip-webhook/?$",
     _OPT_API + r"sip-webhook/(test|health)$",
@@ -44,6 +44,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"billing/webhook$",  # Stripe-signed; checked in the handler  # Ed25519-signed; checked in the handlers
     # Signed links in emails and the social OAuth return page
     _OPT_API + r"scheduler/(review|schedule-extend)$",
+    _OPT_API + r"email/u/[A-Za-z0-9_.-]+$",  # unsubscribe links in cold emails (signed)
     _OPT_API + r"scheduler/oauth/[^/]+/callback$",
     # Images social networks and email clients fetch
     _OPT_API + r"scheduler/media/[^/]+$",

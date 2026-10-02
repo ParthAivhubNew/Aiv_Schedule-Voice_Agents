@@ -1,6 +1,4 @@
 """Self-serve signup, email verification, Google sign-in and the first-steps checklist."""
-from urllib.parse import parse_qs, urlparse
-
 import pytest
 
 from tests.conftest import make_user
@@ -92,71 +90,71 @@ async def test_signup_rate_limited(anon, monkeypatch):
     assert codes[:5] == [200] * 5 and codes[5] == 429
 
 
-async def test_google_start_needs_credentials(anon, monkeypatch):
-    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
-    assert (await anon.get("/api/auth/google/start")).status_code == 404
-    monkeypatch.setenv("GOOGLE_CLIENT_ID", "cid")
-    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "sec")
-    r = await anon.get("/api/auth/google/start")
-    assert r.status_code == 302
-    q = parse_qs(urlparse(r.headers["location"]).query)
-    assert q["code_challenge_method"] == ["S256"] and q["client_id"] == ["cid"] and q["state"][0]
-    assert "g_state=" in r.headers["set-cookie"] and "HttpOnly" in r.headers["set-cookie"]
+def _firebase(monkeypatch, project="outreach-test"):
+    """A Firebase project with our own signing key standing in for Google's; returns a token maker."""
+    import time
 
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from jose import jwk, jwt
 
-async def test_google_callback_links_existing_user_by_verified_email(anon, db, monkeypatch):
     from app.api import signup
 
-    monkeypatch.setenv("GOOGLE_CLIENT_ID", "cid")
-    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "sec")
+    monkeypatch.setenv("FIREBASE_API_KEY", "web-key")
+    monkeypatch.setenv("FIREBASE_PROJECT_ID", project)
+    pem = rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    public = {**jwk.construct(pem, "RS256").public_key().to_dict(), "kid": "k1", "alg": "RS256", "use": "sig"}
+
+    async def keys():
+        return {"keys": [public]}
+
+    monkeypatch.setattr(signup, "_firebase_keys", keys)
+
+    def token(email, google_id, *, aud=project, provider="google.com", verified=True, name="Gina"):
+        now = int(time.time())
+        claims = {"iss": f"https://securetoken.google.com/{aud}", "aud": aud, "sub": "fb-" + google_id,
+                  "iat": now, "exp": now + 3600, "auth_time": now, "email": email, "email_verified": verified, "name": name,
+                  "firebase": {"sign_in_provider": provider, "identities": {"google.com": [google_id], "email": [email]}}}
+        return jwt.encode(claims, pem.decode(), algorithm="RS256", headers={"kid": "k1"})
+
+    return token
+
+
+async def test_google_sign_in_needs_firebase_settings(anon, monkeypatch):
+    monkeypatch.delenv("FIREBASE_API_KEY", raising=False)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    assert (await anon.post("/api/auth/firebase", json={"idToken": "x"})).status_code == 404
+    assert (await anon.get("/api/auth/signup-config")).json()["google"] is False
+    _firebase(monkeypatch)
+    cfg = (await anon.get("/api/auth/signup-config")).json()
+    assert cfg["google"] is True and cfg["firebase"] == {"apiKey": "web-key", "authDomain": "outreach-test.firebaseapp.com",
+                                                         "projectId": "outreach-test", "appId": ""}
+
+
+async def test_google_sign_in_links_existing_user_by_verified_email(anon, db, monkeypatch):
+    token = _firebase(monkeypatch)
     op, _ = await make_user(db, "gina", "Operator")
     op.email = "gina@corp.test"
     await db.commit()
 
-    start = await anon.get("/api/auth/google/start")
-    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
-    cookie = start.cookies.get("g_state") or start.headers["set-cookie"].split("g_state=")[1].split(";")[0]
+    # Tokens for another Firebase project, from email/password sign-in, or tampered with are refused.
+    for bad in (token("gina@corp.test", "g-123", aud="someone-else"), token("gina@corp.test", "g-123", provider="password"),
+                token("gina@corp.test", "g-123")[:-4] + "AAAA", "not-a-token"):
+        assert (await anon.post("/api/auth/firebase", json={"idToken": bad})).status_code == 401
 
-    async def fake_identity(code, verifier, nonce):
-        return {"sub": "g-123", "email": "gina@corp.test", "email_verified": True, "name": "Gina"}
-
-    monkeypatch.setattr(signup, "_google_identity", fake_identity)
-    # Wrong state is refused.
-    r = await anon.get(f"/api/auth/google/callback?code=c&state=nope", cookies={"g_state": cookie})
-    assert "google_error=expired" in r.headers["location"]
-
-    start = await anon.get("/api/auth/google/start")
-    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
-    cookie = start.headers["set-cookie"].split("g_state=")[1].split(";")[0]
-    r = await anon.get(f"/api/auth/google/callback?code=c&state={state}", cookies={"g_state": cookie})
-    assert r.status_code == 303 and "?google=" in r.headers["location"], r.headers["location"]
-    one_time = r.headers["location"].split("?google=")[1]
-
-    r = await anon.post("/api/auth/google/exchange", json={"code": one_time})
+    r = await anon.post("/api/auth/firebase", json={"idToken": token("gina@corp.test", "g-123")})
     assert r.status_code == 200, r.text
     assert r.json()["operator"]["username"] == "gina"
-    # The code works once.
-    assert (await anon.post("/api/auth/google/exchange", json={"code": one_time})).status_code == 401
     await db.refresh(op)
-    assert op.google_sub == "g-123"
+    assert op.google_sub == "g-123"  # the Google account id, same as before Firebase
 
 
 async def test_google_unknown_account_without_signup(anon, monkeypatch):
-    from app.api import signup
-
-    monkeypatch.setenv("GOOGLE_CLIENT_ID", "cid")
-    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "sec")
+    token = _firebase(monkeypatch)
     monkeypatch.delenv("ALLOW_SIGNUP", raising=False)
-
-    async def fake_identity(code, verifier, nonce):
-        return {"sub": "g-999", "email": "stranger@x.test", "email_verified": True}
-
-    monkeypatch.setattr(signup, "_google_identity", fake_identity)
-    start = await anon.get("/api/auth/google/start")
-    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
-    cookie = start.headers["set-cookie"].split("g_state=")[1].split(";")[0]
-    r = await anon.get(f"/api/auth/google/callback?code=c&state={state}", cookies={"g_state": cookie})
-    assert "google_error=no_account" in r.headers["location"]
+    r = await anon.post("/api/auth/firebase", json={"idToken": token("stranger@x.test", "g-999")})
+    assert r.status_code == 403 and "No OutReach account" in r.json()["detail"]
 
 
 async def test_forgot_and_reset_password(anon, db, monkeypatch):
