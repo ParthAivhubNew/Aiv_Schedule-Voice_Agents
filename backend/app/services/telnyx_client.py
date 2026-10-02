@@ -136,6 +136,9 @@ class TelnyxClient:
             payload["outbound"] = {"outbound_voice_profile_id": outbound_voice_profile_id}
         return (await self._req("POST", "/call_control_applications", json=payload)).get("data", {})
 
+    async def get_call_control_application(self, app_id: str) -> Dict[str, Any]:
+        return (await self._req("GET", f"/call_control_applications/{app_id}")).get("data", {})
+
     async def update_call_control_application(self, app_id: str, **fields) -> Dict[str, Any]:
         return (await self._req("PATCH", f"/call_control_applications/{app_id}", json=fields)).get("data", {})
 
