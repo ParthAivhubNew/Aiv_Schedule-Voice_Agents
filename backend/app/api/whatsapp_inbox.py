@@ -1,5 +1,5 @@
-"""WhatsApp inbox for the organisation: conversations, sending, AI on/off per conversation,
-and asking for WhatsApp on one of its numbers."""
+"""WhatsApp inbox for the organisation: conversations, sending, and turning WhatsApp on or off
+for its numbers. WhatsApp runs only through Telnyx, on the company's own numbers."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -12,6 +12,8 @@ from sqlalchemy.future import select
 from app.core.auth_middleware import current
 from app.database import get_db
 from app.services import whatsapp as WA
+from app.services import whatsapp_signup as WS
+from app.services.telnyx_client import TelnyxError
 
 router = APIRouter(prefix="/wa", tags=["WhatsApp"])
 
@@ -38,12 +40,18 @@ async def _thread(db, thread_id: str):
 
 
 @router.get("/status")
-async def status(db: AsyncSession = Depends(get_db)):
-    from app.models.models import OrgPhoneNumber
+async def status(request: Request, db: AsyncSession = Depends(get_db)):
+    from app.models.models import OrgPhoneNumber, WhatsappSignup
+
+    admin = bool(current(request).get("is_admin"))  # the signup link and code are for admins only
 
     numbers = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.status == "active"))).scalars().all()
-    return {"numbers": [{"id": n.id, "e164": n.e164, "whatsapp": "whatsapp" in (n.capabilities or []),
-                         "requested": "whatsapp_requested" in (n.capabilities or [])} for n in numbers]}
+    signups = {s.number_id: s for s in (await db.execute(select(WhatsappSignup))).scalars().all()}
+    return {"automatic": WS.automatic(),
+            "numbers": [{"id": n.id, "e164": n.e164, "whatsapp": "whatsapp" in (n.capabilities or []),
+                         "requested": "whatsapp_requested" in (n.capabilities or []),
+                         "ready": "whatsapp_ready" in (n.capabilities or []),
+                         "signup": WS.signup_json(signups.get(n.id)) if admin else None} for n in numbers]}
 
 
 @router.get("/threads")
@@ -131,21 +139,76 @@ async def patch(thread_id: str, body: ThreadPatch, db: AsyncSession = Depends(ge
     return _thread_json(t)
 
 
-@router.post("/numbers/{number_id}/request")
-async def request_whatsapp(number_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """Ask for WhatsApp on a number. Meta's business signup is completed with the OutReach team;
-    staff then switch the number on."""
+# Number markers in capabilities:
+#   whatsapp            live: inbox, sending and confirmations use this number
+#   whatsapp_requested  signup with Meta under way: the company's own (Telnyx hosted page) when
+#                       automatic, else the OutReach team's
+#   whatsapp_ready      signup done; the company may switch WhatsApp off and on again by itself
+WA_MARKS = ("whatsapp", "whatsapp_requested", "whatsapp_ready")
+
+
+async def _admin_number(db, request: Request, number_id: str):
     from app.models.models import OrgPhoneNumber
 
-    ctx = current(request)
-    if not ctx["is_admin"]:
-        raise HTTPException(status_code=403, detail="Only admins can turn on WhatsApp.")
+    if not current(request)["is_admin"]:
+        raise HTTPException(status_code=403, detail="Only admins can turn WhatsApp on or off.")
     n = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.id == number_id))).scalars().first()
     if not n:
         raise HTTPException(status_code=404, detail="Number not found.")
-    caps = list(n.capabilities or [])
-    if "whatsapp" not in caps and "whatsapp_requested" not in caps:
+    if n.status != "active":
+        raise HTTPException(status_code=400, detail="This number is not active yet.")
+    return n
+
+
+@router.post("/numbers/{number_id}/request")
+async def request_whatsapp(number_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Turn WhatsApp on for a number. Instant once Meta's business signup is done for it. The first
+    time we return Telnyx's signup page for the admin to finish with Meta; we switch WhatsApp on
+    ourselves as soon as Telnyx shows the number registered. Without a Tech Provider app set up,
+    the OutReach team does the signup with the company instead."""
+    n = await _admin_number(db, request, number_id)
+    caps = [c for c in (n.capabilities or []) if c not in WA_MARKS]
+    had = set(n.capabilities or [])
+    signup = None
+    if "whatsapp" in had or "whatsapp_ready" in had:
+        caps += ["whatsapp", "whatsapp_ready"]
+    else:
+        if WS.automatic():
+            try:
+                signup = await WS.start(db, n)
+            except TelnyxError as err:
+                raise HTTPException(status_code=502, detail=f"Could not start WhatsApp signup: {err}")
         caps.append("whatsapp_requested")
-        n.capabilities = caps
+    n.capabilities = caps
+    await db.commit()
+    return {"ok": True, "live": "whatsapp" in caps, "capabilities": caps, "signup": WS.signup_json(signup)}
+
+
+@router.post("/numbers/{number_id}/check")
+async def check_whatsapp(number_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Check with Telnyx now instead of waiting for the next automatic check."""
+    n = await _admin_number(db, request, number_id)
+    s = await WS.signup_for(db, n.id)
+    if not s or not WS.automatic():
+        raise HTTPException(status_code=404, detail="No WhatsApp signup for this number.")
+    if s.status == "link_sent" and await WS.check(db, s, n):
         await db.commit()
-    return {"ok": True, "capabilities": n.capabilities}
+        await WS.tell_live(n.e164)
+    await db.commit()
+    return {"live": "whatsapp" in (n.capabilities or []), "capabilities": n.capabilities, "signup": WS.signup_json(s)}
+
+
+@router.post("/numbers/{number_id}/off")
+async def whatsapp_off(number_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Switch WhatsApp off (or cancel a request). A finished signup is kept, so turning it on again is instant."""
+    n = await _admin_number(db, request, number_id)
+    s = await WS.signup_for(db, n.id)
+    if s and s.status != "live":
+        await db.delete(s)
+    had = set(n.capabilities or [])
+    caps = [c for c in (n.capabilities or []) if c not in WA_MARKS]
+    if "whatsapp" in had or "whatsapp_ready" in had:
+        caps.append("whatsapp_ready")
+    n.capabilities = caps
+    await db.commit()
+    return {"ok": True, "live": False, "capabilities": caps}

@@ -61,7 +61,7 @@ export function humanizeAiReply(text, hadDraft) {
       : "Draft is on the calendar. Open Review to change image or copy, then approve.";
   }
   t = t.replace(/\n{3,}/g, "\n\n").trim();
-  if (t.length > 700) t = t.slice(0, 680).trim() + "…";
+  if (t.length > 5000) t = t.slice(0, 4980).trim() + "…";
   if (!t) {
     return hadDraft
       ? "Draft is ready on the left. Change the image or caption, then approve to post."

@@ -186,6 +186,8 @@ export const api = {
   orderNumber: (n) => apiRequest('/telnyx/numbers/order', { method: 'POST', body: { phoneNumber: n.phoneNumber } }),
   releaseNumber: (id) => apiRequest(`/telnyx/numbers/${encodeURIComponent(id)}/release`, { method: 'POST' }),
   requestWhatsapp: (id) => apiRequest(`/wa/numbers/${encodeURIComponent(id)}/request`, { method: 'POST' }),
+  checkWhatsapp: (id) => apiRequest(`/wa/numbers/${encodeURIComponent(id)}/check`, { method: 'POST' }),
+  whatsappOff: (id) => apiRequest(`/wa/numbers/${encodeURIComponent(id)}/off`, { method: 'POST' }),
   getWaStatus: () => apiRequest('/wa/status'),
   getWaThreads: () => apiRequest('/wa/threads'),
   getWaThread: (id) => apiRequest(`/wa/threads/${encodeURIComponent(id)}`),
@@ -340,6 +342,11 @@ export const api = {
   editPost: (postId, changes) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}`, { method: 'PATCH', body: changes }),
   listPostVersions: (postId) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}/versions`),
   restorePostVersion: (postId, versionId) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}/versions/${encodeURIComponent(versionId)}/restore`, { method: 'POST' }),
+  getBrandVoice: () => apiRequest('/scheduler/brand-voice'),
+  saveBrandVoice: (data) => apiRequest('/scheduler/brand-voice', { method: 'PUT', body: data }),
+  getChatThreads: () => apiRequest('/scheduler/chat-threads'),
+  saveChatThread: (id, data) => apiRequest(`/scheduler/chat-threads/${encodeURIComponent(id)}`, { method: 'PUT', body: data }),
+  deleteChatThread: (id) => apiRequest(`/scheduler/chat-threads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   chatPlan: (payload, options = {}) => apiRequest('/scheduler/chat-plan', { 
     method: 'POST', 
     body: typeof payload === 'string' ? { text: payload } : payload,
@@ -453,5 +460,10 @@ export const api = {
   emailSuppressions: () => apiRequest('/email/suppression'),
   emailAddSuppression: (email) => apiRequest('/email/suppression', { method: 'POST', body: { email } }),
   emailRemoveSuppression: (id) => apiRequest(`/email/suppression/${id}`, { method: 'DELETE' }),
+  emailTemplates: () => apiRequest('/email/templates'),
+  emailCreateTemplate: (body) => apiRequest('/email/templates', { method: 'POST', body }),
+  emailUpdateTemplate: (id, body) => apiRequest(`/email/templates/${id}`, { method: 'PUT', body }),
+  emailDeleteTemplate: (id) => apiRequest(`/email/templates/${id}`, { method: 'DELETE' }),
+  emailAiDraft: (body) => apiRequest('/email/ai/draft', { method: 'POST', body, timeoutMs: 45000 }),
 };
 

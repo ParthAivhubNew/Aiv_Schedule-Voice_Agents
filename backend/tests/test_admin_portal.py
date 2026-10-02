@@ -144,7 +144,7 @@ async def test_whatsapp_request_reaches_staff_and_is_switched_on(staff, db):
     queue = (await staff.get("/api/admin-api/verifications")).json()
     assert [w["numberId"] for w in queue["whatsappRequests"]] == ["num_wa"]
     r = await staff.post("/api/admin-api/clients/org_acme/numbers/num_wa/whatsapp", json={"enabled": True})
-    assert r.json()["capabilities"] == ["voice", "whatsapp"]
+    assert r.json()["capabilities"] == ["voice", "whatsapp", "whatsapp_ready"]
     assert (await staff.get("/api/admin-api/verifications")).json()["whatsappRequests"] == []
     assert (await staff.post("/api/admin-api/clients/org_acme/numbers/missing/whatsapp", json={"enabled": True})).status_code == 404
 

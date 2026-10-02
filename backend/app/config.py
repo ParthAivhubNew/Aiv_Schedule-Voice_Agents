@@ -25,11 +25,6 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_PHONE_NUMBER: Optional[str] = None
-    TWILIO_WHATSAPP_NUMBER: Optional[str] = os.getenv("TWILIO_WHATSAPP_NUMBER", None)
-    WHATSAPP_CLOUD_ACCESS_TOKEN: Optional[str] = os.getenv("WHATSAPP_CLOUD_ACCESS_TOKEN", None)
-    WHATSAPP_CLOUD_PHONE_NUMBER_ID: Optional[str] = os.getenv("WHATSAPP_CLOUD_PHONE_NUMBER_ID", "1238965585975808")
-    WHATSAPP_CLOUD_WABA_ID: Optional[str] = os.getenv("WHATSAPP_CLOUD_WABA_ID", "1488177123071552")
-    WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "aivhub_whatsapp_webhook_secret")
     # Parallel outbound: operator concurrency is honored up to this cap.
     # CPS gap keeps Twilio/Telnyx from rejecting a burst (default ~1 call/sec).
     OUTBOUND_MAX_CONCURRENCY: int = int(os.getenv("OUTBOUND_MAX_CONCURRENCY", "5"))
@@ -42,8 +37,18 @@ class Settings(BaseSettings):
     CARTESIA_VOICE_ID: Optional[str] = None
     ELEVENLABS_VOICE_ID: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    OPENAI_IMAGE_MODEL: str = os.getenv("OPENAI_IMAGE_MODEL", "dall-e-3")
+    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     ANTHROPIC_API_KEY: Optional[str] = None
+    ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    ANTHROPIC_BASE_URL: str = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1")
     DEEPSEEK_API_KEY: Optional[str] = None
+    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY", None)
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     LIVEKIT_URL: str = os.getenv("LIVEKIT_URL", "ws://localhost:7880")
     LIVEKIT_API_KEY: str = os.getenv("LIVEKIT_API_KEY", "devkey")
     LIVEKIT_API_SECRET: str = os.getenv("LIVEKIT_API_SECRET", "secret1234567890abcdef1234567890abcdef")

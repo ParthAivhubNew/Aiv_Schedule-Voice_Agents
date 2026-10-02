@@ -267,10 +267,16 @@ async def _finish(job: Dict[str, Any], state: str, error: Optional[str] = None, 
 
 async def _company(db) -> Dict[str, str]:
     prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
-    if not prof:
-        return {"name": "", "pitch": "", "context": ""}
-    context = "\n".join(x for x in (getattr(prof, "industry", None) or "", getattr(prof, "website", None) or "") if x)
-    return {"name": prof.name or "", "pitch": prof.pitch or "", "context": context}
+    context = "\n".join(x for x in (getattr(prof, "industry", None) or "", getattr(prof, "website", None) or "") if x) if prof else ""
+    try:
+        from app.services import brand_voice
+
+        voice = brand_voice.prompt_block(await brand_voice.load(db))
+        if voice:
+            context = (context + "\n\n" + voice).strip()
+    except Exception as err:
+        logger.warning(f"[generation] brand voice not loaded: {err}")
+    return {"name": (prof.name if prof else "") or "", "pitch": (prof.pitch if prof else "") or "", "context": context}
 
 
 async def _knowledge(db, text: str) -> str:
@@ -403,7 +409,7 @@ async def _run_text(jobs: List[Dict[str, Any]]) -> None:
                         pkg = await generate_complete_social_package(
                             topic=j0["plan"] or j0["headline"], existing_copy=j0["existing_copy"],
                             existing_headline=j0["headline"], revision_note=j0["revision_note"],
-                            skip_image=True, db=db, **common,
+                            skip_image=True, channel=j0["channel"], db=db, **common,
                         )
                         if pkg.get("generationSource") != "llm":
                             raise platform_ai.AIUnavailable("The writing AI did not return a usable rewrite.")

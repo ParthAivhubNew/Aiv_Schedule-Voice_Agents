@@ -722,7 +722,7 @@ export function CallingSchedule({
                 .replace(/\s*[—–-]\s*not a meeting type\b/gi, "")
                 .trim()
                 || (waStatus?.configured
-                  ? "Message goes from the server after booking."
+                  ? `Sends from your WhatsApp number ${waStatus.fromMasked || ""} if they wrote in the last 24 hours; otherwise opens WhatsApp ready to send.`
                   : "Opens WhatsApp with time and join link ready.")}
             </div>
           </span>

@@ -166,12 +166,7 @@ def normalize_hashtags(raw, company: str = "", max_n: int = 6, pad: bool = True)
     if brand and brand.lower() not in [x.lower() for x in tags]:
         tags.append(brand)
     cap = max(1, min(30, int(max_n or 6)))
-    if pad:
-        for t in ("#Leadership", "#Analytics", "#Operations"):
-            if len(tags) >= min(3, cap):
-                break
-            if t.lower() not in [x.lower() for x in tags]:
-                tags.append(t)
+    # pad is kept for callers; we no longer add stock tags (#Analytics etc.) that fit only some industries.
     return tags[:cap]
 
 
@@ -196,6 +191,67 @@ def assemble_linkedin_post(payload: Dict[str, Any]) -> str:
     if tag_line and tag_line not in text:
         text = text.rstrip() + "\n\n" + tag_line
     return text.strip()
+
+
+# What each network needs. LinkedIn uses linkedin_craft_brief; the others put their finished
+# text in "channel_text" (see apply_channel).
+CHANNEL_RULES = {
+    "x": "X (Twitter): ONE complete post of at most 260 characters including at most 2 hashtags. One sharp idea, plain words, no thread, no link unless supplied. Put the finished post in channel_text.",
+    "instagram": "Instagram: caption of 80-150 words. The first line must stop the scroll (it shows before 'more'). Short lines with blank lines between. Emojis only if they suit the brand voice. End with 8-15 specific hashtags. The image carries the post, so the image brief matters most. Put the finished caption (with hashtags) in channel_text.",
+    "facebook": "Facebook: conversational, 60-120 words, like talking to a local customer or peer. End with a question or a clear next step. 0-3 hashtags. Put the finished post in channel_text.",
+    "threads": "Threads: one short, conversational take under 450 characters. At most 1 hashtag. Put the finished post in channel_text.",
+}
+CHANNEL_LIMITS = {"x": 280, "threads": 500, "instagram": 2200, "facebook": 5000}
+
+
+def norm_channel(channel: Any) -> str:
+    ch = str(channel or "linkedin").strip().lower()
+    return "x" if ch in ("twitter", "tweet") else ch
+
+
+def channel_rules_for(channels: List[str]) -> str:
+    rules = [CHANNEL_RULES[c] for c in dict.fromkeys(norm_channel(c) for c in channels) if c in CHANNEL_RULES]
+    if not rules:
+        return ""
+    return "Channel rules (follow the rule for each post's channel; LinkedIn posts follow the LinkedIn brief above):\n- " + "\n- ".join(rules)
+
+
+def fit_text(text: str, limit: int) -> str:
+    """Shorten to the limit at a sentence or word end, never mid-word."""
+    t = re.sub(r"[ \t]+", " ", str(text or "")).strip()
+    if len(t) <= limit:
+        return t
+    cut = t[: limit - 1]
+    for mark in (". ", "! ", "? ", "\n"):
+        i = cut.rfind(mark)
+        if i >= limit * 0.6:
+            return cut[: i + 1].strip()
+    i = cut.rfind(" ")
+    return (cut[:i] if i > 0 else cut).rstrip(" ,;:-") + "…"
+
+
+def apply_channel(payload: Dict[str, Any], channel: str) -> Dict[str, Any]:
+    """Give the post the right text for its network. LinkedIn keeps the assembled post."""
+    ch = norm_channel(channel)
+    if ch == "linkedin" or ch not in CHANNEL_LIMITS:
+        return payload
+    own = strip_ai_slop(str(payload.get("channel_text") or payload.get(f"{ch}_copy") or "")).strip()
+    tags = list(payload.get("hashtags") or [])
+    if ch == "x":
+        base = own or str(payload.get("hook") or "") or str(payload.get("copy") or "")
+        base = re.sub(r"(?:\s*#\w+)+\s*$", "", base).strip()
+        text = fit_text(base, 280)
+        for t in tags[:2]:
+            if t.lower() not in text.lower() and len(text) + 1 + len(t) <= 280:
+                text += " " + t
+    elif own:
+        text = fit_text(own, CHANNEL_LIMITS[ch])
+    else:
+        text = fit_text(assemble_linkedin_post(payload), CHANNEL_LIMITS[ch])
+    payload[f"{ch}_copy"] = text
+    payload["copy"] = text  # what the post card shows and edits
+    payload["channel"] = ch
+    return payload
 
 
 def linkedin_image_prompt(payload: Dict[str, Any], topic: str, company: str) -> str:
@@ -438,9 +494,10 @@ async def resolve_image_credentials(
 
     if prov == "custom" and not mod and "gpt-image" in (burl or "").lower():
         mod = "gpt-image-2.5-flare"
+    env_img_mod = (os.getenv("OPENAI_IMAGE_MODEL") or os.getenv("IMAGE_MODEL") or "").strip()
     if prov == "openai":
         if not (mod and ("dall-e" in mod or "gpt-image" in mod)):
-            mod = "dall-e-3"
+            mod = env_img_mod or "dall-e-3"
         burl = burl or "https://api.openai.com/v1"
 
     if prov and prov != "pollinations" and (key or (prov == "custom" and burl)):
@@ -770,6 +827,7 @@ async def generate_complete_social_package(
     adapt_per_channel: bool = False,
     skip_image: bool = False,
     revision_note: str = "",
+    channel: str = "linkedin",
     db: Any = None
 ) -> Dict[str, Any]:
     """
@@ -825,6 +883,11 @@ async def generate_complete_social_package(
     else:
         copy_schema = f'''
   "copy": "LinkedIn body 120-220 words about the user's plan ({plan_hint}). Short mobile paragraphs. No hashtags in this field. {company_name} once if it earns a sentence. No fake stats."'''
+    ch = norm_channel(channel)
+    channel_rule = ""
+    if not adapt_per_channel and ch in CHANNEL_RULES:
+        channel_rule = f"\nTHIS POST IS FOR {ch.upper()}. {CHANNEL_RULES[ch]} \"copy\" holds the core message in 1-3 sentences.\n"
+        copy_schema += ',\n  "channel_text": "The finished post for this channel, exactly as it should be published."'
 
     # 1. Attempt LLM generation if credentials available
     system_prompt = f"""{li_rules}
@@ -838,7 +901,7 @@ Company profile (use only these facts; do not invent metrics, customers, systems
 {kb_block or "No extra facts supplied."}
 
 If the plan is detailed, execute that plan. If the plan is a short thought, expand it using the profile. Never switch industry.
-{f"HASHTAG OVERRIDE: the user asked for {want_n} hashtags. Put exactly {want_n} items in the hashtags array. Do not clamp to 3–6." if want_n else "Default: 3–6 hashtags unless the revision asks for a different count."}
+{channel_rule}{f"HASHTAG OVERRIDE: the user asked for {want_n} hashtags. Put exactly {want_n} items in the hashtags array. Do not clamp to 3–6." if want_n else "Default: 3–6 hashtags unless the revision asks for a different count."}
 
 Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today's fast-paced world, slogan closers, fake statistics.
 
@@ -870,7 +933,10 @@ Return ONLY valid JSON:
             "Do not change the image concept unless the request is about the image."
         )
     elif draft:
-        user_msg = "Rewrite the draft. Keep names and numbers. Keep 120-220 words, 3-6 hashtags. Stay on the user's plan."
+        user_msg = ("Rewrite the draft. Keep names and numbers. Stay on the user's plan. "
+                    + (f"Follow the {ch} channel rule." if channel_rule else "Keep 120-220 words, 3-6 hashtags."))
+    elif channel_rule:
+        user_msg = f"Write one complete {ch} post + matching image brief, following the {ch} channel rule. About the user's post plan, grounded in the company profile."
     else:
         user_msg = (
             "Write one complete LinkedIn post + matching image brief.\n"
@@ -913,6 +979,8 @@ Return ONLY valid JSON:
         llm_payload, clean_topic=clean_topic, brand=brand, headline=headline,
         want_n=want_n, adapt_per_channel=adapt_per_channel, generation_source=generation_source,
     )
+    if channel_rule:
+        apply_channel(llm_payload, ch)
     if skip_image:
         llm_payload["imageUrl"] = None
         llm_payload["skipImage"] = True
@@ -938,7 +1006,7 @@ def finalize_text_package(
     """Clean and assemble a writer reply into the post package the scheduler stores."""
     max_n = want_n or 6
     no_pad = want_n is not None
-    for k in ("copy", "linkedin_copy", "facebook_copy", "instagram_copy", "threads_copy", "x_copy", "hook", "cta", "postTitle", "imageHeadline", "imageConcept"):
+    for k in ("copy", "linkedin_copy", "facebook_copy", "instagram_copy", "threads_copy", "x_copy", "channel_text", "hook", "cta", "postTitle", "imageHeadline", "imageConcept"):
         if llm_payload.get(k):
             llm_payload[k] = strip_ai_slop(str(llm_payload.get(k)))
 
@@ -967,8 +1035,8 @@ def finalize_text_package(
         llm_payload["linkedin_copy"] = assembled
         llm_payload["facebook_copy"] = assembled
         llm_payload["instagram_copy"] = assembled
-        llm_payload["threads_copy"] = assembled[:400]
-        llm_payload["x_copy"] = (llm_payload.get("x_copy") or llm_payload.get("hook") or assembled)[:240]
+        llm_payload["threads_copy"] = fit_text(assembled, 400)
+        llm_payload["x_copy"] = fit_text(llm_payload.get("x_copy") or llm_payload.get("hook") or assembled, 270)
         llm_payload["copy"] = assembled
     else:
         llm_payload["linkedin_copy"] = assemble_linkedin_post({**llm_payload, "copy": llm_payload.get("linkedin_copy") or canonical_body})
@@ -1056,6 +1124,7 @@ async def write_post_batch(
     kb_block = "\n".join(b for b in kb_bits if b)
     li_rules = (linkedin_directive or "").strip() or linkedin_craft_brief(brand, company_pitch, company_context)
 
+    channel_rules = channel_rules_for([it.get("channel") or "linkedin" for it in items])
     lines = []
     for it in items:
         plan = (it.get("plan") or it.get("headline") or company_pitch or "Write about this company's actual offering.").strip()
@@ -1072,11 +1141,12 @@ You ghostwrite for this company using ONLY the profile facts. Sound like a pract
 Company profile (use only these facts; do not invent metrics, customers, systems, URLs, or offerings):
 {kb_block or "No extra facts supplied."}
 
-Write one complete, distinct post for EACH item below. Each post follows its own plan; do not reuse hooks or openings across posts. If a plan is a short thought, expand it using the profile. Never switch industry.
+Write one complete, distinct post for EACH item below, for that item's channel. Each post follows its own plan; do not reuse hooks or openings across posts. If a plan is a short thought, expand it using the profile. Never switch industry.
+{channel_rules}
 Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today's fast-paced world, slogan closers, fake statistics.
 
 Return ONLY a valid JSON array with exactly one object per item, in the same order:
-[{{"key": "item key", "postTitle": "Visible headline, max 8 words", "hook": "1-2 line hook", "copy": "Body 120-220 words, short mobile paragraphs, no hashtags", "hashtags": ["#Tag1", "#Tag2", "#Tag3"], "cta": "Closing question in the post", "first_comment": "Useful follow-up", "imageConcept": "One paragraph describing the visual", "imageHeadline": "Max 8 words on the image", "image_prompt": "Production-ready 4:5 prompt, 1080x1350, no fake UI", "alt_text": "Plain image description"}}]"""
+[{{"key": "item key", "postTitle": "Visible headline, max 8 words", "hook": "1-2 line hook", "copy": "LinkedIn: body 120-220 words, short mobile paragraphs, no hashtags. Other channels: the core message in 1-3 sentences", "channel_text": "Other channels only: the finished post exactly as it should be published, following that channel's rule. Empty for LinkedIn", "hashtags": ["#Tag1", "#Tag2", "#Tag3"], "cta": "Closing question in the post", "first_comment": "Useful follow-up", "imageConcept": "One paragraph describing the visual", "imageHeadline": "Max 8 words on the image", "image_prompt": "Production-ready 4:5 prompt, 1080x1350, no fake UI", "alt_text": "Plain image description"}}]"""
 
     res = await call_open_chat_llm(
         messages=[{"role": "user", "content": "Items:\n" + "\n".join(lines)}],
@@ -1086,7 +1156,7 @@ Return ONLY a valid JSON array with exactly one object per item, in the same ord
         model=model,
         base_url=base_url,
         temperature=0.7,
-        max_tokens=output_token_limit(provider, 1100 * len(items) + 400),
+        max_tokens=output_token_limit(provider, 1400 * len(items) + 400),
         db=db,
     )
     if not res or not res.get("success"):
@@ -1113,7 +1183,7 @@ Return ONLY a valid JSON array with exactly one object per item, in the same ord
     for it in items:
         payload = dict(by_key[str(it["key"])])
         plan = (it.get("plan") or it.get("headline") or "").strip()
-        out[str(it["key"])] = finalize_text_package(
+        out[str(it["key"])] = apply_channel(finalize_text_package(
             payload, clean_topic=plan or brand, brand=brand, headline=(it.get("headline") or ""),
-        )
+        ), it.get("channel") or "linkedin")
     return out

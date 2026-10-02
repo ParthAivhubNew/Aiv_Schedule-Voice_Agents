@@ -31,8 +31,6 @@ def identify_provider(provider_raw: str) -> str:
         return "elevenlabs"
     if "twilio" in s:
         return "twilio"
-    if "whatsapp" in s or "meta" in s:
-        return "whatsapp"
     if "gemini" in s or ("google" in s and "cal" not in s):
         return "gemini"
     if "mistral" in s:
@@ -319,19 +317,6 @@ async def _validate_twilio(client: httpx.AsyncClient, api_key: str, base_url: Op
         return {"valid": False, "error": "Twilio authentication failed (Invalid Account SID / Auth Token)."}
 
 
-async def _validate_whatsapp(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
-    from app.config import settings
-    phone_id = (account_sid or settings.WHATSAPP_CLOUD_PHONE_NUMBER_ID or "1238965585975808").strip()
-    url = f"https://graph.facebook.com/v20.0/{phone_id}"
-    headers = {"Authorization": f"Bearer {api_key}"}
-    res = await client.get(url, headers=headers)
-    if res.status_code == 200:
-        display_phone = res.json().get("display_phone_number") or phone_id
-        return {"valid": True, "provider": "Meta WhatsApp Cloud API", "details": f"Authenticated successfully ({display_phone} active)."}
-    else:
-        return {"valid": False, "error": "Meta WhatsApp authentication failed (Invalid or expired Access Token)."}
-
-
 async def _validate_gemini(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     res = await client.get(url)
@@ -508,7 +493,6 @@ PROVIDER_HANDLERS = {
     "cartesia": _validate_cartesia,
     "elevenlabs": _validate_elevenlabs,
     "twilio": _validate_twilio,
-    "whatsapp": _validate_whatsapp,
     "gemini": _validate_gemini,
     "mistral": _validate_mistral,
     "together": _validate_together,

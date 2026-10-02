@@ -99,7 +99,10 @@ async def handle_assistant_call_control(request: Request):
     # The user's own phone while they take over a call.
     from app.services.voice_takeover import decode_leg, leg_event
     envelope = body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), dict) else {}
-    leg_payload = envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {}
+    event_type = str(envelope.get("event_type") or "")
+    payload_data = envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {}
+    logger.info(f"[TELNYX-CALL-EVENT] {event_type}: hangup_cause={payload_data.get('hangup_cause')}, sip_code={payload_data.get('sip_hangup_cause')}, to={payload_data.get('to')}, from={payload_data.get('from')}")
+    leg_payload = payload_data
     leg = decode_leg(leg_payload.get("client_state"))
     if leg:
         with org_scope(leg[1]):

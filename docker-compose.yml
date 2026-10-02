@@ -62,18 +62,54 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aivhub}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-outreachAI_production_jwt_secret_key_change_me}
-      VOICE_ENGINE_MODE: ${VOICE_ENGINE_MODE:-live}
+      # --- Telephony & Voice ---
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
       TELNYX_API_KEY: ${TELNYX_API_KEY:-}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://outreach.aivhub.com}
+      TELNYX_PHONE_NUMBER: ${TELNYX_PHONE_NUMBER:-}
+      TELNYX_ASSISTANT_ID: ${TELNYX_ASSISTANT_ID:-}
+      TELNYX_ASSISTANT_PUBLIC_KEY: ${TELNYX_ASSISTANT_PUBLIC_KEY:-}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       CARTESIA_API_KEY: ${CARTESIA_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CARTESIA_VOICE_ID: ${CARTESIA_VOICE_ID:-}
+
+      # --- AI Providers & Explicit Models & URLs ---
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-dall-e-3}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-3-5-sonnet-20241022}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com/v1}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      XAI_MODEL: ${XAI_MODEL:-grok-4.20-0309-non-reasoning}
+      XAI_BASE_URL: ${XAI_BASE_URL:-https://api.x.ai/v1}
+      TELNYX_BASE_URL: ${TELNYX_BASE_URL:-https://api.telnyx.com/v2/ai}
+      FAL_KEY: ${FAL_KEY:-}
+      STABILITY_API_KEY: ${STABILITY_API_KEY:-}
+
+      # --- Social APIs (LinkedIn, X, Facebook, Instagram) ---
+      LINKEDIN_OAUTH_CLIENT_ID: ${LINKEDIN_OAUTH_CLIENT_ID:-}
+      LINKEDIN_OAUTH_CLIENT_SECRET: ${LINKEDIN_OAUTH_CLIENT_SECRET:-}
+      X_OAUTH_CLIENT_ID: ${X_OAUTH_CLIENT_ID:-}
+      X_OAUTH_CLIENT_SECRET: ${X_OAUTH_CLIENT_SECRET:-}
+      FACEBOOK_OAUTH_CLIENT_ID: ${FACEBOOK_OAUTH_CLIENT_ID:-}
+      FACEBOOK_OAUTH_CLIENT_SECRET: ${FACEBOOK_OAUTH_CLIENT_SECRET:-}
+      FACEBOOK_OAUTH_CONFIG_ID: ${FACEBOOK_OAUTH_CONFIG_ID:-}
+      INSTAGRAM_OAUTH_CONFIG_ID: ${INSTAGRAM_OAUTH_CONFIG_ID:-}
+      THREADS_OAUTH_CLIENT_ID: ${THREADS_OAUTH_CLIENT_ID:-}
+      THREADS_OAUTH_CLIENT_SECRET: ${THREADS_OAUTH_CLIENT_SECRET:-}
+
+      # --- Platform, Auth, & Search ---
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://outreach.aivhub.com}
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret1234567890abcdef1234567890abcdef}

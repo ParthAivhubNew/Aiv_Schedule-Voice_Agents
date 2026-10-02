@@ -152,12 +152,12 @@ async def resolve_llm_credentials(
 
     # Fallback to standard environment variables
     prov_env_map = {
-        "openai": ("OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4o-mini"),
-        "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "deepseek-chat"),
-        "anthropic": ("ANTHROPIC_API_KEY", "https://api.anthropic.com/v1", "claude-3-5-sonnet-20241022"),
-        "groq": ("GROQ_API_KEY", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-        "xai": ("XAI_API_KEY", "https://api.x.ai/v1", "grok-4.20-0309-non-reasoning"),
-        "telnyx": ("TELNYX_API_KEY", "https://api.telnyx.com/v2/ai", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
+        "openai": ("OPENAI_API_KEY", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip(), os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()),
+        "deepseek": ("DEEPSEEK_API_KEY", os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip(), os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip()),
+        "anthropic": ("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").strip(), os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022").strip()),
+        "groq": ("GROQ_API_KEY", os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").strip(), os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()),
+        "xai": ("XAI_API_KEY", os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").strip(), os.getenv("XAI_MODEL", "grok-4.20-0309-non-reasoning").strip()),
+        "telnyx": ("TELNYX_API_KEY", os.getenv("TELNYX_BASE_URL", "https://api.telnyx.com/v2/ai").strip(), os.getenv("TELNYX_AI_MODEL", "meta-llama/Meta-Llama-3.1-70B-Instruct").strip()),
     }
 
     if prov in prov_env_map:

@@ -39,7 +39,6 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"calls/(telnyx|twilio)/[^/]+$",
     _OPT_API + r"twilio/(voice|inbound)$",
     _OPT_API + r"(vapi|retell|custom-voice|livekit)/webhook$",
-    _OPT_API + r"whatsapp/webhook$",
     _OPT_API + r"telnyx/(webhook|messaging-webhook)$",
     _OPT_API + r"billing/webhook$",  # Stripe-signed; checked in the handler  # Ed25519-signed; checked in the handlers
     # Signed links in emails and the social OAuth return page

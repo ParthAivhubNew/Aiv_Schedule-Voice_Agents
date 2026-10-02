@@ -747,6 +747,19 @@ class SchedulerSetting(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PlanChatThread(Base):
+    """A saved Plan AI conversation in the Post Scheduler, shared with the company's team."""
+    __tablename__ = "plan_chat_threads"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    title = Column(String, default="Chat")
+    messages = Column(JSON, default=list)
+    created_by = Column(String, default="")
+    created_by_name = Column(String, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class SocialAccount(Base):
     __tablename__ = "social_accounts"
     # Owning organisation; the database fills it in (see app.core.tenancy).
@@ -964,6 +977,28 @@ class NumberOrder(Base):
     ordered_by = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WhatsappSignup(Base):
+    """Putting one of the organisation's numbers on WhatsApp through Telnyx's hosted signup page.
+    One row per number; checked until Telnyx shows the number registered."""
+    __tablename__ = "whatsapp_signups"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    number_id = Column(String, nullable=False, index=True)
+    e164 = Column(String, nullable=False)
+    signup_url = Column(String, default="")
+    expires_at = Column(DateTime, nullable=True)
+    status = Column(String, default="link_sent")  # link_sent, live, failed
+    telnyx_status = Column(String, default="")  # the number's WhatsApp status as Telnyx reports it
+    waba_id = Column(String, default="")
+    error = Column(String, default="")
+    code = Column(String, default="")  # WhatsApp's verification code, when it arrives by SMS
+    code_at = Column(DateTime, nullable=True)
+    templates = Column(JSON, default=dict)  # our standard template name -> Meta status
+    checked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class WhatsappThread(Base):
@@ -1277,3 +1312,18 @@ class SeedInbox(Base):
     provider = Column(String, default="google")  # google, microsoft, custom
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EmailTemplate(Base):
+    """Company-scoped email template stored in the database."""
+    __tablename__ = "email_templates"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    name = Column(String, nullable=False)
+    subject = Column(Text, default="")
+    body_text = Column(Text, default="")
+    category = Column(String, default="Outbound")
+    tags = Column(JSON, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

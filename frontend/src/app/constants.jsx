@@ -31,7 +31,6 @@ export const INITIAL_BUILTIN_PROVIDERS = [
   { id: "telnyx_llm", name: "Telnyx AI", type: "llm", badge: "Telnyx Inference", status: "not_configured", latencyMs: null, baseUrl: "https://api.telnyx.com/v2/ai", apiKey: "", models: ["meta-llama/Meta-Llama-3.1-70B-Instruct"] },
   { id: "telnyx_stt", name: "Telnyx Whisper", type: "stt", badge: "Managed STT", status: "not_configured", latencyMs: null, baseUrl: "https://api.telnyx.com/v2/ai", apiKey: "", models: ["openai/whisper-large-v3"] },
   { id: "telnyx_tts", name: "Telnyx Natural (TTS)", type: "tts", badge: "Telnyx Voice", status: "not_configured", latencyMs: null, baseUrl: "https://api.telnyx.com/v2/ai", apiKey: "", models: ["telnyx/natural"] },
-  { id: "whatsapp", name: "WhatsApp Cloud API (Meta)", type: "messaging", badge: "Official Meta API", status: "not_configured", latencyMs: null, baseUrl: "https://graph.facebook.com/v20.0", apiKey: "", models: ["WhatsApp Cloud API"] },
 ];
 
 export const VOICE_LAYERS = [
@@ -451,10 +450,6 @@ export const CONNECTIONS = [
     { name: "xAI Voice Number", status: "not_configured" },
     { name: "Twilio", status: "not_configured" },
   ]},
-  { group: "Messaging", desc: "Sends automated confirmations and follow-ups via WhatsApp and SMS.", items: [
-    { name: "WhatsApp Cloud API (Meta)", status: "not_configured" },
-    { name: "Twilio WhatsApp", status: "not_configured" },
-  ]},
   { group: "Calendar", desc: "Checks availability and books confirmed meetings.", items: [
     { name: "Cal.com (Self-Hosted)", status: "not_configured" },
     { name: "Google Calendar", status: "not_configured" },
@@ -570,7 +565,6 @@ export const FAMOUS_PROVIDERS_BY_LAYER = {
   "Speech-to-Text": ["Deepgram", "Telnyx Whisper", "Faster-Whisper (Self-Hosted)", "OpenAI Whisper", "Gladia", "Speechmatics", "Other (Custom Base URL)"],
   "Text-to-Speech": ["Cartesia", "ElevenLabs", "Telnyx Natural (TTS)", "Deepgram Aura", "PlayHT", "Kokoro-82M (Self-Hosted)", "Other (Custom Base URL)"],
   "Telephony": ["Twilio", "Telnyx", "Plivo", "SIP Trunk (Custom)", "Other (Custom Base URL)"],
-  "Messaging": ["WhatsApp Cloud API (Meta)", "Twilio WhatsApp", "Other (Custom Base URL)"],
   "Calendar": ["Cal.com (Self-Hosted)", "Cal.com (Cloud)", "Google Calendar", "Microsoft Outlook", "Other (Custom Base URL)"],
   "Voice Orchestration": ["LiveKit (Self-Hosted)", "xAI Voice Agent", "Vapi", "Retell AI", "OpenAI Realtime API", "Other (Custom Base URL)"],
   "Business Discovery": ["Apollo.io", "LeadMagic", "Google Places API", "Other (Custom Base URL)"],

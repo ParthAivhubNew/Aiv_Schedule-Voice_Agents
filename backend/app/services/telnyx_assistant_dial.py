@@ -193,7 +193,7 @@ async def dial_via_telnyx_assistant(
     label = (prospect_name or "").strip() or f"Prospect ({to_clean[-4:]})"
     mission = (mission_title or "").strip() or "Telnyx AI Assistant — outbound"
     org_ref = ""
-    record = False
+    record = True
     if managed is not None:
         # This call's script, rendered now and handed to Telnyx when the call is answered.
         from app.core.tenancy import current_org
@@ -203,7 +203,8 @@ async def dial_via_telnyx_assistant(
                              prospect_id=prospect_id or "", mission_id=mission_id or "", prospect_name=label,
                              template_id=template_id)
         org_ref = current_org()
-        record = brief_vars.get("recorded") == "yes"
+        if "recorded" in brief_vars:
+            record = brief_vars.get("recorded") == "yes"
 
     payload = {
         "to": to_clean,

@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import httpx
 
@@ -239,6 +240,11 @@ class TelnyxClient:
     async def update_phone_number(self, number_id: str, **fields) -> Dict[str, Any]:
         return (await self._req("PATCH", f"/phone_numbers/{number_id}", json=fields)).get("data", {})
 
+    async def set_messaging_profile(self, number_id: str, profile_id: str) -> Dict[str, Any]:
+        """Messages (SMS, WhatsApp) to this number go to that profile's webhook."""
+        return (await self._req("PATCH", f"/phone_numbers/{number_id}/messaging",
+                                json={"messaging_profile_id": profile_id})).get("data", {})
+
     async def release_number(self, number_id: str) -> Dict[str, Any]:
         return await self._req("DELETE", f"/phone_numbers/{number_id}")
 
@@ -296,6 +302,29 @@ class TelnyxClient:
             page += 1
 
     # ── WhatsApp ──────────────────────────────────────────────────────────
+    # Tech Provider signup. Only the guide documents these, not the API reference, so the replies
+    # are read loosely (see whatsapp_signup).
+    async def create_hosted_signup(self, app_id: str) -> Dict[str, Any]:
+        return (await self._req("POST", "/whatsapp/hosted_signups", json={"app_id": app_id})).get("data", {})
+
+    async def foreign_apps(self) -> List[Dict[str, Any]]:
+        return (await self._req("GET", "/whatsapp/foreign_apps")).get("data", []) or []
+
+    async def get_whatsapp_number(self, e164: str) -> Optional[Dict[str, Any]]:
+        """The number's WhatsApp registration, or None when it is not registered (yet)."""
+        try:
+            return (await self._req("GET", f"/whatsapp/phone_numbers/{quote(e164, safe='')}")).get("data") or None
+        except TelnyxError as err:
+            if err.status == 404:
+                return None
+            raise
+
+    async def create_whatsapp_template(self, waba_id: str, template: Dict[str, Any]) -> Dict[str, Any]:
+        return (await self._req("POST", "/whatsapp/message_templates", json={"waba_id": waba_id, **template})).get("data", {})
+
+    async def list_whatsapp_templates(self, waba_id: str) -> List[Dict[str, Any]]:
+        return (await self._req("GET", "/whatsapp/message_templates", params={"filter[waba_id]": waba_id})).get("data", []) or []
+
     async def send_whatsapp(self, from_e164: str, to_e164: str, message: Dict[str, Any], webhook_url: str = "") -> Dict[str, Any]:
         payload: Dict[str, Any] = {"from": from_e164, "to": to_e164, "whatsapp_message": message}
         if webhook_url:

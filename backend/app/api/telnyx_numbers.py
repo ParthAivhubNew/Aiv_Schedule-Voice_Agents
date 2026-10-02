@@ -302,7 +302,12 @@ async def messaging_webhook(request: Request):
             channel = str(p.get("type") or p.get("channel") or "").lower()
             wa = p.get("whatsapp_message") or {}
             if "whatsapp" not in channel and not wa:
-                return {"ok": True}  # SMS etc. are not handled here yet
+                # SMS: only WhatsApp's own verification code is used, while a signup is open.
+                from app.services.whatsapp_signup import catch_code
+
+                if await catch_code(db, WA.e164(p.get("to")), str(p.get("text") or "")):
+                    await db.commit()
+                return {"ok": True}
             our, contact = WA.e164(p.get("to")), WA.e164(p.get("from"))
             text = p.get("text") or ((wa.get("text") or {}).get("body") if isinstance(wa.get("text"), dict) else wa.get("text")) or ""
             name = ((p.get("from") or {}).get("name") if isinstance(p.get("from"), dict) else "") or ""

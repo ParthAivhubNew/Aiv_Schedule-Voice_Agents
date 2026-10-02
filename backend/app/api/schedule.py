@@ -97,6 +97,12 @@ def _compose_whatsapp(item: ScheduleItem, company_name: str = "our company", cal
     return "\n".join(lines)
 
 
+def _confirmation_params(item: ScheduleItem, company_name: str) -> list:
+    """Values for the outreach_meeting_confirmation template (name, company, kind, when)."""
+    first = item.prospect.split()[0] if item.prospect else "there"
+    return [first, company_name, _kind_label(item.kind).lower(), f"{item.day} at {item.time}"]
+
+
 @router.get("", response_model=list[dict])
 async def list_schedule_items(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ScheduleItem).order_by(ScheduleItem.created_at.desc()))
@@ -105,8 +111,8 @@ async def list_schedule_items(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/whatsapp-status")
-async def get_whatsapp_status():
-    return whatsapp_ready()
+async def get_whatsapp_status(db: AsyncSession = Depends(get_db)):
+    return await whatsapp_ready(db)
 
 
 @router.get("/{item_id}")
@@ -211,7 +217,7 @@ async def create_schedule_item(req: ScheduleItemSchema, db: AsyncSession = Depen
         company = (prof.name if prof and prof.name else "our company")
         caller = (prof.caller_name if prof and getattr(prof, "caller_name", None) else "")
         body = _compose_whatsapp(item, company, caller)
-        wa = await send_whatsapp(whatsapp_to, body)
+        wa = await send_whatsapp(db, whatsapp_to, body, template_params=_confirmation_params(item, company))
 
     out = _item_dict(item)
     out["whatsapp"] = wa
@@ -331,7 +337,7 @@ async def send_schedule_whatsapp(item_id: str, req: Optional[WhatsAppSendRequest
     company = (prof.name if prof and prof.name else "our company")
     caller = (prof.caller_name if prof and getattr(prof, "caller_name", None) else "")
     body = (req.message if req and req.message else None) or _compose_whatsapp(item, company, caller)
-    result = await send_whatsapp(to, body)
+    result = await send_whatsapp(db, to, body, template_params=None if req and req.message else _confirmation_params(item, company))
     result["to"] = to
     result["message"] = body
     if not result.get("waMeUrl"):

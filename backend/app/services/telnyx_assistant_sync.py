@@ -114,10 +114,15 @@ async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
         return {"synced": False, "reason": f"Template render failed: {render_err}"}
 
     try:
+        from app.services.telephony_provider import public_http_base
+        patch_body = {
+            "instructions": instructions,
+            "dynamic_variables_webhook_url": f"{public_http_base()}/api/telnyx-assistant/call-event",
+        }
         async with httpx.AsyncClient(timeout=12.0) as client:
-            res = await client.post(
+            res = await client.patch(
                 f"{TELNYX_ASSISTANTS_URL}/{assistant_id}",
-                json={"instructions": instructions},
+                json=patch_body,
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             )
     except Exception as req_err:

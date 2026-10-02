@@ -30,11 +30,13 @@ from app.models.models import (
     EmailSendLog,
     EmailSequenceStep,
     EmailSuppression,
+    EmailTemplate,
 )
 from app.services import mail_transport as T
 from app.services.dns_verifier import verify_domain_dns
 from app.services.email_dispatcher import mailbox_settings, read_unsubscribe_token, suppress
 from app.services.enrichment_waterfall import lookup_person_waterfall
+from app.services.llm_gateway import call_open_chat_llm
 from app.services.secret_box import seal_secret
 
 logger = logging.getLogger("email_outreach_api")
@@ -637,3 +639,286 @@ async def unsubscribe_post(token: str):
     if not await _unsubscribe(token):
         return HTMLResponse(_PAGE.format("<p>This unsubscribe link is not valid.</p>"), status_code=404)
     return HTMLResponse(_PAGE.format("<h2 style=\"font-size:20px\">You're unsubscribed</h2><p>You won't get these emails again.</p>"))
+
+
+# ── Email Templates (Database-backed per company) ────────────────────────────
+
+class TemplateIn(BaseModel):
+    name: str
+    subject: str = ""
+    body_text: str = ""
+    category: str = "Outbound"
+    tags: List[str] = []
+
+
+@router.get("/templates")
+async def list_email_templates(request: Request, db: AsyncSession = Depends(get_db)):
+    """Lists saved email templates for the company, seeding starter templates if empty."""
+    ctx = current(request)
+    org_id = ctx["org_id"]
+    rows = (await db.execute(select(EmailTemplate).where(EmailTemplate.org_id == org_id).order_by(EmailTemplate.created_at.desc()))).scalars().all()
+
+    if not rows:
+        # Seed standard B2B starter templates in the database for the user
+        starters = [
+            EmailTemplate(
+                id=f"tpl_{uuid.uuid4().hex[:10]}",
+                org_id=org_id,
+                name="Cold Value Proposition",
+                category="Outbound",
+                subject="Quick question regarding {{company}}'s operations",
+                body_text="Hi {{firstName}},\n\nI noticed {{company}} is scaling rapidly. When volume grows, manual coordination eats hours.\n\nWe built an autonomous system that automates client confirmations and dispatch follow-ups.\n\nAre you open to a brief 7-minute briefing next week?\n\nBest,\n{{senderName}}",
+                tags=["Cold", "Initial Hook", "Outbound"],
+            ),
+            EmailTemplate(
+                id=f"tpl_{uuid.uuid4().hex[:10]}",
+                org_id=org_id,
+                name="Customer Proof & Case Study",
+                category="Follow-up",
+                subject="How similar teams cut response latency by 65%",
+                body_text="Hi {{firstName}},\n\nQuick follow-up on my note regarding autonomous ops updates.\n\nOne of our logistics partners recently recovered 14 hours per week within 30 days of deployment.\n\nWould you like me to send over the 2-page implementation case study?\n\nBest,\n{{senderName}}",
+                tags=["Follow-up", "Social Proof", "Metric"],
+            ),
+            EmailTemplate(
+                id=f"tpl_{uuid.uuid4().hex[:10]}",
+                org_id=org_id,
+                name="Executive Breakup Note",
+                category="Nudge",
+                subject="Permission to close your file for now?",
+                body_text="Hi {{firstName}},\n\nI assume your team's workflow tools are locked in for this quarter.\n\nIf this is no longer a priority, no problem at all — let me know if you'd like me to check back in Q3 instead.\n\nBest,\n{{senderName}}",
+                tags=["Breakup", "Low Friction", "Clean-up"],
+            ),
+        ]
+        for s in starters:
+            db.add(s)
+        await db.commit()
+        rows = starters
+
+    return {
+        "templates": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "subject": t.subject,
+                "body_text": t.body_text,
+                "category": t.category,
+                "tags": t.tags or [],
+                "created_at": _iso(t.created_at),
+                "updated_at": _iso(t.updated_at),
+            }
+            for t in rows
+        ]
+    }
+
+
+@router.post("/templates")
+async def create_email_template(body: TemplateIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Saves a new custom email template in the database for the company."""
+    ctx = current(request)
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Template name is required.")
+
+    tpl = EmailTemplate(
+        id=f"tpl_{uuid.uuid4().hex[:10]}",
+        org_id=ctx["org_id"],
+        name=name,
+        subject=body.subject or "",
+        body_text=body.body_text or "",
+        category=body.category or "Outbound",
+        tags=body.tags or [],
+    )
+    db.add(tpl)
+    await db.commit()
+    return {
+        "ok": True,
+        "template": {
+            "id": tpl.id,
+            "name": tpl.name,
+            "subject": tpl.subject,
+            "body_text": tpl.body_text,
+            "category": tpl.category,
+            "tags": tpl.tags or [],
+        }
+    }
+
+
+@router.put("/templates/{template_id}")
+async def update_email_template(template_id: str, body: TemplateIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Updates an existing email template in the database."""
+    ctx = current(request)
+    tpl = (await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id,
+                                                        EmailTemplate.org_id == ctx["org_id"]))).scalars().first()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found.")
+
+    if body.name:
+        tpl.name = body.name.strip()
+    tpl.subject = body.subject
+    tpl.body_text = body.body_text
+    tpl.category = body.category or tpl.category
+    tpl.tags = body.tags
+    tpl.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"ok": True, "template": {"id": tpl.id, "name": tpl.name, "subject": tpl.subject, "body_text": tpl.body_text}}
+
+
+@router.delete("/templates/{template_id}")
+async def delete_email_template(template_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Deletes an email template from the company's library."""
+    ctx = current(request)
+    tpl = (await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id,
+                                                        EmailTemplate.org_id == ctx["org_id"]))).scalars().first()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found.")
+    await db.delete(tpl)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Real AI Email Copywriter & Drafter (with Test Run & Model Support) ──────
+
+class AiDraftRequest(BaseModel):
+    action_type: str = "generate"  # generate, concise, cta, executive, metric, custom
+    topic: str = ""
+    target_audience: str = ""
+    objective: str = ""
+    custom_prompt: str = ""
+    current_subject: str = ""
+    current_body: str = ""
+    recipient_name: str = "Alex"
+    company_name: str = "Target Account"
+    sender_name: str = ""
+    # Optional dedicated model & credentials override for test runs
+    api_key: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+@router.post("/ai/draft")
+async def generate_or_refine_email_draft(body: AiDraftRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Generates or refines cold email copy using the platform or custom LLM."""
+    ctx = current(request)
+    sender = body.sender_name or ctx.get("name") or "Our Team"
+    recipient = body.recipient_name or "{{firstName}}"
+    company = body.company_name or "{{companyName}}"
+
+    system_prompt = (
+        "You are an expert enterprise B2B cold email copywriter with deep expertise in cold email deliverability. "
+        "Rules: Keep emails under 120 words, punchy, consultative, no spam trigger words (e.g. no 'guaranteed', '100% free', 'miracle'). "
+        "Use natural tone, clear value proposition, and low-friction calls to action. "
+        "Always respond in JSON format with two keys: 'subject' (concise subject line) and 'body' (the email text with greeting and sign-off)."
+    )
+
+    if body.action_type == "concise":
+        user_prompt = (
+            f"Rewrite the following email to be ultra-concise (<75 words), direct, and high-impact while preserving the core message:\n\n"
+            f"Current Subject: {body.current_subject}\n"
+            f"Current Body:\n{body.current_body}\n\n"
+            f"Sender Name: {sender}\n"
+            "Output JSON with 'subject' and 'body'."
+        )
+    elif body.action_type == "cta":
+        user_prompt = (
+            f"Rewrite the call-to-action in the following email to be extremely low friction (e.g. asking for interest or permission rather than demanding a 30m demo):\n\n"
+            f"Current Subject: {body.current_subject}\n"
+            f"Current Body:\n{body.current_body}\n\n"
+            f"Sender Name: {sender}\n"
+            "Output JSON with 'subject' and 'body'."
+        )
+    elif body.action_type == "executive":
+        user_prompt = (
+            f"Rewrite the following email in an authoritative, consultative executive tone suitable for VP and C-Level buyers:\n\n"
+            f"Current Subject: {body.current_subject}\n"
+            f"Current Body:\n{body.current_body}\n\n"
+            f"Sender Name: {sender}\n"
+            "Output JSON with 'subject' and 'body'."
+        )
+    elif body.action_type == "metric":
+        user_prompt = (
+            f"Enhance the following email by weaving in compelling quantitative proof and ROI metrics (e.g. latency cut by 60%, hours saved, revenue uplift):\n\n"
+            f"Current Subject: {body.current_subject}\n"
+            f"Current Body:\n{body.current_body}\n\n"
+            f"Sender Name: {sender}\n"
+            "Output JSON with 'subject' and 'body'."
+        )
+    elif body.action_type == "custom" and body.custom_prompt:
+        user_prompt = (
+            f"Modify the following email according to this specific instruction: '{body.custom_prompt}'\n\n"
+            f"Current Subject: {body.current_subject}\n"
+            f"Current Body:\n{body.current_body}\n\n"
+            f"Sender Name: {sender}\n"
+            "Output JSON with 'subject' and 'body'."
+        )
+    else:
+        # Default fresh generation
+        user_prompt = (
+            f"Draft a high-converting cold email for B2B outreach.\n"
+            f"Target Audience: {body.target_audience or 'VP of Operations / Decision Makers'}\n"
+            f"Topic / Value Prop: {body.topic or 'Automated operational updates and voice/email coordination'}\n"
+            f"Key Objective: {body.objective or 'Book a 10-minute introductory discovery briefing'}\n"
+            f"Recipient: {recipient} at {company}\n"
+            f"Sender: {sender}\n\n"
+            "Output JSON with 'subject' and 'body'."
+        )
+
+    try:
+        reply_raw = await call_open_chat_llm(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.3,
+            db=db,
+            api_key=body.api_key,
+            provider=body.provider,
+            model=body.model,
+            base_url=body.base_url,
+        )
+
+        # Parse JSON reply or format fallback
+        subject_out = ""
+        body_out = ""
+        try:
+            # Strip potential markdown fences
+            clean = reply_raw.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            if clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            data = json.loads(clean.strip())
+            subject_out = data.get("subject", "")
+            body_out = data.get("body", "")
+        except Exception:
+            # If plain text returned
+            lines = reply_raw.strip().split("\n")
+            if lines and lines[0].lower().startswith("subject:"):
+                subject_out = lines[0].replace("Subject:", "").replace("subject:", "").strip()
+                body_out = "\n".join(lines[1:]).strip()
+            else:
+                subject_out = body.current_subject or f"Quick note regarding {company}'s operations"
+                body_out = reply_raw.strip()
+
+        return {
+            "ok": True,
+            "subject": subject_out,
+            "body": body_out,
+            "provider": body.provider or "platform_ai",
+            "model": body.model or "default",
+        }
+    except Exception as err:
+        logger.warning(f"AI Email Draft generation error: {err}")
+        # Reassuring fallback if no API key configured yet
+        return {
+            "ok": False,
+            "error": str(err),
+            "subject": body.current_subject or f"Operational efficiency at {company}",
+            "body": (
+                f"Hi {recipient},\n\n"
+                f"I noticed {company} is expanding operations. As client volume grows, manual follow-up overhead creates operational friction.\n\n"
+                f"We deployed autonomous orchestration to help teams eliminate repetitive status calls while increasing reply rates.\n\n"
+                f"Are you open to a brief 7-minute briefing next Tuesday?\n\n"
+                f"Best,\n{sender}"
+            )
+        }

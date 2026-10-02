@@ -127,12 +127,12 @@ export function WhatsappInbox() {
         <MessageCircle size={28} color={WA} />
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, margin: "10px 0 6px" }}>WhatsApp on your own number</div>
         <p style={{ fontSize: 13.5, color: C.slate, lineHeight: 1.6, margin: 0 }}>
-          Reply to customers on WhatsApp from the same number you call from, with AI answering when you are busy.
-          Open <b>Numbers</b>, choose a number and press <b>Turn on WhatsApp</b>. We then complete Meta's business check with you.
+          Message customers on WhatsApp from the same number you call them from.
+          Go to <b>Subscription &rarr; Numbers</b> and press <b>Turn on WhatsApp</b> next to your number. The first time, we complete Meta's business check with you; after that you can switch it off and on yourself.
         </p>
         {(status.numbers || []).some((n) => n.requested) && (
           <p style={{ fontSize: 13, color: "#7A5200", background: "#FFF3D6", padding: "8px 12px", borderRadius: 10, marginTop: 14 }}>
-            WhatsApp is requested and being set up. This page opens once it is live.
+            WhatsApp is being set up for your number. This page opens once it is live.
           </p>
         )}
       </div>

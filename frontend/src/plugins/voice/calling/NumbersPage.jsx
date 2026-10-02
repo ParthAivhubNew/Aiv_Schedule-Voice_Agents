@@ -257,12 +257,15 @@ function BuyNumber({ verified, onOrdered }) {
 export function NumbersPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [wa, setWa] = useState(null);
   const [wizard, setWizard] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setData(await api.getNumbersOverview());
       setError("");
+      api.getWaStatus().then(setWa).catch(() => {});
     } catch (err) {
       setError(err.message);
     }
@@ -282,6 +285,24 @@ export function NumbersPage() {
   const pendingOrders = data.orders.filter((o) => o.status === "pending");
   const failedOrders = data.orders.filter((o) => o.status === "failure").slice(0, 3);
   const active = data.numbers.filter((n) => n.status !== "released");
+  const signups = Object.fromEntries((wa?.numbers || []).map((x) => [x.id, x.signup]));
+
+  // Opened before the request so the browser does not block it as a pop-up.
+  const turnOnWhatsapp = async (n) => {
+    const win = wa?.automatic ? window.open("", "_blank") : null;
+    try {
+      const r = await api.requestWhatsapp(n.id);
+      if (r.signup?.url && win) win.location.href = r.signup.url;
+      else if (win) win.close();
+      setNote(r.live ? `WhatsApp is on for ${n.e164}.`
+        : r.signup ? "Finish the WhatsApp signup in the new tab: log in with Facebook, enter your business name and pick this number. WhatsApp switches on here by itself once Meta approves."
+          : `WhatsApp asked for ${n.e164}. We will contact you to finish Meta's business check, then it switches on.`);
+      load();
+    } catch (err) {
+      if (win) win.close();
+      setError(err.message);
+    }
+  };
 
   return (
     <div style={{ maxWidth: 900, display: "grid", gap: 16, fontFamily: FONT_BODY }}>
@@ -290,6 +311,7 @@ export function NumbersPage() {
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink }}>Phone numbers</div>
         <div style={{ fontSize: 13.5, color: C.slate }}>Your own numbers for AI calls and WhatsApp.</div>
       </div>
+      {note && !error && <div style={{ ...card, background: C.tealSoft, fontSize: 13, color: C.ink }}>{note}</div>}
 
       {!data.platformReady && (
         <div style={{ ...card, background: "#FFF8EB", borderColor: "#F3D9A4", fontSize: 13.5, color: "#7A5200" }}>
@@ -335,16 +357,42 @@ export function NumbersPage() {
               <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14 }}>{n.e164}</span>
               {n.isDefault && <span style={{ fontSize: 11, fontWeight: 700, color: C.cobalt, background: C.cobaltSoft, padding: "2px 8px", borderRadius: 99 }}>Default caller ID</span>}
               {n.capabilities.includes("whatsapp") && <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 99 }}>WhatsApp</span>}
-              {n.capabilities.includes("whatsapp_requested") && <span style={{ fontSize: 11, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "2px 8px", borderRadius: 99 }}>WhatsApp requested</span>}
+              {n.capabilities.includes("whatsapp_requested") && <span title={signups[n.id] ? "Waiting for the WhatsApp signup to finish with Meta." : "The OutReach team will contact you to finish Meta's WhatsApp business check for this number."} style={{ fontSize: 11, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "2px 8px", borderRadius: 99 }}>WhatsApp being set up</span>}
+              {signups[n.id]?.status === "failed" && <span title={signups[n.id].error} style={{ fontSize: 11, fontWeight: 700, color: C.red, background: C.redSoft, padding: "2px 8px", borderRadius: 99 }}>WhatsApp signup failed</span>}
               <span style={{ flex: 1 }} />
               {!n.capabilities.includes("whatsapp") && !n.capabilities.includes("whatsapp_requested") && (
-                <button type="button" style={btn(false)} onClick={async () => { await api.requestWhatsapp(n.id); load(); }}>Turn on WhatsApp</button>
+                <button type="button" style={btn(false)} onClick={() => turnOnWhatsapp(n)}>
+                  {signups[n.id]?.status === "failed" ? "Try WhatsApp again" : "Turn on WhatsApp"}
+                </button>
+              )}
+              {(n.capabilities.includes("whatsapp") || n.capabilities.includes("whatsapp_requested")) && (
+                <button type="button" style={btn(false)} onClick={async () => {
+                  const live = n.capabilities.includes("whatsapp");
+                  if (live && !window.confirm(`Turn off WhatsApp on ${n.e164}? Messages to it will not show in OutReach until you turn it on again.`)) return;
+                  try { await api.whatsappOff(n.id); setNote(live ? `WhatsApp is off for ${n.e164}.` : "WhatsApp request cancelled."); load(); } catch (err) { setError(err.message); }
+                }}>{n.capabilities.includes("whatsapp") ? "Turn off WhatsApp" : "Cancel request"}</button>
               )}
               {n.provider === "telnyx" && (
                 <button type="button" style={{ ...btn(false), color: C.red }} onClick={async () => {
                   if (!window.confirm(`Release ${n.e164}? You lose the number and it cannot be undone.`)) return;
                   try { await api.releaseNumber(n.id); load(); } catch (err) { setError(err.message); }
                 }}>Release</button>
+              )}
+              {n.capabilities.includes("whatsapp_requested") && signups[n.id] && (
+                <div style={{ flexBasis: "100%", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12.5, color: C.slate, paddingLeft: 27 }}>
+                  {signups[n.id].url
+                    ? <a href={signups[n.id].url} target="_blank" rel="noopener noreferrer" style={{ color: C.cobalt, fontWeight: 600 }}>Continue WhatsApp signup</a>
+                    : signups[n.id].expired ? <span>The signup link ran out. Cancel and turn WhatsApp on again for a new one.</span>
+                      : <span>Signup sent to Meta{signups[n.id].telnyxStatus ? ` (${signups[n.id].telnyxStatus})` : ""}. We check every few minutes.</span>}
+                  {signups[n.id].code && <span>WhatsApp code sent to this number: <b style={{ fontFamily: FONT_MONO, color: C.ink }}>{signups[n.id].code}</b></span>}
+                  <button type="button" style={btn(false)} onClick={async () => {
+                    try {
+                      const r = await api.checkWhatsapp(n.id);
+                      setNote(r.live ? `WhatsApp is on for ${n.e164}.` : "Not live yet. Meta is still checking; this page updates by itself.");
+                      load();
+                    } catch (err) { setError(err.message); }
+                  }}>Check now</button>
+                </div>
               )}
             </div>
           ))

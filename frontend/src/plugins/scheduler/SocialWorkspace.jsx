@@ -211,6 +211,59 @@ function imageProgressLabel(pct) {
   return "Rendering image…";
 }
 
+// How the company's posts should sound. Saved per company; Plan AI and the writer both use it.
+function BrandVoicePanel({ onClose, onSaved }) {
+  const [v, setV] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api.getBrandVoice().then((d) => setV({ tone: "", audience: "", always: "", never: "", ...d, samples: [...(d.samples || []), "", "", ""].slice(0, 3) }))
+      .catch((e) => setErr(e.message || "Could not load the brand voice."));
+  }, []);
+  const field = { width: "100%", boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 8px", fontFamily: FONT_BODY, fontSize: 12, marginTop: 3 };
+  const label = { fontSize: 11, fontWeight: 700, color: C.slate, display: "block", marginTop: 8 };
+  const set = (k, val) => setV((o) => ({ ...o, [k]: val }));
+  const save = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api.saveBrandVoice({ ...v, samples: v.samples.filter((s) => s.trim()) });
+      onSaved && onSaved();
+      onClose();
+    } catch (e) {
+      setErr(e.message || "Could not save.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ position: "absolute", top: 52, left: 10, right: 10, bottom: 10, zIndex: 9, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, overflowY: "auto", boxShadow: "0 8px 24px rgba(18,20,28,0.12)", fontFamily: FONT_BODY }}>
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, flex: 1 }}>Brand voice</div>
+        <button type="button" onClick={onClose} title="Close" style={{ border: "none", background: "none", cursor: "pointer", color: C.slate }}><X size={15} /></button>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>How your posts should sound. Plan AI and every new post use this.</div>
+      {err && <div style={{ fontSize: 12, color: C.red, marginTop: 8 }}>{err}</div>}
+      {!v ? <div style={{ fontSize: 12, color: C.slate, marginTop: 10 }}>{err ? "" : "Loading…"}</div> : (
+        <>
+          <label style={label}>Tone<input style={field} value={v.tone} maxLength={600} placeholder="e.g. Warm, plain-spoken, a little witty" onChange={(e) => set("tone", e.target.value)} /></label>
+          <label style={label}>Who you write for<input style={field} value={v.audience} maxLength={600} placeholder="e.g. Owners of small UK accounting firms" onChange={(e) => set("audience", e.target.value)} /></label>
+          <label style={label}>Always<input style={field} value={v.always} maxLength={600} placeholder="e.g. British spelling, one practical tip per post" onChange={(e) => set("always", e.target.value)} /></label>
+          <label style={label}>Never<input style={field} value={v.never} maxLength={600} placeholder="e.g. Emojis, prices, competitor names" onChange={(e) => set("never", e.target.value)} /></label>
+          <div style={label}>Posts you like (up to 3, to match the style)</div>
+          {v.samples.map((s, i) => (
+            <textarea key={i} style={{ ...field, minHeight: 60, resize: "vertical" }} value={s} maxLength={1500} placeholder={`Example post ${i + 1}`}
+              onChange={(e) => set("samples", v.samples.map((x, j) => (j === i ? e.target.value : x)))} />
+          ))}
+          <button type="button" disabled={busy} onClick={save} style={{ marginTop: 10, width: "100%", height: 34, border: "none", borderRadius: 8, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+            {busy ? "Saving…" : "Save brand voice"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, placeholder }) {
   const list = messages || [];
   const scrollerRef = useRef(null);
@@ -2380,6 +2433,7 @@ export function SocialWorkspace({
     return Array.isArray(saved) ? saved : [];
   });
   const [histOpen, setHistOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [editingId, setEditingId] = useState("");
   const [editText, setEditText] = useState("");
   const [approvalOpen, setApprovalOpen] = useState(false);
@@ -2557,6 +2611,19 @@ export function SocialWorkspace({
   useEffect(() => { writeJson(LS_PLAN, plan); }, [plan]);
   useEffect(() => { writeJson(LS_CHAT, chat); }, [chat]);
   useEffect(() => { writeJson(LS_THREADS, threads); }, [threads]);
+  // Saved chats live on the server (shared with the team); this browser's copy fills gaps.
+  useEffect(() => {
+    let live = true;
+    api.getChatThreads().then((list) => {
+      if (!live || !Array.isArray(list)) return;
+      setThreads((local) => {
+        const byId = new Map(local.map((t) => [t.id, t]));
+        list.forEach((t) => byId.set(t.id, t));
+        return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 40);
+      });
+    }).catch(() => {});
+    return () => { live = false; };
+  }, []);
   useEffect(() => { writeJson(LS_PINS, pinnedDates); }, [pinnedDates]);
   useEffect(() => { writeJson(LS_CHAT_W, chatW); }, [chatW]);
   useEffect(() => {
@@ -3458,12 +3525,13 @@ export function SocialWorkspace({
         return idx < 0 || i < idx;
       })
       : chat;
-    const history = [...baseHistory, userMsg]
-      .filter((m) => m && m.text && !looksLikeJunkDump(m.text) && m.kind !== "draft" && m.kind !== "pin")
-      .slice(-12)
+    // Earlier turns only: this message goes last, once, in the wording sent to the AI.
+    const history = baseHistory
+      .filter((m) => m && m.text && !looksLikeJunkDump(m.text) && m.kind !== "draft" && m.kind !== "pin" && m.kind !== "needsKey")
+      .slice(-29)
       .map((m) => ({
         role: m.who === "user" ? "user" : "assistant",
-        content: coerceChatText(m.text).slice(0, 800),
+        content: coerceChatText(m.text).slice(0, 4000),
       }));
     const currentPlan = {
       rangeLabel: plan.rangeLabel,
@@ -3484,7 +3552,7 @@ export function SocialWorkspace({
 
     api.chatPlan({
       text: sendText,
-      messages: history.concat([{ role: "user", content: sendText }]).slice(-12),
+      messages: history.concat([{ role: "user", content: sendText }]),
       returnPlan: true,
       currentPlan,
       targetDate: pinnedDates.length === 1 ? pinnedDates[0] : "",
@@ -3587,8 +3655,10 @@ export function SocialWorkspace({
   const archiveCurrent = () => {
     const userBits = chat.filter((m) => m.who === "user" && m.text);
     if (!userBits.length) return;
-    const title = coerceChatText(userBits[0].text).split("\n")[0].slice(0, 52);
-    setThreads((ts) => [{ id: "t_" + Date.now(), title: title || "Chat", updatedAt: Date.now(), messages: chat }, ...ts].slice(0, 40));
+    const title = coerceChatText(userBits[0].text).split("\n")[0].slice(0, 52) || "Chat";
+    const thread = { id: "t_" + Date.now(), title, updatedAt: Date.now(), messages: chat };
+    setThreads((ts) => [thread, ...ts].slice(0, 40));
+    api.saveChatThread(thread.id, { title, messages: chat }).catch(() => {}); // shared with the team
   };
 
   const newChat = () => {
@@ -3607,6 +3677,7 @@ export function SocialWorkspace({
 
   const deleteThread = (id) => {
     setThreads((ts) => ts.filter((t) => t.id !== id));
+    api.deleteChatThread(id).catch(() => {});
   };
 
   const closeApprovals = () => {
@@ -4158,13 +4229,17 @@ export function SocialWorkspace({
                   {pinnedDates.length ? pinnedDates.map(dayLabel).join(" · ") : "Pin a day, write the plan, generate."}
                 </div>
               </div>
-              <button type="button" onClick={() => setHistOpen((v) => !v)} title="Chat history" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
+              <button type="button" onClick={() => { setVoiceOpen((v) => !v); setHistOpen(false); }} title="Brand voice: how your posts should sound" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
+                <BookOpen size={14} />
+              </button>
+              <button type="button" onClick={() => { setHistOpen((v) => !v); setVoiceOpen(false); }} title="Chat history" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
                 <History size={14} />
               </button>
               <button type="button" onClick={newChat} title="New chat" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
                 <Plus size={14} />
               </button>
             </div>
+            {voiceOpen ? <BrandVoicePanel onClose={() => setVoiceOpen(false)} onSaved={() => showToast("Brand voice saved. New posts and Plan AI use it.")} /> : null}
             {histOpen ? (
               <div style={{ position: "absolute", top: 52, left: 10, right: 10, zIndex: 8, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 10, maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(18,20,28,0.12)" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: C.slateLight, marginBottom: 6 }}>HISTORY</div>

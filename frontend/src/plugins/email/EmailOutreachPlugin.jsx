@@ -106,8 +106,82 @@ export default function EmailOutreachPlugin({
     };
     return onRouteChange(onHash);
   }, [view]);
-  const [templates, setTemplates] = useState(INITIAL_EMAIL_TEMPLATES);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
+  const [newTemplateForm, setNewTemplateForm] = useState({ name: "", category: "Outbound", subject: "", body_text: "" });
   const [toastMessage, setToastMessage] = useState(null);
+
+  // Dedicated AI Model Configuration & Test Bench State
+  const [showAiConfig, setShowAiConfig] = useState(false);
+  const [customAi, setCustomAi] = useState({
+    provider: "openai",
+    model: "gpt-4o-mini",
+    apiKey: "",
+    baseUrl: ""
+  });
+  const [testRunStatus, setTestRunStatus] = useState(null);
+
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    try {
+      const res = await api.emailTemplates();
+      if (res?.templates) {
+        setTemplates(res.templates);
+      }
+    } catch (e) {
+      console.warn("Failed to load email templates:", e);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const handleTestRunAi = async () => {
+    setTestRunStatus({ loading: true, error: null, result: null, latencyMs: null });
+    const startTime = Date.now();
+    const creds = customAi.apiKey ? customAi : getActiveAiCredentials(commonAi, "email", "copywriterLlm");
+    try {
+      const res = await api.emailAiDraft({
+        action_type: "generate",
+        topic: "Autonomous B2B scheduling & customer confirmation agent",
+        target_audience: "VP of Operations",
+        objective: "Book a 7-minute introductory discovery briefing",
+        company_name: "Acme Logistics",
+        recipient_name: "Alex Mercer",
+        sender_name: operator ? operator.name : "OutReach Team",
+        api_key: creds.apiKey,
+        provider: creds.provider,
+        model: creds.model,
+        base_url: creds.baseUrl
+      });
+      const latency = Date.now() - startTime;
+      if (res?.body) {
+        setTestRunStatus({
+          loading: false,
+          success: true,
+          result: `Subject: ${res.subject}\n\n${res.body}`,
+          latencyMs: latency,
+          provider: res.provider || creds.provider,
+          model: res.model || creds.model
+        });
+        showToast(`AI Test Run Succeeded (${latency}ms)!`);
+      } else {
+        throw new Error(res?.error || "No response received");
+      }
+    } catch (err) {
+      setTestRunStatus({
+        loading: false,
+        success: false,
+        error: err.message || "Failed to reach AI service",
+        latencyMs: Date.now() - startTime
+      });
+      showToast(`AI Test Run failed: ${err.message}`);
+    }
+  };
 
   // Open AI Email Outreach Copilot State
   const [emailChatMessages, setEmailChatMessages] = useState([
@@ -138,7 +212,7 @@ export default function EmailOutreachPlugin({
     setIsEmailTyping(true);
 
     try {
-      const creds = getActiveAiCredentials(commonAi, "email", "copywriterLlm");
+      const creds = customAi.apiKey ? customAi : getActiveAiCredentials(commonAi, "email", "copywriterLlm");
       const res = await api.copilotChat({
         message: query,
         history: emailChatMessages.map((m) => ({ role: m.role, content: m.text })),
@@ -198,43 +272,37 @@ export default function EmailOutreachPlugin({
     body: "Hi Marcus,\n\nI noticed Apex Freight is expanding your Texas depots. As fleet volume grows, manual status checks create operational drag.\n\nWe automate the entire outbound confirmation and dispatch update cycle via AI voice and email.\n\nAre you free for a quick 10-minute briefing next Tuesday?\n\nBest,\n" + (operator ? operator.name : "Operations team")
   });
 
-  const handleRefineDraft = (actionType) => {
+  const handleRefineDraft = async (actionType) => {
     setIsGenerating(true);
-    setTimeout(() => {
-      setIsGenerating(false);
-      if (actionType === "concise") {
+    const creds = customAi.apiKey ? customAi : getActiveAiCredentials(commonAi, "email", "copywriterLlm");
+    try {
+      const res = await api.emailAiDraft({
+        action_type: actionType,
+        current_subject: generatedDraft.subject,
+        current_body: generatedDraft.body,
+        custom_prompt: actionType === "custom" ? customPrompt : "",
+        sender_name: operator ? operator.name : "Operations team",
+        recipient_name: targetPersona,
+        company_name: targetCompany,
+        api_key: creds.apiKey,
+        provider: creds.provider,
+        model: creds.model,
+        base_url: creds.baseUrl
+      });
+      if (res?.body) {
         setGeneratedDraft(prev => ({
           ...prev,
-          body: `Hi {{firstName}},\n\nNoticed {{companyName}} is scaling operations. When outbound volume spikes, manual coordination eats hours.\n\nWe deployed autonomous agents for similar teams to automate 100% of client updates and outbound confirmations.\n\nWorth a 7-minute call Thursday to see how it works?\n\nBest,\n${operator ? operator.name : "Operations team"}`
+          subject: res.subject || prev.subject,
+          body: res.body
         }));
-        showToast("AI refined draft: Made concise & direct (<75 words)!");
-      } else if (actionType === "cta") {
-        setGeneratedDraft(prev => ({
-          ...prev,
-          body: prev.body.replace(/Are you free.*|Would you be open.*/g, "Are you open to seeing a 2-minute workflow video on how this works for {{companyName}}?")
-        }));
-        showToast("AI refined draft: Inserted high-converting, low-friction CTA!");
-      } else if (actionType === "executive") {
-        setGeneratedDraft(prev => ({
-          ...prev,
-          body: `Hi {{firstName}},\n\nI lead client enablement at our team. In reviewing {{companyName}}'s operational growth, managing communication latency between teams is often a top priority for leadership.\n\nWe provide enterprise teams with autonomous AI voice and email orchestration that reduces manual follow-up overhead by 40% while preserving strict brand governance.\n\nWould you be open to a brief introductory conversation next week?\n\nSincerely,\n${operator ? operator.name : "Operations team"}`
-        }));
-        showToast("AI refined draft: Upgraded to consultative executive tone!");
-      } else if (actionType === "metric") {
-        setGeneratedDraft(prev => ({
-          ...prev,
-          body: prev.body + "\n\nP.S. Our logistics partners cut response latency by 3.2x and recovered 14 engineering hours per week in the first 30 days."
-        }));
-        showToast("AI refined draft: Added verified case study metric!");
-      } else if (actionType === "custom" && customPrompt.trim()) {
-        setGeneratedDraft(prev => ({
-          ...prev,
-          body: prev.body + `\n\n[AI customized for: "${customPrompt}"]\nWe specifically integrate directly with your existing software stack without disrupting current field workflows.`
-        }));
-        setCustomPrompt("");
-        showToast("AI refined draft based on your instruction!");
+        showToast(`AI refined draft: ${actionType === "concise" ? "Made concise" : actionType === "cta" ? "Low-friction CTA" : actionType === "executive" ? "Executive tone" : actionType === "metric" ? "Added ROI metric" : "Custom refinement"}!`);
       }
-    }, 500);
+    } catch (err) {
+      showToast(`AI Notice: ${err.message}`);
+    } finally {
+      setIsGenerating(false);
+      if (actionType === "custom") setCustomPrompt("");
+    }
   };
 
   const handleInsertTag = (tag) => {
@@ -245,32 +313,92 @@ export default function EmailOutreachPlugin({
     showToast("Inserted tag " + tag);
   };
 
-
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleGenerateDraft = (e) => {
+  const handleGenerateDraft = async (e) => {
     e.preventDefault();
     setIsGenerating(true);
-    setTimeout(() => {
-      if (draftMode === "repurpose") {
+    const creds = customAi.apiKey ? customAi : getActiveAiCredentials(commonAi, "email", "copywriterLlm");
+    try {
+      const res = await api.emailAiDraft({
+        action_type: "generate",
+        topic: draftMode === "repurpose" ? `Repurposed insights from: ${selectedPostTopic}` : `Operational friction and automation for ${targetCompany}`,
+        target_audience: targetPersona,
+        objective: "Book a 7-minute introductory discovery briefing",
+        company_name: targetCompany,
+        recipient_name: targetPersona,
+        sender_name: operator ? operator.name : "Operations team",
+        api_key: creds.apiKey,
+        provider: creds.provider,
+        model: creds.model,
+        base_url: creds.baseUrl
+      });
+      if (res?.body) {
         setGeneratedDraft({
-          subject: `How ${targetCompany} can eliminate Friday operational bottlenecks`,
-          preview: `Adapted from our recent operational research: "${selectedPostTopic.slice(0, 40)}..."`,
-          body: `Hi {{firstName}},\n\nWe recently published our findings on: "${selectedPostTopic}".\n\nFor growing teams at ${targetCompany}, operational drift doesn't happen because people don't care — it happens because systems don't talk to each other fast enough.\n\nOur autonomous agent infrastructure connects directly to your existing systems, updates clients automatically, and alerts supervisors before delays cascade.\n\nAre you free for a quick 10-minute briefing next Tuesday?\n\nBest,\n${operator ? operator.name : "Operations team"}`
+          subject: res.subject || (draftMode === "repurpose" ? `How ${targetCompany} can eliminate Friday operational bottlenecks` : `Direct inquiry regarding ${targetCompany} workflows`),
+          preview: `Quick note regarding ${targetCompany} operations...`,
+          body: res.body
         });
-      } else {
-        setGeneratedDraft({
-          subject: `Direct inquiry regarding ${targetCompany} operational workflows`,
-          preview: `Quick question regarding how your team manages client outreach...`,
-          body: `Hi {{firstName}},\n\nI noticed ${targetCompany} has been expanding operations recently. As team size grows, client follow-ups often slip through the cracks.\n\nWe automate the entire outbound prospecting and client confirmation cycle via AI voice and email.\n\nWould you be open to reviewing a 1-page breakdown?\n\nBest regards,\n${operator ? operator.name : "Operations team"}`
-        });
+        showToast("Generated high-converting B2B email draft with AI!");
       }
+    } catch (err) {
+      showToast(`AI generation error: ${err.message}`);
+    } finally {
       setIsGenerating(false);
-      showToast("Generated high-converting B2B email draft with AI!");
-    }, 1000);
+    }
+  };
+
+  const handleSaveToTemplates = async () => {
+    try {
+      const res = await api.emailCreateTemplate({
+        name: generatedDraft.subject.slice(0, 36) || "Custom Outreach Template",
+        subject: generatedDraft.subject,
+        body_text: generatedDraft.body,
+        category: "Outbound",
+        tags: ["AI Generated", "Outbound"]
+      });
+      if (res?.ok) {
+        showToast("Saved template to company database!");
+        fetchTemplates();
+      }
+    } catch (err) {
+      showToast(`Error saving template: ${err.message}`);
+    }
+  };
+
+  const handleCreateNewTemplate = async (e) => {
+    e.preventDefault();
+    if (!newTemplateForm.name.trim()) return;
+    try {
+      const res = await api.emailCreateTemplate({
+        name: newTemplateForm.name.trim(),
+        category: newTemplateForm.category || "Outbound",
+        subject: newTemplateForm.subject || "",
+        body_text: newTemplateForm.body_text || "",
+        tags: ["Custom", newTemplateForm.category]
+      });
+      if (res?.ok) {
+        showToast(`Template "${newTemplateForm.name}" created!`);
+        setShowNewTemplateModal(false);
+        setNewTemplateForm({ name: "", category: "Outbound", subject: "", body_text: "" });
+        fetchTemplates();
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId) => {
+    try {
+      await api.emailDeleteTemplate(templateId);
+      setTemplates(prev => prev.filter(t => t.id !== templateId));
+      showToast("Template removed from database.");
+    } catch (err) {
+      showToast(`Delete failed: ${err.message}`);
+    }
   };
 
   const navItems = [
@@ -503,51 +631,175 @@ export default function EmailOutreachPlugin({
                   <div>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink, display: "flex", alignItems: "center", gap: 8 }}>
                       <PenLine size={18} color="#F59E0B" />
-                      Email Outreach Studio & Drafter
+                      Email Outreach Studio & AI Drafter
                     </div>
                     <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
                       Autonomous copywriting engine calibrated for high deliverability, executive tone, and direct conversion.
                     </div>
                   </div>
 
-                  {/* Mode Selector */}
-                  <div style={{ display: "flex", background: HUB_PAPER, padding: 3, borderRadius: 8, gap: 4, border: `1px solid ${C.border}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    {/* Dedicated AI Model Settings Button */}
                     <button
                       type="button"
-                      onClick={() => setDraftMode("cold")}
+                      onClick={() => setShowAiConfig(!showAiConfig)}
                       style={{
-                        padding: "6px 14px",
-                        borderRadius: 6,
-                        border: "none",
-                        background: draftMode === "cold" ? "#fff" : "transparent",
-                        color: draftMode === "cold" ? C.ink : C.slate,
-                        fontWeight: draftMode === "cold" ? 700 : 500,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "6px 12px",
+                        borderRadius: 8,
+                        border: showAiConfig ? "1px solid #D97706" : `1px solid ${C.border}`,
+                        background: showAiConfig ? "#FEF3C7" : "#fff",
+                        color: showAiConfig ? "#92400E" : C.ink,
                         fontSize: 12.5,
+                        fontWeight: 600,
                         cursor: "pointer",
-                        boxShadow: draftMode === "cold" ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
                       }}
                     >
-                      Cold Outreach Strategy
+                      <SlidersHorizontal size={14} />
+                      <span>{showAiConfig ? "Hide AI Model Settings" : "⚙️ AI Model & API Key"}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setDraftMode("repurpose")}
-                      style={{
-                        padding: "6px 14px",
-                        borderRadius: 6,
-                        border: "none",
-                        background: draftMode === "repurpose" ? "#fff" : "transparent",
-                        color: draftMode === "repurpose" ? C.ink : C.slate,
-                        fontWeight: draftMode === "repurpose" ? 700 : 500,
-                        fontSize: 12.5,
-                        cursor: "pointer",
-                        boxShadow: draftMode === "repurpose" ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
-                      }}
-                    >
-                      Repurpose from Post Topic
-                    </button>
+
+                    {/* Mode Selector */}
+                    <div style={{ display: "flex", background: HUB_PAPER, padding: 3, borderRadius: 8, gap: 4, border: `1px solid ${C.border}` }}>
+                      <button
+                        type="button"
+                        onClick={() => setDraftMode("cold")}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          border: "none",
+                          background: draftMode === "cold" ? "#fff" : "transparent",
+                          color: draftMode === "cold" ? C.ink : C.slate,
+                          fontWeight: draftMode === "cold" ? 700 : 500,
+                          fontSize: 12.5,
+                          cursor: "pointer",
+                          boxShadow: draftMode === "cold" ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
+                        }}
+                      >
+                        Cold Outreach
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDraftMode("repurpose")}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          border: "none",
+                          background: draftMode === "repurpose" ? "#fff" : "transparent",
+                          color: draftMode === "repurpose" ? C.ink : C.slate,
+                          fontWeight: draftMode === "repurpose" ? 700 : 500,
+                          fontSize: 12.5,
+                          cursor: "pointer",
+                          boxShadow: draftMode === "repurpose" ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
+                        }}
+                      >
+                        Repurpose Post
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                {/* Dedicated Space for AI LLM Provider, Custom API Key & Test Run */}
+                {showAiConfig && (
+                  <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 12, padding: "16px 18px", marginBottom: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", display: "flex", alignItems: "center", gap: 6 }}>
+                        <Zap size={16} />
+                        AI Model & API Key Workspace (Outreach Copywriter)
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#B45309", background: "#FEF3C7", padding: "2px 8px", borderRadius: 6, border: "1px solid #FDE68A" }}>
+                        Active: {customAi.apiKey ? `Custom (${customAi.provider})` : "Company Platform Key"}
+                      </span>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.5fr", gap: 10, marginBottom: 12 }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#92400E", marginBottom: 4 }}>LLM Provider</label>
+                        <select
+                          value={customAi.provider}
+                          onChange={(e) => setCustomAi({ ...customAi, provider: e.target.value })}
+                          style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #FDE68A", fontSize: 12, background: "#fff" }}
+                        >
+                          <option value="openai">OpenAI (GPT-4o / GPT-4o-mini)</option>
+                          <option value="anthropic">Anthropic (Claude 3.5 Sonnet)</option>
+                          <option value="deepseek">DeepSeek (DeepSeek-Chat)</option>
+                          <option value="groq">Groq (Llama 3.3 70B)</option>
+                          <option value="xai">xAI (Grok)</option>
+                          <option value="gemini">Google Gemini</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#92400E", marginBottom: 4 }}>Model Name / ID</label>
+                        <input
+                          type="text"
+                          value={customAi.model}
+                          onChange={(e) => setCustomAi({ ...customAi, model: e.target.value })}
+                          placeholder="e.g. gpt-4o-mini"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 6, border: "1px solid #FDE68A", fontSize: 12, background: "#fff" }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#92400E", marginBottom: 4 }}>API Key (Leave empty to use Platform Key)</label>
+                        <input
+                          type="password"
+                          value={customAi.apiKey}
+                          onChange={(e) => setCustomAi({ ...customAi, apiKey: e.target.value })}
+                          placeholder="sk-... (optional dedicated key)"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 6, border: "1px solid #FDE68A", fontSize: 12, background: "#fff" }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 10, borderTop: "1px solid #FDE68A", flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ fontSize: 11.5, color: "#78350F" }}>
+                        Specify a custom key for isolated high-volume copywriting or test runs.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleTestRunAi}
+                        disabled={testRunStatus?.loading}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          background: "#D97706",
+                          color: "#fff",
+                          border: "none",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: testRunStatus?.loading ? "wait" : "pointer"
+                        }}
+                      >
+                        <Zap size={13} />
+                        <span>{testRunStatus?.loading ? "Running Test Prompt..." : "⚡ Run Test AI Prompt"}</span>
+                      </button>
+                    </div>
+
+                    {/* Test Run Result Indicator */}
+                    {testRunStatus && (
+                      <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 8, background: testRunStatus.success ? "#ECFDF5" : "#FEF2F2", border: `1px solid ${testRunStatus.success ? "#A7F3D0" : "#FECACA"}` }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5, fontWeight: 700, color: testRunStatus.success ? "#065F46" : "#991B1B" }}>
+                          <span>{testRunStatus.success ? `✅ AI Test Passed (${testRunStatus.latencyMs}ms)` : `❌ AI Test Failed (${testRunStatus.latencyMs}ms)`}</span>
+                          <span style={{ fontWeight: 500, fontSize: 11 }}>Model: {testRunStatus.model || customAi.model}</span>
+                        </div>
+                        {testRunStatus.error && (
+                          <div style={{ fontSize: 11, color: "#B91C1C", marginTop: 4 }}>{testRunStatus.error}</div>
+                        )}
+                        {testRunStatus.result && (
+                          <div style={{ fontSize: 11.5, color: "#064E3B", marginTop: 6, whiteSpace: "pre-wrap", maxHeight: 90, overflow: "auto", background: "#fff", padding: "6px 8px", borderRadius: 6, border: "1px solid #D1FAE5" }}>
+                            {testRunStatus.result}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Target Inputs Bar */}
                 <form onSubmit={handleGenerateDraft} style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap", background: HUB_PAPER, padding: "12px 14px", borderRadius: 10, border: `1px solid ${C.border}` }}>
@@ -827,24 +1079,10 @@ export default function EmailOutreachPlugin({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setTemplates(prev => [
-                          {
-                            id: `tmpl_${Date.now()}`,
-                            title: generatedDraft.subject.slice(0, 32),
-                            category: "Outbound",
-                            subject: generatedDraft.subject,
-                            body: generatedDraft.body,
-                            openRate: "68%",
-                            replyRate: "22%"
-                          },
-                          ...prev
-                        ]);
-                        showToast("Saved draft to Email Templates library!");
-                      }}
+                      onClick={handleSaveToTemplates}
                       style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 6px rgba(245,158,11,0.25)" }}
                     >
-                      <CheckCircle2 size={14} /> Save to Templates
+                      <CheckCircle2 size={14} /> Save to Database Templates
                     </button>
                   </div>
                 </div>
@@ -854,36 +1092,200 @@ export default function EmailOutreachPlugin({
           )}
 
 
-          {/* VIEW 4: TEMPLATES */}
+          {/* VIEW 4: TEMPLATES (Database-backed per company) */}
           {view === "templates" && (
-            <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              {templates.map((tpl) => (
-                <div key={tpl.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{tpl.name}</div>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.slate }}>
-                      {tpl.category}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, marginBottom: 8, background: HUB_PAPER, padding: "6px 10px", borderRadius: 6 }}>
-                    Subject: {tpl.subject}
-                  </div>
-                  <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45, maxHeight: 100, overflow: "hidden" }}>
-                    {tpl.body}
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(tpl.body);
-                        showToast("Copied template body to clipboard!");
-                      }}
-                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      <Copy size={12} /> Copy Template
-                    </button>
+            <div>
+              {/* Header with New Template Button */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <div>
+                  <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, margin: 0 }}>
+                    Company Email Template Library
+                  </h2>
+                  <p style={{ fontSize: 12.5, color: C.slate, margin: "2px 0 0 0" }}>
+                    Saved B2B sequence templates stored securely in your company database.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowNewTemplateModal(true)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    background: "linear-gradient(135deg, #F59E0B, #D97706)",
+                    color: "#fff",
+                    border: "none",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: "0 2px 6px rgba(245,158,11,0.25)"
+                  }}
+                >
+                  <Plus size={15} />
+                  <span>Create Template</span>
+                </button>
+              </div>
+
+              {templatesLoading ? (
+                <div style={{ textAlign: "center", padding: 40, color: C.slate }}>
+                  <RefreshCw size={24} className="animate-spin" style={{ margin: "0 auto 8px" }} />
+                  <div>Loading templates from database...</div>
+                </div>
+              ) : templates.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 40, textAlign: "center" }}>
+                  <BookOpen size={36} color="#D97706" style={{ margin: "0 auto 12px" }} />
+                  <div style={{ fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>No templates saved yet</div>
+                  <div style={{ fontSize: 13, color: C.slate, marginBottom: 16 }}>Create your first reusable cold email template or draft one with AI.</div>
+                  <button
+                    onClick={() => setShowNewTemplateModal(true)}
+                    style={{ padding: "8px 16px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    + Create Template
+                  </button>
+                </div>
+              ) : (
+                <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                  {templates.map((tpl) => (
+                    <div key={tpl.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 18, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{tpl.name}</div>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: HUB_PAPER, border: `1px solid ${C.border}`, color: C.slate }}>
+                            {tpl.category || "Outbound"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, marginBottom: 8, background: HUB_PAPER, padding: "6px 10px", borderRadius: 6 }}>
+                          Subject: {tpl.subject}
+                        </div>
+                        <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, maxHeight: 110, overflow: "hidden", whiteSpace: "pre-wrap" }}>
+                          {tpl.body_text}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 14, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTemplate(tpl.id)}
+                          style={{ border: "none", background: "transparent", color: "#DC2626", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}
+                        >
+                          Delete
+                        </button>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(`Subject: ${tpl.subject}\n\n${tpl.body_text}`);
+                              showToast("Copied template to clipboard!");
+                            }}
+                            style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}
+                          >
+                            <Copy size={12} /> Copy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGeneratedDraft({
+                                subject: tpl.subject,
+                                preview: (tpl.body_text || "").slice(0, 40) + "...",
+                                body: tpl.body_text
+                              });
+                              setView("drafter");
+                              showToast(`Loaded "${tpl.name}" into AI Drafter!`);
+                            }}
+                            style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", borderRadius: 6, background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#fff", border: "none", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                          >
+                            <PenLine size={12} /> Use in AI Drafter
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Create Template Modal */}
+              {showNewTemplateModal && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+                  <div style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 540, padding: "24px 28px", boxShadow: "0 20px 40px rgba(0,0,0,0.2)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                      <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>Create New Email Template</div>
+                      <button onClick={() => setShowNewTemplateModal(false)} style={{ border: "none", background: "transparent", cursor: "pointer" }}>
+                        <X size={18} color={C.slate} />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleCreateNewTemplate} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Template Name</label>
+                        <input
+                          type="text"
+                          required
+                          value={newTemplateForm.name}
+                          onChange={(e) => setNewTemplateForm({ ...newTemplateForm, name: e.target.value })}
+                          placeholder="e.g. Cold Executive Hook v2"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13 }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Category</label>
+                        <select
+                          value={newTemplateForm.category}
+                          onChange={(e) => setNewTemplateForm({ ...newTemplateForm, category: e.target.value })}
+                          style={{ width: "100%", padding: "8px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5 }}
+                        >
+                          <option value="Outbound">Outbound / Cold Approach</option>
+                          <option value="Follow-Up">Follow-Up / Proof</option>
+                          <option value="Nudge">Nudge / Quick Check-In</option>
+                          <option value="Breakup">Final Breakup Note</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Subject Line</label>
+                        <input
+                          type="text"
+                          required
+                          value={newTemplateForm.subject}
+                          onChange={(e) => setNewTemplateForm({ ...newTemplateForm, subject: e.target.value })}
+                          placeholder="e.g. Eliminating operational latency for {{companyName}}"
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13 }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 4 }}>Email Body</label>
+                        <textarea
+                          rows={6}
+                          required
+                          value={newTemplateForm.body_text}
+                          onChange={(e) => setNewTemplateForm({ ...newTemplateForm, body_text: e.target.value })}
+                          placeholder="Hi {{firstName}},&#10;&#10;Noticed your team is scaling operations..."
+                          style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY, lineHeight: 1.5 }}
+                        />
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowNewTemplateModal(false)}
+                          style={{ padding: "8px 14px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          style={{ padding: "8px 18px", borderRadius: 7, border: "none", background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          Save Template to Database
+                        </button>
+                      </div>
+                    </form>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           )}
 

@@ -1,7 +1,7 @@
 """New companies registering themselves, email verification, "Sign in with Google" and the
 first-steps checklist.
 
-Signup is off unless ALLOW_SIGNUP=true. It creates an organisation, its starter roles and the
+Signup is on unless ALLOW_SIGNUP=false. It creates an organisation, its starter roles and the
 owner (an admin). When the platform mailbox is set up, the organisation stays "pending" and
 nobody can sign in until the owner clicks the link in the verification email.
 

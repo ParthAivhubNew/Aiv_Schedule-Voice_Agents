@@ -164,6 +164,7 @@ async def _has(db, table: str, column: str) -> bool:
 
 
 def platform_status() -> Dict[str, Any]:
+    from app.api.signup import signup_allowed
     from app.core import mailer
     from app.services import billing
     from app.services.telnyx_provisioning import account_mode, platform_ready
@@ -173,7 +174,7 @@ def platform_status() -> Dict[str, Any]:
         "telnyxWebhookKey": bool(os.getenv("TELNYX_ASSISTANT_PUBLIC_KEY")),
         "stripe": billing.configured(), "stripeTestMode": billing.test_mode(), "stripeWebhook": bool(billing.webhook_secret()),
         "mail": mailer.configured(), "google": bool(os.getenv("FIREBASE_API_KEY") and os.getenv("FIREBASE_PROJECT_ID")),
-        "signup": os.getenv("ALLOW_SIGNUP", "").lower() in ("1", "true", "yes"),
+        "signup": signup_allowed(),
     }
 
 
@@ -476,6 +477,12 @@ async def attach_number(org_id: str, body: AttachNumberBody, request: Request):
                 await TelnyxClient(platform_key()).update_phone_number(str(found.get("id")), billing_group_id=setup.billing_group_id)
             except TelnyxError as err:
                 warning = f"Added, but Telnyx did not move it to the company's billing group: {err}"
+        if (TP.account_mode() == "billing_group" and setup.messaging_profile_id
+                and found.get("messaging_profile_id") != setup.messaging_profile_id):
+            try:  # so WhatsApp and its verification text reach us
+                await TelnyxClient(platform_key()).set_messaging_profile(str(found.get("id")), setup.messaging_profile_id)
+            except TelnyxError as err:
+                warning = warning or f"Added, but Telnyx did not link it for messages (WhatsApp): {err}"
         n = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.e164 == e164))).scalars().first()
         if n is None:
             has_default = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.is_default.is_(True)))).scalars().first()
@@ -495,7 +502,8 @@ class WhatsappBody(BaseModel):
 
 @router.post("/clients/{org_id}/numbers/{number_id}/whatsapp")
 async def set_whatsapp(org_id: str, number_id: str, body: WhatsappBody, request: Request):
-    """Switch WhatsApp on for a number once its Meta business signup is complete in Telnyx."""
+    """Switch WhatsApp on for a number once its Meta business signup is complete in Telnyx. Off
+    also forgets the signup, so the company has to ask again before it can turn it back on."""
     from app.models.models import OrgPhoneNumber
 
     _admin_only(request)
@@ -504,9 +512,15 @@ async def set_whatsapp(org_id: str, number_id: str, body: WhatsappBody, request:
         n = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.id == number_id))).scalars().first()
         if not n:
             raise HTTPException(status_code=404, detail="Number not found.")
-        caps = [c for c in (n.capabilities or []) if c not in ("whatsapp", "whatsapp_requested")]
+        caps = [c for c in (n.capabilities or []) if c not in ("whatsapp", "whatsapp_requested", "whatsapp_ready")]
         if body.enabled:
-            caps.append("whatsapp")
+            caps += ["whatsapp", "whatsapp_ready"]
+        else:
+            from app.services.whatsapp_signup import signup_for
+
+            s = await signup_for(db, n.id)
+            if s:
+                await db.delete(s)
         n.capabilities = caps
         await db.commit()
         return caps
@@ -532,13 +546,19 @@ async def verification_queue(request: Request):
             "SELECT v.id, v.org_id, o.name, v.status, v.reason, v.entity_type, v.requirement_group_id, v.created_at, v.updated_at "
             "FROM verification_submissions v LEFT JOIN organizations o ON o.id = v.org_id ORDER BY v.created_at DESC LIMIT 200"))).all()
         wa = (await db.execute(text(
-            "SELECT n.id, n.org_id, o.name, n.e164 FROM org_phone_numbers n LEFT JOIN organizations o ON o.id = n.org_id "
+            "SELECT n.id, n.org_id, o.name, n.e164, s.status, s.telnyx_status, s.error, s.created_at "
+            "FROM org_phone_numbers n LEFT JOIN organizations o ON o.id = n.org_id "
+            "LEFT JOIN whatsapp_signups s ON s.number_id = n.id "
             "WHERE n.capabilities::text LIKE '%whatsapp_requested%'"))).all()
+    from app.services.whatsapp_signup import automatic
     return {
         "verifications": [{"id": r[0], "orgId": r[1], "orgName": r[2], "status": r[3], "reason": r[4], "entityType": r[5],
                            "groupId": r[6], "at": r[7].isoformat() if r[7] else None,
                            "waitingHours": round((datetime.utcnow() - r[7]).total_seconds() / 3600) if r[7] else None} for r in rows],
-        "whatsappRequests": [{"numberId": r[0], "orgId": r[1], "orgName": r[2], "e164": r[3]} for r in wa],
+        "whatsappRequests": [{"numberId": r[0], "orgId": r[1], "orgName": r[2], "e164": r[3], "signupStatus": r[4] or "",
+                              "telnyxStatus": r[5] or "", "error": r[6] or "",
+                              "since": r[7].isoformat() if r[7] else None} for r in wa],
+        "whatsappAutomatic": automatic(),
     }
 
 

@@ -1490,8 +1490,8 @@ def _spoken_reply(text: str, had_plan: bool) -> str:
         if had_plan:
             return "Pinned. Write the post plan, then generate. I will use the company profile."
         return "Pinned. Write what the post should be about, then Generate draft."
-    if len(spoken) > 900:
-        spoken = spoken[:880].rstrip() + "…"
+    if len(spoken) > 5000:
+        spoken = spoken[:4980].rstrip() + "…"
     return spoken or (
         "Draft is on the calendar. Change the image or caption, then approve to post."
         if had_plan
@@ -1668,6 +1668,63 @@ def _calendar_lines(current_plan: Dict[str, Any], focus_id: str) -> str:
     return "\n".join(lines) if lines else "(no posts yet)"
 
 
+CHAT_TURNS = 30
+CHAT_TURN_CHARS = 4000
+
+
+def _chat_history(messages: Any, prompt: str) -> List[Dict[str, str]]:
+    """The conversation for the model: the last CHAT_TURNS turns, each trimmed, roles kept to
+    user/assistant, and a user turn sent twice in a row kept once."""
+    out: List[Dict[str, str]] = []
+    for m in messages if isinstance(messages, list) else []:
+        if not isinstance(m, dict):
+            continue
+        role = "assistant" if m.get("role") == "assistant" else "user"
+        content = str(m.get("content") or "").strip()[:CHAT_TURN_CHARS]
+        if not content:
+            continue
+        if out and out[-1]["role"] == role == "user" and (out[-1]["content"] in content or content in out[-1]["content"]):
+            if len(content) >= len(out[-1]["content"]):  # the same request, once: the fuller wording wins
+                out[-1] = {"role": role, "content": content}
+            continue
+        out.append({"role": role, "content": content})
+    if not out and prompt:
+        out = [{"role": "user", "content": str(prompt)[:CHAT_TURN_CHARS]}]
+    out = out[-CHAT_TURNS:]
+    while out and out[0]["role"] != "user":
+        out.pop(0)
+    return out
+
+
+def _recent_openings(current_plan: Dict[str, Any], limit: int = 15) -> str:
+    """How recent posts open, so new ones do not repeat them."""
+    posts = [p for p in (current_plan.get("posts") or []) if isinstance(p, dict) and str(p.get("caption") or "").strip()]
+    posts.sort(key=lambda p: (str(p.get("date") or ""), str(p.get("time") or "")), reverse=True)
+    lines = []
+    for p in posts[:limit]:
+        first = re.sub(r"\s+", " ", str(p.get("caption") or "")).strip()[:160]
+        lines.append(f"- {p.get('date')} {p.get('channel')}: {first}")
+    return "\n".join(lines)
+
+
+async def _shared_pages(text: str) -> str:
+    """Text of up to two links the user pasted in their latest message."""
+    from app.services.safe_fetch import FetchRefused, fetch_text, urls_in
+
+    blocks = []
+    for url in urls_in(text, 2):
+        try:
+            title, body = await fetch_text(url, 6000)
+            if body:
+                blocks.append(f"Page the user shared: {url}\nTitle: {title}\n{body}")
+        except FetchRefused as err:
+            blocks.append(f"Link {url} could not be read: {err} Tell the user and ask them to paste the text instead.")
+        except Exception as err:
+            logger.info(f"[Scheduler Chat] could not read {url}: {err}")
+            blocks.append(f"Link {url} could not be read. Tell the user and ask them to paste the text instead.")
+    return "\n\n".join(blocks)
+
+
 @router.post("/chat-plan")
 async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
     prompt = payload.get("text") or payload.get("message") or ""
@@ -1688,11 +1745,7 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
         if extra:
             company_context = (extra + ("\n" + company_context if company_context else "")).strip()
 
-    chat_msgs = []
-    if messages:
-        chat_msgs = messages
-    elif prompt:
-        chat_msgs = [{"role": "user", "content": prompt}]
+    chat_msgs = _chat_history(messages, prompt)
 
     from app.services.llm_gateway import call_open_chat_llm, output_token_limit
 
@@ -1723,23 +1776,42 @@ You are a direct chat window with scheduler skills: plan dates, write captions, 
 
 If the user asks to generate or change a visual, describe a concrete photo (people, place, light). No fake UI text.
 If they pin a date, do not ask for a file, meeting, or system. Use their post plan and the company profile.
-If they ask a question (strategy, mix, caption feedback), answer plainly in chat. Do not invent calendar posts unless they asked to plan, draft, generate, schedule, or change posts.
+If they ask a question (strategy, mix, caption feedback, ideas), answer fully and specifically: concrete examples for THIS company, short paragraphs or "- " bullet points, up to about 350 words. Do not invent calendar posts unless they asked to plan, draft, generate, schedule, or change posts.
+If they share a link or paste text, use it as the source (summarise, pull angles, or turn it into a series of posts when asked). Never claim facts that are not in the source or the profile.
+Know the channels: LinkedIn (insight posts, 120-220 words), X (one sharp line, max 280 characters), Instagram (visual first, caption plus hashtags), Facebook (conversational, local), Threads (short takes). Suggest the right channel for an idea when it helps.
 If they want a calendar / plan / captions, write captions that could ship today."""
+    try:
+        from app.services import brand_voice
+
+        voice_block = brand_voice.prompt_block(await brand_voice.load(db))
+    except Exception as voice_err:
+        logger.warning(f"[Scheduler Chat] brand voice not loaded: {voice_err}")
+        voice_block = ""
+    if voice_block:
+        system_prompt += "\n\n" + voice_block
 
     kb_note = ""
     try:
         from app.services.rag_service import search_knowledge
-        hits = await search_knowledge(db, prompt or company_pitch, top_k=3, min_score=0.38)
+        recent_user = " ".join(m["content"][:500] for m in chat_msgs if m["role"] == "user")[-1500:]
+        focus_title = ""
+        if focus_post_id and isinstance(current_plan, dict):
+            focus = next((p for p in current_plan.get("posts") or [] if isinstance(p, dict) and str(p.get("id")) == focus_post_id), None)
+            focus_title = str((focus or {}).get("headline") or "")
+        query = " ".join(x for x in (focus_title, recent_user or prompt) if x).strip() or company_pitch
+        hits = await search_knowledge(db, query, top_k=6, min_score=0.35)
         if hits:
             bits = []
             for h in hits:
-                content = (h.get("content") or "").strip().replace("\n", " ")[:280]
+                content = (h.get("content") or "").strip().replace("\n", " ")[:600]
                 if _usable_kb_text(content):
                     bits.append(f"- {(h.get('title') or 'Note')}: {content}")
             if bits:
                 kb_note = "Company knowledge (do not invent beyond this):\n" + "\n".join(bits)
     except Exception:
         kb_note = ""
+
+    shared_pages = await _shared_pages(_last_user_text(chat_msgs))
 
     system_prompt += f"""
 
@@ -1760,12 +1832,15 @@ Rules:
 - Posts marked "edited by hand" were written by the user: only reword them when the user asks about that post.
 - At most {MAX_POSTS_PER_REQUEST} new posts per request. If asked for more, plan the first {MAX_POSTS_PER_REQUEST} and say so.
 - Write about what the user asked, using only company profile facts. 70% educational, 20% thought leadership, 10% product. No fake statistics.
-- Spoken reply: 1–3 short sentences. Never paste JSON, SQL errors, trace dumps, or DevTools objects. Ignore knowledge that looks like an error log.
+- When you change the calendar, keep the spoken reply to 1-3 short sentences. When the user asked a question, answer it fully (see above). Never paste JSON, SQL errors, trace dumps, or DevTools objects. Ignore knowledge that looks like an error log.
+- Do not repeat the openings of recent posts (listed below); find a fresh angle.
 {("Pinned calendar day: " + target_date + ". New or edited posts MUST use this date unless they name another.") if target_date else ""}
 {("Pinned dates: " + ", ".join(pinned_dates) + ". Prefer these dates.") if pinned_dates else ""}
 {("Selected channels: " + ", ".join(selected_channels) + ". Use these platforms unless the user names others.") if selected_channels else ""}
 {("Revise post id " + focus_post_id + " in place. Keep its id.") if focus_post_id else ""}
 {kb_note}
+{("Recent post openings:" + chr(10) + _recent_openings(current_plan)) if isinstance(current_plan, dict) and _recent_openings(current_plan) else ""}
+{shared_pages}
 Current calendar (id | date time | channel | status | headline):
 {_calendar_lines(current_plan if isinstance(current_plan, dict) else {}, focus_post_id)}
 """
@@ -1830,3 +1905,70 @@ Current calendar (id | date time | channel | status | headline):
         "posts": (structured_plan or {}).get("posts") or [],
         "error": llm_res.get("error"),
     }
+
+
+# ── Brand voice and saved Plan AI chats ─────────────────────────────────────
+@router.get("/brand-voice")
+async def get_brand_voice(db: AsyncSession = Depends(get_db)):
+    from app.services import brand_voice
+
+    return await brand_voice.load(db)
+
+
+@router.put("/brand-voice")
+async def put_brand_voice(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    from app.services import brand_voice
+
+    return await brand_voice.save(db, payload)
+
+
+THREAD_MESSAGES = 200
+THREAD_MESSAGE_CHARS = 8000
+
+
+def _thread_json(t) -> Dict[str, Any]:
+    return {"id": t.id, "title": t.title, "messages": t.messages or [], "createdBy": t.created_by_name or "",
+            "updatedAt": int(t.updated_at.timestamp() * 1000) if t.updated_at else None}
+
+
+@router.get("/chat-threads")
+async def list_chat_threads(db: AsyncSession = Depends(get_db)):
+    from app.models.models import PlanChatThread
+
+    rows = (await db.execute(select(PlanChatThread).order_by(PlanChatThread.updated_at.desc()).limit(40))).scalars().all()
+    return [_thread_json(t) for t in rows]
+
+
+@router.put("/chat-threads/{thread_id}")
+async def save_chat_thread(thread_id: str, payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
+    from app.core.auth_middleware import current
+    from app.models.models import PlanChatThread
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", thread_id or ""):
+        raise HTTPException(status_code=400, detail="Bad conversation id.")
+    msgs = []
+    for m in (payload.get("messages") or [])[-THREAD_MESSAGES:]:
+        if isinstance(m, dict) and isinstance(m.get("text"), str):
+            msgs.append({k: (v[:THREAD_MESSAGE_CHARS] if isinstance(v, str) else v) for k, v in m.items()
+                         if k in ("id", "who", "kind", "text", "postId") and (isinstance(v, str) or v is None)})
+    t = (await db.execute(select(PlanChatThread).where(PlanChatThread.id == thread_id))).scalars().first()
+    if not t:
+        ctx = current(request)
+        t = PlanChatThread(id=thread_id, created_by=str(ctx.get("operator_id") or ""), created_by_name=str(ctx.get("name") or ""))
+        db.add(t)
+    t.title = str(payload.get("title") or "Chat")[:120]
+    t.messages = msgs
+    t.updated_at = datetime.utcnow()
+    await db.commit()
+    return _thread_json(t)
+
+
+@router.delete("/chat-threads/{thread_id}")
+async def delete_chat_thread(thread_id: str, db: AsyncSession = Depends(get_db)):
+    from app.models.models import PlanChatThread
+
+    t = (await db.execute(select(PlanChatThread).where(PlanChatThread.id == thread_id))).scalars().first()
+    if t:
+        await db.delete(t)
+        await db.commit()
+    return {"ok": True}

@@ -18,6 +18,7 @@ STANDARD_DKIM_SELECTORS = ["google", "selector1", "selector2", "default", "k1", 
 
 async def verify_domain_dns(domain: str, dkim_selector: Optional[str] = None) -> Dict[str, Any]:
     """Asynchronously audits domain DNS records for email deliverability readiness."""
+    domain = (domain or "").strip().lower()
     try:
         import dns.asyncresolver
         import dns.resolver
@@ -45,6 +46,8 @@ async def verify_domain_dns(domain: str, dkim_selector: Optional[str] = None) ->
     }
 
     if not has_dns:
+        logger.warning("dnspython is not installed: DNS checks are skipped (pip install -r requirements.txt).")
+        result["recommendations"].append("DNS checks are unavailable on the server right now. Ask the OutReach team to install dnspython.")
         return result
 
     # 1. SPF Check
