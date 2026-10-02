@@ -1054,3 +1054,206 @@ class CallBrief(Base):
     supervisor_leg = Column(String, default="")  # the user's own call while they have taken over
     supervisor_id = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ── Cold Email & Mailbox Warmup Plugin Models ─────────────────────────────────
+
+class EmailMailbox(Base):
+    """A user or team connected sending mailbox (Google Workspace, Microsoft 365, SMTP/IMAP)."""
+    __tablename__ = "email_mailboxes"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    operator_id = Column(String, default="", index=True)
+    email = Column(String, index=True, nullable=False)
+    display_name = Column(String, default="")
+    provider = Column(String, default="google")  # google, microsoft, smtp
+    auth_type = Column(String, default="oauth")  # oauth, credentials
+    credentials_encrypted = Column(Text, default="")  # encrypted via secret_box
+    
+    # Warmup & Sending Status
+    status = Column(String, default="connected")  # connected, warming, graduated, active, paused, error, disabled
+    pause_reason = Column(Text, default="")
+    daily_cap = Column(Integer, default=5)
+    max_daily_target = Column(Integer, default=40)
+    warmup_started_at = Column(DateTime, nullable=True)
+    graduated_at = Column(DateTime, nullable=True)
+    consecutive_healthy_days = Column(Integer, default=0)
+    bounce_rate_7d = Column(Float, default=0.0)
+    
+    # DNS Verification State
+    spf_verified = Column(Boolean, default=False)
+    dkim_verified = Column(Boolean, default=False)
+    dmarc_verified = Column(Boolean, default=False)
+    mx_verified = Column(Boolean, default=False)
+    last_dns_check_at = Column(DateTime, nullable=True)
+    dns_check_details = Column(JSON, default=dict)
+    
+    last_sync_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EmailSendLog(Base):
+    """Daily aggregated send statistics per mailbox (guarantees max 1 log row per mailbox per day)."""
+    __tablename__ = "email_send_logs"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    mailbox_id = Column(String, ForeignKey("email_mailboxes.id", ondelete="CASCADE"), index=True, nullable=False)
+    date = Column(String, index=True, nullable=False)  # YYYY-MM-DD
+    sent_count = Column(Integer, default=0)
+    warmup_sent_count = Column(Integer, default=0)
+    campaign_sent_count = Column(Integer, default=0)
+    bounced_count = Column(Integer, default=0)
+    complaint_count = Column(Integer, default=0)
+    reply_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EmailMessage(Base):
+    """Individual cold email message log with thread tracking and reply categorization."""
+    __tablename__ = "email_messages"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    mailbox_id = Column(String, ForeignKey("email_mailboxes.id", ondelete="SET NULL"), index=True, nullable=True)
+    campaign_id = Column(String, index=True, default="")
+    sequence_step_id = Column(String, default="")
+    prospect_id = Column(String, index=True, default="")
+    
+    message_id = Column(String, index=True, default="")  # RFC 2822 Message-ID
+    thread_id = Column(String, index=True, default="")
+    recipient_email = Column(String, index=True, nullable=False)
+    subject = Column(Text, default="")
+    body_text = Column(Text, default="")
+    body_html = Column(Text, default="")
+    is_warmup = Column(Boolean, default=False)
+    
+    status = Column(String, default="queued")  # queued, sent, delivered, replied, bounced, failed
+    bounce_reason = Column(Text, default="")
+    reply_category = Column(String, default="")  # interested, not_interested, ooo, unsubscribe, question
+    reply_snippet = Column(Text, default="")
+    
+    sent_at = Column(DateTime, nullable=True)
+    replied_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class EmailSuppression(Base):
+    """Global (org_id is null) or org-scoped email suppression & do-not-contact registry."""
+    __tablename__ = "email_suppressions"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, nullable=True)  # NULL = global platform suppression
+    email = Column(String, index=True, nullable=False)
+    domain = Column(String, index=True, default="")
+    reason = Column(String, default="unsubscribe")  # hard_bounce, spam_complaint, unsubscribe, manual, gdpr_erasure
+    source = Column(String, default="manual")  # webhook, inbox_reader, manual_import, voice_dnc_sync
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class EmailCampaign(Base):
+    """Multi-channel cold outreach campaign definition (supporting email + voice call steps)."""
+    __tablename__ = "email_campaigns"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    name = Column(String, nullable=False)
+    status = Column(String, default="draft")  # draft, running, paused, completed
+    mailbox_ids = Column(JSON, default=list)  # Rotating pool of mailboxes
+    timezone_policy = Column(String, default="recipient")  # recipient, org
+    sending_window_start = Column(String, default="09:00")
+    sending_window_end = Column(String, default="17:00")
+    days_of_week = Column(JSON, default=lambda: [1, 2, 3, 4, 5])  # Mon-Fri
+    min_delay_seconds = Column(Integer, default=60)
+    max_delay_seconds = Column(Integer, default=300)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EmailSequenceStep(Base):
+    """Individual step in a campaign cadence (can be Email or Voice SDR call)."""
+    __tablename__ = "email_sequence_steps"
+
+    id = Column(String, primary_key=True)
+    campaign_id = Column(String, ForeignKey("email_campaigns.id", ondelete="CASCADE"), index=True, nullable=False)
+    step_number = Column(Integer, nullable=False)
+    channel = Column(String, default="email")  # email, voice_call
+    delay_days = Column(Integer, default=0)
+    delay_hours = Column(Integer, default=0)
+    
+    # For Email Steps
+    subject = Column(Text, default="")
+    body_template = Column(Text, default="")
+    
+    # For Voice Steps
+    voice_assistant_id = Column(String, default="")
+    mission_id = Column(String, default="")
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EmailEnrollment(Base):
+    """Prospect enrollment and progression tracking within a multi-step sequence."""
+    __tablename__ = "email_enrollments"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    campaign_id = Column(String, ForeignKey("email_campaigns.id", ondelete="CASCADE"), index=True, nullable=False)
+    prospect_id = Column(String, ForeignKey("prospects.id", ondelete="CASCADE"), index=True, nullable=False)
+    current_step = Column(Integer, default=1)
+    status = Column(String, default="active")  # active, paused, completed, replied, bounced, unsubscribed
+    last_action_at = Column(DateTime, nullable=True)
+    next_action_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PersonCache(Base):
+    """Global shared person & enrichment cache with PECR entity classification."""
+    __tablename__ = "person_cache"
+
+    id = Column(String, primary_key=True)
+    pdl_person_id = Column(String, unique=True, index=True, nullable=True)
+    email = Column(String, index=True, nullable=False)
+    first_name = Column(String, default="")
+    last_name = Column(String, default="")
+    company_name = Column(String, default="")
+    domain = Column(String, index=True, default="")
+    
+    # UK PECR Entity Classification
+    entity_type = Column(String, default="unknown")  # corporate (Ltd/PLC/LLP), individual (sole trader), unknown
+    entity_verified = Column(Boolean, default=False)
+    
+    # Email Verification
+    verification_status = Column(String, default="unverified")  # verified, risky, catch_all, invalid
+    verified_at = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EnrichmentAttempt(Base):
+    """Telemetry log for enrichment provider waterfall performance, cost tracking, and margin analysis."""
+    __tablename__ = "enrichment_attempts"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    query = Column(Text, default="")
+    provider = Column(String, nullable=False)  # cache, icypeas, hunter, findymail, leadmagic, bettercontact
+    found_email = Column(String, default="")
+    cost_usd = Column(Float, default=0.0)
+    latency_ms = Column(Integer, default=0)
+    hit = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class SeedInbox(Base):
+    """Managed seed inboxes for automated deliverability warmup exchange and placement testing."""
+    __tablename__ = "seed_inboxes"
+
+    id = Column(String, primary_key=True)
+    email = Column(String, unique=True, nullable=False)
+    provider = Column(String, default="google")  # google, microsoft, custom
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

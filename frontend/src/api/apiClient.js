@@ -427,6 +427,16 @@ export const api = {
   previewConversationTemplate: (id, sampleData) => apiRequest(`/conversation-templates/${id}/preview`, { method: 'POST', body: sampleData || {} }),
 
   // 5-Point Universal Diagnostics
-  runVoiceAndBookingDiagnostics: () => apiRequest('/diagnostics/test-voice-and-booking', { method: 'POST' })
+  runVoiceAndBookingDiagnostics: () => apiRequest('/diagnostics/test-voice-and-booking', { method: 'POST' }),
+
+  // Cold Email, Warmup & Waterfall Enrichment
+  getEmailMailboxes: () => apiRequest('/email/mailboxes'),
+  connectEmailMailbox: (payload) => apiRequest('/email/mailboxes', { method: 'POST', body: payload }),
+  checkMailboxDns: (id) => apiRequest(`/email/mailboxes/${id}/dns-check`, { method: 'POST' }),
+  toggleMailboxWarmup: (id) => apiRequest(`/email/mailboxes/${id}/warmup/toggle`, { method: 'POST' }),
+  lookupEnrichWaterfall: (payload) => apiRequest('/email/enrich/lookup', { method: 'POST', body: payload }),
+  getEmailSuppressions: () => apiRequest('/email/suppression'),
+  addEmailSuppression: (payload) => apiRequest('/email/suppression', { method: 'POST', body: payload }),
+  getUnifiedInbox: (category) => apiRequest(`/email/inbox${category ? `?category=${encodeURIComponent(category)}` : ''}`),
 };
 

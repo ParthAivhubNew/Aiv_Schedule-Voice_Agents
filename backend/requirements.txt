@@ -25,3 +25,7 @@ livekit-api>=1.2.1
 miniaudio>=1.61
 audioop-lts>=0.2.1; python_version >= '3.13'
 bcrypt>=4.1
+alembic>=1.14.0
+arq>=0.26.0
+dnspython>=2.7.0
+aiosmtplib>=3.0.0
