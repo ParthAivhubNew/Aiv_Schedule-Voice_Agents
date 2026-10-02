@@ -50,7 +50,7 @@ On the server after `git pull`, make sure the env file is in place before restar
 | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | LiveKit (same pair as `livekit.yaml`) |
 | `SIPGATE_SIP_ID`, `SIPGATE_PASSWORD` | SIPgate trunk, only if you use it (no longer built in) |
 | `SYSTEM_MAIL_HOST`, `SYSTEM_MAIL_PORT`, `SYSTEM_MAIL_USER`, `SYSTEM_MAIL_PASSWORD`, `SYSTEM_MAIL_FROM`, `SYSTEM_MAIL_FROM_NAME`, `SYSTEM_MAIL_TLS` | Platform email (invites, resets, verification) |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | "Sign in with Google" (button appears once set). In Google Cloud → Credentials → OAuth client (Web application), add the redirect URI `https://outreach.aivhub.com/api/auth/google/callback` |
+| `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID` (optional `FIREBASE_AUTH_DOMAIN`, `FIREBASE_APP_ID`) | "Sign in with Google" through Firebase (button appears once set). Values come from Firebase console → Project settings → Your apps → Web app config (public by design). In Firebase → Authentication → Sign-in method, enable Google; under Settings → Authorized domains add your site (e.g. `outreach.aivhub.com`, and your ngrok domain for local). No Firebase service-account key is needed; never commit one. |
 | `ALLOW_SIGNUP` | `true` to let new companies register themselves (with the platform mailbox set, they must confirm their email first) |
 | `STARTER_CREDITS` | Free trial credits a self-signup organisation gets in each app, for 30 days (default 0: no trial). Every company stops at zero unless staff switch that off for it; staff add or remove credits under *Clients* |
 | `TELNYX_API_KEY` | Our (manager) Telnyx key: number search/orders, verification, WhatsApp |

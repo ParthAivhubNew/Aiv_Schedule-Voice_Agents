@@ -164,8 +164,8 @@ export const api = {
   forgotPassword: (email) => apiRequest('/auth/forgot-password', { method: 'POST', body: { email } }),
   resetPassword: (token, password) => apiRequest('/auth/reset-password', { method: 'POST', body: { token, password } }),
   resendVerification: (email) => apiRequest('/auth/resend-verification', { method: 'POST', body: { email } }),
-  googleExchange: async (code) => {
-    const res = await apiRequest('/auth/google/exchange', { method: 'POST', body: { code } });
+  firebaseSignIn: async (idToken) => {
+    const res = await apiRequest('/auth/firebase', { method: 'POST', body: { idToken } });
     setSession(res);
     return res;
   },

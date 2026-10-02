@@ -172,7 +172,7 @@ def platform_status() -> Dict[str, Any]:
         "telnyx": platform_ready(), "telnyxMode": account_mode(),
         "telnyxWebhookKey": bool(os.getenv("TELNYX_ASSISTANT_PUBLIC_KEY")),
         "stripe": billing.configured(), "stripeTestMode": billing.test_mode(), "stripeWebhook": bool(billing.webhook_secret()),
-        "mail": mailer.configured(), "google": bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")),
+        "mail": mailer.configured(), "google": bool(os.getenv("FIREBASE_API_KEY") and os.getenv("FIREBASE_PROJECT_ID")),
         "signup": os.getenv("ALLOW_SIGNUP", "").lower() in ("1", "true", "yes"),
     }
 
