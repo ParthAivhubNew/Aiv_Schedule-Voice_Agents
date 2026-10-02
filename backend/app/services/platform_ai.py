@@ -165,11 +165,11 @@ async def catalogue_for_org(db, org_id: str) -> Dict[str, list]:
 
     cat = await catalogue(db)
     live = await assistant_options.telnyx_lists()
-    voices = [{"id": c["voice"], "label": c["name"], "sample": "", "private": True, "provider": "your voices",
-               "language": c["language"], "gender": c["gender"]}
+    voices = [{"id": c["voice"], "label": c["name"], "sample": "", "private": True, "provider": "Your company's voices",
+               "engine": "Clone", "language": c["language"], "gender": c["gender"]}
               for c in await assistant_options.clones(db, org_id) if c.get("voice")]
-    voices += [{"id": v["id"], "label": v["label"], "sample": v["sample"], "private": bool(v["org"]), "provider": "added by OutReach",
-                "language": "", "gender": ""} for v in cat["voices"] if not v["org"] or v["org"] == org_id]
+    voices += [{"id": v["id"], "label": v["label"], "sample": v["sample"], "private": bool(v["org"]), "provider": "Picked by OutReach",
+                "engine": assistant_options.voice_engine(v["id"]), "language": "", "gender": ""} for v in cat["voices"] if not v["org"] or v["org"] == org_id]
     seen = {v["id"] for v in voices}
     voices += [v for v in live["voices"] if v["id"] not in seen]
     models = list(cat["models"]) + [m for m in live["models"] if m["id"] not in {x["id"] for x in cat["models"]}]
