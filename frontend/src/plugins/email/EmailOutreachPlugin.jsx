@@ -39,105 +39,8 @@ import { AppSwitcher } from "../../hub/AppSwitcher";
 import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
+import { CampaignsView, DoNotEmailView, FindView, MailboxesView, RepliesView } from "./OutreachViews";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
-
-const INITIAL_CAMPAIGN_SEQUENCES = [
-  {
-    id: "seq_1",
-    name: "Operational Friction Outbound",
-    targetAudience: "Logistics & Fleet Operations VPs",
-    status: "active",
-    enrollments: 412,
-    openRate: "68.4%",
-    replyRate: "24.6%",
-    cadence: "3-step cadence over 8 days",
-    steps: [
-      { stepNumber: 1, delayDays: 0, type: "Initial Hook", subject: "Eliminating dispatch friction at {{company}}", preview: "Hi {{firstName}}, noticed you recently expanded terminal capacity..." },
-      { stepNumber: 2, delayDays: 3, type: "Customer Story Proof", subject: "How similar fleets cut driver check-in delays by 65%", preview: "Quick follow-up on my note regarding autonomous ops updates..." },
-      { stepNumber: 3, delayDays: 7, type: "Executive Breakup", subject: "Permission to close your file for now?", preview: "I assume your dispatch systems are locked in for the quarter..." }
-    ]
-  },
-  {
-    id: "seq_2",
-    name: "Series A Tech Scaler Follow-up",
-    targetAudience: "COOs & Heads of People",
-    status: "active",
-    enrollments: 280,
-    openRate: "74.1%",
-    replyRate: "31.2%",
-    cadence: "3-step cadence over 6 days",
-    steps: [
-      { stepNumber: 1, delayDays: 0, type: "Funding Congratulatory Hook", subject: "Congrats on the Series A at {{company}}", preview: "Scaling operations without hiring 10 more coordinators..." },
-      { stepNumber: 2, delayDays: 2, type: "System Integration", subject: "Connecting directly with {{company}} Slack / CRM", preview: "Our platform arrives useful on day one..." },
-      { stepNumber: 3, delayDays: 6, type: "Briefing Offer", subject: "10-minute preview before your board meeting?", preview: "Happy to send a 1-page operational benchmark if preferred..." }
-    ]
-  },
-  {
-    id: "seq_3",
-    name: "Diagnostic Clinic No-Show Reduction",
-    targetAudience: "Clinical Directors & Operations Leads",
-    status: "paused",
-    enrollments: 165,
-    openRate: "61.8%",
-    replyRate: "18.5%",
-    cadence: "2-step cadence over 5 days",
-    steps: [
-      { stepNumber: 1, delayDays: 0, type: "HIPAA Compliant Alert", subject: "Specialty scan attendance rate at {{company}}", preview: "Most diagnostic clinics lose $14k/month to missed slots..." },
-      { stepNumber: 2, delayDays: 4, type: "ROI Demonstration", subject: "Cutting specialty appointment drop-offs", preview: "Automated pre-visit confirmations with zero staff overhead..." }
-    ]
-  }
-];
-
-const INITIAL_INBOX_THREADS = [
-  {
-    id: "thread_1",
-    prospectName: "Marcus Vance",
-    company: "Apex Freight Logistics Inc.",
-    email: "m.vance@apexfreight.com",
-    phone: "+1 (214) 555-0182",
-    sentiment: "positive",
-    sentimentLabel: "Meeting Requested",
-    receivedAt: "18 mins ago",
-    unread: true,
-    subject: "Re: Eliminating dispatch friction at Apex Freight",
-    lastMessage: "This sounds relevant. We have 3 new depots coming online in Dallas next month and dispatch is already underwater. Are you free Thursday at 2 PM CT for a quick call?",
-    history: [
-      { who: "them", text: "This sounds relevant. We have 3 new depots coming online in Dallas next month and dispatch is already underwater. Are you free Thursday at 2 PM CT for a quick call?" }
-    ]
-  },
-  {
-    id: "thread_2",
-    prospectName: "Sarah Lindqvist",
-    company: "CloudScale Systems Ltd",
-    email: "s.lindqvist@cloudscale.io",
-    phone: "+44 20 7946 0921",
-    sentiment: "question",
-    sentimentLabel: "Pricing & Integrations",
-    receivedAt: "1 hour ago",
-    unread: false,
-    subject: "Re: Congrats on the Series A at CloudScale",
-    lastMessage: "Thanks for reaching out. Does this integrate directly with HubSpot and Slack for notification triggers? Also what does your mid-market pricing look like?",
-    history: [
-      { who: "them", text: "Thanks for reaching out. Does this integrate directly with HubSpot and Slack for notification triggers? Also what does your mid-market pricing look like?" }
-    ]
-  },
-  {
-    id: "thread_3",
-    prospectName: "Dr. Arthur Pendelton",
-    company: "Beacon Health Diagnostics",
-    email: "a.pendelton@beaconhealth.org",
-    phone: "+1 (312) 555-0199",
-    sentiment: "positive",
-    sentimentLabel: "High Intent",
-    receivedAt: "3 hours ago",
-    unread: false,
-    subject: "Re: Specialty scan attendance rate at Beacon Health",
-    lastMessage: "We're evaluating solutions to reduce MRI and ultrasound no-shows right now. Send over your technical compliance sheet.",
-    history: [
-      { who: "them", text: "We're evaluating solutions to reduce MRI and ultrasound no-shows right now. Send over your technical compliance sheet." }
-    ]
-  }
-];
 
 const INITIAL_EMAIL_TEMPLATES = [
   {
@@ -203,9 +106,6 @@ export default function EmailOutreachPlugin({
     };
     return onRouteChange(onHash);
   }, [view]);
-  const [campaigns, setCampaigns] = useState(INITIAL_CAMPAIGN_SEQUENCES);
-  const [inboxThreads, setInboxThreads] = useState(INITIAL_INBOX_THREADS);
-  const [selectedThread, setSelectedThread] = useState(INITIAL_INBOX_THREADS[0]);
   const [templates, setTemplates] = useState(INITIAL_EMAIL_TEMPLATES);
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -285,7 +185,6 @@ export default function EmailOutreachPlugin({
   const [targetPersona, setTargetPersona] = useState("VP of Fleet Operations");
   const [selectedPostTopic, setSelectedPostTopic] = useState("Ops teams still closing the week in spreadsheets");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [replyText, setReplyText] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
   const [showAltSubjects, setShowAltSubjects] = useState(false);
   const [altSubjects, setAltSubjects] = useState([
@@ -346,9 +245,6 @@ export default function EmailOutreachPlugin({
     showToast("Inserted tag " + tag);
   };
 
-  const [showNewCampaignModal, setShowNewCampaignModal] = useState(false);
-  const [newCampaignName, setNewCampaignName] = useState("");
-  const [newCampaignAudience, setNewCampaignAudience] = useState("");
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -377,52 +273,26 @@ export default function EmailOutreachPlugin({
     }, 1000);
   };
 
-  const handleSendReply = () => {
-    if (!selectedThread) return;
-    showToast(`Reply sent to ${selectedThread.prospectName} (${selectedThread.email})!`);
-    setReplyText("");
-  };
-
-  const handleCreateCampaign = (e) => {
-    e.preventDefault();
-    if (!newCampaignName.trim()) return;
-    const created = {
-      id: "seq_" + Date.now(),
-      name: newCampaignName.trim(),
-      targetAudience: newCampaignAudience.trim() || "Target Business Decision Makers",
-      status: "active",
-      enrollments: 0,
-      openRate: "0.0%",
-      replyRate: "0.0%",
-      cadence: "3-step cadence over 7 days",
-      steps: [
-        { stepNumber: 1, delayDays: 0, type: "Initial Hook", subject: "Introduction & Value Angle", preview: "Hi {{firstName}}, quick note regarding..." },
-        { stepNumber: 2, delayDays: 3, type: "Case Study Proof", subject: "Operational benchmark metrics", preview: "Sharing how peers solve this..." },
-        { stepNumber: 3, delayDays: 7, type: "Follow-Up", subject: "Next steps for your team?", preview: "Checking in to see if this is relevant..." }
-      ]
-    };
-    setCampaigns((prev) => [created, ...prev]);
-    setShowNewCampaignModal(false);
-    setNewCampaignName("");
-    setNewCampaignAudience("");
-    showToast("Created new outreach sequence cadence!");
-  };
-
   const navItems = [
     { id: "copilot", label: "AI Outreach Copilot", icon: Sparkles, count: "Open Chat" },
-    { id: "campaigns", label: "Outreach Sequences", icon: Send, count: campaigns.length },
+    { id: "campaigns", label: "Campaigns", icon: Send },
+    { id: "mailboxes", label: "Mailboxes & Warmup", icon: ShieldCheck },
+    { id: "find", label: "Find Emails", icon: Search },
+    { id: "inbox", label: "Replies", icon: Mail },
     { id: "drafter", label: "AI Email Drafter", icon: PenLine, count: "AI" },
-    { id: "inbox", label: "Replies & Inbox", icon: Mail, count: inboxThreads.filter((t) => t.unread).length },
     { id: "templates", label: "Template Library", icon: BookOpen, count: templates.length },
-    { id: "analytics", label: "Deliverability & Stats", icon: BarChart3 },
+    { id: "donotemail", label: "Do-not-email List", icon: X },
     ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard }] : []),
   ];
 
   const viewTitles = {
     copilot: { title: "AI Outreach Copilot (Open Assistant)", desc: "Conversational AI assistant for email strategy, copywriting, objection handling, and messaging." },
-    campaigns: { title: "Outreach Sequences", desc: "Automated multi-step cold email cadences and deliverability metrics." },
+    campaigns: { title: "Campaigns", desc: "Multi-step cold email sequences sent from your mailboxes during your sending hours." },
+    mailboxes: { title: "Mailboxes & Warmup", desc: "Connect sending mailboxes, check their DNS and warm them up before campaigns." },
+    find: { title: "Find Emails", desc: "Find a person's verified work email from their name and company." },
+    donotemail: { title: "Do-not-email List", desc: "Addresses and domains no campaign will ever email." },
     drafter: { title: "AI Email Drafter", desc: "Generate personalized cold pitches or repurpose social content into newsletters." },
-    inbox: { title: "Unified Replies Inbox", desc: "Incoming client responses, sentiment tagging, and 1-click AI reply drafting." },
+    inbox: { title: "Replies", desc: "Replies to your campaigns, sorted by AI. Replying stops that lead's follow-ups." },
     templates: { title: "Email Template Library", desc: "Battle-tested B2B templates with dynamic personalization merge variables." },
     analytics: { title: "Deliverability & Domain Health", desc: "SPF/DKIM/DMARC status, inbox placement rates, and spam-trigger auditing." },
     subscription: { title: "Subscription", desc: "Your email outreach plan and credits. Change plan, top up, or cancel." },
@@ -592,27 +462,6 @@ export default function EmailOutreachPlugin({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {view === "campaigns" && (
-              <button
-                onClick={() => setShowNewCampaignModal(true)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  background: C.ink,
-                  color: "#fff",
-                  fontFamily: FONT_BODY,
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                <Plus size={14} /> New Sequence
-              </button>
-            )}
 
             {view === "drafter" && (
               <button
@@ -644,75 +493,6 @@ export default function EmailOutreachPlugin({
         {/* Main Workspace Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
           
-          {/* VIEW 1: OUTREACH SEQUENCES */}
-          {view === "campaigns" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              
-              {/* KPI metrics row */}
-              <div className="grid-2-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-                {[
-                  { label: "Active Sequences", val: campaigns.length, color: "#F59E0B" },
-                  { label: "Contacts Enrolled", val: "857", color: "#2563EB" },
-                  { label: "Average Open Rate", val: "68.4%", color: "#059669" },
-                  { label: "Reply Rate", val: "24.6%", color: "#8B5CF6" },
-                ].map((stat, i) => (
-                  <div key={i} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 18px" }}>
-                    <div style={{ fontSize: 12, color: C.slate, fontWeight: 600 }}>{stat.label}</div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 700, color: stat.color, marginTop: 4 }}>{stat.val}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Sequence Cards */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {campaigns.map((seq) => (
-                  <div key={seq.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>{seq.name}</span>
-                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: seq.status === "active" ? "#ECFDF5" : HUB_PAPER, color: seq.status === "active" ? "#059669" : C.slate }}>
-                            {seq.status === "active" ? "Active" : "Paused"}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>Targeting: {seq.targetAudience} · {seq.cadence}</div>
-                      </div>
-
-                      <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 11, color: C.slate }}>Open Rate</div>
-                          <div style={{ fontWeight: 700, color: "#059669", fontSize: 14 }}>{seq.openRate}</div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 11, color: C.slate }}>Reply Rate</div>
-                          <div style={{ fontWeight: 700, color: "#2563EB", fontSize: 14 }}>{seq.replyRate}</div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 11, color: C.slate }}>Enrolled</div>
-                          <div style={{ fontWeight: 700, color: C.ink, fontSize: 14 }}>{seq.enrollments}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Step pills */}
-                    <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: `repeat(${seq.steps.length}, 1fr)`, gap: 10, background: HUB_PAPER, padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }}>
-                      {seq.steps.map((st) => (
-                        <div key={st.stepNumber} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 3 }}>
-                            <span>Step {st.stepNumber} ({st.type})</span>
-                            <span>{st.delayDays === 0 ? "Day 1" : `+${st.delayDays}d`}</span>
-                          </div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{st.subject}</div>
-                          <div style={{ fontSize: 11, color: C.slate, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{st.preview}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          )}
 
           {/* VIEW 2: EXPANSIVE AI EMAIL STUDIO */}
           {view === "drafter" && (
@@ -1073,106 +853,6 @@ export default function EmailOutreachPlugin({
             </div>
           )}
 
-          {/* VIEW 3: INBOX & REPLIES */}
-          {view === "inbox" && (
-            <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "1.2fr 1.8fr", gap: 16, minHeight: 480 }}>
-              
-              {/* Left Inbox List */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
-                  Client Replies ({inboxThreads.length})
-                </div>
-
-                <div style={{ overflowY: "auto", flex: 1 }}>
-                  {inboxThreads.map((thread) => {
-                    const active = selectedThread?.id === thread.id;
-                    return (
-                      <div
-                        key={thread.id}
-                        onClick={() => setSelectedThread(thread)}
-                        style={{
-                          padding: "14px 16px",
-                          borderBottom: `1px solid ${C.borderLight}`,
-                          background: active ? "#FFFBEB" : "#fff",
-                          cursor: "pointer",
-                          borderLeft: active ? "3px solid #F59E0B" : "3px solid transparent",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
-                          <span style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{thread.prospectName}</span>
-                          <span style={{ fontSize: 10.5, color: C.slate }}>{thread.receivedAt}</span>
-                        </div>
-                        <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 5 }}>{thread.company}</div>
-                        <div style={{ fontSize: 12, color: C.textInk, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {thread.lastMessage}
-                        </div>
-                        <span style={{ display: "inline-block", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#ECFDF5", color: "#059669", marginTop: 6 }}>
-                          {thread.sentimentLabel}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Right Conversation & Reply Box */}
-              {selectedThread ? (
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, display: "flex", flexDirection: "column" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 14, borderBottom: `1px solid ${C.border}`, marginBottom: 14 }}>
-                    <div>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>{selectedThread.prospectName}</div>
-                      <div style={{ fontSize: 12, color: C.slate }}>{selectedThread.email} · {selectedThread.company}</div>
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: "#ECFDF5", color: "#059669" }}>
-                      {selectedThread.sentimentLabel}
-                    </span>
-                  </div>
-
-                  {/* Message body */}
-                  <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, fontSize: 13, color: C.textInk, lineHeight: 1.5, marginBottom: 16 }}>
-                    <div style={{ fontWeight: 700, fontSize: 12.5, color: C.ink, marginBottom: 6 }}>{selectedThread.subject}</div>
-                    {selectedThread.lastMessage}
-                  </div>
-
-                  {/* 1-Click AI Reply */}
-                  <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <label style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Compose Reply</label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setReplyText(`Hi ${selectedThread.prospectName.split(" ")[0]},\n\nThanks for your reply! Thursday at 2 PM CT works well for our team. I will send over a calendar invite with the Zoom briefing link shortly.\n\nLooking forward to speaking,\n${operator ? operator.name : "The team"}`);
-                          showToast("Generated smart AI reply draft!");
-                        }}
-                        style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 11.5, color: "#D97706", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}
-                      >
-                        <Sparkles size={12} /> Auto-Draft AI Reply
-                      </button>
-                    </div>
-
-                    <textarea
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      placeholder="Type reply or click Auto-Draft AI Reply above..."
-                      rows={4}
-                      style={{ width: "100%", boxSizing: "border-box", padding: 10, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: FONT_BODY }}
-                    />
-
-                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                      <button
-                        onClick={handleSendReply}
-                        disabled={!replyText.trim()}
-                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 18px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 600, cursor: replyText.trim() ? "pointer" : "not-allowed" }}
-                      >
-                        <Send size={13} /> Send Reply
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-            </div>
-          )}
 
           {/* VIEW 4: TEMPLATES */}
           {view === "templates" && (
@@ -1207,93 +887,18 @@ export default function EmailOutreachPlugin({
             </div>
           )}
 
+          {view === "campaigns" && <CampaignsView />}
+          {view === "mailboxes" && <MailboxesView />}
+          {view === "find" && <FindView />}
+          {view === "inbox" && <RepliesView />}
+          {view === "donotemail" && <DoNotEmailView />}
           {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="email" back="/emailoutreach/subscription" />}
 
-          {/* VIEW 5: ANALYTICS & DELIVERABILITY */}
-          {view === "analytics" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 18 }}>
-                  <div style={{ fontSize: 12, color: C.slate, fontWeight: 600 }}>SPF Authentication</div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>Valid (Passed)</div>
-                  <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>Domain authorized for outbound mail</div>
-                </div>
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 18 }}>
-                  <div style={{ fontSize: 12, color: C.slate, fontWeight: 600 }}>DKIM Signature</div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>Active (2048-bit)</div>
-                  <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>Cryptographic header verification</div>
-                </div>
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 18 }}>
-                  <div style={{ fontSize: 12, color: C.slate, fontWeight: 600 }}>DMARC Policy</div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>Enforced</div>
-                  <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>Protection against domain spoofing</div>
-                </div>
-              </div>
-
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 8 }}>
-                  Outreach Spam Filter Audit
-                </div>
-                <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 14 }}>
-                  Zero spam words detected across all 3 active outreach sequence steps. Primary inbox delivery rate is 98.4%.
-                </div>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: "#059669", background: "#ECFDF5", padding: "4px 10px", borderRadius: 6 }}>
-                    ✓ 0 Spam Trigger Words
-                  </span>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: "#059669", background: "#ECFDF5", padding: "4px 10px", borderRadius: 6 }}>
-                    ✓ Unsubscribe Header Included
-                  </span>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: "#059669", background: "#ECFDF5", padding: "4px 10px", borderRadius: 6 }}>
-                    ✓ Custom Tracking Domain Active
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
 
         </div>
 
       </div>
 
-      {/* New Campaign Modal */}
-      {showNewCampaignModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-          <div style={{ background: "#fff", borderRadius: 14, width: 460, maxWidth: "95vw", padding: 22, border: `1px solid ${C.border}`, boxShadow: "0 20px 50px rgba(0,0,0,0.2)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>Create Outreach Sequence</div>
-              <button onClick={() => setShowNewCampaignModal(false)} style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate }}><X size={16} /></button>
-            </div>
-            <form onSubmit={handleCreateCampaign} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Sequence Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Mid-Market CFO Outbound"
-                  value={newCampaignName}
-                  onChange={(e) => setNewCampaignName(e.target.value)}
-                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5 }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Target Audience</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Operations Directors in UK"
-                  value={newCampaignAudience}
-                  onChange={(e) => setNewCampaignAudience(e.target.value)}
-                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5 }}
-                />
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-                <button type="button" onClick={() => setShowNewCampaignModal(false)} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12 }}>Cancel</button>
-                <button type="submit" style={{ padding: "7px 16px", borderRadius: 6, background: C.ink, color: "#fff", border: "none", fontSize: 12, fontWeight: 600 }}>Create Sequence</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Toast */}
       {toastMessage && (

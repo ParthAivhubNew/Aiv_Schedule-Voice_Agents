@@ -101,6 +101,8 @@ async def lifespan(app: FastAPI):
             except Exception as ext_err:
                 logger.warning(f"Could not enable pgvector extension directly: {ext_err}")
         await conn.run_sync(Base.metadata.create_all)
+        from app.services.email_schema import ensure_email_schema
+        await ensure_email_schema(conn)
         # Safe migration for new columns on existing tables (PostgreSQL & SQLite)
         try:
             from sqlalchemy import text
@@ -332,6 +334,8 @@ async def lifespan(app: FastAPI):
     await resolve_signing_key()
     from app.services.telnyx_client import refresh_saved_key
     await refresh_saved_key()
+    from app.services.platform_mailbox import refresh as refresh_platform_mailbox
+    await refresh_platform_mailbox()
     from app.core.staff import ensure_bootstrap_staff
     await ensure_bootstrap_staff()
     try:
@@ -556,9 +560,12 @@ async def lifespan(app: FastAPI):
     credits_task = asyncio.create_task(_credits_settle_loop())
     from app.services.generation_queue import generation_loop
     generation_task = asyncio.create_task(generation_loop())
+    from app.services.email_worker import email_loop
+    email_task = asyncio.create_task(email_loop())
 
     yield
 
+    email_task.cancel()
     publish_due_task.cancel()
     generation_task.cancel()
     credits_task.cancel()

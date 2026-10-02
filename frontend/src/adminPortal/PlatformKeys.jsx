@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useLoad } from "./ui";
+import { PlatformMailbox } from "./PlatformMailbox";
 
 const NEEDS_PHONE = ["Telephony", "Messaging"];
 const blank = { key: "", model: "", baseUrl: "", phone: "" };
@@ -108,6 +109,8 @@ export function PlatformKeys({ canEdit }) {
           </button>
         )}
       </div>
+
+      <PlatformMailbox canEdit={canEdit} />
     </>
   );
 }
