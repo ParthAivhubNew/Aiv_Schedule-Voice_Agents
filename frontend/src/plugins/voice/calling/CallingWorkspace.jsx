@@ -76,10 +76,8 @@ const PAGES = [
   { id: "templates", label: "AI Templates", icon: Sparkles, section: "calling" },
   { id: "studio", label: "Agent Studio", icon: SlidersHorizontal, section: "calling" },
   { id: "ai", label: "AI config", icon: Plug, section: "connections" },
-  { id: "company", label: "Company", icon: Users, section: "company" },
-  { id: "hours", label: "Working hours", icon: Clock, section: "company" },
-  { id: "numbers", label: "Numbers", icon: Phone, section: "admin" },
-  { id: "subscription", label: "Subscription", icon: CreditCard, section: "admin" },
+  { id: "company", label: "Company", icon: Users, section: "company" },  // company profile & working hours
+  { id: "subscription", label: "Subscription", icon: CreditCard, section: "admin" },  // subscription & numbers
 ];
 
 function canSee(operator, section) {
@@ -92,7 +90,8 @@ function canSee(operator, section) {
 
 const EXTRA_SLOTS = ["Phone", "Email", "Website", "LinkedIn", "Contact"];
 const DEFAULT_LIST_HEADERS = ["Company", "Contact", "Phone", "Email", "Website", "LinkedIn"];
-const SIMPLE_PAGES = new Set([...PAGES.map((p) => p.id), "whatsapp"]);  // WhatsApp is a tab of Conversations
+const SIMPLE_PAGES = new Set([...PAGES.map((p) => p.id), "whatsapp", "hours", "numbers"]);  // WhatsApp, Working Hours, Numbers sub-tabs
+
 const MAX_CONCURRENT = 2;
 
 const COUNTRY_CODES = [
@@ -1163,6 +1162,9 @@ export function CallingWorkspace({
   useEffect(() => {
     const def = PAGES.find((p) => p.id === page);
     if (def && !canSee(operator, def.section)) setPage("list");
+    if (page === "hours" && !canSee(operator, "company")) setPage("list");
+    if (page === "whatsapp" && !canSee(operator, "calling")) setPage("list");
+    if (page === "numbers" && !operator?.is_admin) setPage("list");
   }, [operator, page]);
 
   const goPage = (next) => {
@@ -2436,11 +2438,11 @@ export function CallingWorkspace({
     templates: ["AI Templates", "Configure greeting, pitch, objection handling, and booking flow per call type."],
     studio: ["Agent Studio", "How your AI caller sounds and behaves: voice, company rules, and a script per campaign."],
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
-    company: ["Company profile", "Identity, knowledge & FAQs, services, compliance. The agent uses this on every call."],
+    company: ["Company", "Identity, knowledge & FAQs, services, compliance, and working hours."],
     analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],
-    hours: ["Working hours", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
-    numbers: ["Numbers", "Verify your business, buy UK numbers and turn on WhatsApp."],
-    subscription: ["Subscription", "Your calling plan and credits. Change plan, top up, or cancel."],
+    hours: ["Company", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
+    numbers: ["Subscription", "Verify your business, buy UK numbers and turn on WhatsApp."],
+    subscription: ["Subscription", "Your calling plan, credits, and phone numbers."],
     whatsapp: ["Conversations", "WhatsApp chats on your own numbers. You reply; you are emailed when something new arrives."],
   };
 
@@ -2486,7 +2488,7 @@ export function CallingWorkspace({
         {visiblePages.map((p) => {
           const Icon = p.icon;
           return (
-            <button key={p.id} type="button" onClick={() => goPage(p.id)} style={navBtn(page === p.id || (p.id === "logs" && page === "whatsapp"))}>
+            <button key={p.id} type="button" onClick={() => goPage(p.id)} style={navBtn(page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && page === "hours") || (p.id === "subscription" && page === "numbers"))}>
               <Icon size={15} />
               <span style={{ flex: 1 }}>{p.label}</span>
               {p.id === "live" && activeLive.length ? (
@@ -3413,6 +3415,30 @@ export function CallingWorkspace({
           {(page === "logs" || page === "whatsapp") && canSee(operator, "calling") && (
             <div role="tablist" aria-label="Conversations" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
               {[["logs", "Calls", PhoneCall], ["whatsapp", "WhatsApp", MessageCircle]].map(([id, label, Icon]) => (
+                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(page === "company" || page === "hours") && canSee(operator, "company") && (
+            <div role="tablist" aria-label="Company" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {[["company", "Company profile", Users], ["hours", "Working hours", Clock]].map(([id, label, Icon]) => (
+                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(page === "subscription" || page === "numbers") && operator?.is_admin && (
+            <div role="tablist" aria-label="Subscription and Numbers" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {[["subscription", "Subscription & Credits", CreditCard], ["numbers", "Numbers", Phone]].map(([id, label, Icon]) => (
                 <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
                   style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
                     border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
