@@ -74,10 +74,32 @@ function ClientDetail({ id, canEdit, back }) {
   const load = useCallback(() => adminApi.client(id), [id]);
   const [c, err, reload] = useLoad(load, [load]);
   const [msg, run] = useAction(reload);
+  const [numMsg, setNumMsg] = useState({ text: "", error: false });
+  const [numBusy, setNumBusy] = useState(false);
   const loadAwardList = useCallback(() => adminApi.awards({ orgId: id }), [id]);
   const [awards, awardsErr, loadAwards] = useLoad(loadAwardList, [loadAwardList]);
+  const loadTelnyx = useCallback(() => adminApi.telnyxAccountNumbers(), []);
+  const [telnyxNums, , reloadTelnyx] = useLoad(loadTelnyx, [loadTelnyx]);
   const [temp, setTemp] = useState(null);
   const [existing, setExisting] = useState("");
+
+  const attachNum = async (numToAttach) => {
+    const val = (numToAttach || existing).trim();
+    if (!val) return;
+    setNumBusy(true);
+    setNumMsg({ text: "", error: false });
+    try {
+      await adminApi.attachNumber(c.id, val);
+      setExisting("");
+      setNumMsg({ text: `Number ${val} attached! It is active and ready for calls.`, error: false });
+      await reload();
+      await reloadTelnyx();
+    } catch (e) {
+      setNumMsg({ text: e.message || "Failed to attach number.", error: true });
+    } finally {
+      setNumBusy(false);
+    }
+  };
 
   if (!c) return <><button type="button" style={btn(false)} onClick={back}><ArrowLeft size={13} /> Clients</button><Note error>{err}</Note></>;
   const suspended = c.status === "suspended";
@@ -131,8 +153,8 @@ function ClientDetail({ id, canEdit, back }) {
           const asked = n.capabilities.includes("whatsapp_requested");
           return (
             <tr key={n.id}>
-              <td style={{ ...cell, ...mono }}>{n.e164}</td>
-              <td style={cell}>{n.status}</td>
+              <td style={{ ...cell, ...mono }}><b>{n.e164}</b></td>
+              <td style={cell}><Pill tone={n.status === "active" ? "green" : "amber"}>{n.status}</Pill></td>
               <td style={cell}>{n.provider}</td>
               <td style={cell}>{n.capabilities.join(", ") || "—"}</td>
               <td style={cell}>
@@ -149,18 +171,61 @@ function ClientDetail({ id, canEdit, back }) {
         })}
       </Table>
 
+      <div style={{ marginTop: 10 }}>
+        <Note error={numMsg.error}>{numMsg.text}</Note>
+      </div>
+
       {canEdit && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-          <input aria-label="Number already on our Telnyx account" placeholder="+447700900123" value={existing}
-            onChange={(e) => setExisting(e.target.value)} style={{ ...input, width: 200 }} />
-          <button type="button" style={btn(false)} disabled={!existing.trim()}
-            onClick={() => run(async () => {
-              const r = await adminApi.attachNumber(c.id, existing.trim());
-              setExisting("");
-              return r;
-            }, "Number added. It shows on their Numbers page and its calls reach this company.")}>
-            Add a number we already own
-          </button>
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+          {telnyxNums?.numbers?.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12.5, color: C.slate }}>
+              <span>Telnyx account numbers:</span>
+              {telnyxNums.numbers.map((tn) => {
+                const alreadyAttached = c.numbers.some((n) => n.e164 === tn.e164);
+                return (
+                  <button
+                    key={tn.id}
+                    type="button"
+                    disabled={alreadyAttached || numBusy}
+                    onClick={() => attachNum(tn.e164)}
+                    style={{
+                      ...btn(false, alreadyAttached || numBusy),
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      background: alreadyAttached ? C.paperSoft : "#fff",
+                      borderColor: alreadyAttached ? C.border : C.cobalt,
+                      color: alreadyAttached ? C.slate : C.cobalt,
+                    }}
+                  >
+                    {tn.e164} {alreadyAttached ? "(Attached)" : "+ Attach"}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              attachNum();
+            }}
+            style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+          >
+            <input
+              aria-label="Number already on our Telnyx account"
+              placeholder="+14302446060 or +447700900123"
+              value={existing}
+              onChange={(e) => setExisting(e.target.value)}
+              style={{ ...input, width: 220 }}
+            />
+            <button
+              type="submit"
+              style={btn(false, !existing.trim() || numBusy)}
+              disabled={!existing.trim() || numBusy}
+            >
+              {numBusy ? "Adding..." : "Add a number we already own"}
+            </button>
+          </form>
         </div>
       )}
 

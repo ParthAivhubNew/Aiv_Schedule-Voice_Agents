@@ -398,11 +398,41 @@ class AttachNumberBody(BaseModel):
     e164: str
 
 
+@router.get("/telnyx-account-numbers")
+async def telnyx_account_numbers(request: Request):
+    """List all phone numbers currently present on the main Telnyx account."""
+    from app.services.telnyx_client import TelnyxClient, platform_key, refresh_saved_key
+
+    _who(request)
+    await refresh_saved_key()
+    key = platform_key()
+    if not key:
+        return {"numbers": []}
+    try:
+        client = TelnyxClient(key)
+        res = await client._req("GET", "/phone_numbers")
+        raw = res.get("data") or []
+        numbers = []
+        for item in raw:
+            phone = item.get("phone_number")
+            if phone:
+                numbers.append({
+                    "id": str(item.get("id") or ""),
+                    "e164": phone if phone.startswith("+") else f"+{phone}",
+                    "status": item.get("status") or "active",
+                    "billing_group_id": item.get("billing_group_id") or "",
+                })
+        return {"numbers": numbers}
+    except Exception as err:
+        return {"numbers": [], "error": str(err)}
+
+
 @router.post("/clients/{org_id}/numbers/attach")
 async def attach_number(org_id: str, body: AttachNumberBody, request: Request):
     """Give a company a number we already have on our Telnyx account (e.g. Aivhub's own line):
     it appears on its Numbers page, its incoming calls reach that company and, in billing-group
     mode, Telnyx bills it to the company's billing group. The number's call routing is kept."""
+    import re
     from app.models.models import OrgPhoneNumber
     from app.services import telnyx_provisioning as TP
     from app.services.numbers import normalize, org_for_numbers
@@ -411,7 +441,7 @@ async def attach_number(org_id: str, body: AttachNumberBody, request: Request):
     _admin_only(request)
     e164 = normalize(body.e164 or "")
     if not e164.startswith("+") or len(e164) < 8:
-        raise HTTPException(status_code=400, detail="Enter the number with its country code, like +447700900123.")
+        raise HTTPException(status_code=400, detail="Enter the number with its country code, like +447700900123 or +14302446060.")
     await refresh_saved_key()
     if not platform_key():
         raise HTTPException(status_code=400, detail="Save the Telnyx key in Platform keys first.")
@@ -420,10 +450,21 @@ async def attach_number(org_id: str, body: AttachNumberBody, request: Request):
         raise HTTPException(status_code=409, detail=f"{e164} already belongs to another company ({owner}).")
     try:
         found = await TelnyxClient(platform_key()).find_phone_number(e164)
+        if not found:
+            # Fallback scan in case Telnyx formatting differences
+            res = await TelnyxClient(platform_key())._req("GET", "/phone_numbers")
+            digits = re.sub(r"\D", "", e164)
+            for item in (res.get("data") or []):
+                item_digits = re.sub(r"\D", "", item.get("phone_number") or "")
+                if item_digits == digits or item.get("phone_number") == e164:
+                    found = item
+                    item_p = item.get("phone_number") or ""
+                    e164 = item_p if item_p.startswith("+") else f"+{item_digits}"
+                    break
     except TelnyxError as err:
         raise HTTPException(status_code=502, detail=f"Telnyx: {err}")
     if not found:
-        raise HTTPException(status_code=404, detail=f"{e164} is not on our Telnyx account.")
+        raise HTTPException(status_code=404, detail=f"{e164} was not found on your Telnyx account.")
 
     async def run(db):
         name = (await db.execute(text("SELECT name FROM organizations WHERE id = :i"), {"i": org_id})).scalar() or ""

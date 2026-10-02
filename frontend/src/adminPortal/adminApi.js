@@ -71,6 +71,7 @@ export const adminApi = {
   resetUserPassword: (orgId, userId) => request(`/clients/${q(orgId)}/users/${q(userId)}/reset-password`, { method: "POST" }),
   setEnforce: (id, enforce) => request(`/clients/${q(id)}/enforce`, { method: "PUT", body: { enforce } }),
   attachNumber: (orgId, e164) => request(`/clients/${q(orgId)}/numbers/attach`, { method: "POST", body: { e164 } }),
+  telnyxAccountNumbers: () => request("/telnyx-account-numbers"),
   setWhatsapp: (orgId, numberId, enabled) => request(`/clients/${q(orgId)}/numbers/${q(numberId)}/whatsapp`, { method: "POST", body: { enabled } }),
   queue: () => request("/verifications"),
   plans: () => request("/plans"),
