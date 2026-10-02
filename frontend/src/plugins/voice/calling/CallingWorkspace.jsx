@@ -70,8 +70,7 @@ import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../../ut
 const PAGES = [
   { id: "list", label: "List", icon: List, section: "calling" },
   { id: "live", label: "Live", icon: Radio, section: "calling" },
-  { id: "logs", label: "Call history", icon: FileText, section: "calling" },
-  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle, section: "calling" },
+  { id: "logs", label: "Conversations", icon: FileText, section: "calling" },  // calls and WhatsApp
   { id: "schedule", label: "Schedule", icon: PhoneCall, section: "calling" },
   { id: "analytics", label: "Analytics", icon: BarChart3, section: "analytics" },
   { id: "templates", label: "AI Templates", icon: Sparkles, section: "calling" },
@@ -93,7 +92,7 @@ function canSee(operator, section) {
 
 const EXTRA_SLOTS = ["Phone", "Email", "Website", "LinkedIn", "Contact"];
 const DEFAULT_LIST_HEADERS = ["Company", "Contact", "Phone", "Email", "Website", "LinkedIn"];
-const SIMPLE_PAGES = new Set(PAGES.map((p) => p.id));
+const SIMPLE_PAGES = new Set([...PAGES.map((p) => p.id), "whatsapp"]);  // WhatsApp is a tab of Conversations
 const MAX_CONCURRENT = 2;
 
 const COUNTRY_CODES = [
@@ -2432,7 +2431,7 @@ export function CallingWorkspace({
   const titles = {
     list: ["Today's list", "Upload Excel, tick who to call. Max 2 at once when several are selected."],
     live: ["Live calls", "Listen, take over, book from their words, or end. Transcript stays on the card."],
-    logs: ["Call history", "Name from dial form. Search, filter, expand transcript."],
+    logs: ["Conversations", "Every call and WhatsApp chat in one place. Search, filter, expand transcript."],
     schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
     templates: ["AI Templates", "Configure greeting, pitch, objection handling, and booking flow per call type."],
     studio: ["Agent Studio", "How your AI caller sounds and behaves: voice, company rules, and a script per campaign."],
@@ -2442,7 +2441,7 @@ export function CallingWorkspace({
     hours: ["Working hours", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
     numbers: ["Numbers", "Verify your business, buy UK numbers and turn on WhatsApp."],
     subscription: ["Subscription", "Your calling plan and credits. Change plan, top up, or cancel."],
-    whatsapp: ["WhatsApp", "Conversations on your own numbers. You reply; you are emailed when something new arrives."],
+    whatsapp: ["Conversations", "WhatsApp chats on your own numbers. You reply; you are emailed when something new arrives."],
   };
 
   return (
@@ -2487,7 +2486,7 @@ export function CallingWorkspace({
         {visiblePages.map((p) => {
           const Icon = p.icon;
           return (
-            <button key={p.id} type="button" onClick={() => goPage(p.id)} style={navBtn(page === p.id)}>
+            <button key={p.id} type="button" onClick={() => goPage(p.id)} style={navBtn(page === p.id || (p.id === "logs" && page === "whatsapp"))}>
               <Icon size={15} />
               <span style={{ flex: 1 }}>{p.label}</span>
               {p.id === "live" && activeLive.length ? (
@@ -3408,6 +3407,18 @@ export function CallingWorkspace({
                 );
               })}
               <RecentlyEndedList calls={recentEnded} onOpenHistory={() => goPage("logs")} />
+            </div>
+          )}
+
+          {(page === "logs" || page === "whatsapp") && canSee(operator, "calling") && (
+            <div role="tablist" aria-label="Conversations" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {[["logs", "Calls", PhoneCall], ["whatsapp", "WhatsApp", MessageCircle]].map(([id, label, Icon]) => (
+                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
             </div>
           )}
 
