@@ -17,8 +17,10 @@ def _reset_limits():
     yield
 
 
-async def test_signup_off_by_default(anon, monkeypatch):
+async def test_signup_on_by_default_and_can_be_switched_off(anon, monkeypatch):
     monkeypatch.delenv("ALLOW_SIGNUP", raising=False)
+    assert (await anon.get("/api/auth/signup-config")).json()["allowSignup"] is True
+    monkeypatch.setenv("ALLOW_SIGNUP", "false")
     assert (await anon.get("/api/auth/signup-config")).json() == {"allowSignup": False, "google": False}
     assert (await anon.post("/api/auth/signup", json=BODY)).status_code == 404
 
@@ -152,7 +154,7 @@ async def test_google_sign_in_links_existing_user_by_verified_email(anon, db, mo
 
 async def test_google_unknown_account_without_signup(anon, monkeypatch):
     token = _firebase(monkeypatch)
-    monkeypatch.delenv("ALLOW_SIGNUP", raising=False)
+    monkeypatch.setenv("ALLOW_SIGNUP", "false")
     r = await anon.post("/api/auth/firebase", json={"idToken": token("stranger@x.test", "g-999")})
     assert r.status_code == 403 and "No OutReach account" in r.json()["detail"]
 

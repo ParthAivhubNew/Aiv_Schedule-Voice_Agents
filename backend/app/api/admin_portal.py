@@ -164,6 +164,7 @@ async def _has(db, table: str, column: str) -> bool:
 
 
 def platform_status() -> Dict[str, Any]:
+    from app.api.signup import signup_allowed
     from app.core import mailer
     from app.services import billing
     from app.services.telnyx_provisioning import account_mode, platform_ready
@@ -173,7 +174,7 @@ def platform_status() -> Dict[str, Any]:
         "telnyxWebhookKey": bool(os.getenv("TELNYX_ASSISTANT_PUBLIC_KEY")),
         "stripe": billing.configured(), "stripeTestMode": billing.test_mode(), "stripeWebhook": bool(billing.webhook_secret()),
         "mail": mailer.configured(), "google": bool(os.getenv("FIREBASE_API_KEY") and os.getenv("FIREBASE_PROJECT_ID")),
-        "signup": os.getenv("ALLOW_SIGNUP", "").lower() in ("1", "true", "yes"),
+        "signup": signup_allowed(),
     }
 
 

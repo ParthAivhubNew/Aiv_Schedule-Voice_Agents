@@ -114,7 +114,7 @@ export function LoginScreen({ onLogin }) {
   // /signup without signup switched on falls back to sign in.
   useEffect(() => {
     if (mode === "signup" && config && !config.allowSignup) setMode("signin", true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [config, mode]);
 
   const finish = (operator) => {
