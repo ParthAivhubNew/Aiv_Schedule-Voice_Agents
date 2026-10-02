@@ -32,7 +32,7 @@ from app.services.email_warmup_engine import (
     plan_mailbox_day,
 )
 from app.services.enrichment_waterfall import lookup_person_waterfall
-from app.services.secret_box import seal
+from app.services.secret_box import seal_secret
 
 logger = logging.getLogger("email_outreach_api")
 
@@ -163,7 +163,7 @@ async def connect_mailbox(
         display_name=payload.display_name or email_clean.split("@")[0],
         provider=payload.provider,
         auth_type=payload.auth_type,
-        credentials_encrypted=seal(cred_json) if payload.provider == "smtp" else "",
+        credentials_encrypted=seal_secret(cred_json) if payload.provider == "smtp" else "",
         status="connected",
         daily_cap=5,
         max_daily_target=payload.max_daily_target,
