@@ -8,7 +8,6 @@ import { navigateHash } from "../utils/route";
 import { APPS } from "./apps";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandMark } from "./BrandMark";
-import { OnboardingChecklist } from "./OnboardingChecklist";
 import { UserProfileMenu } from "./PluginHub";
 
 const LIVE_PLAN = ["active", "past_due", "trialing"];
@@ -122,17 +121,6 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
         </p>
 
         <BillingReturnBanner />
-        <OnboardingChecklist
-          operator={operator}
-          onGo={(go) => {
-            if (go.startsWith("team:")) return onOpenTeamUsers(go.slice(5));
-            const voice = go.match(/^#\/voice\/(\w+)/);
-            if (voice) {
-              try { localStorage.setItem("aivhub_voice_view", voice[1]); } catch (_) {}
-            }
-            navigateHash(go);
-          }}
-        />
 
         {mine.length > 0 && <AppSection title="Your apps" note="The apps you have a plan for.">{mine.map(card)}</AppSection>}
         {rest.length > 0 && (
