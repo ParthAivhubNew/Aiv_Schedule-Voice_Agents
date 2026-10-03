@@ -114,7 +114,7 @@ export function CreditsTab() {
                     {React.createElement(WALLET_ICON[app.wallet] || Coins, { size: 15, color: WALLET_COLOUR[app.wallet] })} {app.name}
                   </div>
                   <div style={{ fontSize: 12.5, color: plan ? C.teal : C.slate }}>
-                    {plan ? `${plan.name} · ${money(plan.priceUsdCents, plan.currency)} a month` : "No plan yet"}
+                    {plan ? `${plan.name} · ${money(plan.priceUsdCents, plan.currency)} a month${data.taxAdded ? " + VAT" : ""}` : "No plan yet"}
                   </div>
                   <button type="button" style={{ ...btn(!plan), alignSelf: "flex-start" }} onClick={() => window.location.assign(app.plans.replace(/^#/, ""))}>
                     <CreditCard size={13} /> {plan ? "Manage plan" : "See plans"}

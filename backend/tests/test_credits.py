@@ -368,10 +368,12 @@ async def test_prices_made_in_stripe_go_on_sale(client, staff, db, monkeypatch):
     assert (await client.post("/api/billing/checkout", json={"topups": [hour["id"]]})).status_code == 200
     session = calls[-1][2]
     assert session["mode"] == "payment" and session["invoice_creation"]["enabled"] is True and "automatic_tax" not in session
+    assert (await client.get("/api/billing/overview")).json()["taxAdded"] is False
     monkeypatch.setenv("STRIPE_AUTOMATIC_TAX", "true")
     assert (await client.post("/api/billing/checkout", json={"plans": [voice["id"]]})).status_code == 200
     session = calls[-1][2]
     assert session["automatic_tax"] == {"enabled": True} and session["tax_id_collection"] == {"enabled": True}
+    assert (await client.get("/api/billing/overview")).json()["taxAdded"] is True  # prices show "+ VAT"
 
     # A USD plan made here cannot share a Checkout with a GBP price.
     usd = (await staff.post("/api/admin-api/plans", json={
@@ -570,3 +572,36 @@ async def test_checkout_without_keys(client, monkeypatch):
     monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
     assert (await client.post("/api/billing/checkout", json={"topups": ["x"]})).status_code == 503
     assert (await client.get("/api/billing/overview")).json()["stripeReady"] is False
+
+
+async def test_seeded_plans_give_way_to_the_plans_linked_from_stripe(db):
+    """Plans an old startup step seeded sat on the same Stripe prices as the linked plans, with other
+    credits. They go; a subscriber on one moves to the linked plan; one with no linked twin stays, off sale."""
+    from sqlalchemy import text
+
+    from app.core.migrations import _remove_seeded_billing_plans
+    from app.core.tenancy import system_scope
+    from app.database import engine
+    from app.models.models import BillingPlan, BillingSubscription
+
+    with system_scope():
+        db.add_all([
+            BillingPlan(id="plan_d0a3cb40f1", wallet="voice", name="startervoice", price_usd_cents=19999, credits=1320,
+                        stripe_price_id="price_a", created_at=datetime.utcnow() - timedelta(days=3)),
+            BillingPlan(id="plan_voice_starter", wallet="voice", name="Voice AI Starter", price_usd_cents=19999, credits=1000,
+                        stripe_price_id="price_a"),
+            BillingPlan(id="topup_voice_1hr", wallet="voice", kind="topup", name="1 Hour Voice Top-Up", price_usd_cents=1200,
+                        credits=60, stripe_price_id="price_b"),
+            BillingPlan(id="plan_social_starter", wallet="scheduler", name="Social Plan AI Starter", price_usd_cents=4999,
+                        credits=100, stripe_price_id="price_c"),
+            BillingSubscription(id="org_default", org_id="org_default", status="active",
+                                plans={"voice": "plan_voice_starter", "scheduler": "plan_social_starter"}),
+        ])
+        await db.commit()
+    async with engine.begin() as conn:
+        await _remove_seeded_billing_plans(conn)
+    with system_scope():
+        plans = dict((await db.execute(text("SELECT id, active FROM billing_plans"))).all())
+        held = (await db.execute(text("SELECT CAST(plans AS TEXT) FROM billing_subscriptions"))).scalar()
+    assert plans == {"plan_d0a3cb40f1": True, "plan_social_starter": False}
+    assert json.loads(held) == {"voice": "plan_d0a3cb40f1", "scheduler": "plan_social_starter"}

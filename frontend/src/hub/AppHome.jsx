@@ -22,7 +22,7 @@ const action = (primary) => ({
 // what is left in its wallet and what a plan starts at.
 function AppCard({ app, state, unit, onOpen, onPlans }) {
   const Icon = app.icon;
-  const { wallet, plan, from, canBuy } = state;
+  const { wallet, plan, from, canBuy, vat } = state;
   const left = wallet ? Math.max(wallet.balance, 0) : 0;
   return (
     <div className="app-card" style={{ "--accent": app.accent, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 18, padding: 20, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -31,7 +31,7 @@ function AppCard({ app, state, unit, onOpen, onPlans }) {
           <Icon size={21} color={app.accent} strokeWidth={2.1} />
         </div>
         {plan ? <span style={{ ...pill, color: app.accent, background: `${app.accent}14` }}>{plan.name}</span>
-          : from ? <span style={{ ...pill, color: C.slate, background: C.paperSoft }}>From {money(from.priceUsdCents, from.currency)}/month</span> : null}
+          : from ? <span style={{ ...pill, color: C.slate, background: C.paperSoft }}>From {money(from.priceUsdCents, from.currency)}/month{vat}</span> : null}
       </div>
       <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.slateLight, marginBottom: 4 }}>{app.role}</div>
       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 19, color: C.ink, letterSpacing: "-0.02em", lineHeight: 1.2 }}>{app.name}</div>
@@ -83,7 +83,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
     if (!billing) return {};
     const onSale = billing.stripeReady && app.plans ? billing.plans.filter((p) => p.wallet === app.wallet) : [];
     const monthly = onSale.filter((p) => p.kind === "plan").sort((a, b) => a.priceUsdCents - b.priceUsdCents);
-    return { wallet: billing.wallets.find((w) => w.key === app.wallet), plan: billing.plans.find((p) => p.id === held[app.wallet]), from: monthly[0], canBuy: onSale.length > 0 };
+    return { wallet: billing.wallets.find((w) => w.key === app.wallet), plan: billing.plans.find((p) => p.id === held[app.wallet]), from: monthly[0], canBuy: onSale.length > 0, vat: billing.taxAdded ? " + VAT" : "" };
   };
   const unitOf = (app) => (app.wallet === "voice" && billing?.rates.voice_minute?.credits === 1 ? "minutes of calls" : "credits");
   const card = (app) => (

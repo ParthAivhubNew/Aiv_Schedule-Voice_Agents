@@ -55,6 +55,7 @@ export function SubscriptionPage({ wallet, back }) {
   // Calling is sold by the minute: voice credits are shown as minutes of calls (a credit is a
   // minute unless staff changed the rate card).
   const perMinute = wallet === "voice" ? data.rates.voice_minute?.credits : 0;
+  const vat = data.taxAdded ? " + VAT" : "";
   const callTime = (credits) => `${fmt(Math.floor(credits / perMinute))} minutes of calls`;
   const about = (p) => (p.description ? ` · ${p.description}` : "");
   const worth = (credits) => (perMinute === 1 ? callTime(credits) : perMinute ? `${callTime(credits)} (${fmt(credits)} credits)` : `${fmt(credits)} credits`);
@@ -77,7 +78,7 @@ export function SubscriptionPage({ wallet, back }) {
 
   const change = (p) => {
     const up = p.priceUsdCents > current.priceUsdCents;
-    const price = `${money(p.priceUsdCents, p.currency)}/month`;
+    const price = `${money(p.priceUsdCents, p.currency)}/month${vat}`;
     setAsk({
       text: up
         ? `Move to ${p.name} (${price}) now? Your card is charged the difference for the rest of this period and the extra credits are added straight away.`
@@ -124,7 +125,7 @@ export function SubscriptionPage({ wallet, back }) {
             <>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.textInk, margin: "4px 0 2px" }}>{current.name}</div>
               <div style={{ fontSize: 12.5, color: C.slate }}>
-                {money(current.priceUsdCents, current.currency)}/month · {worth(current.credits)} every month
+                {money(current.priceUsdCents, current.currency)}/month{vat} · {worth(current.credits)} every month
               </div>
               <div style={{ fontSize: 12.5, color: mine.ending ? C.red : C.slate, marginTop: 2 }}>
                 {mine.ending ? `Cancelled: ends ${day(mine.periodEnd)}` : `Renews ${day(mine.periodEnd)}`}
@@ -172,7 +173,7 @@ export function SubscriptionPage({ wallet, back }) {
               return (
                 <div key={p.id} style={{ ...card, borderWidth: 2, borderColor: isMine ? WALLET_COLOUR[wallet] : C.border }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 12, color: C.slate, fontWeight: 500 }}> /month</span></div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 12, color: C.slate, fontWeight: 500 }}> /month{vat}</span></div>
                   <div style={{ fontSize: 12.5, color: C.slate, minHeight: 34 }}>{worth(p.credits)} every month{about(p)}</div>
                   <div style={{ marginTop: 10 }}>
                     {isMine ? (
@@ -200,7 +201,7 @@ export function SubscriptionPage({ wallet, back }) {
               return (
                 <div key={p.id} style={{ ...card, borderStyle: "dashed" }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 12, color: C.slate, fontWeight: 500 }}> each</span></div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 12, color: C.slate, fontWeight: 500 }}> each{vat}</span></div>
                   <div style={{ fontSize: 12.5, color: C.slate, minHeight: 34 }}>{worth(p.credits)} each, never expire{about(p)}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     <div style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 9, overflow: "hidden" }}>
@@ -210,7 +211,7 @@ export function SubscriptionPage({ wallet, back }) {
                       <button type="button" aria-label={`One more ${p.name}`} style={stepBtn} disabled={n >= MAX_QUANTITY} onClick={() => setN(n + 1)}>+</button>
                     </div>
                     <button type="button" style={btn(true, Boolean(busy))} disabled={Boolean(busy)} onClick={() => toStripe(p.id, () => api.startCheckout([], [p.id], back, { [p.id]: n }))}>
-                      <CreditCard size={13} /> Buy {money(p.priceUsdCents * n, p.currency)}
+                      <CreditCard size={13} /> Buy {money(p.priceUsdCents * n, p.currency)}{vat}
                     </button>
                     {n > 1 && <span style={{ fontSize: 12, color: C.slate }}>{worth(p.credits * n)}</span>}
                   </div>

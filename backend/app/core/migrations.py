@@ -151,127 +151,36 @@ async def _ai_keys_owner_only(conn: AsyncConnection) -> None:
         "UPDATE connections SET status = 'disabled_by_platform' "
         "WHERE org_id <> :p AND group_name IN ('LLM', 'IMAGE') AND coalesce(status, '') <> 'disabled_by_platform'"),
         {"p": platform})
-async def _seed_billing_plans(conn: AsyncConnection) -> None:
-    """Seed default Stripe plans with proper credits so all accounts can see and subscribe to them."""
-    import json
-    plans_data = [
-        {
-            "id": "plan_voice_starter",
-            "wallet": "voice",
-            "kind": "plan",
-            "name": "Voice AI Starter",
-            "description": "1,000 minutes of outbound AI voice calls, custom sales pitch, and Cal.com meeting booking",
-            "price_usd_cents": 19999,
-            "currency": "gbp",
-            "credits": 1000,
-            "features": json.dumps(["1,000 Call Minutes / month", "Telnyx Outbound Voice AI", "Cal.com Dynamic Booking", "Call Recordings & Transcripts"]),
-            "stripe_price_id": "price_1ULMvIL5SVDtBzX7d3lOiu4c",
-            "active": True,
-            "sort": 10,
-        },
-        {
-            "id": "plan_voice_growth",
-            "wallet": "voice",
-            "kind": "plan",
-            "name": "Voice AI Growth",
-            "description": "2,500 minutes of outbound AI voice calls, multi-agent voice studio, and priority queuing",
-            "price_usd_cents": 39999,
-            "currency": "gbp",
-            "credits": 2500,
-            "features": json.dumps(["2,500 Call Minutes / month", "Priority Voice AI Queue", "Multi-Agent Voice Studio", "Full Telephony & Analytics"]),
-            "stripe_price_id": "price_1ULMw2L5SVDtBzX7UL9IZLLh",
-            "active": True,
-            "sort": 20,
-        },
-        {
-            "id": "topup_voice_1hr",
-            "wallet": "voice",
-            "kind": "topup",
-            "name": "1 Hour Voice Top-Up",
-            "description": "60 extra call minutes on-demand (never expires)",
-            "price_usd_cents": 1200,
-            "currency": "gbp",
-            "credits": 60,
-            "features": json.dumps(["60 Call Minutes", "Never Expires", "Instant Top-Up"]),
-            "stripe_price_id": "price_1ULMyAL5SVDtBzX7YfCpMKMG",
-            "active": True,
-            "sort": 30,
-        },
-        {
-            "id": "plan_social_starter",
-            "wallet": "scheduler",
-            "kind": "plan",
-            "name": "Social Plan AI Starter",
-            "description": "100 AI credits (50 AI-written multi-channel social posts) with automated visual image generation",
-            "price_usd_cents": 4999,
-            "currency": "gbp",
-            "credits": 100,
-            "features": json.dumps(["50 Multi-Channel Social Posts", "LinkedIn, X, Facebook & IG", "AI Image Generation", "Smart Calendar Scheduling"]),
-            "stripe_price_id": "price_1ULNEjL5SVDtBzX7d6UURcF3",
-            "active": True,
-            "sort": 10,
-        },
-        {
-            "id": "plan_social_growth",
-            "wallet": "scheduler",
-            "kind": "plan",
-            "name": "Social Plan AI Growth",
-            "description": "250 AI credits (125 AI-written multi-channel social posts) with brand voice tuning & priority generation",
-            "price_usd_cents": 9999,
-            "currency": "gbp",
-            "credits": 250,
-            "features": json.dumps(["125 Multi-Channel Social Posts", "Brand Voice Tuner", "AI Image Generation", "Priority Queue"]),
-            "stripe_price_id": "price_1ULNFcL5SVDtBzX7l0FBc9cL",
-            "active": True,
-            "sort": 20,
-        },
-        {
-            "id": "plan_lead_starter",
-            "wallet": "leadgen",
-            "kind": "plan",
-            "name": "Lead Gen Starter",
-            "description": "200 researched and verified B2B leads researched with 5-layer intelligence",
-            "price_usd_cents": 4999,
-            "currency": "gbp",
-            "credits": 200,
-            "features": json.dumps(["200 Researched B2B Leads", "5-Layer Intelligence", "Web, Maps & Registry Search", "CSV & Direct Export"]),
-            "stripe_price_id": "price_1ULNIDL5SVDtBzX7FAzXxWP4",
-            "active": True,
-            "sort": 10,
-        },
-        {
-            "id": "plan_lead_growth",
-            "wallet": "leadgen",
-            "kind": "plan",
-            "name": "Lead Gen Growth",
-            "description": "500 researched and verified B2B leads researched with 5-layer intelligence",
-            "price_usd_cents": 9999,
-            "currency": "gbp",
-            "credits": 500,
-            "features": json.dumps(["500 Researched B2B Leads", "5-Layer Deep Enrichment", "Automated Qualification", "Export to Voice Missions"]),
-            "stripe_price_id": "price_1ULNIXL5SVDtBzX7chtPBtzn",
-            "active": True,
-            "sort": 20,
-        },
-    ]
 
-    for p in plans_data:
-        await conn.execute(text(
-            """INSERT INTO billing_plans (id, wallet, kind, name, description, price_usd_cents, currency, credits, features, stripe_price_id, active, sort, created_at)
-               VALUES (:id, :wallet, :kind, :name, :description, :price_usd_cents, :currency, :credits, :features, :stripe_price_id, :active, :sort, now())
-               ON CONFLICT (id) DO UPDATE SET
-                   name = EXCLUDED.name,
-                   description = EXCLUDED.description,
-                   price_usd_cents = EXCLUDED.price_usd_cents,
-                   currency = EXCLUDED.currency,
-                   credits = EXCLUDED.credits,
-                   features = EXCLUDED.features,
-                   stripe_price_id = EXCLUDED.stripe_price_id,
-                   active = EXCLUDED.active,
-                   sort = EXCLUDED.sort
-            """
-        ), p)
-    logger.info(f"[migrations] seeded {len(plans_data)} billing plans and credit tiers")
+
+# Plans 2026_10_10 used to seed, on the same Stripe prices as the plans linked from Stripe.
+_SEEDED_PLANS = ["plan_voice_starter", "plan_voice_growth", "topup_voice_1hr", "plan_social_starter",
+                 "plan_social_growth", "plan_lead_starter", "plan_lead_growth"]
+
+
+async def _remove_seeded_billing_plans(conn: AsyncConnection) -> None:
+    """Plans are linked from Stripe in the billing screen. The seeded copies sat beside them on the
+    same Stripe prices with other credits, so a payment could grant either amount. A subscriber on
+    a seeded plan moves to the linked plan with the same price; with none, theirs stays, off sale."""
+    import json
+
+    twin = dict((await conn.execute(text(
+        "SELECT s.id, (SELECT o.id FROM billing_plans o WHERE o.stripe_price_id = s.stripe_price_id "
+        "AND o.id <> ALL(:seeded) ORDER BY o.created_at LIMIT 1) FROM billing_plans s WHERE s.id = ANY(:seeded)"),
+        {"seeded": _SEEDED_PLANS})).all())
+    held = set()
+    for sub_id, raw in (await conn.execute(text("SELECT id, CAST(plans AS TEXT) FROM billing_subscriptions"))).all():
+        plans = json.loads(raw or "null") or {}
+        moved = {w: twin.get(i) or i for w, i in plans.items()}
+        held.update(moved.values())
+        if moved != plans:
+            await conn.execute(text("UPDATE billing_subscriptions SET plans = CAST(:p AS JSON) WHERE id = :i"),
+                               {"p": json.dumps(moved), "i": sub_id})
+    for plan_id in twin:
+        if plan_id in held:
+            await conn.execute(text("UPDATE billing_plans SET active = FALSE WHERE id = :i"), {"i": plan_id})
+        else:
+            await conn.execute(text("DELETE FROM billing_plans WHERE id = :i"), {"i": plan_id})
 
 
 async def _merge_leadgen_email_wallets(conn: AsyncConnection) -> None:
@@ -382,10 +291,10 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_07_call_takeover", _call_takeover),
     ("2026_10_08_platform_split", _platform_split),
     ("2026_10_09_ai_keys_owner_only", _ai_keys_owner_only),
-    ("2026_10_10_seed_billing_plans", _seed_billing_plans),
     ("2026_10_11_merge_leadgen_email", _merge_leadgen_email_wallets),
     ("2026_10_12_phone_rental_due", _phone_rental_due),
     ("2026_10_13_split_shared_provider_keys", _split_shared_provider_keys_per_plugin),
+    ("2026_10_14_remove_seeded_billing_plans", _remove_seeded_billing_plans),
 ]
 
 
