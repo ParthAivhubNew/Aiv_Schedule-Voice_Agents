@@ -142,6 +142,9 @@ prices; they pay us (Stripe) and we pay Telnyx from one balance.
    - Or add a plan here (USD) and press **Create in Stripe**.
 5. Tax (optional): Settings → Tax: add the head office address, your tax registrations, the default
    tax code (software as a service) and whether prices include tax. Then set `STRIPE_AUTOMATIC_TAX=true`.
+   Subscriptions bought before that stay tax-free until their plan changes, or until
+   `python scripts/enable_vat_on_subscriptions.py --apply` (in `backend/`) switches tax on for all
+   of them from their next renewal. Run it without `--apply` first to see the list.
 
 Admins manage each app's plan on its **Subscription** page (Voice, Post scheduler and Lead
 generation sidebars): subscribe, move to another plan, cancel at the end of the paid period (or keep

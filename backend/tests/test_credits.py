@@ -501,6 +501,10 @@ async def test_plan_is_changed_and_cancelled_from_the_plugin(client, staff, anon
     assert calls[-1][2] == {"items": [{"id": "si_v", "price": "price_voice"}], "proration_behavior": "none"}
     await _hook(anon, _invoice_paid("evt_4", "in_3", "sub_v", [("price_growth", -26000), ("price_voice", 13000)]))
     assert await balance() == 108000
+    # With Stripe Tax on, a plan change also switches tax on for a subscription bought before it.
+    monkeypatch.setenv("STRIPE_AUTOMATIC_TAX", "true")
+    assert (await client.post("/api/billing/plan", json={"plan": starter["id"]})).json() == {"url": None}
+    assert calls[-1][2]["automatic_tax"] == {"enabled": True}
 
     # Cancel at the end of the paid period, or keep it after all.
     assert (await client.post("/api/billing/cancel", json={"wallet": "voice"})).json() == {"wallet": "voice", "ending": True}

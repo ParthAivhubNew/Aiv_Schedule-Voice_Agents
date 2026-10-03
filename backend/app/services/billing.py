@@ -318,6 +318,8 @@ async def change_plan(db, plan_id: str) -> Optional[str]:
     if (old.currency or "usd") != (new.currency or "usd"):
         raise ValueError("That plan is priced in another currency: cancel this one and subscribe to it instead.")
     data: Dict[str, Any] = {"items": [{"id": live["item"], "price": new.stripe_price_id}], "proration_behavior": "none"}
+    if automatic_tax():  # a plan bought before tax was switched on pays VAT from this change on
+        data["automatic_tax"] = {"enabled": True}
     if new.price_usd_cents > old.price_usd_cents:
         data.update(proration_behavior="always_invoice", payment_behavior="pending_if_incomplete")
     changed = await stripe("POST", f"/subscriptions/{live['subscription']}", data)
