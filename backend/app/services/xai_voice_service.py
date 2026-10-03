@@ -1580,8 +1580,11 @@ async def join_xai_call_session(
                     temp_val = float(dec_config.get("temperature"))
             # Fallback: LLM · xAI key when Voice Orchestration has none
             if not api_key or str(api_key).startswith("mock"):
-                llm_res = await db.execute(select(Connection).where(Connection.group_name == "LLM"))
-                for lc in llm_res.scalars().all():
+                llm_res = await db.execute(select(Connection).where(Connection.group_name.in_(["LLM:voice", "LLM"])))
+                llm_rows = llm_res.scalars().all()
+                # Voice's own key, when saved, takes priority over the legacy shared pool.
+                llm_rows = sorted(llm_rows, key=lambda c: 0 if c.group_name == "LLM:voice" else 1)
+                for lc in llm_rows:
                     if "xai" not in (lc.name or "").lower() and "grok" not in (lc.name or "").lower():
                         continue
                     llm_key = config_get_secret(lc.config if isinstance(lc.config, dict) else {}, "api_key", "auth_token")

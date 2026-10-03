@@ -359,7 +359,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 model=mod,
                 base_url=burl,
                 temperature=0.7,
-                db=db
+                db=db,
+                scope="leadgen"
             )
         except Exception as llm_err:
             logger.warning(f"Voice copilot LLM unavailable: {llm_err}")

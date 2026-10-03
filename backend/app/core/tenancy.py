@@ -48,7 +48,10 @@ TENANT_TABLES: List[str] = [
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.
 SHARED_PROVIDER_GROUPS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Telephony", "Embeddings",
-                          "Business Discovery", "Messaging", "IMAGE", "Telnyx AI Assistant", "Email Finder"]
+                          "Business Discovery", "Messaging", "IMAGE", "Telnyx AI Assistant", "Email Finder",
+                          # Per-plugin LLM/IMAGE keys (Platform Keys page, one tab per plugin); the
+                          # bare "LLM"/"IMAGE" above stay listed too as the legacy fallback group.
+                          "LLM:voice", "LLM:leadgen", "LLM:scheduler", "IMAGE:scheduler"]
 PER_ORG_SINGLETONS = ["company_profile", "calcom_settings", "scheduler_settings", "conversation_templates"]
 
 ORG_DEFAULT_SQL = f"coalesce(nullif(current_setting('app.org_id', true), ''), '{DEFAULT_ORG}')"

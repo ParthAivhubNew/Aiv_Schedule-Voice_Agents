@@ -34,10 +34,23 @@ def _base() -> str:
 LIVE_SUB_STATUSES = ("active", "trialing", "past_due")
 
 
-async def _has_active_plan(db: AsyncSession, wallets_dict: List[Dict[str, Any]]) -> Dict[str, bool]:
+def _is_aivhub_org(org_id: str) -> bool:
+    """Aivhub's own organisation, under whichever id it's known by. Same identifiers the
+    Telnyx/managed-assistant exclusion already uses (voice_assistants.enabled_for_org) —
+    Aivhub's house account is never a paying customer and must never be paywalled."""
+    from app.core.auth_middleware import platform_org
+    from app.core.platform import AIVHUB_ORG
+
+    return org_id in (platform_org(), AIVHUB_ORG, "org_default", "org_outreach")
+
+
+async def _has_active_plan(db: AsyncSession, wallets_dict: List[Dict[str, Any]], org_id: str = "") -> Dict[str, bool]:
     """Per-wallet: does the org's subscription cover it with a live status. Shared by /access
     (any operator) and /overview (admin-only) so the "what counts as active" rule lives in one
-    place."""
+    place. Aivhub's own org always counts as covered, on every wallet, regardless of whether a
+    subscription row exists for it."""
+    if _is_aivhub_org(org_id):
+        return {w["key"]: True for w in wallets_dict}
     sub = await B.subscription_row(db)
     sub_plans = (sub.plans or {}) if (sub and sub.status in LIVE_SUB_STATUSES) else {}
     return {w["key"]: bool(sub_plans.get(w["key"])) for w in wallets_dict}
@@ -50,18 +63,18 @@ async def access(request: Request, db: AsyncSession = Depends(get_db)):
     Used by PluginAccessGate to decide whether to lock a plugin's tabs for any logged-in
     operator, not just admins (/billing/overview is admin-only and leaks plan/usage detail).
     """
-    current(request)
+    ctx = current(request)
     wallets_dict = await K.wallets(db)
-    return {"has_active_plan": await _has_active_plan(db, wallets_dict)}
+    return {"has_active_plan": await _has_active_plan(db, wallets_dict, ctx.get("org_id", ""))}
 
 
 @router.get("/overview")
 async def overview(request: Request, db: AsyncSession = Depends(get_db)):
-    _admin(request)
+    ctx = _admin(request)
     sub = await B.subscription_row(db)
     s = await K.org_settings(db)
     wallets_dict = await K.wallets(db)
-    has_active_plan = await _has_active_plan(db, wallets_dict)
+    has_active_plan = await _has_active_plan(db, wallets_dict, ctx.get("org_id", ""))
     return {
         "stripeReady": B.configured(),
         "testMode": B.test_mode(),

@@ -8,9 +8,19 @@ import { PlatformAi } from "./PlatformAi";
 const NEEDS_PHONE = ["Telephony", "Messaging"];
 const blank = { key: "", model: "", baseUrl: "", phone: "" };
 
-const VOICE_GROUPS = ["Telephony", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration"];
-const LEADGEN_GROUPS = ["Email Finder", "Business Discovery"];
-const SHARED_GROUPS = ["LLM", "IMAGE", "Embeddings", "Messaging"];
+// LLM is the one group every plugin needs its own copy of; IMAGE is Post Scheduler-only today.
+// Each plugin owns its keys independently -- nothing is shared automatically. "Copy from" on a
+// group card is the only way one plugin's saved key ever reaches another, and only when asked.
+const VOICE_GROUPS = ["Telephony", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Embeddings", "Messaging", "LLM:voice"];
+const LEADGEN_GROUPS = ["Email Finder", "Business Discovery", "LLM:leadgen"];
+const SCHEDULER_GROUPS = ["LLM:scheduler", "IMAGE:scheduler"];
+// group -> the other plugins' groups sharing the same base name, for the "Copy from" button.
+const COPY_SIBLINGS = {
+  "LLM:voice": [["LLM:leadgen", "Leadgen"], ["LLM:scheduler", "Post Scheduler"]],
+  "LLM:leadgen": [["LLM:voice", "Voice"], ["LLM:scheduler", "Post Scheduler"]],
+  "LLM:scheduler": [["LLM:voice", "Voice"], ["LLM:leadgen", "Leadgen"]],
+};
+const friendlyGroupName = (g) => g.replace(/:(voice|leadgen|scheduler)$/, (_, s) => ` (${s[0].toUpperCase()}${s.slice(1)}-only)`);
 
 export function PlatformKeys({ canEdit }) {
   const [activeTab, setActiveTab] = useState("voice");
@@ -54,14 +64,30 @@ export function PlatformKeys({ canEdit }) {
     </div>
   );
 
+  const copyFrom = (toGroup, fromGroup, providerName) =>
+    run(() => adminApi.copyPlatformKey(fromGroup, toGroup, providerName), `Copied ${providerName} from ${fromGroup}.`);
+
   const renderGroupCards = (groupNames) => {
-    const groups = data.groups.filter((g) => groupNames.includes(g.group));
+    const byName = Object.fromEntries(data.groups.map((g) => [g.group, g]));
+    const groups = groupNames.map((n) => byName[n]).filter(Boolean);
     if (!groups.length) return null;
     return (
       <div style={{ display: "grid", gap: 12 }}>
         {groups.map((g) => (
           <div key={g.group} style={card}>
-            <div style={{ fontWeight: 700 }}>{g.group}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontWeight: 700 }}>{friendlyGroupName(g.group)}</div>
+              {(COPY_SIBLINGS[g.group] || []).map(([fromGroup, label]) => (
+                <button key={fromGroup} type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }}
+                  title={`Copy a saved key from ${label} into this plugin, when you ask for it -- never automatic.`}
+                  onClick={() => {
+                    const provider = window.prompt(`Copy which provider's key from ${label}? (exact name, e.g. OpenAI)`);
+                    if (provider) copyFrom(g.group, fromGroup, provider.trim());
+                  }}>
+                  Copy from {label}
+                </button>
+              ))}
+            </div>
             {g.desc && <div style={{ fontSize: 12, color: C.slate, marginBottom: 6 }}>{g.desc}</div>}
             {g.items.map((it) => {
               const id = `${g.group}|${it.name}`;
@@ -108,7 +134,6 @@ export function PlatformKeys({ canEdit }) {
     { id: "voice", label: "Voice" },
     { id: "leadgen", label: "Leadgen" },
     { id: "scheduler", label: "Post Scheduler" },
-    { id: "shared", label: "Shared Infrastructure" },
   ];
 
   return (
@@ -139,11 +164,14 @@ export function PlatformKeys({ canEdit }) {
 
       {activeTab === "voice" && (
         <div style={{ display: "grid", gap: 16 }}>
+          <div style={heading}>Current Telnyx Call Setup</div>
+          <VoiceStackStatus stack={data.voiceStack} />
+
           <div style={heading}>Conversation AI Routing</div>
           <div style={{ fontSize: 12.5, color: C.slate }}>
             Select which LLM powers call reasoning and conversation understanding for the Voice plugin.
           </div>
-          <PlatformAi canEdit={canEdit} scope="voice" showCatalogue={false} showKeys={false} />
+          <PlatformAi canEdit={canEdit} scope="voice" showCatalogue={true} showKeys={false} />
 
           <div style={heading}>Voice & Telephony Keys</div>
           {renderGroupCards(VOICE_GROUPS)}
@@ -186,18 +214,41 @@ export function PlatformKeys({ canEdit }) {
       {activeTab === "scheduler" && (
         <div style={{ display: "grid", gap: 16 }}>
           <div style={heading}>Post Scheduler AI</div>
-          <PlatformAi canEdit={canEdit} scope="scheduler" showCatalogue={true} showKeys={false} />
-        </div>
-      )}
+          <PlatformAi canEdit={canEdit} scope="scheduler" showCatalogue={false} showKeys={false} />
 
-      {activeTab === "shared" && (
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ fontSize: 13, color: C.slate }}>
-            The central pool of LLM, Image, Embeddings, and Messaging keys. Enter keys once here; the Voice, Leadgen, and Post Scheduler routing selectors choose from this pool.
-          </div>
-          {renderGroupCards(SHARED_GROUPS)}
+          <div style={heading}>Writing & Image Keys</div>
+          {renderGroupCards(SCHEDULER_GROUPS)}
         </div>
       )}
     </>
+  );
+}
+
+// Reads the live running config (not a static description) so it updates itself the moment
+// anything about the Telnyx/assistant setup changes -- TELNYX_MANAGED_ASSISTANTS, the account
+// mode, how many assistants and client Telnyx setups actually exist right now.
+function VoiceStackStatus({ stack }) {
+  if (!stack) return null;
+  const row = (label, value, tone) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+      <span style={{ fontSize: 12.5, color: C.slate }}>{label}</span>
+      <Pill tone={tone}>{value}</Pill>
+    </div>
+  );
+  return (
+    <div style={{ ...card, display: "grid", gap: 2 }}>
+      {row("Per-client assistants (TELNYX_MANAGED_ASSISTANTS)", stack.managedAssistants ? "On" : "Off",
+        stack.managedAssistants ? "green" : "amber")}
+      {row("Telnyx account mode", stack.accountMode === "managed_account" ? "Managed account (own Telnyx sub-account per client)" : "Billing group (shared Telnyx balance)")}
+      {row("Platform Telnyx key connected", stack.platformReady ? "Yes" : "No", stack.platformReady ? "green" : "red")}
+      {row("Client Telnyx setups provisioned", stack.orgsProvisioned)}
+      {row("Assistants actually created", stack.assistantsCreated)}
+      {stack.accountMode === "managed_account" && row("Clients on their own Telnyx sub-account", stack.orgsOnManagedAccount)}
+      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 6 }}>
+        {stack.managedAssistants
+          ? "Every client org gets its own Telnyx AI assistant automatically when they finish Telnyx verification -- not the one shared assistant below."
+          : "Managed assistants are off: every client currently shares the one assistant ID set below. Turn on TELNYX_MANAGED_ASSISTANTS to give each client its own."}
+      </div>
+    </div>
   );
 }

@@ -3,7 +3,7 @@ import { RefreshCw } from "lucide-react";
 import { C, FONT_DISPLAY } from "../tokens";
 import { adminApi } from "./adminApi";
 import { AwardsTable } from "./GiveCredits";
-import { Note, PageTitle, Table, btn, card, cell, fmt, heading, input, mono, money, useAction, useLoad } from "./ui";
+import { AivhubToggle, Note, PageTitle, Table, btn, card, cell, fmt, heading, input, mono, money, useAction, useLoad } from "./ui";
 
 const right = { ...cell, textAlign: "right", ...mono, whiteSpace: "nowrap" };
 const amounts = (byCurrency) => {
@@ -18,18 +18,32 @@ export function Revenue({ canEdit }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Default OFF on purpose: Aivhub's own house account (internally-granted credits, a
+  // manually-set-up subscription for internal testing) is not a paying customer and must not
+  // silently inflate real revenue/margin numbers.
+  const [includeAivhub, setIncludeAivhub] = useState(() => {
+    try {
+      return localStorage.getItem("admin_revenue_include_aivhub") === "true";
+    } catch (_) {
+      return false;
+    }
+  });
+  const onToggle = (val) => {
+    setIncludeAivhub(val);
+    try { localStorage.setItem("admin_revenue_include_aivhub", String(val)); } catch (_) {}
+  };
 
   const load = useCallback(async () => {
     setBusy(true);
     setError("");
     try {
-      const [report, awards] = await Promise.all([adminApi.revenue(month), adminApi.awards({ month })]);
+      const [report, awards] = await Promise.all([adminApi.revenue(month, includeAivhub), adminApi.awards({ month })]);
       setData({ ...report, awards });
     } catch (err) {
       setError(err.message);
     }
     setBusy(false);
-  }, [month]);
+  }, [month, includeAivhub]);
   useEffect(() => { load(); }, [load]);
 
   const tile = (label, value, tone) => (
@@ -41,9 +55,10 @@ export function Revenue({ canEdit }) {
   const subs = data?.subscriptions || {};
   return (
     <>
-      <PageTitle title="Revenue" sub="Money in, usage, our cost and margin, per month. Amounts stay in the currency they were paid in."
+      <PageTitle title="Revenue" sub={`Money in, usage, our cost and margin, per month. Amounts stay in the currency they were paid in. (${includeAivhub ? "including Aivhub" : "paying clients only"})`}
         right={
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <AivhubToggle value={includeAivhub} onChange={onToggle} />
             <input type="month" aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} style={input} />
             <button type="button" style={btn(false, busy)} disabled={busy} onClick={load}><RefreshCw size={13} /> Refresh</button>
           </div>

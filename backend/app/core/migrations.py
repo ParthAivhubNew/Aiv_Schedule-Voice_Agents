@@ -334,6 +334,41 @@ async def _phone_rental_due(conn: AsyncConnection) -> None:
     await conn.execute(text("UPDATE org_phone_numbers SET rent_due_at = created_at + interval '30 days' WHERE rent_due_at IS NULL AND status = 'active'"))
 
 
+async def _split_shared_provider_keys_per_plugin(conn: AsyncConnection) -> None:
+    """Each plugin (Voice, Leadgen, Post Scheduler) gets its own independent LLM key instead of
+    all three sharing one "LLM" pool; Post Scheduler also gets its own "IMAGE" key (the only
+    plugin that uses one today). This DUPLICATES existing rows into the new per-plugin groups
+    rather than moving them, so every plugin keeps working with the exact key it was already
+    using the moment this deploys -- nobody has to reconfigure anything. The old "LLM"/"IMAGE"
+    groups are left in place as a fallback (resolve_llm_credentials and _saved_ai_keys both check
+    the scoped group first, then fall back to the legacy one), so this is purely additive.
+    """
+    import json
+
+    rows = (await conn.execute(text(
+        "SELECT id, org_id, group_name, name, status, api_key_masked, config FROM connections "
+        "WHERE group_name IN ('LLM', 'IMAGE')"
+    ))).all()
+    for row_id, org_id, group_name, name, status, masked, config in rows:
+        targets = ["voice", "leadgen", "scheduler"] if group_name == "LLM" else ["scheduler"]
+        for scope in targets:
+            new_group = f"{group_name}:{scope}"
+            new_id = f"{row_id}_{scope}"
+            exists = (await conn.execute(text(
+                "SELECT 1 FROM connections WHERE id = :i"), {"i": new_id}
+            )).first()
+            if exists:
+                continue
+            await conn.execute(text(
+                "INSERT INTO connections (id, org_id, group_name, name, status, api_key_masked, config) "
+                "VALUES (:id, :org_id, :group_name, :name, :status, :masked, CAST(:config AS JSON))"
+            ), {
+                "id": new_id, "org_id": org_id, "group_name": new_group, "name": name,
+                "status": status, "masked": masked,
+                "config": json.dumps(config) if config is not None else None,
+            })
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -350,6 +385,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_10_seed_billing_plans", _seed_billing_plans),
     ("2026_10_11_merge_leadgen_email", _merge_leadgen_email_wallets),
     ("2026_10_12_phone_rental_due", _phone_rental_due),
+    ("2026_10_13_split_shared_provider_keys", _split_shared_provider_keys_per_plugin),
 ]
 
 

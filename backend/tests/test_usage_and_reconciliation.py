@@ -48,7 +48,7 @@ async def test_revenue_shows_the_margin_per_app(staff, db):
     await K.add_credits(db, "voice", 30, source="given")
     await K.charge(db, "voice_minute", 10, "call:cl_1")
     await db.commit()
-    rep = (await staff.get(f"/api/admin-api/revenue?month={datetime.utcnow():%Y-%m}")).json()
+    rep = (await staff.get(f"/api/admin-api/revenue?month={datetime.utcnow():%Y-%m}&include_aivhub=true")).json()
     voice = next(a for a in rep["apps"] if a["wallet"] == "voice")
     assert (voice["paid"], voice["credits"], voice["given"], voice["costCents"], voice["marginCents"]) == ({"gbp": 1000}, 10, 30, 20, 980)
 

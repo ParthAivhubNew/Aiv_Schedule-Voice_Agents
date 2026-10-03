@@ -873,16 +873,18 @@ async def generate_or_refine_email_draft(body: AiDraftRequest, request: Request,
         )
 
     try:
-        reply_raw = await call_open_chat_llm(
+        llm_result = await call_open_chat_llm(
+            messages=[{"role": "user", "content": user_prompt}],
             system_prompt=system_prompt,
-            user_prompt=user_prompt,
             temperature=0.3,
             db=db,
             api_key=body.api_key,
             provider=body.provider,
             model=body.model,
             base_url=body.base_url,
+            scope="leadgen",
         )
+        reply_raw = llm_result.get("reply") or ""
 
         # Parse JSON reply or format fallback
         subject_out = ""

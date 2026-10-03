@@ -54,12 +54,19 @@ async def resolve_llm_credentials(
     api_key: Optional[str] = None,
     provider: Optional[str] = None,
     model: Optional[str] = None,
-    base_url: Optional[str] = None
+    base_url: Optional[str] = None,
+    scope: str = ""
 ) -> Dict[str, Any]:
     """
     Resolves API credentials: an explicit key (internal callers only), else OutReach's own keys
     saved in the platform record, else that provider's environment key. A company's own saved
     keys are never used, and a requested provider is never swapped for a different one.
+
+    scope: which plugin is asking ("voice", "leadgen", "scheduler"). Each plugin owns its own LLM
+    keys, stored under group_name f"LLM:{scope}" (Platform Keys admin page, one tab per plugin) --
+    this is what actually keeps them independent, not just the admin UI's per-scope labels. With
+    no scope given, or if that plugin hasn't saved anything in its own group yet, this falls back
+    to the legacy shared "LLM" group so nothing breaks for callers not yet passing scope.
     """
     from app.services.secret_box import reject_if_masked, config_get_secret
 
@@ -91,9 +98,15 @@ async def resolve_llm_credentials(
         try:
             from app.core.platform import platform_org_id
 
-            res = await db.execute(select(Connection).where(
-                Connection.group_name == "LLM", Connection.org_id == platform_org_id()))
-            conns = res.scalars().all()
+            conns = []
+            if scope:
+                res = await db.execute(select(Connection).where(
+                    Connection.group_name == f"LLM:{scope}", Connection.org_id == platform_org_id()))
+                conns = res.scalars().all()
+            if not conns:
+                res = await db.execute(select(Connection).where(
+                    Connection.group_name == "LLM", Connection.org_id == platform_org_id()))
+                conns = res.scalars().all()
 
             # 1. Exact or partial match on provider name if provider was requested
             if prov:
@@ -196,18 +209,21 @@ async def call_open_chat_llm(
     base_url: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 2048,
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    scope: str = ""
 ) -> Dict[str, Any]:
     """
     Calls any LLM provider (OpenAI, DeepSeek, Anthropic, Groq, xAI, Ollama, custom)
-    with full open-ended conversational freedom.
+    with full open-ended conversational freedom. scope: which plugin is calling
+    ("voice"/"leadgen"/"scheduler") -- see resolve_llm_credentials.
     """
     creds = await resolve_llm_credentials(
         db=db,
         api_key=api_key,
         provider=provider,
         model=model,
-        base_url=base_url
+        base_url=base_url,
+        scope=scope
     )
 
     resolved_provider = (creds.get("provider") or "openai").lower()
@@ -509,14 +525,16 @@ async def call_open_chat_llm_with_tools(
     temperature: float = 0.3,
     max_tokens: int = 300,
     tool_choice: str = "auto",
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    scope: str = ""
 ) -> Dict[str, Any]:
     """
     Non-streaming OpenAI-compatible & Anthropic chat completion WITH function/tool-calling support.
     Returns {"success", "reply", "tool_calls", "model", "provider"}.
     Anthropic returns normalized OpenAI-shaped tool_calls so callers get consistent objects.
+    scope: which plugin is calling -- see resolve_llm_credentials.
     """
-    creds = await resolve_llm_credentials(db=db, api_key=api_key, provider=provider, model=model, base_url=base_url)
+    creds = await resolve_llm_credentials(db=db, api_key=api_key, provider=provider, model=model, base_url=base_url, scope=scope)
     resolved_provider = (creds.get("provider") or "openai").lower()
     resolved_key = creds.get("api_key") or ""
     resolved_base_url = creds.get("base_url")
@@ -649,18 +667,20 @@ async def stream_open_chat_llm(
     base_url: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 2048,
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    scope: str = ""
 ) -> AsyncGenerator[str, None]:
     """
     Streams LLM token chunks in real-time from any supported provider (OpenAI, DeepSeek, Groq, xAI, Anthropic, Ollama).
-    Yields string deltas as they arrive.
+    Yields string deltas as they arrive. scope: which plugin is calling -- see resolve_llm_credentials.
     """
     creds = await resolve_llm_credentials(
         db=db,
         api_key=api_key,
         provider=provider,
         model=model,
-        base_url=base_url
+        base_url=base_url,
+        scope=scope
     )
 
     resolved_provider = (creds.get("provider") or "openai").lower()

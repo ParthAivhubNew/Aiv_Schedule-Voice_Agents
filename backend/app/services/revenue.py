@@ -51,19 +51,23 @@ async def set_unit_costs(db, currency: str, costs: Dict[str, Any]) -> Dict[str, 
     return await unit_costs(db)
 
 
-async def report(db, month: str) -> Dict[str, Any]:
-    """Every organisation (run with all organisations visible)."""
+async def report(db, month: str, include_aivhub: bool = False) -> Dict[str, Any]:
+    """Every organisation (run with all organisations visible). Aivhub's own house account is
+    excluded by default: it's never a paying customer, and counting its internally-granted
+    credits/subscription as revenue would skew every margin number here."""
     from app.services.credits import DEFAULT_RATES, WALLETS, wallet_of
 
     start, end = month_range(month)
     window = {"s": start, "e": end}
     costs = await unit_costs(db)
     names = dict((await db.execute(text("SELECT id, name FROM organizations"))).all())
+    org_excl = "" if include_aivhub else "AND org_id <> 'org_default' "
+    id_excl = "" if include_aivhub else "AND id <> 'org_default' "
 
     # What clients paid, per app and currency, and per client.
     paid = (await db.execute(text(
         "SELECT org_id, wallet, lower(coalesce(nullif(paid_currency, ''), 'usd')), sum(paid_cents), count(*) FROM credit_grants "
-        "WHERE paid_cents > 0 AND created_at >= :s AND created_at < :e GROUP BY 1, 2, 3"), window)).all()
+        f"WHERE paid_cents > 0 {org_excl}AND created_at >= :s AND created_at < :e GROUP BY 1, 2, 3"), window)).all()
     by_app: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     payments = 0
     clients: Dict[str, Dict[str, Any]] = {}
@@ -79,13 +83,13 @@ async def report(db, month: str) -> Dict[str, Any]:
 
     # Credits staff gave free of charge (never revenue), per app.
     given = dict((await db.execute(text(
-        "SELECT wallet, sum(amount) FROM credit_grants WHERE source = 'given' AND created_at >= :s AND created_at < :e "
+        f"SELECT wallet, sum(amount) FROM credit_grants WHERE source = 'given' {org_excl}AND created_at >= :s AND created_at < :e "
         "GROUP BY 1"), window)).all())
 
     # What they used, and what that cost us.
     used = (await db.execute(text(
         "SELECT org_id, item, sum(quantity), -sum(amount) FROM credit_ledger "
-        "WHERE kind = 'usage' AND created_at >= :s AND created_at < :e GROUP BY 1, 2"), window)).all()
+        f"WHERE kind = 'usage' {org_excl}AND created_at >= :s AND created_at < :e GROUP BY 1, 2"), window)).all()
     items: Dict[str, Dict[str, float]] = {}
     for org_id, item, qty, credits in used:
         row = items.setdefault(item, {"units": 0.0, "credits": 0, "cost": 0.0})
@@ -98,16 +102,18 @@ async def report(db, month: str) -> Dict[str, Any]:
         c["cost"] += float(qty or 0) * unit
 
     # Subscriptions and the monthly value of live plans.
-    subs = dict((await db.execute(text("SELECT status, count(*) FROM billing_subscriptions GROUP BY 1"))).all())
+    subs = dict((await db.execute(text(f"SELECT status, count(*) FROM billing_subscriptions WHERE 1=1 {id_excl}GROUP BY 1"))).all())
     plan_rows = dict((p[0], (p[1], (p[2] or "usd").lower())) for p in (await db.execute(text(
         "SELECT id, price_usd_cents, currency FROM billing_plans"))).all())
     monthly: Dict[str, int] = defaultdict(int)
     for (plans,) in (await db.execute(text(
-            "SELECT plans FROM billing_subscriptions WHERE status IN ('active', 'trialing', 'past_due')"))).all():
+            f"SELECT plans FROM billing_subscriptions WHERE status IN ('active', 'trialing', 'past_due') {id_excl}"))).all():
         for plan_id in (plans or {}).values():
             if plan_id in plan_rows:
                 cents, cur = plan_rows[plan_id]
                 monthly[cur] += int(cents or 0)
+    # stripe_events has no org_id column (real Stripe webhooks only; Aivhub's manually-inserted
+    # subscription row never generates one of these), so no exclusion is needed here.
     failed = (await db.execute(text(
         "SELECT count(*) FROM stripe_events WHERE type = 'invoice.payment_failed' AND created_at >= :s AND created_at < :e"),
         window)).scalar() or 0
@@ -134,6 +140,7 @@ async def report(db, month: str) -> Dict[str, Any]:
     out_clients.sort(key=lambda r: (-(sum(r["paid"].values())), -r["credits"]))
     return {
         "month": month,
+        "includeAivhub": include_aivhub,
         "currency": cur,
         "revenue": {w: dict(v) for w, v in by_app.items()},
         "appNames": WALLETS,

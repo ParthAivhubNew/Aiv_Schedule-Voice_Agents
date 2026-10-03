@@ -332,16 +332,22 @@ async def _load_ai_settings(db: AsyncSession, slot: str = "main") -> Dict[str, A
     return out
 
 
-async def _saved_ai_keys(db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
-    """Which providers have a saved key (masked) - for the admin portal. Never returns raw keys."""
+async def _saved_ai_keys(db: AsyncSession, scope: str = "scheduler") -> Dict[str, List[Dict[str, Any]]]:
+    """Which providers have a saved key (masked) - for the admin portal. Never returns raw keys.
+    scope: which plugin's own key groups to read (f"LLM:{scope}"/f"IMAGE:{scope}"); the legacy
+    bare "LLM"/"IMAGE" groups are included too as a fallback for anything not yet migrated."""
     from app.services.key_validator import identify_provider
     from app.services.secret_box import config_get_secret, mask_secret
     text_keys: Dict[str, Dict[str, Any]] = {}
     image_keys: Dict[str, Dict[str, Any]] = {}
     from app.core.platform import platform_org_id
 
+    # Images are Post Scheduler-only today -- no IMAGE:voice/IMAGE:leadgen groups exist, so other
+    # scopes simply don't query for one rather than falling back to Scheduler's image keys.
+    text_group = f"LLM:{scope}"
+    groups = [text_group, "LLM"] + ([f"IMAGE:{scope}", "IMAGE"] if scope == "scheduler" else [])
     res = await db.execute(select(Connection).where(
-        Connection.group_name.in_(["LLM", "IMAGE"]), Connection.org_id == platform_org_id()))
+        Connection.group_name.in_(groups), Connection.org_id == platform_org_id()))
     for c in res.scalars().all():
         cfg = c.config if isinstance(c.config, dict) else {}
         k = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
@@ -349,7 +355,7 @@ async def _saved_ai_keys(db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
         if not k and not is_self_hosted(burl):
             continue
         prov_slug = str(cfg.get("provider") or c.name or "").strip().lower()
-        bucket = text_keys if c.group_name == "LLM" else image_keys
+        bucket = text_keys if c.group_name in (text_group, "LLM") else image_keys
         bucket[c.name] = {
             "id": c.id,
             "provider": prov_slug or c.name,
@@ -370,7 +376,7 @@ async def _resolve_text_ai(db: AsyncSession, payload: Optional[Dict[str, Any]] =
     prefs = await _load_ai_settings(db, slot)
     provider = _auto_none(prefs.get("textProvider"))
     model = (prefs.get("textModel") or "").strip() or None
-    creds = await resolve_llm_credentials(db=db, provider=provider, model=model)
+    creds = await resolve_llm_credentials(db=db, provider=provider, model=model, scope="scheduler")
     error = None
     is_local = is_self_hosted(creds.get("base_url"))
     if not creds.get("api_key") and not is_local:

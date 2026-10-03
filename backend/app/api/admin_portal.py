@@ -872,7 +872,39 @@ async def platform_keys(request: Request):
             g["items"] += [{"id": f"new:{p}", "name": LABELS[p], "status": "not_set"}
                            for p in PROVIDERS if not any(p in n for n in saved)]
     assistant = await _as_platform(C.get_telnyx_assistant_settings)
-    return {"groups": groups, "assistant": assistant}
+    voice_stack = await _voice_stack_status()
+    return {"groups": groups, "assistant": assistant, "voiceStack": voice_stack}
+
+
+async def _voice_stack_status() -> Dict[str, Any]:
+    """What the Voice plugin's Telnyx setup is actually doing right now, read live from the
+    running config -- not a description someone has to remember to update by hand. Shows up as
+    a status panel on the Voice tab of Platform Keys."""
+    from app.core.tenancy import system_scope
+    from app.models.models import OrgTelnyx, VoiceAssistant
+    from app.services import voice_assistants as VA
+    from app.services import telnyx_provisioning as TP
+    from sqlalchemy import func
+
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            assistants_created = (await db.execute(
+                select(func.count()).select_from(VoiceAssistant).where(VoiceAssistant.telnyx_assistant_id.isnot(None))
+            )).scalar() or 0
+            orgs_provisioned = (await db.execute(
+                select(func.count()).select_from(OrgTelnyx).where(OrgTelnyx.status == "ready")
+            )).scalar() or 0
+            orgs_on_managed_account = (await db.execute(
+                select(func.count()).select_from(OrgTelnyx).where(OrgTelnyx.mode == "managed_account")
+            )).scalar() or 0
+    return {
+        "managedAssistants": VA.enabled(),
+        "accountMode": TP.account_mode(),
+        "platformReady": TP.platform_ready(),
+        "assistantsCreated": int(assistants_created),
+        "orgsProvisioned": int(orgs_provisioned),
+        "orgsOnManagedAccount": int(orgs_on_managed_account),
+    }
 
 
 @router.post("/platform-keys/save")
@@ -905,6 +937,47 @@ async def platform_keys_clear(body: Dict[str, Any], request: Request):
 
     await refresh_saved_key()
     return out
+
+
+class CopyKeyBody(BaseModel):
+    from_group: str
+    to_group: str
+    provider_name: str
+
+
+@router.post("/platform-keys/copy")
+async def platform_keys_copy(body: CopyKeyBody, request: Request):
+    """Explicit, one-click opt-in: duplicate an already-saved key from one plugin's group into
+    another plugin's group, when the admin asks for it -- never automatic. The real secret never
+    passes through the browser; it's copied directly between rows on the server."""
+    from app.models.models import Connection
+    from app.core.auth_middleware import platform_org
+    from app.core.tenancy import org_scope
+
+    _admin_only(request)
+    if body.from_group == body.to_group:
+        raise HTTPException(status_code=400, detail="Pick a different plugin to copy from.")
+    with org_scope(platform_org()):
+        async with AsyncSessionLocal() as db:
+            src = (await db.execute(select(Connection).where(
+                Connection.group_name == body.from_group, Connection.name == body.provider_name
+            ))).scalars().first()
+            if not src or not src.config:
+                raise HTTPException(status_code=404, detail=f"No saved {body.provider_name} key found to copy.")
+            dest = (await db.execute(select(Connection).where(
+                Connection.group_name == body.to_group, Connection.name == body.provider_name
+            ))).scalars().first()
+            if dest:
+                dest.config = dict(src.config)
+                dest.status = src.status
+                dest.api_key_masked = src.api_key_masked
+            else:
+                db.add(Connection(id=f"{body.to_group}_{body.provider_name}_{uuid.uuid4().hex[:8]}",
+                                  group_name=body.to_group, name=body.provider_name,
+                                  status=src.status, api_key_masked=src.api_key_masked,
+                                  config=dict(src.config)))
+            await db.commit()
+    return {"ok": True}
 
 
 @router.post("/platform-keys/assistant")
@@ -1022,7 +1095,7 @@ async def get_platform_ai(request: Request, scope: str = "scheduler"):
         health = await platform_ai.health(db, scope=scope)
     with org_scope(platform_org()):
         async with AsyncSessionLocal() as db:
-            keys = await _saved_ai_keys(db)
+            keys = await _saved_ai_keys(db, scope=scope)
     return {"scope": scope, "chosen": chosen, "health": health,
             "textProviders": platform_ai.TEXT_PROVIDERS, "imageProviders": platform_ai.IMAGE_PROVIDERS,
             "keys": {"text": [k["provider"] for k in keys["text"]], "image": [k["provider"] for k in keys["image"]]}}
@@ -1133,8 +1206,10 @@ async def put_voice_catalogue(body: CatalogueBody, request: Request):
 
 # ── Revenue and costs ───────────────────────────────────────────────────────
 @router.get("/revenue")
-async def revenue(request: Request, month: str = ""):
-    """A month's payments, usage, our estimated cost, margin per client, and subscriptions."""
+async def revenue(request: Request, month: str = "", include_aivhub: bool = False):
+    """A month's payments, usage, our estimated cost, margin per client, and subscriptions.
+    Aivhub's own house account is excluded by default so its internally-granted credits and
+    manually-set-up subscription never skew real revenue/margin numbers."""
     import re
 
     from app.services import revenue as R
@@ -1144,7 +1219,7 @@ async def revenue(request: Request, month: str = ""):
     if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
         raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
     async with AsyncSessionLocal() as db:
-        return await R.report(db, month)
+        return await R.report(db, month, include_aivhub)
 
 
 @router.get("/unit-costs")

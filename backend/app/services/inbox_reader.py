@@ -55,7 +55,7 @@ async def classify(db: AsyncSession, text: str, auto: bool) -> str:
             messages=[{"role": "user", "content": (text or "")[:1500]}],
             system_prompt=("Sort this reply to a sales email. Answer with JSON only: {\"category\": one of "
                            "interested, question, not_interested, ooo, unsubscribe}."),
-            temperature=0, max_tokens=40, db=db)
+            temperature=0, max_tokens=40, db=db, scope="leadgen")
         if res and res.get("success") and res.get("reply"):
             m = re.search(r"\{.*\}", res["reply"], re.S)
             cat = (json.loads(m.group(0)).get("category") if m else res["reply"]).strip().lower()

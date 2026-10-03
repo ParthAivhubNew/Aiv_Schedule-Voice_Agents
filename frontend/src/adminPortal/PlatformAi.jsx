@@ -87,7 +87,7 @@ export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true,
           Save AI settings
         </button>
       )}
-      {scope === "scheduler" && showCatalogue && <VoiceCatalogue canEdit={canEdit} />}
+      {scope === "voice" && showCatalogue && <VoiceCatalogue canEdit={canEdit} />}
 
       {showKeys && (
         <>
