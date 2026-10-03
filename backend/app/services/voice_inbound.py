@@ -32,8 +32,6 @@ async def handle_incoming(body: Dict[str, Any]) -> Dict[str, Any]:
     payload = envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {}
     if event_type != "call.initiated" or str(payload.get("direction") or "") != "incoming":
         return {"status": "ignored", "reason": "not an incoming call"}
-    if not VA.enabled():
-        return {"status": "ignored", "reason": "managed assistants are off"}
     ccid = str(payload.get("call_control_id") or "")
     caller, ours = str(payload.get("from") or ""), str(payload.get("to") or "")
     if not ccid or not ours:
@@ -44,6 +42,8 @@ async def handle_incoming(body: Dict[str, Any]) -> Dict[str, Any]:
                                                                OrgPhoneNumber.status == "active"))).scalars().first()
         if number is None:  # not a number of this organisation: leave the call alone
             return {"status": "ignored", "reason": "unknown number"}
+        if not VA.enabled_for_org(number.org_id):
+            return {"status": "ignored", "reason": "managed assistants are off for this organisation"}
         call_id = f"call_{uuid.uuid4().hex[:8]}"
         # Prepaid: with no minutes left the number does not answer (the caller hears busy);
         # otherwise the call holds the minutes left and is hung up when they run out.

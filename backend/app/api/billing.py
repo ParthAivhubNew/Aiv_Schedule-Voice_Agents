@@ -31,16 +31,44 @@ def _base() -> str:
     return (settings.PUBLIC_BASE_URL or "").rstrip("/")
 
 
+LIVE_SUB_STATUSES = ("active", "trialing", "past_due")
+
+
+async def _has_active_plan(db: AsyncSession, wallets_dict: List[Dict[str, Any]]) -> Dict[str, bool]:
+    """Per-wallet: does the org's subscription cover it with a live status. Shared by /access
+    (any operator) and /overview (admin-only) so the "what counts as active" rule lives in one
+    place."""
+    sub = await B.subscription_row(db)
+    sub_plans = (sub.plans or {}) if (sub and sub.status in LIVE_SUB_STATUSES) else {}
+    return {w["key"]: bool(sub_plans.get(w["key"])) for w in wallets_dict}
+
+
+@router.get("/access")
+async def access(request: Request, db: AsyncSession = Depends(get_db)):
+    """Lightweight, non-admin-safe check for whether each wallet has an active plan.
+
+    Used by PluginAccessGate to decide whether to lock a plugin's tabs for any logged-in
+    operator, not just admins (/billing/overview is admin-only and leaks plan/usage detail).
+    """
+    current(request)
+    wallets_dict = await K.wallets(db)
+    return {"has_active_plan": await _has_active_plan(db, wallets_dict)}
+
+
 @router.get("/overview")
 async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     _admin(request)
     sub = await B.subscription_row(db)
     s = await K.org_settings(db)
+    wallets_dict = await K.wallets(db)
+    has_active_plan = await _has_active_plan(db, wallets_dict)
     return {
         "stripeReady": B.configured(),
         "testMode": B.test_mode(),
         "enforce": s["enforce"],
-        "wallets": await K.wallets(db),
+        "wallets": wallets_dict,
+        "has_active_plan": has_active_plan,
+        "hasActivePlan": has_active_plan,
         "plans": [B.plan_json(p) for p in await B.plans(db)],
         "subscription": {
             "status": sub.status if sub else "none",

@@ -96,9 +96,29 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
                     **({"telnyxMonthlyCost": o.monthly_cost, "telnyxUpfrontCost": o.upfront_cost, "telnyxCurrency": o.currency} if staff else {})}
                    for o in orders],
         "price": await _our_price(db),
+        "allowedCountries": list(setup.allowed_countries or ["GB"]) if setup else ["GB"],
         "numbers": [{"id": n.id, "e164": n.e164, "label": n.label, "status": n.status, "capabilities": n.capabilities or [],
                      "isDefault": bool(n.is_default), "provider": n.provider} for n in numbers],
     }
+
+
+class CountriesBody(BaseModel):
+    countries: List[str]
+
+
+@router.put("/allowed-countries")
+async def set_allowed_countries(body: CountriesBody, request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = _admin(request)
+    setup, client = await _ready_client(db, ctx)
+    countries = [c.strip().upper() for c in body.countries if c.strip()] or ["GB"]
+    setup.allowed_countries = countries
+    if setup.outbound_voice_profile_id:
+        try:
+            await client.update_outbound_voice_profile(setup.outbound_voice_profile_id, countries)
+        except TelnyxError as err:
+            raise HTTPException(status_code=502, detail=str(err))
+    await db.commit()
+    return {"countries": countries}
 
 
 @router.get("/requirements")
@@ -122,7 +142,11 @@ async def submit_verification(
     addresses: str = Form("{}"),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.services import credits as K
+
     ctx = _admin(request)
+    if not await K.can_start(db, "number_setup"):
+        raise HTTPException(status_code=402, detail="Not enough Voice credits for number setup (5 credits required).")
     if entity_type not in ("company", "sole_trader"):
         raise HTTPException(status_code=400, detail="Choose company or sole trader.")
     try:
@@ -145,6 +169,12 @@ async def submit_verification(
             raise HTTPException(status_code=400, detail=f"{value.filename} is empty.")
         files[key[4:]] = (value.filename or "document", content, ctype)
     _, client = await _ready_client(db, ctx)
+    # Charge once per organisation, not once per submission: a client whose documents are
+    # rejected and re-uploads (the normal flow per step 4) must not pay the setup fee again for
+    # the same number attempt.
+    prior = await TP.latest_verification(db, country.upper(), number_type)
+    if not prior:
+        await K.charge(db, "number_setup", 1, f"setup:{ctx.get('org_id')}:{country.upper()}:{number_type}", "Phone number setup fee")
     sub = await TP.submit_verification(db, client, country=country.upper(), number_type=number_type, entity_type=entity_type,
                                        texts=text_values, addresses=address_values, files=files, by=ctx.get("name", ""))
     await db.commit()
@@ -217,22 +247,29 @@ async def order(body: OrderBody, request: Request, db: AsyncSession = Depends(ge
     return {"id": o.id, "status": o.status, "phoneNumber": o.phone_number}
 
 
+async def _release_number(db: AsyncSession, n: Any) -> None:
+    """Release on Telnyx first; only mark released in our DB once Telnyx confirms it. Raises
+    TelnyxError on failure so the caller knows the number is still live (and still billable)."""
+    if n.provider == "telnyx" and n.provider_ref:
+        setup = await TP.get_setup(db)
+        client = TP.client_for(setup)
+        await client.release_number(n.provider_ref)
+    n.status = "released"
+    n.is_default = False
+
+
 @router.post("/numbers/{number_id}/release")
 async def release(number_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     from app.models.models import OrgPhoneNumber
 
-    ctx = _admin(request)
+    _admin(request)
     n = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.id == number_id))).scalars().first()
     if not n:
         raise HTTPException(status_code=404, detail="Number not found.")
-    if n.provider == "telnyx" and n.provider_ref:
-        _, client = await _ready_client(db, ctx)
-        try:
-            await client.release_number(n.provider_ref)
-        except TelnyxError as err:
-            raise HTTPException(status_code=502, detail=str(err))
-    n.status = "released"
-    n.is_default = False
+    try:
+        await _release_number(db, n)
+    except TelnyxError as err:
+        raise HTTPException(status_code=502, detail=f"Telnyx could not release this number: {err}")
     await db.commit()
     return {"ok": True}
 

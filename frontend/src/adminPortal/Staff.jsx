@@ -17,6 +17,23 @@ export function Staff({ me, canEdit }) {
       <PageTitle title="Staff" sub="Every staff account signs in with a password and a code from an authenticator app." />
       <Note error>{err}</Note>
       <Note error={msg.error}>{msg.text}</Note>
+      {canEdit && (
+        <form style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(async () => { await adminApi.addStaff(form); setForm(EMPTY); }, "Staff added. Give them the password; they set up two-factor at first sign-in.");
+          }}>
+          <input aria-label="Staff email" type="email" required placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={{ ...input, width: 220 }} />
+          <input aria-label="Staff name" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ ...input, width: 160 }} />
+          <select aria-label="Staff role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} style={input}>
+            <option value="staff_support">Support (view only)</option>
+            <option value="staff_admin">Admin</option>
+          </select>
+          <input aria-label="Starting password" type="password" required autoComplete="new-password" placeholder="Starting password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} style={{ ...input, width: 180 }} />
+          <button type="submit" style={btn(true)}><Plus size={13} /> Add staff</button>
+        </form>
+      )}
+
       <Table head={["Name", "Email", "Role", "Two-factor", "Active", "Last sign-in", ""]} minWidth={860}>
         {(rows || []).map((s) => {
           const self = s.id === me.staff_id;
@@ -51,23 +68,6 @@ export function Staff({ me, canEdit }) {
           );
         })}
       </Table>
-
-      {canEdit && (
-        <form style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginTop: 14 }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(async () => { await adminApi.addStaff(form); setForm(EMPTY); }, "Staff added. Give them the password; they set up two-factor at first sign-in.");
-          }}>
-          <input aria-label="Staff email" type="email" required placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={{ ...input, width: 220 }} />
-          <input aria-label="Staff name" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ ...input, width: 160 }} />
-          <select aria-label="Staff role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} style={input}>
-            <option value="staff_support">Support (view only)</option>
-            <option value="staff_admin">Admin</option>
-          </select>
-          <input aria-label="Starting password" type="password" required autoComplete="new-password" placeholder="Starting password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} style={{ ...input, width: 180 }} />
-          <button type="submit" style={btn(true)}><Plus size={13} /> Add staff</button>
-        </form>
-      )}
     </>
   );
 }

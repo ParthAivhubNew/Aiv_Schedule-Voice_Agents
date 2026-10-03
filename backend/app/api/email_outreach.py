@@ -493,14 +493,23 @@ class FindBody(BaseModel):
     last_name: str = ""
     company_name: str = ""
     domain: str = ""
+    mission_id: Optional[str] = None
+    prospect_id: Optional[str] = None
 
 
 @router.post("/find")
 async def find_email(body: FindBody, request: Request, db: AsyncSession = Depends(get_db)):
-    """1 credit when an email is found; nothing when it is not."""
+    """1 credit when an email is found; nothing when it is not.
+
+    mission_id/prospect_id are optional: pass them when this is called for a specific
+    prospect (e.g. from a mission's lead row) so a found email can auto-enroll into that
+    mission's linked email campaign (Mission.auto_enroll_campaign_id).
+    """
     ctx = current(request)
     result = await lookup_person_waterfall(db=db, org_id=ctx["org_id"], first_name=body.first_name,
-                                           last_name=body.last_name, company_name=body.company_name, domain=body.domain)
+                                           last_name=body.last_name, company_name=body.company_name,
+                                           domain=body.domain, mission_id=body.mission_id,
+                                           prospect_id=body.prospect_id)
     if result.get("error") == "insufficient_credits":
         raise HTTPException(status_code=402, detail=result["detail"])
     if result.get("error") in ("bad_input", "not_configured"):

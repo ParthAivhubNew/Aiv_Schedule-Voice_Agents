@@ -90,6 +90,11 @@ async def _credits_settle_loop():
             logger.warning(f"[Credits] Settle cycle failed: {loop_err}")
 
 
+# Monthly phone number rental and release-on-unpaid-rental are handled inside
+# app.services.credits.settle() (reuses the existing 5-minute settle loop below instead of a
+# second, duplicate billing loop — see its comments for why).
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database tables...")

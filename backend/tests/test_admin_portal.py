@@ -122,7 +122,10 @@ async def test_suspending_a_client_signs_everyone_out(staff, anon, db):
         assert (await c.get("/api/auth/me")).status_code == 401
     r = await anon.post("/api/auth/login", json={"username": "acme_admin", "password": "Acme-pass-2026"})
     assert r.status_code == 403
+    # Suspended (archived) orgs are hidden from the plain list by default now.
     clients = {o["id"]: o for o in (await staff.get("/api/admin-api/clients")).json()}
+    assert "org_acme" not in clients
+    clients = {o["id"]: o for o in (await staff.get("/api/admin-api/clients?include_archived=true")).json()}
     assert clients["org_acme"]["status"] == "suspended"
 
     assert (await staff.post("/api/admin-api/clients/org_acme/status", json={"status": "active"})).status_code == 200

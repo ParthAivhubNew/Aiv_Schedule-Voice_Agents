@@ -63,7 +63,7 @@ async def studio(request: Request, db: AsyncSession = Depends(get_db)):
     templates = (await db.execute(select(ConversationTemplate).order_by(ConversationTemplate.name))).scalars().all()
     missions = (await db.execute(select(Mission).order_by(Mission.title))).scalars().all()
     return {
-        "managed": VA.enabled(),
+        "managed": VA.enabled_for_org(ctx["org_id"]),
         "hasNumber": await _has_number(db, ctx["org_id"]),
         "canChangeCompany": _can_change_company(ctx),
         "isAdmin": bool(ctx.get("is_admin")),  # only admins open the Numbers page
@@ -240,7 +240,7 @@ async def test_call(body: TestCallBody, request: Request, db: AsyncSession = Dep
     op = await _me(db, ctx)
     if not op.phone:
         raise HTTPException(status_code=400, detail="Add your phone number first.")
-    if not VA.enabled():
+    if not VA.enabled_for_org(ctx["org_id"]):
         raise HTTPException(status_code=400, detail="Test calls work once your call assistant is switched on by OutReach.")
     picked, err = await pick_caller_id(db, ctx, body.fromNumber or None)
     if err:

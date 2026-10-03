@@ -183,6 +183,7 @@ export const api = {
   },
   searchNumbers: ({ locality = '', areaCode = '', country = 'GB', numberType = 'local' }) =>
     apiRequest(`/telnyx/numbers/search?country=${country}&number_type=${numberType}&locality=${encodeURIComponent(locality)}&area_code=${encodeURIComponent(areaCode)}`),
+  setAllowedCountries: (countries) => apiRequest('/telnyx/allowed-countries', { method: 'PUT', body: { countries } }),
   orderNumber: (n) => apiRequest('/telnyx/numbers/order', { method: 'POST', body: { phoneNumber: n.phoneNumber } }),
   releaseNumber: (id) => apiRequest(`/telnyx/numbers/${encodeURIComponent(id)}/release`, { method: 'POST' }),
   requestWhatsapp: (id) => apiRequest(`/wa/numbers/${encodeURIComponent(id)}/request`, { method: 'POST' }),
@@ -195,6 +196,7 @@ export const api = {
   patchWaThread: (id, data) => apiRequest(`/wa/threads/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
   startWaThread: (data) => apiRequest('/wa/threads', { method: 'POST', body: data }),
   getBillingOverview: () => apiRequest('/billing/overview'),
+  getBillingAccess: () => apiRequest('/billing/access'),
   getCreditUsage: (month, wallet = '') => apiRequest(`/credits/usage?month=${encodeURIComponent(month)}&wallet=${encodeURIComponent(wallet)}`),
   startCheckout: (plans, topups, back = '/', quantities = {}) => apiRequest('/billing/checkout', { method: 'POST', body: { plans, topups, back, quantities } }),
   openBillingPortal: (back = '/') => apiRequest('/billing/portal', { method: 'POST', body: { back } }),

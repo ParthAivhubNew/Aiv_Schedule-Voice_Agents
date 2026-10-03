@@ -250,6 +250,11 @@ class Mission(Base):
     no_answer_fallbacks = Column(JSON, default=lambda: ["whatsapp", "sms", "email"])
     template_id = Column(String, default="")  # the script this campaign's calls use ("" = default)
     default_channel = Column(String, default="voice")
+    # Soft reference, not a DB-level FK: a real FK here would point at email_campaigns while
+    # EmailCampaign.mission_id points back at missions, an unresolvable circular dependency for
+    # create_all/drop_all. Same convention as every other cross-plugin pointer in this file
+    # (e.g. EmailEnrollment.prospect_id).
+    auto_enroll_campaign_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     prospects = relationship("Prospect", back_populates="mission", cascade="all, delete-orphan")
@@ -914,6 +919,7 @@ class OrgPhoneNumber(Base):
     capabilities = Column(JSON, default=lambda: ["voice"])  # voice, sms, whatsapp
     status = Column(String, default="active")  # active, pending, disabled
     is_default = Column(Boolean, default=False)
+    rent_due_at = Column(DateTime, nullable=True)  # next time phone_number_month is owed
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -1214,6 +1220,7 @@ class EmailCampaign(Base):
     days_of_week = Column(JSON, default=lambda: [1, 2, 3, 4, 5])  # Mon-Fri
     min_delay_seconds = Column(Integer, default=60)
     max_delay_seconds = Column(Integer, default=300)
+    mission_id = Column(String, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -11,8 +11,9 @@ const when = (iso) => (iso ? new Date(iso + "Z").toLocaleString() : "");
 // The writing and image AI every company's Post scheduler uses: a main provider and an optional
 // backup for each. When the main fails and a backup is set, the backup is used straight away;
 // with no backup, only the main is used. Keys are set on the Platform keys page.
-export function PlatformAi({ canEdit }) {
-  const [data, err, reload] = useLoad(adminApi.platformAi);
+export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true, showKeys = true }) {
+  const loadFn = React.useCallback(() => adminApi.platformAi(scope), [scope]);
+  const [data, err, reload] = useLoad(loadFn, [loadFn]);
   const [draft, setDraft] = useState(null);
   const [msg, run] = useAction(reload);
   const [tests, setTests] = useState({});
@@ -22,12 +23,12 @@ export function PlatformAi({ canEdit }) {
   const keyNote = (kind, p) => {
     if (!p) return null;
     if (p === "pollinations") return <Pill tone="amber">No key needed; quality and commercial terms not guaranteed</Pill>;
-    return data.keys[kind].some((k) => k.includes(p)) ? <Pill tone="green">Key saved</Pill> : <Pill tone="red">No key saved yet</Pill>;
+    return (data.keys?.[kind] || []).some((k) => k.includes(p)) ? <Pill tone="green">Key saved</Pill> : <Pill tone="red">No key saved yet</Pill>;
   };
   const testIt = async (kind, slot) => {
     const id = `${kind}-${slot}`;
     setTests((t) => ({ ...t, [id]: { busy: true } }));
-    const out = await run(() => adminApi.testPlatformAi(kind, slot));
+    const out = await run(() => adminApi.testPlatformAi(scope, kind, slot));
     setTests((t) => ({ ...t, [id]: out || { ok: false, error: "Test could not run." } }));
   };
   const status = (kind, slot) => {
@@ -76,24 +77,27 @@ export function PlatformAi({ canEdit }) {
   );
   return (
     <>
-      <PageTitle title="Platform AI" sub="What every company's Post scheduler writes and draws with. Companies never see or change it." />
       <Note error={msg.error}>{msg.text}</Note>
       <div style={{ display: "grid", gap: 12 }}>
-        {block("Writing (captions, posts and Plan AI)", "text", data.textProviders)}
-        {block("Images", "image", data.imageProviders)}
+        {block(scope === "voice" ? "Conversation AI (Call reasoning)" : scope === "leadgen" ? "Reasoning AI (Enrichment LLM)" : "Writing (captions, posts and Plan AI)", "text", data.textProviders || [])}
+        {scope === "scheduler" && block("Images", "image", data.imageProviders || [])}
       </div>
       {canEdit && (
-        <button type="button" style={{ ...btn(true), marginTop: 12 }} onClick={() => run(() => adminApi.setPlatformAi(draft), "Saved. Every company uses this from its next post.")}>
-          Save
+        <button type="button" style={{ ...btn(true), marginTop: 12 }} onClick={() => run(() => adminApi.setPlatformAi(scope, draft), "Saved.")}>
+          Save AI settings
         </button>
       )}
-      <VoiceCatalogue canEdit={canEdit} />
+      {scope === "scheduler" && showCatalogue && <VoiceCatalogue canEdit={canEdit} />}
 
-      <div style={heading}>Keys</div>
-      <div style={{ fontSize: 12.5, color: C.slate, maxWidth: 680 }}>
-        Provider keys are set on the Platform keys page (LLM for writing, IMAGE for images). Only these keys are ever used.
-        Saved now — writing: {data.keys.text.join(", ") || "none"}; images: {data.keys.image.join(", ") || "none"}.
-      </div>
+      {showKeys && (
+        <>
+          <div style={heading}>Keys</div>
+          <div style={{ fontSize: 12.5, color: C.slate, maxWidth: 680 }}>
+            Provider keys are set in the Shared keys pool (LLM for text reasoning, IMAGE for images). Only these keys are ever used.
+            Saved now — text: {(data.keys?.text || []).join(", ") || "none"}; images: {(data.keys?.image || []).join(", ") || "none"}.
+          </div>
+        </>
+      )}
     </>
   );
 }

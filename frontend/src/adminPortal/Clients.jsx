@@ -6,7 +6,7 @@ import { AwardsTable, GiveCredits } from "./GiveCredits";
 import { AivhubToggle, Note, PageTitle, Pill, Table, btn, card, cell, fmt, heading, input, mono, useAction, useLoad, when } from "./ui";
 
 
-const WALLETS = ["voice", "leadgen", "email", "scheduler"];
+const WALLETS = ["voice", "leadgen", "scheduler"];
 const statusTone = (s) => (s === "suspended" ? "red" : s === "active" ? "green" : "slate");
 
 export function Clients({ canEdit, openId, open }) {
@@ -18,6 +18,14 @@ export function Clients({ canEdit, openId, open }) {
       return true;
     }
   });
+  const [includeArchived, setIncludeArchived] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("admin_include_archived");
+      return saved !== null ? saved === "true" : false;
+    } catch (_) {
+      return false;
+    }
+  });
 
   const onToggle = (val) => {
     setIncludeAivhub(val);
@@ -26,7 +34,14 @@ export function Clients({ canEdit, openId, open }) {
     } catch (_) {}
   };
 
-  const loadClients = useCallback(() => adminApi.clients(includeAivhub), [includeAivhub]);
+  const onArchivedToggle = (val) => {
+    setIncludeArchived(val);
+    try {
+      localStorage.setItem("admin_include_archived", String(val));
+    } catch (_) {}
+  };
+
+  const loadClients = useCallback(() => adminApi.clients(includeAivhub, includeArchived), [includeAivhub, includeArchived]);
   const [list, err, reload] = useLoad(loadClients, [loadClients]);
   const [find, setFind] = useState("");
   const shown = useMemo(() => {
@@ -39,10 +54,14 @@ export function Clients({ canEdit, openId, open }) {
     <>
       <PageTitle
         title="Clients"
-        sub={list ? `${list.length} organisation${list.length === 1 ? "" : "s"} (${includeAivhub ? "including Aivhub" : "clients only"})` : "Loading…"}
+        sub={list ? `${list.length} organisation${list.length === 1 ? "" : "s"} (${includeAivhub ? "including Aivhub" : "clients only"}${includeArchived ? ", including archived" : ""})` : "Loading…"}
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <AivhubToggle value={includeAivhub} onChange={onToggle} />
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: C.slate, cursor: "pointer" }}>
+              <input type="checkbox" checked={includeArchived} onChange={(e) => onArchivedToggle(e.target.checked)} />
+              Include archived
+            </label>
             <label style={{ position: "relative" }}>
               <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: C.slate }} />
               <input aria-label="Find a client" placeholder="Find a client" value={find} onChange={(e) => setFind(e.target.value)} style={{ ...input, paddingLeft: 30, width: 220 }} />
@@ -76,6 +95,10 @@ function ClientDetail({ id, canEdit, back }) {
   const [msg, run] = useAction(reload);
   const [numMsg, setNumMsg] = useState({ text: "", error: false });
   const [numBusy, setNumBusy] = useState(false);
+  const [deleteModal, setDeleteModal] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState("");
   const loadAwardList = useCallback(() => adminApi.awards({ orgId: id }), [id]);
   const [awards, awardsErr, loadAwards] = useLoad(loadAwardList, [loadAwardList]);
   const loadTelnyx = useCallback(() => adminApi.telnyxAccountNumbers(), []);
@@ -101,6 +124,21 @@ function ClientDetail({ id, canEdit, back }) {
     }
   };
 
+  const handleDelete = async () => {
+    if (!c || deleteConfirm.trim() !== c.name.trim()) return;
+    setDeleting(true);
+    setDeleteErr("");
+    try {
+      await adminApi.deleteClient(c.id, deleteConfirm.trim());
+      setDeleteModal(false);
+      back();
+    } catch (err) {
+      setDeleteErr(err.message || "Failed to delete client organisation.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (!c) return <><button type="button" style={btn(false)} onClick={back}><ArrowLeft size={13} /> Clients</button><Note error>{err}</Note></>;
   const suspended = c.status === "suspended";
   return (
@@ -108,15 +146,41 @@ function ClientDetail({ id, canEdit, back }) {
       <button type="button" style={{ ...btn(false), marginBottom: 12 }} onClick={back}><ArrowLeft size={13} /> Clients</button>
       <PageTitle title={c.name} sub={<span style={mono}>{c.id} · joined {when(c.createdAt)}</span>}
         right={canEdit && (
-          <button type="button" style={{ ...btn(!suspended), background: suspended ? C.teal : C.red, color: "#fff", border: "none" }}
-            onClick={() => {
-              const next = suspended ? "active" : "suspended";
-              if (!suspended && !window.confirm(`Suspend ${c.name}? Everyone in it is signed out and cannot sign in until you reactivate it.`)) return;
-              run(() => adminApi.setClientStatus(c.id, next), next === "suspended" ? "Suspended. Everyone in it was signed out." : "Active again.");
-            }}>
-            {suspended ? <Check size={13} /> : <Ban size={13} />} {suspended ? "Reactivate" : "Suspend"}
-          </button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button type="button" style={{ ...btn(!suspended), background: suspended ? C.teal : C.red, color: "#fff", border: "none" }}
+              onClick={() => {
+                const next = suspended ? "active" : "suspended";
+                if (!suspended && !window.confirm(`Suspend ${c.name}? Everyone in it is signed out and cannot sign in until you reactivate it.`)) return;
+                run(() => adminApi.setClientStatus(c.id, next), next === "suspended" ? "Suspended. Everyone in it was signed out." : "Active again.");
+              }}>
+              {suspended ? <Check size={13} /> : <Ban size={13} />} {suspended ? "Reactivate" : "Suspend"}
+            </button>
+            <button type="button" style={{ ...btn(false), borderColor: C.red, color: C.red }}
+              onClick={() => { setDeleteModal(true); setDeleteConfirm(""); setDeleteErr(""); }}>
+              Delete permanently
+            </button>
+          </div>
         )} />
+      {deleteModal && (
+        <div style={{ ...card, borderColor: C.red, background: C.redSoft, margin: "12px 0", padding: "16px 20px" }}>
+          <div style={{ fontWeight: 700, color: C.red, marginBottom: 6 }}>Permanently delete {c.name}?</div>
+          <div style={{ fontSize: 13, color: C.textInk, marginBottom: 12 }}>
+            This action is irreversible. It permanently deletes all records, users, numbers, and data for this organisation.
+            To confirm, type the exact organisation name: <b>{c.name}</b>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input aria-label="Confirm organisation name" placeholder={c.name} value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)} style={{ ...input, width: 280 }} />
+            <button type="button" disabled={deleteConfirm.trim() !== c.name.trim() || deleting}
+              style={{ ...btn(true), background: C.red, opacity: deleteConfirm.trim() !== c.name.trim() || deleting ? 0.5 : 1 }}
+              onClick={handleDelete}>
+              {deleting ? "Deleting…" : "Permanently Delete"}
+            </button>
+            <button type="button" style={btn(false)} onClick={() => setDeleteModal(false)}>Cancel</button>
+          </div>
+          {deleteErr && <div style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{deleteErr}</div>}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Pill tone={statusTone(c.status)}>{c.status}</Pill>
         {c.subscription && <Pill tone="blue">Subscription: {c.subscription.status}{c.subscription.renewsAt ? ` · renews ${when(c.subscription.renewsAt)}` : ""}</Pill>}

@@ -137,6 +137,12 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
                 app_ = await manager.create_call_control_application(
                     f"OutReach calls: {label}", f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id)
                 setup.outbound_connection_id = str(app_.get("id") or "")
+            from app.services import voice_assistants as VA
+            if VA.enabled_for_org(_org()):
+                try:
+                    await VA.assistant_for(db, "")  # "" = the organisation's own assistant
+                except Exception as va_err:
+                    logger.warning(f"[telnyx_provisioning] auto assistant creation skipped: {va_err}")
             setup.connection_id = setup.connection_id or os.getenv("TELNYX_CONNECTION_ID", "").strip()
             setup.messaging_profile_id = setup.messaging_profile_id or os.getenv("TELNYX_MESSAGING_PROFILE_ID", "").strip()
         setup.status, setup.last_error = "ready", ""
@@ -353,9 +359,12 @@ async def place_order(db, client: TelnyxClient, setup, *, phone_number: str, cou
 async def _activate(db, order, telnyx_order: Dict[str, Any]) -> None:
     from app.models.models import OrgPhoneNumber
 
+    rent_due = datetime.utcnow() + timedelta(days=30)
     existing = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.e164 == order.phone_number))).scalars().first()
     if existing:
         existing.status = "active"
+        if not existing.rent_due_at:
+            existing.rent_due_at = rent_due
         return
     number_id = ""
     for pn in telnyx_order.get("phone_numbers") or []:
@@ -364,7 +373,7 @@ async def _activate(db, order, telnyx_order: Dict[str, Any]) -> None:
     has_default = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.is_default.is_(True)))).scalars().first()
     db.add(OrgPhoneNumber(id=f"num_{uuid.uuid4().hex[:10]}", e164=order.phone_number, label="",
                           provider="telnyx", provider_ref=number_id, capabilities=["voice"],
-                          status="active", is_default=not has_default))
+                          status="active", is_default=not has_default, rent_due_at=rent_due))
     try:
         from app.core.notify import notify
 

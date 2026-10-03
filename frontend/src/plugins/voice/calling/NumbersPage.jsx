@@ -254,6 +254,79 @@ function BuyNumber({ verified, onOrdered }) {
   );
 }
 
+const AVAILABLE_COUNTRIES = [
+  { code: "GB", name: "United Kingdom (+44)" },
+  { code: "US", name: "United States (+1)" },
+  { code: "CA", name: "Canada (+1)" },
+  { code: "AU", name: "Australia (+61)" },
+  { code: "IE", name: "Ireland (+353)" },
+  { code: "DE", name: "Germany (+49)" },
+  { code: "FR", name: "France (+33)" },
+  { code: "ES", name: "Spain (+34)" },
+  { code: "IT", name: "Italy (+39)" },
+  { code: "NL", name: "Netherlands (+31)" },
+];
+
+function AllowedCountriesCard({ initialCountries, onSaved }) {
+  const [countries, setCountries] = useState(initialCountries || ["GB"]);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const toggle = (code) => {
+    setCountries((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setMsg("");
+    try {
+      await api.setAllowedCountries(countries.length ? countries : ["GB"]);
+      setMsg("Allowed destination countries saved.");
+      if (onSaved) onSaved();
+    } catch (err) {
+      setMsg(err.message || "Failed to save countries.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={card}>
+      <div style={h2}>Outbound call destinations</div>
+      <div style={sub}>Choose which countries your assistants and agents are permitted to call.</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        {AVAILABLE_COUNTRIES.map((c) => {
+          const checked = countries.includes(c.code);
+          return (
+            <button
+              key={c.code}
+              type="button"
+              onClick={() => toggle(c.code)}
+              style={{
+                ...btn(checked),
+                padding: "6px 12px",
+                fontSize: 12.5,
+                borderRadius: 8,
+                background: checked ? C.ink : "#fff",
+                color: checked ? "#fff" : C.textInk,
+                borderColor: checked ? C.ink : C.border,
+              }}
+            >
+              {checked ? "✓ " : "+ "}{c.name}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <button type="button" style={btn(true)} disabled={saving} onClick={save}>
+          {saving ? "Saving…" : "Save allowed destinations"}
+        </button>
+        {msg && <span style={{ fontSize: 13, color: msg.includes("Failed") ? C.red : C.teal }}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function NumbersPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -327,6 +400,8 @@ export function NumbersPage() {
       ) : v ? (
         <Tracker v={v} onRedo={() => setWizard(true)} />
       ) : null}
+
+      {data.platformReady && <AllowedCountriesCard initialCountries={data.allowedCountries} onSaved={load} />}
 
       {data.platformReady && <BuyNumber verified={verified} onOrdered={load} />}
 

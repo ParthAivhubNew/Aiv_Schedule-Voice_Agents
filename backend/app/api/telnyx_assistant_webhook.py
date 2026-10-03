@@ -229,6 +229,21 @@ async def handle_telnyx_tool_call(tool_name: str, request: Request):
     return tool_result
 
 
+async def _org_of_call(call_control_id: str) -> str:
+    """Which organisation a signed Telnyx call id belongs to, looked up outside any org scope
+    (the webhook arrives with no org context of its own). "" when the call isn't ours."""
+    if not call_control_id:
+        return ""
+    from sqlalchemy.future import select as _select
+
+    from app.core.tenancy import system_scope
+    from app.models.models import LiveCall
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(_select(LiveCall.org_id).where(LiveCall.carrier_sid == call_control_id))).first()
+    return row[0] if row else ""
+
+
 async def _brief_variables(call_control_id: str) -> Optional[Dict[str, Any]]:
     if not call_control_id:
         return None
@@ -292,9 +307,10 @@ async def handle_telnyx_assistant_call_event(request: Request):
 
         # A call with a brief (managed assistants): give Telnyx exactly what that call was set up with.
         from app.services import voice_assistants as VA
-        if VA.enabled():
-            from app.services.telnyx_assistant_calls import call_control_id_from_assistant_payload
-            known_vars = await _brief_variables(call_control_id_from_assistant_payload(payload))
+        from app.services.telnyx_assistant_calls import call_control_id_from_assistant_payload
+        call_control_id = call_control_id_from_assistant_payload(payload)
+        if VA.enabled_for_org(await _org_of_call(call_control_id)):
+            known_vars = await _brief_variables(call_control_id)
             if known_vars:
                 return {"dynamic_variables": known_vars}
 

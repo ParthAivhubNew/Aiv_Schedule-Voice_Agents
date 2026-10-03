@@ -30,17 +30,27 @@ class AIUnavailable(RuntimeError):
     """The chosen AI could not do the work (no key, provider error, empty answer)."""
 
 
-async def get(db) -> Dict[str, str]:
+def _key_for(scope: str) -> str:
+    s = (scope or "scheduler").strip().lower()
+    return "platform_ai" if s == "scheduler" else f"platform_ai_{s}"
+
+
+def _health_key_for(scope: str) -> str:
+    s = (scope or "scheduler").strip().lower()
+    return "platform_ai_health" if s == "scheduler" else f"platform_ai_{s}_health"
+
+
+async def get(db, scope: str = "scheduler") -> Dict[str, str]:
     from app.services.credits import _get_doc
 
-    stored = await _get_doc(db, KEY)
+    stored = await _get_doc(db, _key_for(scope))
     return {f: str(stored.get(f) or "").strip() for f in FIELDS}
 
 
-async def put(db, patch: Dict[str, Any]) -> Dict[str, str]:
+async def put(db, patch: Dict[str, Any], scope: str = "scheduler") -> Dict[str, str]:
     from app.services.credits import _put_doc
 
-    current = await get(db)
+    current = await get(db, scope)
     for f in FIELDS:
         if f in patch and patch[f] is not None:
             current[f] = str(patch[f]).strip()[:120]
@@ -53,7 +63,7 @@ async def put(db, patch: Dict[str, Any]) -> Dict[str, str]:
     for kind in KINDS:
         if not current[f"{kind}BackupProvider"]:
             current[f"{kind}BackupModel"] = ""
-    await _put_doc(db, KEY, current)
+    await _put_doc(db, _key_for(scope), current)
     return current
 
 
@@ -61,24 +71,24 @@ def _field(kind: str, slot: str, part: str) -> str:
     return f"{kind}{'Backup' if slot == 'backup' else ''}{part}"
 
 
-async def choice(db, kind: str, slot: str = "main") -> Tuple[Optional[str], Optional[str]]:
+async def choice(db, kind: str, slot: str = "main", scope: str = "scheduler") -> Tuple[Optional[str], Optional[str]]:
     """(provider, model) for text or image, main or backup. None = not set."""
-    chosen = await get(db)
+    chosen = await get(db, scope)
     return (chosen[_field(kind, slot, "Provider")] or None, chosen[_field(kind, slot, "Model")] or None)
 
 
-async def has_backup(db, kind: str) -> bool:
-    return bool((await get(db))[_field(kind, "backup", "Provider")])
+async def has_backup(db, kind: str, scope: str = "scheduler") -> bool:
+    return bool((await get(db, scope))[_field(kind, "backup", "Provider")])
 
 
 # ── Health: the last success and error of each provider slot, for the admin portal ─────────
-async def health(db) -> Dict[str, Any]:
+async def health(db, scope: str = "scheduler") -> Dict[str, Any]:
     from app.services.credits import _get_doc
 
-    return await _get_doc(db, HEALTH_KEY)
+    return await _get_doc(db, _health_key_for(scope))
 
 
-async def note(kind: str, slot: str, error: Optional[str] = None) -> None:
+async def note(kind: str, slot: str, error: Optional[str] = None, scope: str = "scheduler") -> None:
     """Record how the last call went. Own session: never disturbs the caller's transaction."""
     from app.core.tenancy import system_scope
     from app.database import AsyncSessionLocal
@@ -87,7 +97,7 @@ async def note(kind: str, slot: str, error: Optional[str] = None) -> None:
     try:
         with system_scope():
             async with AsyncSessionLocal() as db:
-                doc = await _get_doc(db, HEALTH_KEY)
+                doc = await _get_doc(db, _health_key_for(scope))
                 row = dict((doc.get(kind) or {}).get(slot) or {})
                 now = datetime.utcnow().isoformat(timespec="seconds")
                 if error:
@@ -95,7 +105,7 @@ async def note(kind: str, slot: str, error: Optional[str] = None) -> None:
                 else:
                     row["lastOkAt"] = now
                 doc.setdefault(kind, {})[slot] = row
-                await _put_doc(db, HEALTH_KEY, doc)
+                await _put_doc(db, _health_key_for(scope), doc)
                 await db.commit()
     except Exception as err:  # health is a convenience; the work itself matters more
         logger.warning(f"[platform_ai] could not record health: {err}")
@@ -105,24 +115,24 @@ async def note(kind: str, slot: str, error: Optional[str] = None) -> None:
         await ai_errors.provider_failed(kind, slot, str(error))
 
 
-async def run_with_backup(db, kind: str, attempt: Callable[[str], Awaitable[T]]) -> T:
+async def run_with_backup(db, kind: str, attempt: Callable[[str], Awaitable[T]], scope: str = "scheduler") -> T:
     """Run attempt("main"); if it fails and a backup is set, run attempt("backup").
     attempt raises (AIUnavailable or anything else) on failure. The last error is re-raised."""
     try:
         out = await attempt("main")
     except Exception as err:
-        await note(kind, "main", str(err) or err.__class__.__name__)
-        if not await has_backup(db, kind):
+        await note(kind, "main", str(err) or err.__class__.__name__, scope=scope)
+        if not await has_backup(db, kind, scope=scope):
             raise
-        logger.warning(f"[platform_ai] {kind} main failed ({err}); using the backup")
+        logger.warning(f"[platform_ai] {scope}/{kind} main failed ({err}); using the backup")
         try:
             out = await attempt("backup")
         except Exception as err2:
-            await note(kind, "backup", str(err2) or err2.__class__.__name__)
+            await note(kind, "backup", str(err2) or err2.__class__.__name__, scope=scope)
             raise
-        await note(kind, "backup")
+        await note(kind, "backup", scope=scope)
         return out
-    await note(kind, "main")
+    await note(kind, "main", scope=scope)
     return out
 
 

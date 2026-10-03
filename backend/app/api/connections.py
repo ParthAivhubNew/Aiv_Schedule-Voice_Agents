@@ -660,15 +660,16 @@ async def get_telnyx_assistant_settings(db: AsyncSession = Depends(get_db)):
     row = res.scalars().first()
     cfg = row.config if (row and isinstance(row.config, dict)) else {}
     assistant_id = cfg.get("assistant_id") or getattr(settings, "TELNYX_ASSISTANT_ID", None) or ""
-    if current_org() != platform_org():
+    org_id = current_org()
+    if org_id != platform_org():
         # Client organisations only need to know their calls go through their assistant.
-        return {"managed": VA.enabled(), "ready": VA.enabled() or bool(assistant_id)}
+        return {"managed": VA.enabled_for_org(org_id), "ready": VA.enabled_for_org(org_id) or bool(assistant_id)}
     return {
         "assistantId": assistant_id,
         "publicKey": cfg.get("public_key") or getattr(settings, "TELNYX_ASSISTANT_PUBLIC_KEY", None) or "",
         "savedInDatabase": bool(row),
-        "managed": VA.enabled(),
-        "ready": VA.enabled() or bool(assistant_id),
+        "managed": VA.enabled_for_org(org_id),
+        "ready": VA.enabled_for_org(org_id) or bool(assistant_id),
     }
 
 

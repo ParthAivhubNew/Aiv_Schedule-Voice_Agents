@@ -218,6 +218,45 @@ def _domain_of(raw: str) -> str:
     return d[4:] if d.startswith("www.") else d
 
 
+async def _auto_enroll_prospect(
+    db: AsyncSession,
+    org_id: str,
+    email_addr: str,
+    p: Dict[str, str],
+    mission_id: Optional[str],
+    prospect_id: Optional[str],
+) -> None:
+    """If mission has auto_enroll_campaign_id configured, enroll the found lead automatically."""
+    if not (mission_id and email_addr):
+        return
+    try:
+        from app.models.models import Mission, EmailEnrollment
+        mission = (await db.execute(
+            select(Mission).where(Mission.id == mission_id, Mission.org_id == org_id)
+        )).scalars().first()
+        if not (mission and mission.auto_enroll_campaign_id):
+            return
+        existing = (await db.execute(select(EmailEnrollment.id).where(
+            EmailEnrollment.campaign_id == mission.auto_enroll_campaign_id,
+            EmailEnrollment.email == email_addr.lower()
+        ))).first()
+        if not existing:
+            db.add(EmailEnrollment(
+                id=f"en_{uuid.uuid4().hex[:12]}",
+                campaign_id=mission.auto_enroll_campaign_id,
+                prospect_id=prospect_id or None,
+                email=email_addr.lower(),
+                first_name=p.get("first_name", "")[:80],
+                last_name=p.get("last_name", "")[:80],
+                company=p.get("company", "")[:160],
+                current_step=1,
+                status="active",
+                next_action_at=datetime.utcnow(),
+            ))
+    except Exception as err:
+        logger.warning(f"[auto_enroll] Auto-enrollment failed: {err}")
+
+
 async def lookup_person_waterfall(
     db: AsyncSession,
     org_id: str,
@@ -226,6 +265,8 @@ async def lookup_person_waterfall(
     company_name: str,
     domain: str = "",
     pdl_person_id: Optional[str] = None,
+    mission_id: Optional[str] = None,
+    prospect_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Finds a verified work email; charges 1 credit only when one is found."""
     p = {"first_name": (first_name or "").strip(), "last_name": (last_name or "").strip(),
@@ -250,6 +291,7 @@ async def lookup_person_waterfall(
         db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider="cache",
                                  found_email=cached.email, cost_usd=0.0, latency_ms=0, hit=True))
         await charge(db, "lead_lookup", 1, f"lead:{uuid.uuid4().hex[:16]}", f"Email found: {query}")
+        await _auto_enroll_prospect(db, org_id, cached.email, p, mission_id, prospect_id)
         await db.commit()
         return _person_out(cached.email, p, cached.entity_type, cached.verification_status, "cache")
 
@@ -294,5 +336,6 @@ async def lookup_person_waterfall(
                        domain=p["domain"] or found_email.split("@")[-1].lower(), entity_type=entity,
                        entity_verified=False, verification_status=status, verified_at=datetime.utcnow(), source=winner))
     await charge(db, "lead_lookup", 1, f"lead:{uuid.uuid4().hex[:16]}", f"Email found: {query}")
+    await _auto_enroll_prospect(db, org_id, found_email, p, mission_id, prospect_id)
     await db.commit()
     return _person_out(found_email.lower(), p, entity, status, winner)

@@ -168,7 +168,7 @@ async def _create_org(db: AsyncSession, company: str, name: str, email: str, pas
 
 
 async def _starter_credits(org_id: str) -> None:
-    """New organisations pay as they go: credits are enforced, with a starter amount."""
+    """New organisations pay as they go: credits are enforced, starting with 0 credits."""
     from app.core.tenancy import org_scope
     from app.database import AsyncSessionLocal
     from app.services import credits as K
@@ -180,18 +180,11 @@ async def _starter_credits(org_id: str) -> None:
                 doc = await K._get_doc(s, K._settings_id(org_id))
                 doc["tracking_since"] = datetime.utcnow().isoformat()
                 await K._put_doc(s, K._settings_id(org_id), doc)
-                if K.starter_credits():
-                    from datetime import timedelta
-
-                    # A trial in every app's wallet (only when STARTER_CREDITS is set); unused ones expire.
-                    for wallet in K.WALLETS:
-                        await K.add_credits(s, wallet, K.starter_credits(), source="starter", note="Starter credits",
-                                            expires_at=datetime.utcnow() + timedelta(days=K.STARTER_DAYS))
                 await s.commit()
     except Exception as err:
         import logging
 
-        logging.getLogger("signup").warning(f"[signup] starter credits for {org_id} failed: {err}")
+        logging.getLogger("signup").warning(f"[signup] init org settings for {org_id} failed: {err}")
 
 
 async def _seed_company(org_id: str, company: str) -> None:

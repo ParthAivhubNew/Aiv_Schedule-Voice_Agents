@@ -993,7 +993,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                 </div>
                 {onNavigateToPlugin && (
                   <button
-                    onClick={() => { onNavigateToPlugin("emailoutreach"); onClose(); }}
+                    onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
                     style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
                   >
                     Open Plugin <ChevronRight size={13} />

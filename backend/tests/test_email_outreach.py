@@ -108,6 +108,13 @@ def test_bounce_reply_and_warmup_mail_are_read_correctly():
 
 
 async def test_a_campaign_sends_in_hours_threads_follow_ups_and_stops_on_reply_or_bounce(client, db, mail):
+    from app.core.tenancy import org_scope
+    from app.services import credits as K
+
+    with org_scope("org_default"):
+        await K.add_credits(db, "leadgen", 50, source="grant", note="Test")
+        await db.commit()
+
     r = await client.post("/api/email/mailboxes", json={"email": "x@acme-sales.com", "preset": "one.com", "password": "wrong"})
     assert r.status_code == 400 and "rejected" in r.json()["detail"]
     mb = await _mailbox(client)
@@ -161,6 +168,13 @@ async def test_a_campaign_sends_in_hours_threads_follow_ups_and_stops_on_reply_o
 
 
 async def test_follow_up_threads_under_the_first_email_on_the_same_mailbox(client, db, mail):
+    from app.core.tenancy import org_scope
+    from app.services import credits as K
+
+    with org_scope("org_default"):
+        await K.add_credits(db, "leadgen", 10, source="grant", note="Test")
+        await db.commit()
+
     mb = await _mailbox(client)
     await client.post(f"/api/email/mailboxes/{mb['id']}/warmup", json={"action": "skip"})
     camp = (await client.post("/api/email/campaigns", json={

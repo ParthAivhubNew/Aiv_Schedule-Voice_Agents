@@ -104,11 +104,13 @@ async def dial_via_telnyx_assistant(
     webhook_url; telnyx_assistant_calls.handle_call_control_event() starts the
     assistant on call.answered and tracks the call until hangup.
     """
+    from app.core.tenancy import current_org
     from app.services import voice_assistants as VA
 
     assistant_id = await resolve_telnyx_assistant_id(db)
     managed = None  # the caller's own assistant (TELNYX_MANAGED_ASSISTANTS), else the pasted one
-    if VA.enabled():
+    org_id = current_org()
+    if VA.enabled_for_org(org_id):
         try:
             managed = await VA.assistant_for(db, operator_id)
             assistant_id = managed.telnyx_assistant_id

@@ -30,13 +30,18 @@ import {
   Activity,
   Globe,
   Tag,
-  CreditCard
+  CreditCard,
+  MessageSquare,
+  ShieldAlert,
+  Lock
 } from "lucide-react";
 import { AppSwitcher } from "../../hub/AppSwitcher";
 import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
+import { usePluginAccess } from "../../components/PluginAccessGate";
+import { CampaignsView, DoNotEmailView, FindView, MailboxesView, RepliesView } from "./OutreachViews";
 
 const INITIAL_DUMMY_LEADS = [
   {
@@ -162,11 +167,22 @@ export default function LeadGenerationPlugin({
   profile,
   commonAi,
 }) {
+  const normalizeLeadgenView = (raw) => {
+    if (!raw) return "copilot";
+    if (raw === "campaigns" || raw === "email" || raw.startsWith("email/")) return "sequences";
+    if (raw === "warmup") return "mailboxes";
+    return raw;
+  };
+
+  const { hasPlan, loading: planLoading } = usePluginAccess("leadgen");
+  const isLocked = !planLoading && !hasPlan;
+
   const [view, setView] = useState(() => {
     try {
       const hash = routeHash().replace(/^#\/?/, "");
       const parts = hash.split("/");
-      if (parts[0] === "leadgen" && parts[1]) return parts[1];
+      if (parts[0] === "leadgen" && parts[1]) return normalizeLeadgenView(parts[1]);
+      if (parts[0] === "emailoutreach") return "sequences";
       return localStorage.getItem("aivhub_leadgen_view") || "copilot";
     } catch (_) {
       return "copilot";
@@ -188,8 +204,11 @@ export default function LeadGenerationPlugin({
       try {
         const hash = routeHash().replace(/^#\/?/, "");
         const parts = hash.split("/");
-        if (parts[0] === "leadgen" && parts[1] && parts[1] !== view) {
-          setView(parts[1]);
+        if (parts[0] === "leadgen" && parts[1]) {
+          const norm = normalizeLeadgenView(parts[1]);
+          if (norm !== view) setView(norm);
+        } else if (parts[0] === "emailoutreach") {
+          setView("sequences");
         }
       } catch (_) {}
     };
@@ -412,23 +431,33 @@ export default function LeadGenerationPlugin({
 
   // Navigation Items on Left
   const navItems = [
-    { id: "copilot", label: "AI Lead Copilot", icon: Sparkles, count: "Open AI" },
-    { id: "scout", label: "AI Lead Scout", icon: Search, count: "Live" },
-    { id: "accounts", label: "Saved Accounts", icon: Building2, count: leads.length },
-    { id: "contacts", label: "Decision Makers", icon: Users, count: leads.length },
-    { id: "dossiers", label: "Account Dossiers", icon: FileText },
-    { id: "import_export", label: "Import & Export", icon: FileSpreadsheet },
-    ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard }] : []),
+    { id: "copilot", label: "AI Lead Copilot", icon: Sparkles, section: "Find Leads" },
+    { id: "scout", label: "AI Lead Scout", icon: Search, section: "Find Leads" },
+    { id: "find_email", label: "Find Work Email", icon: Mail, section: "Find Leads" },
+    { id: "accounts", label: "Saved Accounts", icon: Building2, count: leads.length, section: "Enrichment" },
+    { id: "contacts", label: "Decision Makers", icon: Users, count: leads.length, section: "Enrichment" },
+    { id: "dossiers", label: "Account Dossiers", icon: FileText, section: "Enrichment" },
+    { id: "import_export", label: "Import & Export", icon: FileSpreadsheet, section: "Enrichment" },
+    { id: "sequences", label: "Email Sequences", icon: Send, section: "Email Outreach" },
+    { id: "replies", label: "Inbox & Replies", icon: MessageSquare, section: "Email Outreach" },
+    { id: "mailboxes", label: "Mailboxes & Warmup", icon: Layers, section: "Mailboxes" },
+    { id: "suppression", label: "Do Not Email", icon: ShieldAlert, section: "Mailboxes" },
+    ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, section: "Billing" }] : []),
   ];
 
   const viewTitles = {
     copilot: { title: "AI Lead Copilot (Open Assistant)", desc: "Interactive AI partner for lead engineering, strategy, market research, and prompt optimization." },
     scout: { title: "AI Lead Scout", desc: "Discover qualified target accounts through autonomous live web search & market crawling." },
+    find_email: { title: "Find Work Email (Waterfall Finder)", desc: "Verify and research single work emails using 5-layer intelligence waterfall (1 credit on find)." },
     accounts: { title: "Saved Target Accounts", desc: "Manage qualified company pipeline, operational metrics, and review statuses." },
     contacts: { title: "Verified Decision Makers", desc: "Direct phone numbers, email addresses, and executive titles for key buyers." },
     dossiers: { title: "Intelligence Dossiers", desc: "Deep operational briefings, verified tech stacks, and personalized conversation angles." },
     import_export: { title: "Import & Export", desc: "Bulk CSV upload, data hygiene verification, and account list export." },
-    subscription: { title: "Subscription", desc: "Your lead generation plan and credits. Change plan, top up, or cancel." },
+    sequences: { title: "Cold Email Sequences & Campaigns", desc: "Multi-step email cadences, automated follow-up schedules, and response analytics." },
+    replies: { title: "Inbox & Reply Categorization", desc: "Classified prospect replies with intent tagging and instant thread actions." },
+    mailboxes: { title: "Connected Mailboxes & Deliverability", desc: "SMTP/IMAP connections, automated warmup ramp, SPF/DKIM/DMARC DNS health." },
+    suppression: { title: "Do-Not-Email List", desc: "Suppression registry for unsubscribes, manual exclusions, and hard bounce protection." },
+    subscription: { title: "Subscription & Credits", desc: "Your Lead Generation & Email Outreach plan and credits. Change plan, top up, or cancel." },
   };
 
   return (
@@ -477,10 +506,17 @@ export default function LeadGenerationPlugin({
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
+            const tabLocked = isLocked && item.id !== "subscription";
             return (
               <button
                 key={item.id}
-                onClick={() => setView(item.id)}
+                onClick={() => {
+                  if (tabLocked) {
+                    showToast("Subscribe to a plan to unlock Lead Generation.");
+                    return;
+                  }
+                  setView(item.id);
+                }}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -488,7 +524,8 @@ export default function LeadGenerationPlugin({
                   padding: "9px 10px",
                   borderRadius: 8,
                   border: "none",
-                  cursor: "pointer",
+                  cursor: tabLocked ? "not-allowed" : "pointer",
+                  opacity: tabLocked ? 0.4 : 1,
                   background: active ? "rgba(255,255,255,0.09)" : "transparent",
                   color: active ? "#fff" : "#9AA0AE",
                   ...NAV_TEXT,
@@ -641,7 +678,31 @@ export default function LeadGenerationPlugin({
 
         {/* Main Content Area */}
         <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
-          
+          {isLocked && view !== "subscription" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div
+                style={{
+                  background: "linear-gradient(135deg, rgba(139,92,246,0.08), rgba(59,130,246,0.04))",
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 14,
+                  padding: "18px 22px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "#8B5CF6", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Lock size={16} />
+                </div>
+                <div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Subscription Required</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>Choose a plan below to unlock Lead Generation.</div>
+                </div>
+              </div>
+              <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />
+            </div>
+          ) : (
+            <>
           {/* VIEW 1: AI LEAD SCOUT */}
           {view === "scout" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -997,6 +1058,16 @@ export default function LeadGenerationPlugin({
           )}
 
           {/* VIEW 5: IMPORT & EXPORT */}
+          {view === "find_email" && <FindView />}
+
+          {view === "sequences" && <CampaignsView />}
+
+          {view === "replies" && <RepliesView />}
+
+          {view === "mailboxes" && <MailboxesView />}
+
+          {view === "suppression" && <DoNotEmailView />}
+
           {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}
 
           {view === "import_export" && (
@@ -1033,7 +1104,8 @@ export default function LeadGenerationPlugin({
               </div>
             </div>
           )}
-
+            </>
+          )}
         </div>
 
       </div>

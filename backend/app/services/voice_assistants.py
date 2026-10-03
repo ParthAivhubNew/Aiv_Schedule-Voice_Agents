@@ -70,6 +70,12 @@ def enabled() -> bool:
     return os.getenv("TELNYX_MANAGED_ASSISTANTS", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def enabled_for_org(org_id: str) -> bool:
+    from app.core.auth_middleware import platform_org
+    from app.core.platform import AIVHUB_ORG
+    return enabled() and org_id not in (platform_org(), AIVHUB_ORG, "org_default", "org_outreach")
+
+
 def script_limit() -> int:
     """How much of a script goes in the {{script}} variable; the rest is read with get_script."""
     try:

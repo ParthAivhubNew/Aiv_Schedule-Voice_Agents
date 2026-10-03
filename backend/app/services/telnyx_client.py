@@ -146,6 +146,10 @@ class TelnyxClient:
             payload["max_destination_rate"] = float(max_destination_rate)
         return (await self._req("POST", "/outbound_voice_profiles", json=payload)).get("data", {})
 
+    async def update_outbound_voice_profile(self, profile_id: str, countries: List[str]) -> Dict[str, Any]:
+        return (await self._req("PATCH", f"/outbound_voice_profiles/{profile_id}",
+                                json={"whitelisted_destinations": countries or ["GB"]})).get("data", {})
+
     async def create_call_control_application(self, name: str, webhook_url: str, outbound_voice_profile_id: str = "") -> Dict[str, Any]:
         payload: Dict[str, Any] = {"application_name": name[:100], "webhook_event_url": webhook_url, "webhook_api_version": "2"}
         if outbound_voice_profile_id:
@@ -280,6 +284,10 @@ class TelnyxClient:
 
     async def get_requirement_group(self, group_id: str) -> Dict[str, Any]:
         return (await self._req("GET", f"/requirement_groups/{group_id}")).get("data", {})
+
+    async def get_balance(self) -> Dict[str, Any]:
+        """Queries Telnyx GET /v2/balance (available_credit, balance, currency)."""
+        return (await self._req("GET", "/balance")).get("data", {})
 
     # ── Usage reports (what Telnyx charged, broken down e.g. by billing group) ──
     async def usage_report_options(self, product: str = "") -> List[Dict[str, Any]]:

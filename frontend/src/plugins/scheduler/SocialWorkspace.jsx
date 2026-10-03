@@ -12,6 +12,7 @@ import {
   Clock,
   Image as ImageIcon,
   LayoutGrid,
+  Lock,
   LogOut,
   Maximize2,
   Pencil,
@@ -42,6 +43,7 @@ import { PluginCredits } from "../../team/PluginCredits";
 import { AppSwitcher } from "../../hub/AppSwitcher";
 import { onRouteChange, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
+import { usePluginAccess } from "../../components/PluginAccessGate";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -2474,6 +2476,8 @@ export function SocialWorkspace({
   // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
   // Home links straight to /scheduler/subscription.
   const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
+  const { hasPlan: schedulerHasPlan, loading: schedulerPlanLoading } = usePluginAccess("scheduler");
+  const pluginLocked = !schedulerPlanLoading && !schedulerHasPlan;
   useEffect(() => onRouteChange(() => {
     if (routeHash().includes("/scheduler/subscription")) setPage("subscription");
   }), []);
@@ -3696,6 +3700,10 @@ export function SocialWorkspace({
   };
 
   const openApprovals = (id, targetDate) => {
+    if (pluginLocked) {
+      showToast("Subscribe to a plan to unlock Post Scheduler.");
+      return;
+    }
     const target = id ? posts.find((p) => p.id === id) : null;
     setApprovalScope({ scope: target && !needsAction(target.status) ? "all" : "waiting" });
     if (id) {
@@ -3837,7 +3845,10 @@ export function SocialWorkspace({
 
         <button
           type="button"
-          onClick={() => { setPage("plan"); setApprovalOpen(false); }}
+          onClick={() => {
+            if (pluginLocked) { showToast("Subscribe to a plan to unlock Post Scheduler."); return; }
+            setPage("plan"); setApprovalOpen(false);
+          }}
           style={{
             display: "flex",
             alignItems: "center",
@@ -3849,7 +3860,8 @@ export function SocialWorkspace({
             background: page === "plan" && !approvalOpen ? "#1E2230" : "transparent",
             color: "#fff",
             ...NAV_TEXT,
-            cursor: "pointer",
+            cursor: pluginLocked ? "not-allowed" : "pointer",
+            opacity: pluginLocked ? 0.4 : 1,
             textAlign: "left",
           }}
         >
@@ -3870,7 +3882,8 @@ export function SocialWorkspace({
             background: approvalOpen ? "#1E2230" : "transparent",
             color: "#fff",
             ...NAV_TEXT,
-            cursor: "pointer",
+            cursor: pluginLocked ? "not-allowed" : "pointer",
+            opacity: pluginLocked ? 0.4 : 1,
             textAlign: "left",
           }}
         >
@@ -3884,7 +3897,10 @@ export function SocialWorkspace({
         </button>
         <button
           type="button"
-          onClick={() => { setApprovalOpen(false); setPage("accounts"); }}
+          onClick={() => {
+            if (pluginLocked) { showToast("Subscribe to a plan to unlock Post Scheduler."); return; }
+            setApprovalOpen(false); setPage("accounts");
+          }}
           style={{
             display: "flex",
             alignItems: "center",
@@ -3896,7 +3912,8 @@ export function SocialWorkspace({
             background: page === "accounts" && !approvalOpen ? "#1E2230" : "transparent",
             color: "#fff",
             ...NAV_TEXT,
-            cursor: "pointer",
+            cursor: pluginLocked ? "not-allowed" : "pointer",
+            opacity: pluginLocked ? 0.4 : 1,
             textAlign: "left",
           }}
         >
@@ -3943,7 +3960,31 @@ export function SocialWorkspace({
           onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
           onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />
         <BatchProgress batches={batchProgress.batches} tips={batchProgress.tips} />
-        {page === "accounts" ? (
+        {pluginLocked && page !== "subscription" ? (
+          <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
+            <div
+              style={{
+                background: "linear-gradient(135deg, rgba(139,92,246,0.08), rgba(59,130,246,0.04))",
+                border: `1px solid ${C.border}`,
+                borderRadius: 14,
+                padding: "18px 22px",
+                marginBottom: 16,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#8B5CF6", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Lock size={16} />
+              </div>
+              <div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Subscription Required</div>
+                <div style={{ fontSize: 12.5, color: C.slate }}>Choose a plan below to unlock Post Scheduler.</div>
+              </div>
+            </div>
+            <SubscriptionPage wallet="scheduler" back="/scheduler" />
+          </div>
+        ) : page === "accounts" ? (
           <SimpleAccountsPage
             accounts={accounts}
             connecting={connecting}

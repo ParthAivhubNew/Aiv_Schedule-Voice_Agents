@@ -274,6 +274,66 @@ async def _seed_billing_plans(conn: AsyncConnection) -> None:
     logger.info(f"[migrations] seeded {len(plans_data)} billing plans and credit tiers")
 
 
+async def _merge_leadgen_email_wallets(conn: AsyncConnection) -> None:
+    """Merge Leadgen + Email into one wallet 'leadgen' and add cross-reference FK columns."""
+    import json
+
+    # 1. Add auto_enroll_campaign_id to missions and mission_id to email_campaigns
+    await conn.execute(text("ALTER TABLE missions ADD COLUMN IF NOT EXISTS auto_enroll_campaign_id VARCHAR"))
+    await conn.execute(text("ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS mission_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_missions_auto_enroll_campaign_id ON missions (auto_enroll_campaign_id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_email_campaigns_mission_id ON email_campaigns (mission_id)"))
+
+    # 2. Update credit_ledger, credit_grants, billing_plans from 'email' to 'leadgen'
+    await conn.execute(text("UPDATE credit_ledger SET wallet = 'leadgen' WHERE wallet = 'email'"))
+    await conn.execute(text("UPDATE credit_grants SET wallet = 'leadgen' WHERE wallet = 'email'"))
+    await conn.execute(text("UPDATE billing_plans SET wallet = 'leadgen' WHERE wallet = 'email'"))
+
+    # 3. Consolidate BillingSubscription.plans JSON. Let failures propagate (same as every
+    # other step) so run_migrations does NOT record this step as done and retries it on the
+    # next startup instead of silently leaving an org's subscription half-migrated.
+    subs = (await conn.execute(text("SELECT id, org_id, plans FROM billing_subscriptions"))).all()
+    for sub_id, org_id, raw_plans in subs:
+        if not raw_plans:
+            continue
+        plans_dict = raw_plans if isinstance(raw_plans, dict) else json.loads(raw_plans or "{}")
+        if "email" in plans_dict:
+            email_plan = plans_dict.pop("email")
+            if "leadgen" not in plans_dict:
+                plans_dict["leadgen"] = email_plan
+            logger.info(f"[migrations] Consolidated subscription {sub_id} for org {org_id} from email to leadgen: {plans_dict}")
+            await conn.execute(
+                text("UPDATE billing_subscriptions SET plans = CAST(:p AS JSON) WHERE id = :i"),
+                {"p": json.dumps(plans_dict), "i": sub_id}
+            )
+
+    # 4. Consolidate the per-org overdraft "debt" JSON. org_settings isn't its own table --
+    # it's an app_settings row keyed "credits:<org_id>" whose data JSON has a "debt" field
+    # (see credits.py org_settings()/_settings_id()). Move debt["email"] -> debt["leadgen"]
+    # so pre-existing email-wallet debt isn't silently forgiven by the wallet rename.
+    settings_rows = (await conn.execute(
+        text("SELECT id, data FROM app_settings WHERE id LIKE 'credits:%'")
+    )).all()
+    for row_id, raw_data in settings_rows:
+        if not raw_data:
+            continue
+        data_dict = raw_data if isinstance(raw_data, dict) else json.loads(raw_data or "{}")
+        debt_dict = dict(data_dict.get("debt") or {})
+        if "email" in debt_dict:
+            email_debt = debt_dict.pop("email", 0) or 0
+            debt_dict["leadgen"] = (debt_dict.get("leadgen", 0) or 0) + email_debt
+            data_dict["debt"] = debt_dict
+            await conn.execute(
+                text("UPDATE app_settings SET data = CAST(:d AS JSON) WHERE id = :i"),
+                {"d": json.dumps(data_dict), "i": row_id}
+            )
+
+
+async def _phone_rental_due(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE org_phone_numbers ADD COLUMN IF NOT EXISTS rent_due_at TIMESTAMP"))
+    await conn.execute(text("UPDATE org_phone_numbers SET rent_due_at = created_at + interval '30 days' WHERE rent_due_at IS NULL AND status = 'active'"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -288,6 +348,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_08_platform_split", _platform_split),
     ("2026_10_09_ai_keys_owner_only", _ai_keys_owner_only),
     ("2026_10_10_seed_billing_plans", _seed_billing_plans),
+    ("2026_10_11_merge_leadgen_email", _merge_leadgen_email_wallets),
+    ("2026_10_12_phone_rental_due", _phone_rental_due),
 ]
 
 

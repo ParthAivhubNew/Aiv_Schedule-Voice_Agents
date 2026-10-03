@@ -41,7 +41,6 @@ logger = logging.getLogger("credits")
 WALLETS: Dict[str, str] = {
     "voice": "AI Voice (calls and WhatsApp)",
     "leadgen": "Lead generation",
-    "email": "Email outreach",
     "scheduler": "Post scheduler",
 }
 
@@ -53,9 +52,10 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "ai_post": {"label": "AI-written social post", "unit": "post", "credits": 2, "wallet": "scheduler", "charged": True},
     "ai_image": {"label": "AI image redraw", "unit": "image", "credits": 1, "wallet": "scheduler", "charged": True},
     "lead_lookup": {"label": "Lead researched", "unit": "lead", "credits": 1, "wallet": "leadgen", "charged": True},
-    "email_send": {"label": "Email sent", "unit": "email", "credits": 1, "wallet": "email", "charged": False},
+    "email_send": {"label": "Email sent", "unit": "email", "credits": 1, "wallet": "leadgen", "charged": True},
     # Telnyx charges us a monthly rental per number; 0 until staff set our price in the rate card.
-    "phone_number_month": {"label": "Phone number, per month", "unit": "number a month", "credits": 0, "wallet": "voice", "charged": True},
+    "phone_number_month": {"label": "Phone number, per month", "unit": "number a month", "credits": 1, "wallet": "voice", "charged": True},
+    "number_setup": {"label": "Number setup", "unit": "number", "credits": 5, "wallet": "voice", "charged": True},
 }
 RATES_KEY = "credit_rates"
 SETTLE_LOOKBACK = timedelta(days=3)
@@ -71,9 +71,9 @@ HOLD_TTL = timedelta(hours=6)  # holds left by work that never finished are give
 def starter_credits() -> int:
     try:
         val = os.getenv("STARTER_CREDITS")
-        return int(val) if val is not None else 25
+        return int(val) if val is not None else 0
     except ValueError:
-        return 25
+        return 0
 
 
 def wallet_of(item: str) -> str:
@@ -680,6 +680,22 @@ async def settle(db, now: Optional[datetime] = None) -> int:
     for n in numbers:
         if not done.get(f"num:{n.id}:{month}"):
             total += await charge(db, "phone_number_month", 1, f"num:{n.id}:{month}", f"Number {n.e164}, {now:%B %Y}")
+
+    # Rental unpaid: release every one of this org's numbers immediately, same "stop at zero, no
+    # grace" rule calls already follow. No separate billing loop for this on purpose: this reuses
+    # the monthly charge above (ref-deduped per calendar month) instead of charging twice.
+    if numbers and await wallet_balance(db, "voice") < 0:
+        from app.api.telnyx_numbers import _release_number
+
+        for n in numbers:
+            try:
+                await _release_number(db, n)
+            except Exception as rel_err:
+                logger.warning(f"[settle] could not release {n.e164} for unpaid rental: {rel_err}")
+        from app.core.notify import notify
+
+        await notify("numbers", "Numbers released for unpaid rental",
+                     ["Your phone numbers were released: monthly rental couldn't be paid from your balance."])
 
     if total:
         await _warn_low(db)

@@ -155,11 +155,16 @@ async def send_cold_email(
     The caller commits."""
     to = (recipient_email or "").strip().lower()
     if not is_warmup:
+        from app.services.credits import can_start
+
         suppressed, reason = await is_email_suppressed(db, to, org_id)
         if suppressed:
             return {"status": "suppressed", "reason": reason}
         if entity_type == "individual":
             return {"status": "blocked_pecr", "reason": "UK PECR: a person's own mailbox needs their consent first."}
+        ok, why = await can_start(db, "email_send")
+        if not ok:
+            return {"status": "insufficient_credits", "reason": why}
 
     msg = build(mailbox, to, subject, body_text, org_id=org_id, warmup_id=warmup_id if is_warmup else "",
                 in_reply_to=in_reply_to)

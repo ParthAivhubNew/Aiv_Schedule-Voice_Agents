@@ -11,6 +11,7 @@ import {
   History,
   LayoutGrid,
   List,
+  Lock,
   LogOut,
   MapPin,
   Phone,
@@ -48,6 +49,7 @@ import { NotificationBell } from "../../../components/TopBar";
 import { PluginCredits } from "../../../team/PluginCredits";
 import { AppSwitcher } from "../../../hub/AppSwitcher";
 import { SubscriptionPage } from "../../../team/SubscriptionPage";
+import { usePluginAccess } from "../../../components/PluginAccessGate";
 import { AgentStudio } from "../AgentStudio";
 import { api } from "../../../api/apiClient";
 import { WebSocketClient } from "../../../api/wsClient";
@@ -765,7 +767,7 @@ function meetingDue(m) {
   return diff <= 60 * 1000 && diff > -15 * 60 * 1000;
 }
 
-function navBtn(active) {
+function navBtn(active, locked) {
   return {
     display: "flex",
     alignItems: "center",
@@ -777,7 +779,8 @@ function navBtn(active) {
     background: active ? "linear-gradient(135deg, #3457D5 0%, #26409E 100%)" : "transparent",
     color: "#fff",
     ...NAV_TEXT,
-    cursor: "pointer",
+    cursor: locked ? "not-allowed" : "pointer",
+    opacity: locked ? 0.4 : 1,
     textAlign: "left",
     boxShadow: active ? "0 6px 16px rgba(52,87,213,0.32)" : "none",
   };
@@ -873,6 +876,8 @@ export function CallingWorkspace({
     } catch (_) {}
     return "list";
   });
+  const { hasPlan: voiceHasPlan, loading: voicePlanLoading } = usePluginAccess("voice");
+  const pluginLocked = !voicePlanLoading && !voiceHasPlan;
   const [fileName, setFileName] = useState("");
   const [workbookSheets, setWorkbookSheets] = useState(null);
   const [availableSheets, setAvailableSheets] = useState([]);
@@ -1169,6 +1174,10 @@ export function CallingWorkspace({
 
   const goPage = (next) => {
     if (!next || next === page) return;
+    if (pluginLocked && next !== "subscription") {
+      showToast("Subscribe to a plan to unlock Voice Assistant.");
+      return;
+    }
     if (page === "company" && companyDirty && next !== "company") {
       setUnsavedLeaveTarget({ type: "page", next, source: "company" });
       return;
@@ -2488,7 +2497,7 @@ export function CallingWorkspace({
         {visiblePages.map((p) => {
           const Icon = p.icon;
           return (
-            <button key={p.id} type="button" onClick={() => goPage(p.id)} style={navBtn(page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && page === "hours") || (p.id === "subscription" && page === "numbers"))}>
+            <button key={p.id} type="button" onClick={() => goPage(p.id)} style={navBtn(page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && page === "hours") || (p.id === "subscription" && page === "numbers"), pluginLocked && p.id !== "subscription")}>
               <Icon size={15} />
               <span style={{ flex: 1 }}>{p.label}</span>
               {p.id === "live" && activeLive.length ? (
@@ -2553,6 +2562,32 @@ export function CallingWorkspace({
         ) : null}
 
         <div className="app-page" style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates") ? "hidden" : "auto", padding: "18px 28px 28px", display: (page === "list" || page === "templates") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates") ? "column" : undefined }}>
+          {pluginLocked && page !== "subscription" ? (
+            <div style={{ maxWidth: 1240 }}>
+              <div
+                style={{
+                  background: "linear-gradient(135deg, rgba(52,87,213,0.08), rgba(59,130,246,0.04))",
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 14,
+                  padding: "18px 22px",
+                  marginBottom: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "#3457D5", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Lock size={16} />
+                </div>
+                <div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.textInk }}>Subscription Required</div>
+                  <div style={{ fontSize: 12.5, color: C.slate }}>Choose a plan below to unlock Voice Assistant.</div>
+                </div>
+              </div>
+              <SubscriptionPage wallet="voice" back="/voice/subscription" />
+            </div>
+          ) : (
+            <>
           {page === "list" && (
             <div className="list-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 380px", gap: 16, flex: 1, minHeight: 0 }}>
               <div
@@ -3828,7 +3863,8 @@ export function CallingWorkspace({
           {page === "hours" && canSee(operator, "company") && (
             <WorkingHoursTab operator={operator} />
           )}
-
+            </>
+          )}
         </div>
       </div>
 

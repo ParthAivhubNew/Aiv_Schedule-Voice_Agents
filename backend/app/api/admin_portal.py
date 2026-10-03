@@ -6,6 +6,7 @@ inside that client's organisation. staff_support can look; staff_admin can also 
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import time
@@ -24,6 +25,7 @@ from app.core.security import decode_token, hash_password, password_problem, ver
 from app.database import AsyncSessionLocal
 
 router = APIRouter(prefix="/admin-api", tags=["Admin portal"])
+logger = logging.getLogger("admin_portal")
 
 _FAILS: Dict[str, Deque[float]] = defaultdict(deque)
 
@@ -197,7 +199,7 @@ async def _in_org(org_id: str, fn):
 
 
 @router.get("/clients")
-async def clients(request: Request, include_aivhub: bool = True):
+async def clients(request: Request, include_aivhub: bool = True, include_archived: bool = False):
     from app.services import credits as K
     from app.services.telnyx_provisioning import latest_verification
 
@@ -205,6 +207,8 @@ async def clients(request: Request, include_aivhub: bool = True):
     filter_sql = "coalesce(o.status, 'active') <> 'platform'"
     if not include_aivhub:
         filter_sql += " AND o.id <> 'org_default'"
+    if not include_archived:
+        filter_sql += " AND coalesce(o.status, 'active') <> 'suspended'"
     async with AsyncSessionLocal() as db:
         orgs = (await db.execute(text(
             f"SELECT o.id, o.name, o.status, o.created_at, "
@@ -268,6 +272,7 @@ class StatusBody(BaseModel):
 
 
 @router.post("/clients/{org_id}/status")
+@router.patch("/clients/{org_id}/status")
 async def set_status(org_id: str, body: StatusBody, request: Request):
     from app.core.auth_middleware import forget
 
@@ -282,6 +287,67 @@ async def set_status(org_id: str, body: StatusBody, request: Request):
         raise HTTPException(status_code=404, detail="Client not found.")
     forget()  # everyone's cached access is re-checked at once
     return {"id": org_id, "status": body.status}
+
+
+@router.delete("/clients/{org_id}")
+async def delete_client(org_id: str, request: Request, confirm_name: str = ""):
+    from app.core.auth_middleware import forget, platform_org
+    from app.core.tenancy import system_scope
+
+    _admin_only(request)
+    if org_id in ("org_default", platform_org(), "default", ""):
+        raise HTTPException(status_code=400, detail="Cannot delete the platform organisation.")
+
+    async with AsyncSessionLocal() as db:
+        org = (await db.execute(text("SELECT id, name, status FROM organizations WHERE id = :i"), {"i": org_id})).first()
+        if not org:
+            raise HTTPException(status_code=404, detail="Client not found.")
+        if (org[2] or "").lower() == "platform":
+            raise HTTPException(status_code=400, detail="Cannot delete the platform organisation.")
+        if confirm_name.strip() != (org[1] or "").strip():
+            raise HTTPException(status_code=400, detail=f"Please type the organisation's exact name ({org[1]}) to confirm deletion.")
+
+        # Safety rail: reject if active paid Stripe subscription
+        sub = (await db.execute(text("SELECT status, stripe_subscription_id FROM billing_subscriptions WHERE id = :i"), {"i": org_id})).first()
+        if sub and sub[0] == "active" and sub[1]:
+            raise HTTPException(status_code=400, detail="Cannot delete organisation with an active paid Stripe subscription. Cancel the subscription first.")
+
+        # Ordered FK deletion across tenant and child tables
+        tables_to_delete = [
+            "email_enrollments", "email_sequence_steps", "email_send_logs", "email_messages", "email_campaigns",
+            "enrichment_attempts", "prospects", "missions", "contact_registry",
+            "call_briefs", "live_calls", "call_logs", "meetings", "meeting_event_types", "calcom_settings",
+            "schedule_items", "notifications", "voices",
+            "social_post_versions", "social_posts", "social_schedules", "social_gen_jobs", "social_emails",
+            "social_oauth_states", "social_accounts", "scheduler_settings", "plan_chat_threads",
+            "process_logs", "conversation_variables", "conversation_templates",
+            "whatsapp_messages", "whatsapp_threads", "whatsapp_signups",
+            "number_orders", "org_phone_numbers", "verification_submissions", "org_telnyx", "voice_assistants",
+            "credit_grants", "credit_ledger", "billing_subscriptions", "email_mailboxes",
+            "connections", "services", "faqs", "knowledge_chunks", "knowledge_sources", "company_profile",
+        ]
+
+        # No per-table try/except here on purpose: this must be all-or-nothing. If any DELETE
+        # fails (e.g. an FK ordering mistake), the exception propagates, nothing commits, and the
+        # whole operation rolls back cleanly rather than silently leaving some of the org's data
+        # behind while reporting success.
+        try:
+            with system_scope():
+                for t in tables_to_delete:
+                    await db.execute(text(f"DELETE FROM {t} WHERE org_id = :o"), {"o": org_id})
+
+                # Delete auth sessions and operators
+                await db.execute(text("DELETE FROM auth_sessions WHERE user_id IN (SELECT id FROM operators WHERE org_id = :o)"), {"o": org_id})
+                await db.execute(text("DELETE FROM operators WHERE org_id = :o"), {"o": org_id})
+                await db.execute(text("DELETE FROM organizations WHERE id = :o"), {"o": org_id})
+            await db.commit()
+        except Exception as err:
+            await db.rollback()
+            logger.error(f"[delete_client] deletion of {org_id} failed and was rolled back: {err}")
+            raise HTTPException(status_code=500, detail=f"Deletion failed and was fully rolled back (nothing was deleted): {err}")
+
+    forget()
+    return {"ok": True, "id": org_id, "deleted": True}
 
 
 @router.post("/clients/{org_id}/users/{user_id}/reset-password")
@@ -939,10 +1005,11 @@ async def alert_seen(alert_id: str, request: Request):
     return {"dismissed": n}
 
 
-# ── Platform AI (Post scheduler) ────────────────────────────────────────────
+# ── Platform AI (Post scheduler, Voice, Leadgen) ───────────────────────────
 @router.get("/platform-ai")
-async def get_platform_ai(request: Request):
-    """The writing and image AI (main and backup) every company's Post scheduler uses, which
+@router.get("/platform-ai/{scope}")
+async def get_platform_ai(request: Request, scope: str = "scheduler"):
+    """The writing and image AI (main and backup) every company uses, which
     providers OutReach has keys for, and how each one did last time."""
     from app.api.scheduler import _saved_ai_keys
     from app.core.auth_middleware import platform_org
@@ -951,12 +1018,12 @@ async def get_platform_ai(request: Request):
 
     _who(request)
     async with AsyncSessionLocal() as db:
-        chosen = await platform_ai.get(db)
-        health = await platform_ai.health(db)
+        chosen = await platform_ai.get(db, scope=scope)
+        health = await platform_ai.health(db, scope=scope)
     with org_scope(platform_org()):
         async with AsyncSessionLocal() as db:
             keys = await _saved_ai_keys(db)
-    return {"chosen": chosen, "health": health,
+    return {"scope": scope, "chosen": chosen, "health": health,
             "textProviders": platform_ai.TEXT_PROVIDERS, "imageProviders": platform_ai.IMAGE_PROVIDERS,
             "keys": {"text": [k["provider"] for k in keys["text"]], "image": [k["provider"] for k in keys["image"]]}}
 
@@ -973,13 +1040,14 @@ class PlatformAiBody(BaseModel):
 
 
 @router.put("/platform-ai")
-async def put_platform_ai(body: PlatformAiBody, request: Request):
+@router.put("/platform-ai/{scope}")
+async def put_platform_ai(body: PlatformAiBody, request: Request, scope: str = "scheduler"):
     from app.services import platform_ai
 
     _admin_only(request)
     async with AsyncSessionLocal() as db:
         try:
-            out = await platform_ai.put(db, body.model_dump())
+            out = await platform_ai.put(db, body.model_dump(), scope=scope)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err))
         await db.commit()
@@ -992,7 +1060,8 @@ class PlatformAiTestBody(BaseModel):
 
 
 @router.post("/platform-ai/test")
-async def test_platform_ai(body: PlatformAiTestBody, request: Request):
+@router.post("/platform-ai/{scope}/test")
+async def test_platform_ai(body: PlatformAiTestBody, request: Request, scope: str = "scheduler"):
     """A tiny live call with the saved main or backup choice. Staff see the real error."""
     from app.api.scheduler import _resolve_image_prefs, _resolve_text_ai
     from app.core.auth_middleware import platform_org
@@ -1006,7 +1075,7 @@ async def test_platform_ai(body: PlatformAiTestBody, request: Request):
         raise HTTPException(status_code=400, detail="Say text or image, main or backup.")
     with org_scope(platform_org()):
         async with AsyncSessionLocal() as db:
-            provider, model = await platform_ai.choice(db, body.kind, body.slot)
+            provider, model = await platform_ai.choice(db, body.kind, body.slot, scope=scope)
             if body.slot == "backup" and not provider:
                 return {"ok": False, "error": "No backup is set."}
             error = None
@@ -1032,7 +1101,7 @@ async def test_platform_ai(body: PlatformAiTestBody, request: Request):
                     provider, model = img.get("provider") or provider, img.get("model") or model
             except Exception as err:
                 error = str(err) or err.__class__.__name__
-    await platform_ai.note(body.kind, body.slot, error)
+    await platform_ai.note(body.kind, body.slot, error, scope=scope)
     return {"ok": not error, "error": error, "provider": provider, "model": model}
 
 
@@ -1189,3 +1258,37 @@ async def patch_staff(staff_id: str, body: StaffPatch, request: Request):
             s.totp_enabled, s.totp_secret_sealed = False, ""
         await db.commit()
     return {"ok": True}
+
+
+# ── Platform Balances ───────────────────────────────────────────────────────
+class ChecklistItem(BaseModel):
+    id: str
+    name: str
+    alert_configured: bool = False
+    threshold: str = ""
+    notes: str = ""
+
+
+class ChecklistBody(BaseModel):
+    checklist: List[ChecklistItem]
+
+
+@router.get("/platform-balances")
+async def get_platform_balances(request: Request):
+    """Live provider balances (Telnyx, DeepSeek) and manual spend-alert status."""
+    from app.services.platform_balances import get_platform_balances_overview
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return await get_platform_balances_overview(db)
+
+
+@router.post("/platform-balances/checklist")
+async def update_balance_checklist(body: ChecklistBody, request: Request):
+    """Save staff updates to non-pollable spend alerts checklist."""
+    from app.services.platform_balances import save_checklist_state
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        return await save_checklist_state(db, [item.model_dump() for item in body.checklist])
+

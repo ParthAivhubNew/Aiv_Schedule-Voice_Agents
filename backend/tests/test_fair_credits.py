@@ -27,7 +27,8 @@ async def test_hold_confirm_release_at_the_starting_price(db):
     assert (await K.hold(db, [_part("gen:a"), _part("genimg:a", "ai_image")]))[0] is True
     await db.commit()
     assert await K.wallet_balance(db, "scheduler") == 2  # 3 held
-    assert (await K.wallets(db))[3]["held"] == 3
+    scheduler_wallet = next(w for w in await K.wallets(db) if w["key"] == "scheduler")
+    assert scheduler_wallet["held"] == 3
 
     # 2 left: a post and its image (3) would go below zero by one: refused, nothing held.
     ok, why = await K.hold(db, [_part("gen:b"), _part("genimg:b", "ai_image")])

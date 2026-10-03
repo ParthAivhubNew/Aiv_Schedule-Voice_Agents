@@ -61,9 +61,10 @@ export const adminApi = {
   me: () => request("/me"),
   dashboard: (includeAivhub = true) => request(`/dashboard?include_aivhub=${includeAivhub}`),
   platform: () => request("/platform"),
-  clients: (includeAivhub = true) => request(`/clients?include_aivhub=${includeAivhub}`),
+  clients: (includeAivhub = true, includeArchived = false) => request(`/clients?include_aivhub=${includeAivhub}&include_archived=${includeArchived}`),
   client: (id) => request(`/clients/${q(id)}`),
   setClientStatus: (id, status) => request(`/clients/${q(id)}/status`, { method: "POST", body: { status } }),
+  deleteClient: (id, confirmName) => request(`/clients/${q(id)}?confirm_name=${q(confirmName)}`, { method: "DELETE" }),
   previewAward: (id, body) => request(`/clients/${q(id)}/credit-awards/preview`, { method: "POST", body }),
   approveAward: (pendingId, confirm) => request(`/credit-awards/${q(pendingId)}/approve`, { method: "POST", body: { confirm } }),
   cancelAward: (pendingId) => request(`/credit-awards/${q(pendingId)}/cancel`, { method: "POST" }),
@@ -98,13 +99,25 @@ export const adminApi = {
   testPlatformMailbox: () => request("/platform-mailbox/test", { method: "POST" }),
   alerts: () => request("/alerts"),
   alertSeen: (id) => request(`/alerts/${encodeURIComponent(id)}/seen`, { method: "POST" }),
-  platformAi: () => request("/platform-ai"),
+  platformAi: (scope = "scheduler") => request(`/platform-ai/${q(scope)}`),
   voiceCatalogue: () => request("/voice-catalogue"),
   setVoiceCatalogue: (body) => request("/voice-catalogue", { method: "PUT", body }),
-  setPlatformAi: (body) => request("/platform-ai", { method: "PUT", body }),
-  testPlatformAi: (kind, slot) => request("/platform-ai/test", { method: "POST", body: { kind, slot } }),
+  setPlatformAi: (scopeOrBody, maybeBody) => {
+    const scope = typeof scopeOrBody === "string" ? scopeOrBody : "scheduler";
+    const body = typeof scopeOrBody === "string" ? maybeBody : scopeOrBody;
+    return request(`/platform-ai/${q(scope)}`, { method: "PUT", body });
+  },
+  testPlatformAi: (scopeOrKind, kindOrSlot, maybeSlot) => {
+    const isScoped = maybeSlot !== undefined;
+    const scope = isScoped ? scopeOrKind : "scheduler";
+    const kind = isScoped ? kindOrSlot : scopeOrKind;
+    const slot = isScoped ? maybeSlot : kindOrSlot;
+    return request(`/platform-ai/${q(scope)}/test`, { method: "POST", body: { kind, slot } });
+  },
   logs: (orgId = "") => request(`/logs?limit=300${orgId ? `&org_id=${q(orgId)}` : ""}`),
   staff: () => request("/staff"),
   addStaff: (body) => request("/staff", { method: "POST", body }),
   patchStaff: (id, body) => request(`/staff/${q(id)}`, { method: "PATCH", body }),
+  platformBalances: () => request("/platform-balances"),
+  saveBalanceChecklist: (checklist) => request("/platform-balances/checklist", { method: "POST", body: { checklist } }),
 };

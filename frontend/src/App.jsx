@@ -12,7 +12,6 @@ import { ProfileSettingsModal } from "./hub/ProfileSettingsModal";
 import { OrgSettingsProvider } from "./org/orgSettings";
 import { CalcomAdminModal } from "./plugins/calendar/CalcomAdminModal";
 import { CalcomSchedulerPlugin } from "./plugins/calendar/CalcomSchedulerPlugin";
-import EmailOutreachPlugin from "./plugins/email/EmailOutreachPlugin";
 import LeadGenerationPlugin from "./plugins/leadgen/LeadGenerationPlugin";
 import { SocialWorkspaceGate } from "./plugins/scheduler/SocialWorkspace";
 import { CompanyProfileView } from "./plugins/voice/CompanyProfileView";
@@ -187,10 +186,18 @@ function MainApp({ onSignedOut }) {
       const hash = routeHash().replace(/^#\/?/, "");
       if (!hash) return { plugin: null, subView: null };
       const parts = hash.split("/");
-      const p = parts[0];
-      const valid = ["voice", "scheduler", "leadgen", "emailoutreach", "calcom"];
+      let p = parts[0];
+      let subView = parts.slice(1).join("/") || null;
+      if (p === "emailoutreach") {
+        // Plan A: redirect #/emailoutreach/* to #/leadgen/sequences or subview
+        p = "leadgen";
+        const emailSub = subView || "sequences";
+        subView = emailSub === "subscription" ? "subscription" : emailSub;
+        replaceHash(`#/leadgen/${subView}`);
+      }
+      const valid = ["voice", "scheduler", "leadgen", "calcom"];
       if (valid.includes(p)) {
-        return { plugin: p, subView: parts.slice(1).join("/") || null };
+        return { plugin: p, subView };
       }
       return { plugin: null, subView: null };
     } catch (_) {
@@ -687,18 +694,6 @@ function MainApp({ onSignedOut }) {
                 setProfile={setProfile}
                 knowledgeSources={knowledgeSources}
                 setKnowledgeSources={setKnowledgeSources}
-                commonAi={commonAi}
-              />
-            </SafeErrorBoundary>
-          )}
-
-          {p === "emailoutreach" && (
-            <SafeErrorBoundary label="Email Outreach" onReset={handleBackToHub}>
-              <EmailOutreachPlugin
-                operator={operator}
-                onBackToHub={handleBackToHub}
-                onLogout={handleLogout}
-                profile={profile}
                 commonAi={commonAi}
               />
             </SafeErrorBoundary>

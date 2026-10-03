@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { ClipboardList, Coins, KeyRound, LayoutDashboard, LogOut, PoundSterling, ScrollText, ShieldCheck, Sparkles, Users, UserCog } from "lucide-react";
+import { ClipboardList, Coins, KeyRound, LayoutDashboard, LogOut, PoundSterling, ScrollText, ShieldCheck, Sparkles, Users, UserCog, Wallet } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
 import { AlertsBanner } from "./Alerts";
+import { Balances } from "./Balances";
 import { Billing } from "./Billing";
 import { Clients } from "./Clients";
 import { Dashboard } from "./Dashboard";
@@ -20,6 +21,7 @@ const PAGES = [
   { id: "queue", label: "Queue", icon: ClipboardList },
   { id: "revenue", label: "Revenue", icon: PoundSterling },
   { id: "billing", label: "Plans & pricing", icon: Coins },
+  { id: "balances", label: "Balances", icon: Wallet },
   { id: "ai", label: "Platform AI", icon: Sparkles },
   { id: "keys", label: "Platform keys", icon: KeyRound },
   { id: "logs", label: "Logs", icon: ScrollText },
@@ -110,6 +112,7 @@ export function AdminApp() {
         {page === "queue" && <Queue canEdit={canEdit} openClient={(cid) => go("clients", cid)} />}
         {page === "revenue" && <Revenue canEdit={canEdit} />}
         {page === "billing" && <Billing canEdit={canEdit} />}
+        {page === "balances" && <Balances canEdit={canEdit} />}
         {page === "ai" && <PlatformAi canEdit={canEdit} />}
         {page === "keys" && <PlatformKeys canEdit={canEdit} />}
         {page === "logs" && <Logs />}

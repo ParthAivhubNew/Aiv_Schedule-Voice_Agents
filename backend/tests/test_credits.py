@@ -60,12 +60,12 @@ async def test_expiry_and_plan_renewal(db):
 
     now = datetime.utcnow()
     with org_scope("org_default"):
-        await K.add_credits(db, "email", 30, source="topup", expires_at=now - timedelta(minutes=1))
-        await K.add_credits(db, "email", 20, source="plan", expires_at=now + timedelta(days=5))
-        assert await K.wallet_balance(db, "email") == 20  # expired batch no longer counts
+        await K.add_credits(db, "leadgen", 30, source="topup", expires_at=now - timedelta(minutes=1))
+        await K.add_credits(db, "leadgen", 20, source="plan", expires_at=now + timedelta(days=5))
+        assert await K.wallet_balance(db, "leadgen") == 20  # expired batch no longer counts
         assert await K.expire(db) == 30
-        await K.expire_plan_batches(db, "email")
-        assert await K.wallet_balance(db, "email") == 0
+        await K.expire_plan_batches(db, "leadgen")
+        assert await K.wallet_balance(db, "leadgen") == 0
         kinds = [h["kind"] for h in await K.history(db)]
         assert kinds.count("expire") == 2
 
@@ -138,7 +138,7 @@ async def test_low_warning_at_twenty_percent_once(db, monkeypatch):
 async def test_admin_sees_wallets_operator_does_not(client, db):
     r = await client.get("/api/credits")
     assert r.status_code == 200, r.text
-    assert [w["key"] for w in r.json()["wallets"]] == ["voice", "leadgen", "email", "scheduler"]
+    assert [w["key"] for w in r.json()["wallets"]] == ["voice", "leadgen", "scheduler"]
     _, tok = await make_user(db, "olly", "Operator")
     async with _as(tok) as c:
         assert (await c.get("/api/credits")).status_code == 403
@@ -170,9 +170,9 @@ async def test_only_platform_staff_grant(admin_token, staff, db):
     assert (await staff.post("/api/admin-api/clients/nope/credit-awards/preview", json=_GIVE)).status_code == 404
 
 
-async def test_signup_gets_starter_credits_in_every_wallet(anon, db, monkeypatch):
+async def test_signup_gets_no_free_credits(anon, db, monkeypatch):
+    """No trial: a brand-new org starts at 0 in every wallet and must buy a plan to unlock."""
     monkeypatch.setenv("ALLOW_SIGNUP", "true")
-    monkeypatch.setenv("STARTER_CREDITS", "300")
     monkeypatch.delenv("SYSTEM_MAIL_HOST", raising=False)
     from app.api import signup
 
@@ -182,7 +182,8 @@ async def test_signup_gets_starter_credits_in_every_wallet(anon, db, monkeypatch
     r = await anon.post("/api/auth/login", json={"username": "cy@cred.test", "password": body["password"]})
     async with _as(r.json()["access_token"]) as c:
         mine = (await c.get("/api/billing/overview")).json()
-    assert mine["enforce"] is True and all(w["balance"] == 300 for w in mine["wallets"])
+    assert mine["enforce"] is True and all(w["balance"] == 0 for w in mine["wallets"])
+    assert all(active is False for active in mine["has_active_plan"].values())
 
 
 # ── Stripe ─────────────────────────────────────────────────────────────────
