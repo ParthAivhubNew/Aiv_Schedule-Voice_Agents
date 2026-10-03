@@ -156,7 +156,9 @@ async def dashboard(request: Request, include_aivhub: bool = True):
                 "whatsappRequests": await _count(db, "SELECT count(*) FROM org_phone_numbers WHERE capabilities::text LIKE '%whatsapp_requested%' AND org_id <> 'org_default'"),
                 "callsLast30d": await _count(db, "SELECT count(*) FROM call_logs WHERE created_at >= :s AND org_id <> 'org_default'", s=since),
                 "creditsUsed30d": -await _count(db, "SELECT coalesce(sum(amount), 0) FROM credit_ledger WHERE kind = 'usage' AND created_at >= :s AND org_id <> 'org_default'", s=since),
-                "payments30d": await _count(db, "SELECT count(*) FROM stripe_events WHERE type IN ('invoice.paid', 'checkout.session.completed') AND created_at >= :s AND org_id <> 'org_default'", s=since),
+                # stripe_events has no org_id column (real Stripe webhooks only); nothing to
+                # exclude here, same as the "include Aivhub" branch above.
+                "payments30d": await _count(db, "SELECT count(*) FROM stripe_events WHERE type IN ('invoice.paid', 'checkout.session.completed') AND created_at >= :s", s=since),
             }
 
 
