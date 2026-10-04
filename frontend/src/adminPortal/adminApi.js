@@ -108,17 +108,11 @@ export const adminApi = {
     const body = typeof scopeOrBody === "string" ? maybeBody : scopeOrBody;
     return request(`/platform-ai/${q(scope)}`, { method: "PUT", body });
   },
-  testPlatformAi: (scopeOrKind, kindOrSlot, maybeSlot) => {
-    const isScoped = maybeSlot !== undefined;
-    const scope = isScoped ? scopeOrKind : "scheduler";
-    const kind = isScoped ? kindOrSlot : scopeOrKind;
-    const slot = isScoped ? maybeSlot : kindOrSlot;
-    return request(`/platform-ai/${q(scope)}/test`, { method: "POST", body: { kind, slot } });
-  },
   logs: (orgId = "") => request(`/logs?limit=300${orgId ? `&org_id=${q(orgId)}` : ""}`),
   staff: () => request("/staff"),
   addStaff: (body) => request("/staff", { method: "POST", body }),
   patchStaff: (id, body) => request(`/staff/${q(id)}`, { method: "PATCH", body }),
   platformBalances: () => request("/platform-balances"),
   saveBalanceChecklist: (checklist) => request("/platform-balances/checklist", { method: "POST", body: { checklist } }),
+  vendorCosts: (month) => request(`/vendor-costs?month=${q(month)}`),
 };

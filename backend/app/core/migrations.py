@@ -278,6 +278,13 @@ async def _split_shared_provider_keys_per_plugin(conn: AsyncConnection) -> None:
             })
 
 
+async def _prospect_leadgen_columns(conn: AsyncConnection) -> None:
+    """Leadgen's Saved Accounts now persist as real Prospect rows instead of browser-only state;
+    these two columns carry the fields Voice's calling prospects never needed."""
+    await conn.execute(text("ALTER TABLE prospects ADD COLUMN IF NOT EXISTS email VARCHAR DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE prospects ADD COLUMN IF NOT EXISTS opening_hook TEXT DEFAULT ''"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -295,6 +302,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_12_phone_rental_due", _phone_rental_due),
     ("2026_10_13_split_shared_provider_keys", _split_shared_provider_keys_per_plugin),
     ("2026_10_14_remove_seeded_billing_plans", _remove_seeded_billing_plans),
+    ("2026_10_15_prospect_leadgen_columns", _prospect_leadgen_columns),
 ]
 
 

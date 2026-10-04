@@ -58,6 +58,35 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "number_setup": {"label": "Number setup", "unit": "number", "credits": 5, "wallet": "voice", "charged": True},
 }
 RATES_KEY = "credit_rates"
+
+# Sensible real-world starting points for "our cost per unit" (admin portal > Revenue), in minor
+# currency units (cents/pence — the admin UI's own convention, matching paid_cents elsewhere), so
+# margin doesn't start from a lying zero. Telnyx's own USD list prices, researched 2026-10: a real
+# vendor cost, not a guess — only applied when the admin has the rate card set to USD, since
+# converting to GBP/EUR would need an exchange rate that goes stale and could quietly mislead
+# margin instead of just being blank. Items priced by whichever AI provider the organisation
+# configured (ai_post, ai_image, email_send, and the AI side of lead_lookup) are left out on
+# purpose — there's no one true market price for "an LLM call," so a made-up number there would
+# be actively misleading. Staff can still override any of these; stored values always win.
+DEFAULT_UNIT_COSTS_USD_CENTS: Dict[str, float] = {
+    "phone_number_month": 100.0,   # Telnyx US local number rental ($1.00)
+    "number_setup": 0.0,           # Telnyx charges no activation fee on standard local numbers
+    "whatsapp_message": 2.5,       # Meta's own per-message fee ($0.025, US marketing-template
+                                    # ceiling); Telnyx's BSP markup on top isn't published, check
+                                    # your invoice
+    "lead_lookup": 1.1,             # Telnyx Number Lookup ($0.003) + one Tavily search ($0.008
+                                     # pay-as-you-go) that finds/enriches the lead; the LLM step
+                                     # riding alongside it costs whatever provider the org
+                                     # configured, left out above
+}
+
+
+def default_voice_minute_cost_usd_cents() -> float:
+    """Telnyx's own real cost for a call minute, in US cents: the managed Voice AI Assistant's
+    all-in rate (STT+LLM+TTS) if that's switched on, else the raw Call Control + SIP carrier leg."""
+    from app.services import voice_assistants as VA
+
+    return 5.6 if VA.enabled() else 0.9
 SETTLE_LOOKBACK = timedelta(days=3)
 STARTER_DAYS = 30  # a free trial, when STARTER_CREDITS is set
 LOW_SHARE = 0.20

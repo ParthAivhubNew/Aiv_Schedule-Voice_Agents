@@ -95,6 +95,34 @@ async def _credits_settle_loop():
 # second, duplicate billing loop — see its comments for why).
 
 
+async def _telnyx_number_health_loop():
+    """Re-check already-active numbers and approved business verifications against Telnyx once
+    an hour, in case Telnyx suspended, held or revoked one without sending a webhook (it doesn't
+    promise one for every compliance action) — so staff and the affected customer find out the
+    same day either way, not only when calls start silently failing."""
+    from app.database import AsyncSessionLocal
+    from app.core.tenancy import org_scope
+    from app.core.orgs import active_org_ids
+    from app.services import telnyx_provisioning as TP
+    while True:
+        try:
+            await asyncio.sleep(3600)
+            if not TP.platform_ready():
+                continue
+            for org_id in await active_org_ids():
+                with org_scope(org_id):
+                    async with AsyncSessionLocal() as db:
+                        setup = await TP.get_setup(db)
+                        if setup is None or setup.status != "ready":
+                            continue
+                        await TP.sweep_active_numbers(db, TP.client_for(setup))
+                        await db.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Telnyx] Number health sweep failed: {loop_err}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database tables...")
@@ -569,6 +597,7 @@ async def lifespan(app: FastAPI):
     generation_task = asyncio.create_task(generation_loop())
     from app.services.email_worker import email_loop
     email_task = asyncio.create_task(email_loop())
+    number_health_task = asyncio.create_task(_telnyx_number_health_loop())
 
     yield
 
@@ -576,6 +605,7 @@ async def lifespan(app: FastAPI):
     publish_due_task.cancel()
     generation_task.cancel()
     credits_task.cancel()
+    number_health_task.cancel()
     logger.info("Shutting down OutReach by Aivhub Voice Agent API...")
 
 app = FastAPI(

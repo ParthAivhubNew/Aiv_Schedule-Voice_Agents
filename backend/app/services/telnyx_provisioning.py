@@ -76,6 +76,24 @@ def _complete(setup) -> bool:
     return bool(setup.billing_group_id and setup.outbound_voice_profile_id and setup.outbound_connection_id)
 
 
+async def _create_or_reuse(create, find):
+    """Create a Telnyx resource, or reuse the existing one if Telnyx says it's already there.
+    This happens for real: the previous attempt's create call can succeed on Telnyx's side while
+    our own write of its id never lands (a crash, a dropped connection) — the next attempt then
+    tries to create the same deterministically-named resource again, and Telnyx correctly refuses
+    it as a duplicate. Without this, that organisation's Telnyx setup is stuck in "error" forever,
+    since nothing here ever looks the existing resource up and nothing else can clear it."""
+    try:
+        return await create()
+    except TelnyxError as err:
+        if "duplicate" not in str(err).lower():
+            raise
+        found = await find()
+        if not found:
+            raise
+        return found
+
+
 async def ensure_setup(db, org_name: str, email: str = "") -> Any:
     """Create (or finish creating) the organisation's Telnyx side. Idempotent: each part is made
     once, so an organisation set up before a part existed gets it on the next call. Caller commits."""
@@ -113,29 +131,37 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             own = client_for(setup)
             base = public_http_base()
             if not setup.connection_id:
-                app_ = await own.create_call_control_application("OutReach calls", f"{base}/api/telnyx-assistant/call-control")
+                app_ = await _create_or_reuse(
+                    lambda: own.create_call_control_application("OutReach calls", f"{base}/api/telnyx-assistant/call-control"),
+                    lambda: own.find_call_control_application("OutReach calls"))
                 setup.connection_id = str(app_.get("id") or "")
             if not setup.messaging_profile_id:
-                prof = await own.create_messaging_profile("OutReach messages", f"{base}/api/telnyx/messaging-webhook")
+                prof = await _create_or_reuse(
+                    lambda: own.create_messaging_profile("OutReach messages", f"{base}/api/telnyx/messaging-webhook"),
+                    lambda: own.find_messaging_profile("OutReach messages"))
                 setup.messaging_profile_id = str(prof.get("id") or "")
         else:
             from app.services.telephony_provider import public_http_base
 
             label = f"{org_name or _org()} ({_org()})"
             if not setup.billing_group_id:
-                bg = await manager.create_billing_group(label)
+                bg = await _create_or_reuse(lambda: manager.create_billing_group(label), lambda: manager.find_billing_group(label))
                 setup.billing_group_id = str(bg.get("id") or "")
             if not setup.outbound_voice_profile_id:
-                ovp = await manager.create_outbound_voice_profile(
-                    label, list(setup.allowed_countries or ["GB"]), setup.billing_group_id,
-                    daily_spend_limit_usd=os.getenv("TELNYX_DAILY_SPEND_LIMIT_USD", "").strip(),
-                    max_destination_rate=os.getenv("TELNYX_MAX_DESTINATION_RATE", "").strip())
+                ovp = await _create_or_reuse(
+                    lambda: manager.create_outbound_voice_profile(
+                        label, list(setup.allowed_countries or ["GB"]), setup.billing_group_id,
+                        daily_spend_limit_usd=os.getenv("TELNYX_DAILY_SPEND_LIMIT_USD", "").strip(),
+                        max_destination_rate=os.getenv("TELNYX_MAX_DESTINATION_RATE", "").strip()),
+                    lambda: manager.find_outbound_voice_profile(label))
                 setup.outbound_voice_profile_id = str(ovp.get("id") or "")
                 await _prepaid_only(db)
             if not setup.outbound_connection_id:
                 # Same webhook as our other Call Control apps: it handles every kind of call we place.
-                app_ = await manager.create_call_control_application(
-                    f"OutReach calls: {label}", f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id)
+                outbound_name = f"OutReach calls: {label}"
+                app_ = await _create_or_reuse(
+                    lambda: manager.create_call_control_application(outbound_name, f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id),
+                    lambda: manager.find_call_control_application(outbound_name))
                 setup.outbound_connection_id = str(app_.get("id") or "")
             from app.services import voice_assistants as VA
             if VA.enabled_for_org(_org()):
@@ -297,8 +323,29 @@ def _group_reason(group: Dict[str, Any]) -> str:
     return "; ".join(reasons)[:500]
 
 
+async def _notify_both(event: str, subject: str, lines: List[str]) -> None:
+    """The same message to the affected organisation's own users, and again to Aivhub's platform
+    organisation, so staff learn about a problem the same day the customer does, not only when
+    they happen to check System logs. Used for anything that was fine and then went bad — a
+    brand-new decline/rejection is lower-stakes and stays customer-only, as it always has."""
+    from app.core.auth_middleware import platform_org
+    from app.core.notify import notify
+    from app.core.tenancy import org_scope
+
+    org = _org()
+    await notify(event, subject, lines)
+    try:
+        with org_scope(platform_org()):
+            await notify(event, f"[{org}] {subject}", lines)
+    except Exception:
+        pass
+
+
 async def refresh_verification(db, sub, client: TelnyxClient) -> Any:
-    if not sub.requirement_group_id or sub.status in ("approved", "error"):
+    """Re-read this verification from Telnyx. Only truly terminal statuses are skipped — an
+    error means Telnyx rejected the submission outright, nothing to re-check. "approved" is not
+    terminal: Telnyx can still revoke it later, and that's exactly the case this needs to catch."""
+    if not sub.requirement_group_id or sub.status == "error":
         return sub
     try:
         group = await client.get_requirement_group(sub.requirement_group_id)
@@ -307,14 +354,15 @@ async def refresh_verification(db, sub, client: TelnyxClient) -> Any:
         return sub
     status = str(group.get("status") or sub.status)
     if status != sub.status:
+        was_approved = sub.status == "approved"
         sub.status = status
         if status in ("declined", "expired"):
             sub.reason = _group_reason(group) or "Telnyx did not accept the documents."
-        await _notify_verification(sub)
+        await _notify_verification(sub, was_approved)
     return sub
 
 
-async def _notify_verification(sub) -> None:
+async def _notify_verification(sub, was_approved: bool = False) -> None:
     try:
         from app.core.notify import notify
 
@@ -322,11 +370,58 @@ async def _notify_verification(sub) -> None:
             await notify("numbers", "Your business is verified for phone numbers",
                          ["Telnyx approved your documents. You can now buy phone numbers in OutReach."])
         elif sub.status in ("declined", "expired"):
-            await notify("numbers", "Your phone number verification needs attention",
-                         [f"Telnyx could not approve your documents: {sub.reason or 'no reason given'}.",
-                          "Open Numbers in the Voice plugin to upload new documents."])
+            if was_approved:
+                await _notify_both("numbers", "Your phone number verification was revoked",
+                                   [f"Telnyx withdrew approval of your documents: {sub.reason or 'no reason given'}.",
+                                    "Numbers already bought on this business may be affected. Contact the OutReach team."])
+            else:
+                await notify("numbers", "Your phone number verification needs attention",
+                             [f"Telnyx could not approve your documents: {sub.reason or 'no reason given'}.",
+                              "Open Numbers in the Voice plugin to upload new documents."])
     except Exception:
         pass
+
+
+async def refresh_number(db, n, client: TelnyxClient) -> Any:
+    """Re-read an already-active number from Telnyx, in case it was later suspended, held or
+    disconnected without a webhook reaching us (Telnyx doesn't promise one for every compliance
+    action). Cheap, so it's fine to call for every active number on an hourly sweep."""
+    from app.core.notify import notify
+
+    if not n.provider_ref or n.status not in ("active", "held"):
+        return n
+    try:
+        pn = await client.get_phone_number(n.provider_ref)
+    except TelnyxError as err:
+        logger.info(f"[telnyx] number refresh skipped for {n.e164}: {err}")
+        return n
+    telnyx_status = str(pn.get("status") or "")
+    healthy = telnyx_status in ("active", "")
+    was_active = n.status == "active"
+    if healthy and not was_active:
+        n.status = "active"
+        await notify("numbers", f"{n.e164} is working again",
+                     [f"Telnyx now reports {n.e164} as active again."])
+    elif not healthy and was_active:
+        n.status = "held"
+        await _notify_both("numbers", f"{n.e164} was suspended or held by Telnyx",
+                           [f"Telnyx now reports this number's status as '{telnyx_status or 'unknown'}', not active.",
+                            "Outbound calls from it may fail until this is resolved. Contact the OutReach team."])
+    return n
+
+
+async def sweep_active_numbers(db, client: TelnyxClient) -> None:
+    """Re-check numbers and verifications already marked good against Telnyx, in case it later
+    changed its mind without sending a webhook. Meant to run about once an hour per organisation
+    (see the number-health loop in main.py), not on every page load."""
+    from app.models.models import OrgPhoneNumber, VerificationSubmission
+
+    numbers = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.status.in_(["active", "held"])))).scalars().all()
+    for n in numbers:
+        await refresh_number(db, n, client)
+    subs = (await db.execute(select(VerificationSubmission).where(VerificationSubmission.status == "approved"))).scalars().all()
+    for s in subs:
+        await refresh_verification(db, s, client)
 
 
 # ── Numbers ────────────────────────────────────────────────────────────────

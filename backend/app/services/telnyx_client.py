@@ -132,6 +132,13 @@ class TelnyxClient:
     async def create_billing_group(self, name: str) -> Dict[str, Any]:
         return (await self._req("POST", "/billing_groups", json={"name": name[:100]})).get("data", {})
 
+    async def find_billing_group(self, name: str) -> Optional[Dict[str, Any]]:
+        # filter[name] narrows the request, but matches by exact name afterwards too in case
+        # Telnyx silently ignores an unrecognised filter and returns everything unfiltered —
+        # picking data[0] blind on a shared account could otherwise grab a different org's resource.
+        data = (await self._req("GET", "/billing_groups", params={"filter[name]": name[:100], "page[size]": 50})).get("data", [])
+        return next((r for r in data if r.get("name") == name[:100]), None)
+
     async def create_outbound_voice_profile(self, name: str, countries: List[str], billing_group_id: str = "",
                                             daily_spend_limit_usd: str = "", max_destination_rate: str = "") -> Dict[str, Any]:
         """Outbound calls are billed to the profile's billing group and limited to its countries.
@@ -146,6 +153,10 @@ class TelnyxClient:
             payload["max_destination_rate"] = float(max_destination_rate)
         return (await self._req("POST", "/outbound_voice_profiles", json=payload)).get("data", {})
 
+    async def find_outbound_voice_profile(self, name: str) -> Optional[Dict[str, Any]]:
+        data = (await self._req("GET", "/outbound_voice_profiles", params={"filter[name]": name[:100], "page[size]": 50})).get("data", [])
+        return next((r for r in data if r.get("name") == name[:100]), None)
+
     async def update_outbound_voice_profile(self, profile_id: str, countries: List[str]) -> Dict[str, Any]:
         return (await self._req("PATCH", f"/outbound_voice_profiles/{profile_id}",
                                 json={"whitelisted_destinations": countries or ["GB"]})).get("data", {})
@@ -155,6 +166,10 @@ class TelnyxClient:
         if outbound_voice_profile_id:
             payload["outbound"] = {"outbound_voice_profile_id": outbound_voice_profile_id}
         return (await self._req("POST", "/call_control_applications", json=payload)).get("data", {})
+
+    async def find_call_control_application(self, name: str) -> Optional[Dict[str, Any]]:
+        data = (await self._req("GET", "/call_control_applications", params={"filter[application_name]": name[:100], "page[size]": 50})).get("data", [])
+        return next((r for r in data if r.get("application_name") == name[:100]), None)
 
     async def get_call_control_application(self, app_id: str) -> Dict[str, Any]:
         return (await self._req("GET", f"/call_control_applications/{app_id}")).get("data", {})
@@ -189,6 +204,10 @@ class TelnyxClient:
     async def create_messaging_profile(self, name: str, webhook_url: str) -> Dict[str, Any]:
         payload = {"name": name[:100], "webhook_url": webhook_url, "webhook_api_version": "2", "whitelisted_destinations": ["GB"]}
         return (await self._req("POST", "/messaging_profiles", json=payload)).get("data", {})
+
+    async def find_messaging_profile(self, name: str) -> Optional[Dict[str, Any]]:
+        data = (await self._req("GET", "/messaging_profiles", params={"filter[name]": name[:100], "page[size]": 50})).get("data", [])
+        return next((r for r in data if r.get("name") == name[:100]), None)
 
     # ── Numbers ───────────────────────────────────────────────────────────
     async def search_numbers(self, country: str = "GB", number_type: str = "local", locality: str = "",
@@ -235,6 +254,11 @@ class TelnyxClient:
 
     async def get_phone_number(self, number_or_id: str) -> Dict[str, Any]:
         return (await self._req("GET", f"/phone_numbers/{number_or_id}")).get("data", {})
+
+    async def lookup_number(self, e164: str) -> Dict[str, Any]:
+        """Number Lookup (carrier + caller name): confirms a number is real and assigned, not
+        just shaped like one. ~$0.0015-0.003/query, no account or setup needed beyond our own key."""
+        return (await self._req("GET", f"/number_lookup/{quote(e164, safe='+')}", params={"type": ["carrier", "caller-name"]})).get("data", {})
 
     async def find_phone_number(self, e164: str) -> Dict[str, Any]:
         """A number on this account by its E.164 form, or {} when the account has no such number."""

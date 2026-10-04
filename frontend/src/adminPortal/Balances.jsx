@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
-import { CheckCircle2, AlertTriangle, RefreshCw, Save, ShieldAlert, Wallet, ExternalLink, Info } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { CheckCircle2, AlertTriangle, RefreshCw, Save, ShieldAlert, Wallet, ExternalLink, Info, Receipt } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
 import { adminApi } from "./adminApi";
-import { Note, PageTitle, Pill, btn, card, heading, input, useAction, useLoad } from "./ui";
+import { Note, PageTitle, Pill, btn, card, cell, heading, input, useAction, useLoad } from "./ui";
 
 export function Balances({ canEdit }) {
   const [data, err, reload] = useLoad(adminApi.platformBalances);
@@ -240,6 +240,88 @@ export function Balances({ canEdit }) {
           </div>
         </div>
       </div>
+
+      <VendorSpend />
+    </div>
+  );
+}
+
+// ── Section 3: Leadgen data-provider spend estimate ─────────────────────────
+// Real $ already spent this month at each data provider (exact for the email finders, which log
+// every attempt; a call-count estimate for Tavily/Telnyx lookup, which don't). No auto top-up —
+// this just tells staff roughly how much to keep funded in each provider's own account.
+function VendorSpend() {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    setError("");
+    try {
+      setData(await adminApi.vendorCosts(month));
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  }, [month]);
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ ...heading, display: "flex", alignItems: "center", gap: 8 }}>
+            <Receipt size={16} color="#2563EB" /> Data provider spend (Leadgen)
+          </div>
+          <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
+            What this month's lead research has actually cost at each provider, so each account can be funded to cover it. Not automatic — fund these by hand on the provider's own site.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input type="month" aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} style={input} />
+          <button type="button" style={btn(false, busy)} disabled={busy} onClick={load}><RefreshCw size={13} /> Refresh</button>
+        </div>
+      </div>
+      <Note error>{error}</Note>
+      {data && (
+        <div style={{ ...card, padding: 0, overflow: "hidden", border: `1px solid ${C.border}` }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+              <thead>
+                <tr style={{ background: "#F9FAFB", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 600, fontSize: 12 }}>
+                  <th style={{ padding: "10px 16px" }}>Provider</th>
+                  <th style={{ padding: "10px 16px", textAlign: "right" }}>Calls this month</th>
+                  <th style={{ padding: "10px 16px", textAlign: "right" }}>Est. spend (USD)</th>
+                  <th style={{ padding: "10px 16px" }}>Basis</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.providers.length === 0 && (
+                  <tr><td colSpan={4} style={{ ...cell, color: C.slate }}>No provider usage this month.</td></tr>
+                )}
+                {data.providers.map((p) => (
+                  <tr key={p.provider} style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <td style={{ padding: "12px 16px", fontWeight: 600, color: C.ink }}>{p.label}</td>
+                    <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: FONT_MONO }}>{p.calls}</td>
+                    <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: FONT_MONO, fontWeight: 600 }}>${p.costUsd.toFixed(2)}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 11.5, color: C.slate }}>{p.exact ? "Exact (logged per call)" : "Estimated (call count × known price)"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td style={{ padding: "12px 16px", fontWeight: 700, color: C.ink }}>Total</td>
+                  <td />
+                  <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: FONT_MONO, fontWeight: 700 }}>${data.totalUsd.toFixed(2)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

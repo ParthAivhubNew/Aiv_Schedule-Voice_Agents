@@ -247,9 +247,17 @@ class AuthMiddleware:
         if need and not P.allows(ctx["perms"], need[0], need[1]):
             return await _deny(scope, receive, send, 403, "You do not have access to this.", code="forbidden", section=need[0])
 
-        managed = (rel.startswith("/connections") and (method != "GET" or rel.startswith("/connections/telephony-hub/"))) or \
-            (rel.startswith("/scheduler/ai-settings") and method != "GET") or \
-            re.match(r"^/logs(/|$)", rel) is not None  # system logs: staff read them in the admin portal
+        # /scheduler/oauth/apps (POST only): the LinkedIn/Facebook/etc. developer-app Client
+        # ID+Secret is one shared row per platform (social_oauth_apps has no org_id column at
+        # all), so a non-platform-org write would overwrite every customer's social posting
+        # setup at once. GET stays open (a masked hint only, never the secret) so any operator
+        # can see whether it's already configured.
+        managed = (
+            (rel.startswith("/connections") and (method != "GET" or rel.startswith("/connections/telephony-hub/")))
+            or (rel.startswith("/scheduler/ai-settings") and method != "GET")
+            or (rel.startswith("/scheduler/oauth/apps") and method != "GET")
+            or re.match(r"^/logs(/|$)", rel) is not None  # system logs: staff read them in the admin portal
+        )
         if managed and ctx["org_id"] != platform_org():
             # Provider keys, AI models, engines and system logs are run by OutReach for client organisations.
             return await _deny(scope, receive, send, 403, "This is managed by the OutReach team.", code="managed_by_outreach")

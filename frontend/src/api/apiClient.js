@@ -233,6 +233,8 @@ export const api = {
   // Prospects & Registry
   getProspects: () => apiRequest('/prospects'),
   getRegistry: () => apiRequest('/prospects/registry'),
+  getLeadgenProspects: () => apiRequest('/prospects/leadgen'),
+  saveLeadgenProspects: (leads) => apiRequest('/prospects/leadgen', { method: 'POST', body: { leads } }),
 
   // Calls
   getLiveCalls: (opts = {}) => apiRequest(opts.includeEnded ? '/calls/live?include_ended=true' : '/calls/live'),

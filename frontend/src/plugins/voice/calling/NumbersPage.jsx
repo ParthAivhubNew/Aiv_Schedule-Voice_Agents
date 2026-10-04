@@ -469,6 +469,14 @@ export function NumbersPage() {
                   }}>Check now</button>
                 </div>
               )}
+              {/* Not the self-service Meta signup flow (no Telnyx Tech Provider app configured
+                  on this platform): there is no link, code or "Check now" to show, so without this
+                  the row gives no explanation at all once the one-time toast has gone. */}
+              {n.capabilities.includes("whatsapp_requested") && !signups[n.id] && (
+                <div style={{ flexBasis: "100%", fontSize: 12.5, color: C.slate, paddingLeft: 27 }}>
+                  The OutReach team completes Meta's WhatsApp business check for this number by hand — there is nothing more to do here. We will contact you once it is live.
+                </div>
+              )}
             </div>
           ))
         )}

@@ -43,122 +43,30 @@ import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
 import { CampaignsView, DoNotEmailView, FindView, MailboxesView, RepliesView } from "./OutreachViews";
 
-const INITIAL_DUMMY_LEADS = [
-  {
-    id: "lead_1",
-    companyName: "Apex Freight Logistics Inc.",
-    domain: "apexfreight.com",
-    website: "https://apexfreight.com",
-    industry: "Logistics & Fleet",
-    region: "Dallas, Texas (US)",
-    employees: "85 employees",
-    decisionMaker: "Marcus Vance",
-    title: "VP of Fleet Operations",
-    phone: "+1 (214) 555-0182",
-    email: "m.vance@apexfreight.com",
-    matchScore: 98,
-    status: "new",
-    openingHook: "Expanding Austin & Dallas distribution depots. High dispatch friction; prime fit for automated voice alerts & status check-ins.",
-    techStack: ["Fleetio", "McLeod Software", "QuickBooks Enterprise"],
-    revenueEst: "$18M/yr",
-    tags: ["High Intent", "Verified Phone", "Fleet Expansion"]
-  },
-  {
-    id: "lead_2",
-    companyName: "CloudScale Systems Ltd",
-    domain: "cloudscale.io",
-    website: "https://cloudscale.io",
-    industry: "B2B SaaS / DevOps",
-    region: "London (UK)",
-    employees: "45 employees",
-    decisionMaker: "Sarah Lindqvist",
-    title: "Chief Operating Officer",
-    phone: "+44 20 7946 0921",
-    email: "s.lindqvist@cloudscale.io",
-    matchScore: 95,
-    status: "new",
-    openingHook: "Announced Series A funding last month. Scaling customer onboarding team; pitch automated meeting qualification and scheduled follow-ups.",
-    techStack: ["HubSpot", "Slack", "Stripe", "AWS"],
-    revenueEst: "£6.5M/yr",
-    tags: ["Funded", "Tech Forward", "UK Market"]
-  },
-  {
-    id: "lead_3",
-    companyName: "Beacon Health Diagnostics",
-    domain: "beaconhealth.org",
-    website: "https://beaconhealth.org",
-    industry: "Healthcare & Clinics",
-    region: "Chicago, Illinois (US)",
-    employees: "120 employees",
-    decisionMaker: "Dr. Arthur Pendelton",
-    title: "Director of Clinical Operations",
-    phone: "+1 (312) 555-0199",
-    email: "a.pendelton@beaconhealth.org",
-    matchScore: 93,
-    status: "new",
-    openingHook: "High no-show rate on specialty ultrasound appointments. Looking for HIPAA-compliant reminder workflows.",
-    techStack: ["Epic EHR", "AthenaHealth", "Twilio SMS"],
-    revenueEst: "$24M/yr",
-    tags: ["High Volume", "Appointment Heavy"]
-  },
-  {
-    id: "lead_4",
-    companyName: "Vanguard Precision Manufacturing",
-    domain: "vanguardprecision.com",
-    website: "https://vanguardprecision.com",
-    industry: "Industrial Manufacturing",
-    region: "Detroit, Michigan (US)",
-    employees: "210 employees",
-    decisionMaker: "Elena Rostova",
-    title: "Head of Operations & Supply",
-    phone: "+1 (313) 555-0144",
-    email: "elena.r@vanguardprecision.com",
-    matchScore: 89,
-    status: "new",
-    openingHook: "Supplier delays causing shift disruptions on CNC floor. Seeking automated real-time dispatch check-ins.",
-    techStack: ["SAP S/4HANA", "Plex MES", "Microsoft Teams"],
-    revenueEst: "$42M/yr",
-    tags: ["Enterprise", "Supply Chain"]
-  },
-  {
-    id: "lead_5",
-    companyName: "Kensington Wealth Partners",
-    domain: "kensingtonwealth.co.uk",
-    website: "https://kensingtonwealth.co.uk",
-    industry: "Financial Advisory",
-    region: "Edinburgh (UK)",
-    employees: "35 employees",
-    decisionMaker: "Julian Kensington",
-    title: "Managing Partner",
-    phone: "+44 131 496 0882",
-    email: "j.kensington@kensingtonwealth.co.uk",
-    matchScore: 88,
-    status: "new",
-    openingHook: "Advisors spend 15+ hrs/week rescheduling client portfolio reviews. High willingness to adopt AI scheduling.",
-    techStack: ["Salesforce Financial Cloud", "Calendly Enterprise"],
-    revenueEst: "£9M/yr",
-    tags: ["High Ticket", "HNW Clients"]
-  },
-  {
-    id: "lead_6",
-    companyName: "Summit Horizon Solar",
-    domain: "summithorizonsolar.com",
-    website: "https://summithorizonsolar.com",
-    industry: "Renewable Energy",
-    region: "Denver, Colorado (US)",
-    employees: "60 employees",
-    decisionMaker: "Liam Thorne",
-    title: "VP of Field Projects",
-    phone: "+1 (303) 555-0167",
-    email: "lthorne@summithorizonsolar.com",
-    matchScore: 87,
-    status: "new",
-    openingHook: "Rapid residential solar boom. Field installation crews missing appointment site verifications.",
-    techStack: ["JobNimbus", "Zoho CRM", "Google Maps Platform"],
-    revenueEst: "$14M/yr",
-    tags: ["High Growth", "Clean Energy"]
-  }
-];
+// Real accounts only: Saved Accounts is now backed by the Prospect table (via /prospects/leadgen),
+// not browser-only state. A server row never carries employees/title/techStack/revenueEst — Scout
+// and CSV import never fabricate those — so they're always blank here; the UI shows "—" for them.
+function serverProspectToLead(p) {
+  return {
+    id: p.id,
+    companyName: p.name,
+    domain: p.site ? p.site.replace(/^https?:\/\//, "").split("/")[0] : "",
+    website: p.site || "",
+    industry: p.sector || "",
+    region: p.region || "",
+    employees: "",
+    decisionMaker: p.contact && p.contact !== "—" ? p.contact : "",
+    title: "",
+    phone: p.phone || "",
+    email: p.email || "",
+    matchScore: p.fit || 0,
+    status: p.status === "queued" ? "new" : p.status,
+    openingHook: p.openingHook || "",
+    techStack: [],
+    revenueEst: "",
+    tags: [],
+  };
+}
 
 export default function LeadGenerationPlugin({
   operator,
@@ -214,12 +122,35 @@ export default function LeadGenerationPlugin({
     };
     return onRouteChange(onHash);
   }, [view]);
-  const [leads, setLeads] = useState(INITIAL_DUMMY_LEADS);
+  const [leads, setLeads] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndustry, setSelectedIndustry] = useState("all");
   const [isSearching, setIsSearching] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await api.getLeadgenProspects();
+        if (!cancelled) setLeads(rows.map(serverProspectToLead));
+      } catch (_) {
+        // Leave the list empty rather than block the page on a failed load; Scout/Import/Add
+        // still work and will populate it.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fire-and-forget save to the server: the UI never waits on this, it only warns if it failed.
+  const persistLeads = async (newLeads) => {
+    try {
+      await api.saveLeadgenProspects(newLeads);
+    } catch (err) {
+      showToast(`Saved on this screen only — could not sync to the server: ${err.message || "unknown error"}`);
+    }
+  };
 
   // Open AI Lead Copilot Chat State
   const [copilotChatMessages, setCopilotChatMessages] = useState([
@@ -292,26 +223,29 @@ export default function LeadGenerationPlugin({
   };
 
   const handleAddCopilotLead = (leadObj) => {
+    // Real fields only — never invent a placeholder phone/email/title the Copilot didn't
+    // actually give us, same rule Scout follows.
     const newLead = {
       id: "lead_" + Date.now(),
-      companyName: leadObj.name || leadObj.companyName || "Target Account",
-      domain: leadObj.domain || (leadObj.website ? leadObj.website.replace("https://", "").replace("http://", "").split("/")[0] : "company.com"),
-      website: leadObj.website || `https://${leadObj.domain || "company.com"}`,
-      industry: leadObj.industry || selectedIndustry !== "all" ? selectedIndustry : "B2B Technology",
-      region: leadObj.region || "United States / UK",
-      employees: leadObj.employees || "20-100 employees",
-      decisionMaker: leadObj.contactPerson || leadObj.decisionMaker || "Director of Operations",
-      title: leadObj.title || "VP of Operations",
-      phone: leadObj.phone || "+1 (800) 555-0149",
-      email: leadObj.email || "contact@target.com",
-      matchScore: leadObj.fitScore || 94,
+      companyName: leadObj.name || leadObj.companyName || "",
+      domain: leadObj.domain || (leadObj.website ? leadObj.website.replace(/^https?:\/\//, "").split("/")[0] : ""),
+      website: leadObj.website || "",
+      industry: leadObj.industry || (selectedIndustry !== "all" ? selectedIndustry : ""),
+      region: leadObj.region || "",
+      employees: "",
+      decisionMaker: leadObj.contactPerson || leadObj.decisionMaker || "",
+      title: leadObj.title || "",
+      phone: leadObj.phone || "",
+      email: leadObj.email || "",
+      matchScore: leadObj.fitScore || 0,
       status: "new",
-      openingHook: leadObj.hook || "High match score based on current market expansion.",
-      techStack: ["HubSpot", "PostgreSQL"],
-      revenueEst: "$10M - $25M",
-      tags: ["AI Copilot Discovery", "Verified"]
+      openingHook: leadObj.hook || "",
+      techStack: [],
+      revenueEst: "",
+      tags: ["AI Copilot Discovery"]
     };
     setLeads((prev) => [newLead, ...prev]);
+    persistLeads([newLead]);
     showToast(`Added "${newLead.companyName}" to your saved accounts!`);
   };
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -348,37 +282,46 @@ export default function LeadGenerationPlugin({
     return true;
   });
 
-  const handleSimulatedSearch = (e) => {
+  const handleSearch = async (e) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim() || isSearching) return;
     setIsSearching(true);
-
-    setTimeout(() => {
-      const queryName = searchQuery.split(" ")[0] || "Target";
-      const newLead = {
-        id: "lead_" + Date.now(),
-        companyName: `${queryName} Dynamics Global`,
-        domain: `${queryName.toLowerCase()}dynamics.com`,
-        website: `https://${queryName.toLowerCase()}dynamics.com`,
-        industry: selectedIndustry !== "all" ? selectedIndustry : "B2B Technology",
-        region: "United States / Remote",
-        employees: "50-100 employees",
-        decisionMaker: "Alex Mercer",
-        title: "VP of Operations",
-        phone: "+1 (800) 555-0149",
-        email: `a.mercer@${queryName.toLowerCase()}dynamics.com`,
-        matchScore: Math.floor(Math.random() * 8) + 91,
+    try {
+      const res = await api.discoverAccounts({ query: searchQuery });
+      const found = res?.leads || res?.accounts || [];
+      // Real data only: Scout never fabricates employees/title/techStack/revenueEst, so these
+      // stay blank rather than invented, same rule as everywhere else real data is shown.
+      const mapped = found.map((d) => ({
+        id: d.id || `lead_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        companyName: d.name || "",
+        domain: d.site ? d.site.replace(/^https?:\/\//, "").split("/")[0] : "",
+        website: d.site || "",
+        industry: selectedIndustry !== "all" ? selectedIndustry : (d.sector || ""),
+        region: d.region || "",
+        employees: "",
+        decisionMaker: d.contactPerson || "",
+        title: "",
+        phone: d.phone || "",
+        email: "",
+        matchScore: d.fit || 0,
         status: "new",
-        openingHook: `Actively researching operations solutions for "${searchQuery}". High match score based on current market expansion.`,
-        techStack: ["HubSpot", "Google Workspace", "PostgreSQL"],
-        revenueEst: "$10M - $25M",
-        tags: ["Live Web Discovery", "High Fit"]
-      };
-
-      setLeads((prev) => [newLead, ...prev]);
+        openingHook: d.openingHook || "",
+        techStack: [],
+        revenueEst: "",
+        tags: ["Live Web Discovery"],
+      }));
+      if (mapped.length) {
+        setLeads((prev) => [...mapped, ...prev]);
+        persistLeads(mapped);
+      }
+      showToast(mapped.length
+        ? `Found ${mapped.length} account${mapped.length === 1 ? "" : "s"} for "${searchQuery}".`
+        : `No accounts found for "${searchQuery}". Try a broader search.`);
+    } catch (err) {
+      showToast(err.message || "Search failed. Please try again.");
+    } finally {
       setIsSearching(false);
-      showToast(`AI discovered and enriched 1 new high-intent account for "${searchQuery}"!`);
-    }, 1200);
+    }
   };
 
   const handleToggleSelect = (id) => {
@@ -386,6 +329,51 @@ export default function LeadGenerationPlugin({
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setSelectedIds(next);
+  };
+
+  const csvInputRef = React.useRef(null);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
+
+  const handleCsvFileSelected = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // allow re-selecting the same file name later
+    if (!file) return;
+    setIsImportingCsv(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await api.parseSpreadsheet(form);
+      const rows = (res?.rows || []).filter((r) => !(r.issues || []).includes("missing_name"));
+      const mapped = rows.map((r) => ({
+        id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        companyName: r.name || "",
+        domain: r.website ? r.website.replace(/^https?:\/\//, "").split("/")[0] : "",
+        website: r.website || "",
+        industry: selectedIndustry !== "all" ? selectedIndustry : "",
+        region: "",
+        employees: "",
+        decisionMaker: r.contact || "",
+        title: "",
+        phone: r.phone || "",
+        email: "",
+        matchScore: 0,
+        status: "new",
+        openingHook: "",
+        techStack: [],
+        revenueEst: "",
+        tags: ["CSV Import"],
+      }));
+      if (mapped.length) {
+        setLeads((prev) => [...mapped, ...prev]);
+        persistLeads(mapped);
+      }
+      const skipped = (res?.rows || []).length - mapped.length;
+      showToast(`Imported ${mapped.length} account${mapped.length === 1 ? "" : "s"} from ${res?.filename || file.name}${skipped ? ` (${skipped} row${skipped === 1 ? "" : "s"} skipped: no company name)` : ""}.`);
+    } catch (err) {
+      showToast(err.message || "Import failed. Please check the file and try again.");
+    } finally {
+      setIsImportingCsv(false);
+    }
   };
 
   const handleAddManualLead = (e) => {
@@ -399,6 +387,7 @@ export default function LeadGenerationPlugin({
       tags: ["Manual Entry", "Verified"]
     };
     setLeads((prev) => [created, ...prev]);
+    persistLeads([created]);
     setShowAddModal(false);
     setNewLeadForm({
       companyName: "",
@@ -703,13 +692,91 @@ export default function LeadGenerationPlugin({
             </div>
           ) : (
             <>
+          {/* VIEW 0: AI LEAD COPILOT */}
+          {view === "copilot" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 820, margin: "0 auto" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {copilotChatMessages.map((m) => (
+                  <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
+                    <div
+                      style={{
+                        maxWidth: "82%",
+                        padding: "10px 14px",
+                        borderRadius: 14,
+                        background: m.role === "user" ? "#8B5CF6" : "#fff",
+                        color: m.role === "user" ? "#fff" : C.textInk,
+                        border: m.role === "user" ? "none" : `1px solid ${C.border}`,
+                        boxShadow: m.role === "user" ? "none" : "0 1px 4px rgba(0,0,0,0.04)",
+                        whiteSpace: "pre-wrap",
+                        fontSize: 13.5,
+                        lineHeight: 1.55,
+                        fontFamily: FONT_BODY,
+                      }}
+                    >
+                      {m.text}
+                    </div>
+                    {m.leads && m.leads.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8, maxWidth: "82%", width: "100%" }}>
+                        {m.leads.map((lead, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px" }}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: 12.5, color: C.ink }}>{lead.name || lead.companyName}</div>
+                              <div style={{ fontSize: 11, color: C.slate }}>{lead.domain || lead.website || ""}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleAddCopilotLead(lead)}
+                              style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 7, background: "#8B5CF6", color: "#fff", border: "none", fontSize: 11.5, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+                            >
+                              <Plus size={12} /> Add
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10.5, color: C.slate, marginTop: 4 }}>{m.time}</div>
+                  </div>
+                ))}
+                {isCopilotTyping && (
+                  <div style={{ fontSize: 12.5, color: C.slate, fontStyle: "italic" }}>Copilot is thinking…</div>
+                )}
+                <div ref={copilotScrollRef} />
+              </div>
+
+              <form
+                onSubmit={handleSendCopilotChat}
+                style={{ display: "flex", gap: 8, position: "sticky", bottom: 0, background: HUB_PAPER, paddingTop: 12, borderTop: `1px solid ${C.border}` }}
+              >
+                <input
+                  value={copilotInput}
+                  onChange={(e) => setCopilotInput(e.target.value)}
+                  placeholder="Ask about target accounts, ICP strategy, market research…"
+                  disabled={isCopilotTyping}
+                  style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13.5, fontFamily: FONT_BODY }}
+                />
+                <button
+                  type="submit"
+                  disabled={isCopilotTyping || !copilotInput.trim()}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6, padding: "10px 18px", borderRadius: 10,
+                    background: "#8B5CF6", color: "#fff", border: "none", fontSize: 13, fontWeight: 700,
+                    cursor: isCopilotTyping || !copilotInput.trim() ? "not-allowed" : "pointer",
+                    opacity: isCopilotTyping || !copilotInput.trim() ? 0.6 : 1,
+                  }}
+                >
+                  <Send size={14} /> Send
+                </button>
+              </form>
+            </div>
+          )}
+
           {/* VIEW 1: AI LEAD SCOUT */}
           {view === "scout" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               
               {/* Search Hero Card */}
               <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
-                <form className="wrap-narrow" onSubmit={handleSimulatedSearch} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <form className="wrap-narrow" onSubmit={handleSearch} style={{ display: "flex", gap: 12, alignItems: "center" }}>
                   <div style={{ position: "relative", flex: "1 1 200px", minWidth: 0 }}>
                     <Search size={18} color={C.slate} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }} />
                     <input
@@ -1080,11 +1147,19 @@ export default function LeadGenerationPlugin({
                 <div style={{ fontSize: 12.5, color: C.slate, marginTop: 4, maxWidth: 440, textAlign: "center" }}>
                   Upload your target list. The AI will automatically enrich decision-makers, verify direct phone lines, and compile research dossiers.
                 </div>
+                <input
+                  type="file"
+                  ref={csvInputRef}
+                  accept=".csv,.xlsx,.xls"
+                  style={{ display: "none" }}
+                  onChange={handleCsvFileSelected}
+                />
                 <button
-                  onClick={() => showToast("CSV upload simulator: Ready to map custom columns.")}
-                  style={{ marginTop: 16, padding: "9px 20px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                  onClick={() => csvInputRef.current?.click()}
+                  disabled={isImportingCsv}
+                  style={{ marginTop: 16, padding: "9px 20px", borderRadius: 8, background: C.ink, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 600, cursor: isImportingCsv ? "default" : "pointer", opacity: isImportingCsv ? 0.6 : 1 }}
                 >
-                  Browse Files
+                  {isImportingCsv ? "Importing…" : "Browse Files"}
                 </button>
               </div>
 

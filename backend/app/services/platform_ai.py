@@ -18,8 +18,6 @@ KEY = "platform_ai"
 HEALTH_KEY = "platform_ai_health"
 FIELDS = ("textProvider", "textModel", "imageProvider", "imageModel",
           "textBackupProvider", "textBackupModel", "imageBackupProvider", "imageBackupModel")
-TEXT_PROVIDERS = ["openai", "anthropic", "deepseek", "groq", "gemini", "xai"]
-IMAGE_PROVIDERS = ["openai", "fal", "stability", "pollinations"]
 KINDS = ("text", "image")
 SLOTS = ("main", "backup")
 
@@ -49,17 +47,18 @@ async def get(db, scope: str = "scheduler") -> Dict[str, str]:
 
 async def put(db, patch: Dict[str, Any], scope: str = "scheduler") -> Dict[str, str]:
     from app.services.credits import _put_doc
+    from app.api.scheduler import _saved_ai_keys
 
     current = await get(db, scope)
+    keys = await _saved_ai_keys(db, scope=scope)
+    available = {"text": {k["name"].strip().lower() for k in keys["text"]},
+                 "image": {k["name"].strip().lower() for k in keys["image"]}}
     for f in FIELDS:
         if f in patch and patch[f] is not None:
-            current[f] = str(patch[f]).strip()[:120]
-    for f in ("textProvider", "textBackupProvider"):
-        if current[f] and current[f] not in TEXT_PROVIDERS:
-            raise ValueError("Pick one of the writing providers listed.")
-    for f in ("imageProvider", "imageBackupProvider"):
-        if current[f] and current[f] not in IMAGE_PROVIDERS:
-            raise ValueError("Pick one of the image providers listed.")
+            value = str(patch[f]).strip()[:120]
+            if f.endswith("Provider") and value and value.lower() not in available["image" if f.startswith("image") else "text"]:
+                raise ValueError(f'Save a key named "{value}" for this plugin before picking it.')
+            current[f] = value
     for kind in KINDS:
         if not current[f"{kind}BackupProvider"]:
             current[f"{kind}BackupModel"] = ""

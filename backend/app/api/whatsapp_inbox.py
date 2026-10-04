@@ -47,7 +47,7 @@ async def status(request: Request, db: AsyncSession = Depends(get_db)):
 
     numbers = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.status == "active"))).scalars().all()
     signups = {s.number_id: s for s in (await db.execute(select(WhatsappSignup))).scalars().all()}
-    return {"automatic": WS.automatic(),
+    return {"automatic": await WS.automatic(),
             "numbers": [{"id": n.id, "e164": n.e164, "whatsapp": "whatsapp" in (n.capabilities or []),
                          "requested": "whatsapp_requested" in (n.capabilities or []),
                          "ready": "whatsapp_ready" in (n.capabilities or []),
@@ -173,7 +173,7 @@ async def request_whatsapp(number_id: str, request: Request, db: AsyncSession = 
     if "whatsapp" in had or "whatsapp_ready" in had:
         caps += ["whatsapp", "whatsapp_ready"]
     else:
-        if WS.automatic():
+        if await WS.automatic():
             try:
                 signup = await WS.start(db, n)
             except TelnyxError as err:
@@ -189,7 +189,7 @@ async def check_whatsapp(number_id: str, request: Request, db: AsyncSession = De
     """Check with Telnyx now instead of waiting for the next automatic check."""
     n = await _admin_number(db, request, number_id)
     s = await WS.signup_for(db, n.id)
-    if not s or not WS.automatic():
+    if not s or not await WS.automatic():
         raise HTTPException(status_code=404, detail="No WhatsApp signup for this number.")
     if s.status == "link_sent" and await WS.check(db, s, n):
         await db.commit()

@@ -1,13 +1,24 @@
 """Putting a company's own Telnyx number on WhatsApp with no work by the OutReach team.
 
-Aivhub is a WhatsApp Tech Provider on Telnyx (our Meta app, WHATSAPP_META_APP_ID). When an admin
-presses "Turn on WhatsApp", we ask Telnyx for a hosted signup page and open it for them: they log
-in with Facebook, name their business and pick the number; Telnyx does the rest with Meta. We then
-check Telnyx every few minutes and switch WhatsApp on as soon as the number is registered, add our
-standard message templates, and tell the company's admins.
+Aivhub is a WhatsApp Tech Provider on Telnyx (our Meta app: WHATSAPP_META_APP_ID, or — since one
+Meta app can hold Facebook/Instagram login and WhatsApp Tech Provider access side by side — the
+same app already used for Facebook/Instagram OAuth, FACEBOOK_OAUTH_CLIENT_ID/FACEBOOK_APP_ID, once
+that app also has the whatsapp_business_messaging/whatsapp_business_management permissions and
+Tech Provider onboarding done on Meta's side). When an admin presses "Turn on WhatsApp", we ask
+Telnyx for a hosted signup page and open it for them: they log in with Facebook, name their
+business and pick the number; Telnyx does the rest with Meta. We then check Telnyx every few
+minutes and switch WhatsApp on as soon as the number is registered, add our standard message
+templates, and tell the company's admins.
 
 Telnyx documents the Tech Provider calls only in its guide, so replies are read loosely here.
-Without WHATSAPP_META_APP_ID the old way stays: the OutReach team switches WhatsApp on by hand.
+Without an app id configured, the old way stays: the OutReach team switches WhatsApp on by hand.
+
+Reusing the Facebook/Instagram login app's id is not by itself proof that Telnyx has accepted
+that app as a Tech Provider partner yet (that's a one-time step done by hand on Meta's and
+Telnyx's side). Rather than a config flag staff would have to remember to flip, automatic() asks
+Telnyx itself (GET /whatsapp/foreign_apps, cached briefly) whether our app id is on its accepted
+list, and only then starts making live Telnyx calls; until Telnyx says yes, it falls back to the
+safe staff-assisted path by itself, no file to edit.
 """
 from __future__ import annotations
 
@@ -46,15 +57,46 @@ CONFIRMATION = "outreach_meeting_confirmation"
 
 
 def app_id() -> str:
-    return (os.getenv("WHATSAPP_META_APP_ID") or "").strip()
+    from app.config import settings
 
-
-def automatic() -> bool:
-    return bool(app_id() and platform_key())
+    return (os.getenv("WHATSAPP_META_APP_ID") or settings.FACEBOOK_OAUTH_CLIENT_ID or "").strip()
 
 
 def _client() -> TelnyxClient:
     return TelnyxClient(platform_key())
+
+
+_READY_TTL = 600  # seconds; avoid asking Telnyx on every status check/page load
+_ready_cache: Dict[str, Any] = {}
+
+
+async def automatic() -> bool:
+    """True once we can actually start a live WhatsApp signup with Telnyx. A dedicated
+    WHATSAPP_META_APP_ID is trusted immediately (it was set for exactly this). The reused
+    Facebook-login app id is only trusted once Telnyx itself lists it as an accepted WhatsApp
+    Tech Provider partner -- checked live against Telnyx, cached briefly, no flag to set by hand:
+    Telnyx's own records are the one source of truth for whether that onboarding is done."""
+    import time
+
+    app, key = app_id(), platform_key()
+    if not (app and key):
+        return False
+    if os.getenv("WHATSAPP_META_APP_ID", "").strip():
+        return True
+    now = time.time()
+    cached = _ready_cache.get(app)
+    if cached and now - cached[1] < _READY_TTL:
+        return cached[0]
+    ok = False
+    try:
+        apps = await _client().foreign_apps()
+        ok = any(str(a.get("id") or a.get("app_id") or a.get("facebook_app_id") or "") == app for a in apps)
+    except TelnyxError as err:
+        logger.debug(f"[whatsapp] foreign_apps check failed: {err}")
+    except Exception as err:
+        logger.debug(f"[whatsapp] foreign_apps check failed: {err}")
+    _ready_cache[app] = (ok, now)
+    return ok
 
 
 def _url(data: Dict[str, Any]) -> str:
@@ -196,7 +238,7 @@ async def check_org(db) -> int:
 
 async def check_all() -> None:
     """Every few minutes, for every organisation (see main)."""
-    if not automatic():
+    if not await automatic():
         return
     from app.core.orgs import active_org_ids
     from app.core.tenancy import org_scope

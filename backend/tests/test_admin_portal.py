@@ -169,6 +169,13 @@ async def test_staff_choose_the_post_scheduler_ai_for_every_company(staff, db):
     from app.api.scheduler import _load_ai_settings, _resolve_image_prefs
     from app.core.tenancy import org_scope
 
+    # Main/backup only ever offer providers that actually have a saved key -- there is no
+    # fixed list any more, so the admin brings openai/fal in like any other connection first.
+    for layer, provider in (("LLM", "openai"), ("IMAGE", "fal"), ("LLM", "deepseek")):
+        r = await staff.post("/api/admin-api/platform-keys/save", json={
+            "layer": layer, "provider": provider, "base_url": "http://127.0.0.1:9", "api_key": "test-key"})
+        assert r.status_code == 200
+
     got = (await staff.get("/api/admin-api/platform-ai")).json()
     assert got["chosen"]["textProvider"] == "" and got["chosen"]["textBackupProvider"] == ""
     assert "openai" in got["textProviders"] and "fal" in got["imageProviders"]

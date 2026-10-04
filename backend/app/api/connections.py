@@ -41,6 +41,14 @@ class TestKeyRequest(BaseModel):
     # TTS voice saved with the key goes into the voice library; this makes it the call voice.
     use_for_calls: Optional[bool] = None
     useForCalls: Optional[bool] = None
+    # Platform Keys admin screen only: every connection there is brought by the admin
+    # (provider, model, key, URL), so testing must never fall back to a guessed endpoint.
+    always_custom: Optional[bool] = False
+    alwaysCustom: Optional[bool] = False
+
+    @property
+    def resolved_always_custom(self) -> bool:
+        return bool(self.always_custom or self.alwaysCustom)
 
     @property
     def resolved_use_for_calls(self) -> bool:
@@ -225,7 +233,8 @@ async def test_connection_only(req: TestKeyRequest, db: AsyncSession = Depends(g
         api_key=key,
         base_url=req.resolved_base_url,
         account_sid=req.account_sid,
-        model=req.resolved_model
+        model=req.resolved_model,
+        force_generic=req.resolved_always_custom,
     )
     if not validation["valid"]:
         raise HTTPException(
@@ -296,10 +305,17 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         api_key=key,
         base_url=req.resolved_base_url,
         account_sid=req.account_sid,
-        model=req.resolved_model
+        model=req.resolved_model,
+        force_generic=req.resolved_always_custom,
     )
-    
-    if not validation["valid"]:
+
+    # A fully generic probe (Platform Keys admin) cannot know every provider's auth scheme --
+    # an API expecting x-api-key or Basic auth instead of Bearer will look "invalid" even with
+    # a correct key. Since the admin brought this URL and key themselves, a failed generic
+    # probe is a warning, not a reason to refuse saving it; only a real provider-specific
+    # probe (identify_provider found a known handler) still blocks the save on failure.
+    generic_probe = req.resolved_always_custom and identify_provider(req.provider) != "telnyx"
+    if not validation["valid"] and not generic_probe:
         raise HTTPException(
             status_code=400,
             detail=validation.get("error", f"Authentication failed for {req.provider}.")
@@ -307,7 +323,11 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
     if validation.get("base_url"):
         # Reachable only under another address (the Docker host): save the one that works.
         req.base_url = validation["base_url"]
-    
+    save_details = (
+        validation.get("details", "Verified & Active") if validation["valid"]
+        else f"Saved, but could not confirm the key against that URL ({validation.get('error', 'no response')}). It will still be used."
+    )
+
     # 2. If it's a retest of an existing key in DB, preserve config but still apply any
     # non-secret field changes (phone, voice_id, model) submitted alongside the retest —
     # otherwise "keep key" saves silently drop these with no error shown to the user.
@@ -340,7 +360,7 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
             "phone": retest_cfg.get("phone"),
             "voice_id": req.resolved_voice_id or None,
             "voiceNote": voice_note,
-            "details": validation.get("details", "Verified & Active")
+            "details": save_details
         }
 
     # 3. Mask the key for safe storage
@@ -454,7 +474,7 @@ async def test_and_save_connection(req: TestKeyRequest, db: AsyncSession = Depen
         "layer": req.layer,
         "status": "connected",
         "maskedKey": masked,
-        "details": validation.get("details", "Verified & Active")
+        "details": save_details
     }
 
 class ClearKeyRequest(BaseModel):

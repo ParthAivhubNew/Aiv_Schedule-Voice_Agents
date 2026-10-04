@@ -76,13 +76,20 @@ async def validate_api_key(
     base_url: Optional[str] = None,
     account_sid: Optional[str] = None,
     model: Optional[str] = None,
+    force_generic: bool = False,
 ) -> Dict[str, Any]:
     """
     Performs a real-time live probe to the provider's official API endpoint
     to verify that the supplied credentials are authentic and authorized.
+
+    force_generic: callers who always collect their own base_url (the Platform Keys admin
+    screen -- every connection there is brought by the admin, nothing is guessed) set this so
+    the probe always hits exactly the URL given, never a hardcoded per-provider endpoint.
+    Telnyx is the one exception: it is Aivhub's own managed stack, not a bring-your-own
+    connection, so it always gets the real Telnyx probe regardless of this flag.
     """
     start_time = time.time()
-    res = await _do_validate_api_key(provider, api_key, base_url, account_sid, model=model)
+    res = await _do_validate_api_key(provider, api_key, base_url, account_sid, model=model, force_generic=force_generic)
     duration_ms = (time.time() - start_time) * 1000
 
     p_type = identify_provider(provider)
@@ -114,6 +121,7 @@ async def _do_validate_api_key(
     base_url: Optional[str] = None,
     account_sid: Optional[str] = None,
     model: Optional[str] = None,
+    force_generic: bool = False,
 ) -> Dict[str, Any]:
     from app.services.endpoints import docker_host_alternative, is_self_hosted
 
@@ -126,8 +134,13 @@ async def _do_validate_api_key(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            # Dispatch directly by provider type
-            handler = PROVIDER_HANDLERS.get(prov_type, _validate_custom)
+            # force_generic (Platform Keys admin): always probe exactly the URL given, never a
+            # hardcoded per-provider endpoint. Telnyx is the one exception -- it's Aivhub's own
+            # managed stack, not a bring-your-own connection.
+            if force_generic and prov_type != "telnyx":
+                handler = _validate_custom
+            else:
+                handler = PROVIDER_HANDLERS.get(prov_type, _validate_custom)
             return await handler(client, api_key, base_url, account_sid, model, provider)
     except httpx.ConnectTimeout:
         return {"valid": False, "error": f"Connection to {provider} timed out. Please check network connection."}
@@ -135,7 +148,7 @@ async def _do_validate_api_key(
         alt = docker_host_alternative(base_url)
         if alt:
             # Inside Docker "localhost" is this container. Try the machine it runs on.
-            res = await _do_validate_api_key(provider, api_key, alt, account_sid, model=model)
+            res = await _do_validate_api_key(provider, api_key, alt, account_sid, model=model, force_generic=force_generic)
             if res.get("valid"):
                 res["base_url"] = alt
                 res["details"] = (res.get("details") or "Verified") + f" (reached at {alt}: this app runs in Docker, where localhost means the container)"

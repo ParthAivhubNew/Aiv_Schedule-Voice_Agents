@@ -626,7 +626,7 @@ async def verification_queue(request: Request):
         "whatsappRequests": [{"numberId": r[0], "orgId": r[1], "orgName": r[2], "e164": r[3], "signupStatus": r[4] or "",
                               "telnyxStatus": r[5] or "", "error": r[6] or "",
                               "since": r[7].isoformat() if r[7] else None} for r in wa],
-        "whatsappAutomatic": automatic(),
+        "whatsappAutomatic": await automatic(),
     }
 
 
@@ -914,6 +914,13 @@ async def platform_keys_save(body: Dict[str, Any], request: Request):
     from app.api import connections as C
 
     _admin_only(request)
+    # Every connection here is brought by the admin -- provider, model, key, URL -- nothing is
+    # guessed, so testing must always hit exactly the URL given. Telnyx is Aivhub's own managed
+    # stack, not a bring-your-own connection, so it alone is exempt from needing a URL.
+    is_telnyx = "telnyx" in str(body.get("provider") or "").lower()
+    if not is_telnyx and not (body.get("base_url") or body.get("baseUrl")):
+        raise HTTPException(status_code=400, detail="Base URL is required.")
+    body = {**body, "always_custom": True}
     try:
         req = C.TestKeyRequest(**body)
     except Exception:
@@ -1098,8 +1105,10 @@ async def get_platform_ai(request: Request, scope: str = "scheduler"):
     with org_scope(platform_org()):
         async with AsyncSessionLocal() as db:
             keys = await _saved_ai_keys(db, scope=scope)
+    # Main/backup only ever pick from keys actually saved for this plugin -- never a fixed
+    # provider list, so there is nothing here that isn't already a stored connection.
     return {"scope": scope, "chosen": chosen, "health": health,
-            "textProviders": platform_ai.TEXT_PROVIDERS, "imageProviders": platform_ai.IMAGE_PROVIDERS,
+            "textProviders": [k["name"] for k in keys["text"]], "imageProviders": [k["name"] for k in keys["image"]],
             "keys": {"text": [k["provider"] for k in keys["text"]], "image": [k["provider"] for k in keys["image"]]}}
 
 
@@ -1222,6 +1231,23 @@ async def revenue(request: Request, month: str = "", include_aivhub: bool = Fals
         raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
     async with AsyncSessionLocal() as db:
         return await R.report(db, month, include_aivhub)
+
+
+@router.get("/vendor-costs")
+async def vendor_costs(request: Request, month: str = ""):
+    """Real/estimated spend this month at the data-provider vendors behind Leadgen (Icypeas,
+    Hunter, Findymail, LeadMagic, BetterContact, Tavily, Telnyx number lookup) — so staff know
+    roughly how much to keep funded in each vendor's own account. No auto top-up."""
+    import re
+
+    from app.services import revenue as R
+
+    _who(request)
+    month = month or datetime.utcnow().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    async with AsyncSessionLocal() as db:
+        return await R.vendor_spend(db, month)
 
 
 @router.get("/unit-costs")

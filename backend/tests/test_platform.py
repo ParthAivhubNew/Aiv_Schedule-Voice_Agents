@@ -73,7 +73,8 @@ async def test_staff_manage_platform_keys_and_clients_never_see_the_platform(db,
     await _split()
     await make_user(db, "acme_admin", "Admin", org_id="org_acme")
 
-    r = await staff.post("/api/admin-api/platform-keys/save", json={"layer": "LLM", "provider": "OpenAI", "api_key": "sk-test-0123456789abcdef"})
+    r = await staff.post("/api/admin-api/platform-keys/save", json={
+        "layer": "LLM", "provider": "OpenAI", "api_key": "sk-test-0123456789abcdef", "base_url": "https://api.openai.com/v1"})
     assert r.status_code == 200, r.text
     got = (await staff.get("/api/admin-api/platform-keys")).json()
     llm = next(g for g in got["groups"] if g["group"] == "LLM")["items"]

@@ -79,6 +79,10 @@ async def test_a_chosen_image_engine_without_a_key_is_an_error_not_the_free_engi
 async def test_backup_is_used_when_the_main_fails_and_health_is_recorded(db):
     from app.services import platform_ai
 
+    await _keys(db, [
+        ("c_plat_openai", "org_outreach", "LLM", "OpenAI", "sk-platform-1234567890"),
+        ("c_plat_deepseek", "org_outreach", "LLM", "DeepSeek", "sk-deepseek-123456789"),
+    ])
     await _choose(db, textProvider="openai", textBackupProvider="deepseek")
     tried = []
 

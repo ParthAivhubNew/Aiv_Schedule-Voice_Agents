@@ -1,47 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
-import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useLoad } from "./ui";
-
-const LABELS = { openai: "OpenAI", anthropic: "Anthropic (Claude)", deepseek: "DeepSeek", groq: "Groq", gemini: "Google Gemini",
-  xai: "xAI (Grok)", fal: "fal (FLUX)", stability: "Stability AI", pollinations: "Pollinations (free, no key)" };
-
-const when = (iso) => (iso ? new Date(iso + "Z").toLocaleString() : "");
+import { Note, PageTitle, btn, card, heading, input, mono, useAction, useLoad } from "./ui";
 
 // The writing and image AI every company's Post scheduler uses: a main provider and an optional
 // backup for each. When the main fails and a backup is set, the backup is used straight away;
-// with no backup, only the main is used. Keys are set on the Platform keys page.
-export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true, showKeys = true }) {
+// with no backup, only the main is used. Main/backup only ever pick from keys already saved on
+// the Platform keys page for this plugin -- nothing here is a separate provider list.
+export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true }) {
   const loadFn = React.useCallback(() => adminApi.platformAi(scope), [scope]);
   const [data, err, reload] = useLoad(loadFn, [loadFn]);
   const [draft, setDraft] = useState(null);
   const [msg, run] = useAction(reload);
-  const [tests, setTests] = useState({});
   useEffect(() => { if (data) setDraft(data.chosen); }, [data]);
 
   if (!data || !draft) return <><PageTitle title="Platform AI" /><Note error>{err}</Note></>;
-  const keyNote = (kind, p) => {
-    if (!p) return null;
-    if (p === "pollinations") return <Pill tone="amber">No key needed; quality and commercial terms not guaranteed</Pill>;
-    return (data.keys?.[kind] || []).some((k) => k.includes(p)) ? <Pill tone="green">Key saved</Pill> : <Pill tone="red">No key saved yet</Pill>;
-  };
-  const testIt = async (kind, slot) => {
-    const id = `${kind}-${slot}`;
-    setTests((t) => ({ ...t, [id]: { busy: true } }));
-    const out = await run(() => adminApi.testPlatformAi(scope, kind, slot));
-    setTests((t) => ({ ...t, [id]: out || { ok: false, error: "Test could not run." } }));
-  };
-  const status = (kind, slot) => {
-    const t = tests[`${kind}-${slot}`];
-    if (t && t.busy) return <Pill>Testing…</Pill>;
-    if (t) return t.ok ? <Pill tone="green">Works ({[t.provider, t.model].filter(Boolean).join(" · ")})</Pill> : <Pill tone="red">{t.error}</Pill>;
-    const h = ((data.health || {})[kind] || {})[slot] || {};
-    const okAt = h.lastOkAt || "";
-    const errAt = h.lastErrorAt || "";
-    if (errAt && errAt > okAt) return <Pill tone="red">Last failed {when(errAt)}: {h.lastError}</Pill>;
-    if (okAt) return <Pill tone="green">Last worked {when(okAt)}</Pill>;
-    return null;
-  };
   const slotRow = (kind, slot, options) => {
     const pf = `${kind}${slot === "backup" ? "Backup" : ""}Provider`;
     const mf = `${kind}${slot === "backup" ? "Backup" : ""}Model`;
@@ -50,21 +23,15 @@ export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true,
       <div style={{ display: "grid", gap: 6 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: C.slate }}>{isBackup ? "Backup (used only when the main fails)" : "Main"}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <select aria-label={`${kind} ${slot} provider`} value={draft[pf]} disabled={!canEdit}
+          <select aria-label={`${kind} ${slot} key`} value={draft[pf]} disabled={!canEdit}
             onChange={(e) => setDraft({ ...draft, [pf]: e.target.value, ...(isBackup && !e.target.value ? { [mf]: "" } : {}) })} style={input}>
-            <option value="">{isBackup ? "No backup" : "Automatic (first key saved)"}</option>
-            {options.map((p) => <option key={p} value={p}>{LABELS[p] || p}</option>)}
+            <option value="">{isBackup ? "No backup" : "None saved yet"}</option>
+            {options.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
-          <input aria-label={`${kind} ${slot} model`} placeholder="Model (empty = provider default)" value={draft[mf]}
+          <input aria-label={`${kind} ${slot} model override`} placeholder="Model override (empty = use the saved key's model)" value={draft[mf]}
             disabled={!canEdit || (isBackup && !draft[pf])}
-            onChange={(e) => setDraft({ ...draft, [mf]: e.target.value })} style={{ ...input, minWidth: 220, flex: 1 }} />
-          {keyNote(kind, draft[pf])}
-          {canEdit && (!isBackup || draft[pf]) && (
-            <button type="button" style={btn(false)} onClick={() => testIt(kind, slot)}
-              title="Saves nothing. Tests what is saved now.">Test saved</button>
-          )}
+            onChange={(e) => setDraft({ ...draft, [mf]: e.target.value })} style={{ ...input, minWidth: 260, flex: 1 }} />
         </div>
-        <div>{status(kind, slot)}</div>
       </div>
     );
   };
@@ -88,16 +55,6 @@ export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true,
         </button>
       )}
       {scope === "voice" && showCatalogue && <VoiceCatalogue canEdit={canEdit} />}
-
-      {showKeys && (
-        <>
-          <div style={heading}>Keys</div>
-          <div style={{ fontSize: 12.5, color: C.slate, maxWidth: 680 }}>
-            Provider keys are set in the Shared keys pool (LLM for text reasoning, IMAGE for images). Only these keys are ever used.
-            Saved now — text: {(data.keys?.text || []).join(", ") || "none"}; images: {(data.keys?.image || []).join(", ") || "none"}.
-          </div>
-        </>
-      )}
     </>
   );
 }

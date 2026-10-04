@@ -2152,6 +2152,7 @@ function SimpleAccountsPage({
   setProfile,
   knowledgeSources,
   setKnowledgeSources,
+  operator,
 }) {
   const [oauthApps, setOauthApps] = useState([]);
   const [setupPlat, setSetupPlat] = useState("linkedin");
@@ -2325,8 +2326,9 @@ function SimpleAccountsPage({
           showToast={showToast}
         />
 
+        {operator?.is_platform_org && (
         <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Network app setup (admin, once per network)</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Network app setup (Aivhub staff only, once per network)</div>
           <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 14 }}>
             Paste Client ID + Secret from the platform developer portal. Operators then only click Connect.
           </div>
@@ -2396,6 +2398,7 @@ function SimpleAccountsPage({
             </button>
           </div>
         </div>
+        )}
 
       </div>
     </div>
@@ -3995,6 +3998,7 @@ export function SocialWorkspace({
             setProfile={setProfile}
             knowledgeSources={knowledgeSources}
             setKnowledgeSources={setKnowledgeSources}
+            operator={operator}
           />
         ) : page === "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>

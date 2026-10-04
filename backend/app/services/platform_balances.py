@@ -27,6 +27,14 @@ NON_POLLABLE_DEFAULTS = [
     {"id": "deepgram", "name": "Deepgram", "alert_configured": False, "threshold": "$20", "notes": "Set balance alert in console.deepgram.com"},
     {"id": "cartesia", "name": "Cartesia", "alert_configured": False, "threshold": "$20", "notes": "Set credit alert in play.cartesia.ai"},
     {"id": "calcom", "name": "Cal.com", "alert_configured": False, "threshold": "N/A", "notes": "App subscription / billing portal alert"},
+    # Leadgen's data providers — see Revenue -> Data provider spend for how much usage is actually
+    # drawing on each one this month, to size these thresholds.
+    {"id": "icypeas", "name": "Icypeas", "alert_configured": False, "threshold": "$20", "notes": "Set low-balance alert in app.icypeas.com"},
+    {"id": "hunter", "name": "Hunter", "alert_configured": False, "threshold": "$20", "notes": "Set usage alert in hunter.io dashboard"},
+    {"id": "findymail", "name": "Findymail", "alert_configured": False, "threshold": "$20", "notes": "Set credit alert in app.findymail.com"},
+    {"id": "leadmagic", "name": "LeadMagic", "alert_configured": False, "threshold": "$20", "notes": "Set credit alert in leadmagic.io dashboard"},
+    {"id": "bettercontact", "name": "BetterContact", "alert_configured": False, "threshold": "$20", "notes": "Set credit alert in app.bettercontact.rocks"},
+    {"id": "tavily", "name": "Tavily", "alert_configured": False, "threshold": "$20", "notes": "Set usage alert in app.tavily.com"},
 ]
 
 
@@ -104,7 +112,10 @@ async def get_deepseek_live_balance() -> Dict[str, Any]:
 
 async def get_platform_balances_overview(db: AsyncSession) -> Dict[str, Any]:
     doc = await _get_doc(db, CHECKLIST_KEY)
-    saved_checklist = doc.get("checklist") or NON_POLLABLE_DEFAULTS
+    saved = {row.get("id"): row for row in (doc.get("checklist") or []) if row.get("id")}
+    # Merge so a provider added to the defaults later (e.g. the Leadgen data vendors) shows up
+    # even for an install that already saved a checklist before that provider existed.
+    saved_checklist = [saved.get(d["id"], d) for d in NON_POLLABLE_DEFAULTS]
 
     import asyncio
     telnyx_bal, deepseek_bal = await asyncio.gather(get_telnyx_live_balance(), get_deepseek_live_balance())

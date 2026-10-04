@@ -74,6 +74,12 @@ PROVIDERS = ["icypeas", "hunter", "findymail", "leadmagic", "bettercontact"]
 LABELS = {"icypeas": "Icypeas", "hunter": "Hunter", "findymail": "Findymail", "leadmagic": "LeadMagic", "bettercontact": "BetterContact"}
 # What one successful search costs us on each provider's entry plan (USD, for the margin report).
 COST_USD = {"icypeas": 0.01, "hunter": 0.03, "findymail": 0.03, "leadmagic": 0.02, "bettercontact": 0.05}
+
+# Other pay-as-you-go data providers billed per call rather than per verified result (open-web
+# search and phone validation) — not part of the email-finder waterfall above, but priced here
+# too so the admin portal's vendor-spend estimate has one place to read real per-call costs from.
+OTHER_VENDOR_COST_USD = {"tavily": 0.008, "telnyx_lookup": 0.003}
+OTHER_VENDOR_LABELS = {"tavily": "Tavily (web search)", "telnyx_lookup": "Telnyx (number lookup)"}
 HTTP_TIMEOUT = httpx.Timeout(20.0, connect=8.0)
 
 

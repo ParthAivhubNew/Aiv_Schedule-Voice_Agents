@@ -171,12 +171,14 @@ async def submit_verification(
     _, client = await _ready_client(db, ctx)
     # Charge once per organisation, not once per submission: a client whose documents are
     # rejected and re-uploads (the normal flow per step 4) must not pay the setup fee again for
-    # the same number attempt.
+    # the same number attempt. Charged only once Telnyx has actually accepted the submission —
+    # not before — so a first attempt that errors on Telnyx's side (bad doc, a transient API
+    # error) is never charged for a setup that never happened.
     prior = await TP.latest_verification(db, country.upper(), number_type)
-    if not prior:
-        await K.charge(db, "number_setup", 1, f"setup:{ctx.get('org_id')}:{country.upper()}:{number_type}", "Phone number setup fee")
     sub = await TP.submit_verification(db, client, country=country.upper(), number_type=number_type, entity_type=entity_type,
                                        texts=text_values, addresses=address_values, files=files, by=ctx.get("name", ""))
+    if not prior and sub.status != "error":
+        await K.charge(db, "number_setup", 1, f"setup:{ctx.get('org_id')}:{country.upper()}:{number_type}", "Phone number setup fee")
     await db.commit()
     if sub.status == "error":
         raise HTTPException(status_code=502, detail=sub.reason or "Telnyx did not accept the submission.")
@@ -289,11 +291,13 @@ async def _verified_body(request: Request) -> Dict[str, Any]:
 
 @router.post("/webhook")
 async def provisioning_webhook(request: Request):
-    """number_order.* and requirement group events. Finds the record by its Telnyx id in any
-    organisation, then refreshes it from Telnyx inside that organisation."""
+    """number_order.*, requirement group, and number-resource events. Finds the record by its
+    Telnyx id in any organisation, then refreshes it from Telnyx inside that organisation. A
+    number already owned is checked too, not just pending orders — Telnyx can report a number
+    suspended/held/disconnected long after the order that bought it already completed."""
     from app.core.tenancy import org_scope, system_scope
     from app.database import AsyncSessionLocal
-    from app.models.models import NumberOrder, VerificationSubmission
+    from app.models.models import NumberOrder, OrgPhoneNumber, VerificationSubmission
 
     body = await _verified_body(request)
     data = body.get("data") or {}
@@ -306,7 +310,9 @@ async def provisioning_webhook(request: Request):
             o = (await db.execute(select(NumberOrder).where(NumberOrder.telnyx_order_id == ref_id))).scalars().first()
             s = None if o else (await db.execute(select(VerificationSubmission).where(
                 VerificationSubmission.requirement_group_id == ref_id))).scalars().first()
-            org_id = (o or s).org_id if (o or s) else None
+            n = None if (o or s) else (await db.execute(select(OrgPhoneNumber).where(
+                OrgPhoneNumber.provider_ref == ref_id))).scalars().first()
+            org_id = (o or s or n).org_id if (o or s or n) else None
     if not org_id:
         return {"ok": True}
     with org_scope(org_id):
@@ -316,9 +322,12 @@ async def provisioning_webhook(request: Request):
             if o:
                 rec = (await db.execute(select(NumberOrder).where(NumberOrder.id == o.id))).scalars().first()
                 await TP.refresh_order(db, rec, client)
-            else:
+            elif s:
                 rec = (await db.execute(select(VerificationSubmission).where(VerificationSubmission.id == s.id))).scalars().first()
                 await TP.refresh_verification(db, rec, client)
+            else:
+                rec = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.id == n.id))).scalars().first()
+                await TP.refresh_number(db, rec, client)
             await db.commit()
     return {"ok": True}
 

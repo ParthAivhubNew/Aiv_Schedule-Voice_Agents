@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     LIVEKIT_API_SECRET: str = os.getenv("LIVEKIT_API_SECRET", "secret1234567890abcdef1234567890abcdef")
     LIVEKIT_PUBLIC_URL: Optional[str] = os.getenv("LIVEKIT_PUBLIC_URL", None)
     
-    # Open Web Search & Enrichment (Local self-hosted SearXNG instance)
-    SEARXNG_URL: Optional[str] = os.getenv("SEARXNG_URL", "http://localhost:8888")
+    # Open Web Search & Enrichment (Tavily: AI-agent search API, platform-wide key)
+    TAVILY_API_KEY: Optional[str] = os.getenv("TAVILY_API_KEY", None)
     
     # Calendar & Cal.com Cloud API v2 (v1 decommissioned; self-hosted URL can be set per-tenant from the admin UI)
     CALCOM_BASE_URL: str = os.getenv("CALCOM_BASE_URL", "https://api.cal.com/v2")

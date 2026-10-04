@@ -165,16 +165,40 @@ async def search_duckduckgo_lite(query: str, max_results: int = 5) -> List[Dict[
     return results[:max_results]
 
 
-async def search_searxng(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """Query configurable or local SearXNG metasearch instance if available."""
-    searx_url = getattr(settings, "SEARXNG_URL", None) or os.getenv("SEARXNG_URL", "")
-    if not searx_url:
+async def _bump_vendor_call(provider: str) -> None:
+    """Count one real billed call to a pay-as-you-go data vendor (Tavily, Telnyx lookup), so the
+    admin portal's vendor-spend estimate (Revenue -> Data provider spend) knows roughly how much
+    to keep funded in that vendor's account. Best-effort, never blocks the caller."""
+    try:
+        from datetime import datetime as _dt
+
+        from app.services.credits import _get_doc, _put_doc
+        from app.database import AsyncSessionLocal
+
+        key = f"vendor_calls:{_dt.utcnow().strftime('%Y-%m')}"
+        async with AsyncSessionLocal() as db:
+            doc = await _get_doc(db, key)
+            doc[provider] = int(doc.get(provider, 0)) + 1
+            await _put_doc(db, key, doc)
+            await db.commit()
+    except Exception as err:
+        logger.debug(f"[vendor_calls] could not count {provider}: {err}")
+
+
+async def search_tavily(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Tavily: AI-agent search API, platform-wide key (billed to orgs via the lead_lookup credit)."""
+    key = getattr(settings, "TAVILY_API_KEY", None) or os.getenv("TAVILY_API_KEY", "")
+    if not key:
         return []
     results = []
     try:
-        endpoint = searx_url.rstrip("/") + "/search"
-        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=6.0, follow_redirects=True) as client:
-            resp = await client.get(endpoint, params={"q": query, "format": "json"})
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                "https://api.tavily.com/search",
+                headers={"Authorization": f"Bearer {key}"},
+                json={"query": query, "max_results": max_results, "search_depth": "basic"},
+            )
+            await _bump_vendor_call("tavily")  # Tavily bills the request whether or not it helped
             if resp.status_code == 200:
                 data = resp.json()
                 for item in data.get("results", [])[:max_results]:
@@ -185,15 +209,17 @@ async def search_searxng(query: str, max_results: int = 5) -> List[Dict[str, str
                             "snippet": item.get("content") or "",
                             "url": url,
                         })
+            else:
+                logger.warning(f"Tavily search error for '{query}': HTTP {resp.status_code}")
     except Exception as err:
-        logger.debug(f"SearXNG search error for '{query}': {err}")
+        logger.debug(f"Tavily search error for '{query}': {err}")
     return results
 
 
 async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     """
     Open, unlimited multi-engine search rotator:
-    1. SearXNG (if local/self-hosted instance configured)
+    1. Tavily (AI-agent search API, if a platform key is configured)
     2. DuckDuckGo Lite (resilient text-only endpoint)
     3. DuckDuckGo Standard HTML
     4. Bing Web Search (fallback)
@@ -201,8 +227,8 @@ async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, st
     if not query or not query.strip():
         return []
 
-    # 1. SearXNG if configured
-    results = await search_searxng(query, max_results=max_results)
+    # 1. Tavily if configured
+    results = await search_tavily(query, max_results=max_results)
     if results:
         return results
 
@@ -436,6 +462,31 @@ def _is_real_phone(raw: str) -> bool:
     if digits in {"1234567890", "0123456789", "9876543210"}:
         return False
     return True
+
+
+async def _telnyx_confirmed_phone(raw: str) -> str:
+    """Confirm a phone-shaped string found in a search snippet is a real, assigned number via
+    Telnyx Number Lookup — the one master Telnyx key already used platform-wide, no account or
+    setup needed for this org (Number Lookup is a stateless lookup, not tied to a billing group).
+    Best-effort: a configuration gap or a transient Telnyx error never blocks discovery, only a
+    number Telnyx actively confirms is invalid gets blanked out."""
+    if not raw:
+        return ""
+    try:
+        from app.services.numbers import normalize
+        from app.services.telnyx_client import TelnyxClient, TelnyxError, platform_key
+
+        e164 = normalize(raw)
+        if not e164 or not platform_key():
+            return raw  # can't normalize, or Telnyx isn't connected on this platform yet
+        data = await TelnyxClient(platform_key()).lookup_number(e164)
+        await _bump_vendor_call("telnyx_lookup")
+        return e164 if (data.get("carrier") or data.get("caller_name")) else ""
+    except TelnyxError as err:
+        await _bump_vendor_call("telnyx_lookup")
+        return "" if err.status in (404, 422) else raw
+    except Exception:
+        return raw
 
 
 def _is_person_name(raw: str) -> bool:
@@ -1049,7 +1100,8 @@ async def discover_new_target_accounts(
             continue
 
         phone_match = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', snippet)
-        phone = phone_match.group(0).strip() if (phone_match and _is_real_phone(phone_match.group(0))) else ""
+        phone_candidate = phone_match.group(0).strip() if (phone_match and _is_real_phone(phone_match.group(0))) else ""
+        phone = await _telnyx_confirmed_phone(phone_candidate) if phone_candidate else ""
 
         usable_site = _usable_website(url)
 

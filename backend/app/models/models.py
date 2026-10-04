@@ -276,12 +276,14 @@ class Prospect(Base):
     contact_person = Column(String, default="—")
     phone = Column(String, default="")
     site = Column(String, default="")
+    email = Column(String, default="")  # from Leadgen's Find Work Email, when run
+    opening_hook = Column(Text, default="")  # Leadgen's AI-written icebreaker for this account
     channel = Column(String, default="voice")
     fallback_channel = Column(String, nullable=True)
     note = Column(Text, default="")
     time_status = Column(String, default="waiting")
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     mission = relationship("Mission", back_populates="prospects")
 
 class LiveCall(Base):

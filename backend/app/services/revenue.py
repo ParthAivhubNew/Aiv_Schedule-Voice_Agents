@@ -26,13 +26,17 @@ def month_range(month: str):
 
 
 async def unit_costs(db) -> Dict[str, Any]:
-    from app.services.credits import DEFAULT_RATES, _get_doc
+    from app.services.credits import DEFAULT_RATES, DEFAULT_UNIT_COSTS_USD_CENTS, _get_doc, default_voice_minute_cost_usd_cents
 
     stored = await _get_doc(db, UNIT_COSTS_KEY)
     costs = stored.get("costs") if isinstance(stored.get("costs"), dict) else {}
     currency = stored.get("currency") if stored.get("currency") in CURRENCIES else "gbp"
+    # Telnyx's researched defaults are USD prices; only used as a fallback on a USD rate card —
+    # converting to GBP/EUR pence would need an exchange rate that goes stale and could quietly
+    # mislead margin, which is worse than just staying blank until staff enters their own number.
+    defaults = {**DEFAULT_UNIT_COSTS_USD_CENTS, "voice_minute": default_voice_minute_cost_usd_cents()} if currency == "usd" else {}
     return {"currency": currency,
-            "costs": {k: float(costs.get(k) or 0) for k in DEFAULT_RATES}}
+            "costs": {k: float(costs[k]) if k in costs else defaults.get(k, 0.0) for k in DEFAULT_RATES}}
 
 
 async def set_unit_costs(db, currency: str, costs: Dict[str, Any]) -> Dict[str, Any]:
@@ -49,6 +53,40 @@ async def set_unit_costs(db, currency: str, costs: Dict[str, Any]) -> Dict[str, 
                 raise ValueError(f"Enter a number for {DEFAULT_RATES[k]['label']}.")
     await _put_doc(db, UNIT_COSTS_KEY, {"currency": currency, "costs": clean})
     return await unit_costs(db)
+
+
+async def vendor_spend(db, month: str) -> Dict[str, Any]:
+    """Real dollars actually spent this month at the pay-as-you-go data vendors behind Leadgen
+    (the email finders in the waterfall, plus Tavily web search and Telnyx number lookup) — not
+    revenue, not margin, just "how much should be funded in each of those accounts". The 5 email
+    finders are exact (every attempt is logged with its real cost); Tavily/Telnyx are a call-count
+    estimate at their known per-call price, since those calls aren't logged per-attempt. No auto
+    top-up — staff still fund each account by hand on that provider's own site."""
+    from app.services.credits import _get_doc
+    from app.services.enrichment_waterfall import COST_USD, LABELS, OTHER_VENDOR_COST_USD, OTHER_VENDOR_LABELS
+
+    start, end = month_range(month)
+    rows = (await db.execute(text(
+        "SELECT provider, count(*), sum(cost_usd) FROM enrichment_attempts "
+        "WHERE created_at >= :s AND created_at < :e GROUP BY 1"), {"s": start, "e": end})).all()
+    providers = []
+    for provider, calls, spent in rows:
+        if provider not in LABELS:
+            continue
+        providers.append({"provider": provider, "label": LABELS[provider], "calls": int(calls or 0),
+                           "costUsd": round(float(spent or 0.0), 2), "exact": True})
+    counted = {p["provider"] for p in providers}
+    for p in LABELS:
+        if p not in counted:
+            providers.append({"provider": p, "label": LABELS[p], "calls": 0, "costUsd": 0.0, "exact": True})
+
+    calls_doc = await _get_doc(db, f"vendor_calls:{month}")
+    for provider, label in OTHER_VENDOR_LABELS.items():
+        calls = int(calls_doc.get(provider, 0) or 0)
+        providers.append({"provider": provider, "label": label, "calls": calls,
+                           "costUsd": round(calls * OTHER_VENDOR_COST_USD[provider], 2), "exact": False})
+    providers.sort(key=lambda p: -p["costUsd"])
+    return {"month": month, "providers": providers, "totalUsd": round(sum(p["costUsd"] for p in providers), 2)}
 
 
 async def report(db, month: str, include_aivhub: bool = False) -> Dict[str, Any]:
