@@ -1,12 +1,18 @@
 """End-to-end flows against PostgreSQL: versions, approval, publishing, schedules, voices."""
 import time
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
 from sqlalchemy.future import select
 
 pytestmark = pytest.mark.db
+
+
+def _today():
+    """"Today" as the server sees it once a test sets the org's timezone to UTC — not the test
+    machine's own local date, which drifts a day ahead of UTC for hours at a time outside UTC."""
+    return datetime.now(timezone.utc).date()
 
 
 @pytest.fixture
@@ -93,7 +99,7 @@ async def test_missed_approval_and_publish_retry(client, db, sent_mail, monkeypa
     from app.models.models import SocialPost
 
     await client.put("/api/profile/org", json={"approverEmails": ["boss@test.local"], "timezone": "UTC"})
-    past = (date.today() - timedelta(days=1)).isoformat()
+    past = (_today() - timedelta(days=1)).isoformat()
     await _post(client, "v2_miss", date=past)
     await _post(client, "v2_pub", date=past, status="approved")
 
@@ -121,7 +127,7 @@ async def test_schedule_makes_posts_ahead_and_keeps_hand_edits(client, db):
     from app.models.models import SocialPost
 
     await client.put("/api/profile/org", json={"timezone": "UTC"})
-    start = (date.today() + timedelta(days=1)).isoformat()
+    start = (_today() + timedelta(days=1)).isoformat()
     res = await client.post("/api/scheduler/schedules", json={
         "name": "Daily tips", "plan": "Tips", "channels": ["linkedin", "x"], "pattern": "daily",
         "startDate": start, "time": "09:00",
@@ -157,7 +163,7 @@ async def test_custom_dates_write_each_dates_own_topic(client, db):
     from app.models.models import SocialGenJob, SocialPost
 
     await client.put("/api/profile/org", json={"timezone": "UTC"})
-    d1, d2 = (date.today() + timedelta(days=2)).isoformat(), (date.today() + timedelta(days=4)).isoformat()
+    d1, d2 = (_today() + timedelta(days=2)).isoformat(), (_today() + timedelta(days=4)).isoformat()
     res = await client.post("/api/scheduler/schedules", json={
         "name": "Launch week", "plan": "", "channels": ["linkedin"], "pattern": "dates", "time": "09:00",
         "customDates": [d1, d2], "dateTopics": {d1: "Onboarding checklist", d2: "Why spreadsheets break"},
@@ -176,7 +182,7 @@ async def test_daily_schedule_takes_a_topic_per_day(client, db):
     from app.models.models import SocialGenJob
 
     await client.put("/api/profile/org", json={"timezone": "UTC"})
-    days = [(date.today() + timedelta(days=i)).isoformat() for i in (1, 2, 3)]
+    days = [(_today() + timedelta(days=i)).isoformat() for i in (1, 2, 3)]
     body = {"name": "Three days", "plan": "", "channels": ["linkedin"], "pattern": "daily", "time": "09:00",
             "startDate": days[0], "endDate": days[-1]}
     preview = (await client.post("/api/scheduler/schedules/preview", json=body)).json()
