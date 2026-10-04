@@ -225,9 +225,36 @@ async def _bump_vendor_call(provider: str) -> None:
         logger.debug(f"[vendor_calls] could not count {provider}: {err}")
 
 
+async def tavily_key() -> str:
+    """The Tavily key staff saved under Platform Keys -> Leads -> Business Discovery, falling
+    back to the TAVILY_API_KEY environment variable (how it was set before that field existed)."""
+    from sqlalchemy.future import select
+
+    from app.core.platform import platform_org_id
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import Connection
+    from app.services.secret_box import config_get_secret, open_config
+
+    try:
+        with org_scope(platform_org_id()):
+            async with AsyncSessionLocal() as s:
+                rows = (await s.execute(
+                    select(Connection).where(Connection.group_name == "Business Discovery")
+                )).scalars().all()
+        for c in rows:
+            if "tavily" in (c.name or "").lower():
+                key = config_get_secret(open_config(c.config if isinstance(c.config, dict) else {}), "api_key", "auth_token")
+                if key:
+                    return key.strip()
+    except Exception as err:
+        logger.debug(f"[tavily] saved key not read: {err}")
+    return getattr(settings, "TAVILY_API_KEY", None) or os.getenv("TAVILY_API_KEY", "")
+
+
 async def search_tavily(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     """Tavily: AI-agent search API, platform-wide key (billed to orgs via the lead_lookup credit)."""
-    key = getattr(settings, "TAVILY_API_KEY", None) or os.getenv("TAVILY_API_KEY", "")
+    key = await tavily_key()
     if not key:
         return []
     results = []

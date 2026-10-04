@@ -873,6 +873,8 @@ async def platform_keys(request: Request):
             saved = {re.sub(r"[^a-z]", "", (it.get("name") or "").lower()) for it in g["items"]}
             g["items"] += [{"id": f"new:{p}", "name": LABELS[p], "status": "not_set"}
                            for p in PROVIDERS if not any(p in n for n in saved)]
+        if g["group"] == "Business Discovery" and not any("tavily" in (it.get("name") or "").lower() for it in g["items"]):
+            g["items"].append({"id": "new:tavily", "name": "Tavily", "status": "not_set"})
     assistant = await _as_platform(C.get_telnyx_assistant_settings)
     voice_stack = await _voice_stack_status()
     return {"groups": groups, "assistant": assistant, "voiceStack": voice_stack}
