@@ -159,14 +159,10 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             own = client_for(setup)
             base = public_http_base()
             if not setup.connection_id:
-                app_ = await _create_or_reuse(
-                    lambda: own.create_call_control_application("Outreach calls", f"{base}/api/telnyx-assistant/call-control"),
-                    lambda: own.find_call_control_application("Outreach calls"))
+                app_ = await own.create_call_control_application("Outreach calls", f"{base}/api/telnyx-assistant/call-control")
                 setup.connection_id = str(app_.get("id") or "")
             if not setup.messaging_profile_id:
-                prof = await _create_or_reuse(
-                    lambda: own.create_messaging_profile("Outreach messages", f"{base}/api/telnyx/messaging-webhook"),
-                    lambda: own.find_messaging_profile("Outreach messages"))
+                prof = await own.create_messaging_profile("Outreach messages", f"{base}/api/telnyx/messaging-webhook")
                 setup.messaging_profile_id = str(prof.get("id") or "")
         else:
             from app.services.telephony_provider import public_http_base
@@ -186,10 +182,8 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
                 await _prepaid_only(db)
             if not setup.outbound_connection_id:
                 # Same webhook as our other Call Control apps: it handles every kind of call we place.
-                outbound_name = f"Outreach calls: {label}"
-                app_ = await _create_or_reuse(
-                    lambda: manager.create_call_control_application(outbound_name, f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id),
-                    lambda: manager.find_call_control_application(outbound_name))
+                app_ = await manager.create_call_control_application(
+                    f"Outreach calls: {label}", f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id)
                 setup.outbound_connection_id = str(app_.get("id") or "")
             from app.services import voice_assistants as VA
             if VA.enabled_for_org(_org()):

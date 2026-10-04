@@ -241,7 +241,7 @@ export function PlatformKeys({ canEdit }) {
       {activeTab === "scheduler" && (
         <div style={{ display: "grid", gap: 16 }}>
           <div style={heading}>Social AI</div>
-          <PlatformAi canEdit={canEdit} scope="scheduler" showCatalogue={false} />
+          <PlatformAi canEdit={canEdit} scope="scheduler" showCatalogue={false} showKeys={false} />
 
           <div style={heading}>Writing & Image Keys</div>
           {renderGroupCards(SCHEDULER_GROUPS)}

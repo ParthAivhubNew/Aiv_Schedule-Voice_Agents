@@ -1,24 +1,13 @@
 """Putting a company's own Telnyx number on WhatsApp with no work by the Outreach team.
 
-Aivhub is a WhatsApp Tech Provider on Telnyx (our Meta app: WHATSAPP_META_APP_ID, or — since one
-Meta app can hold Facebook/Instagram login and WhatsApp Tech Provider access side by side — the
-same app already used for Facebook/Instagram OAuth, FACEBOOK_OAUTH_CLIENT_ID/FACEBOOK_APP_ID, once
-that app also has the whatsapp_business_messaging/whatsapp_business_management permissions and
-Tech Provider onboarding done on Meta's side). When an admin presses "Turn on WhatsApp", we ask
-Telnyx for a hosted signup page and open it for them: they log in with Facebook, name their
-business and pick the number; Telnyx does the rest with Meta. We then check Telnyx every few
-minutes and switch WhatsApp on as soon as the number is registered, add our standard message
-templates, and tell the company's admins.
+Aivhub is a WhatsApp Tech Provider on Telnyx (our Meta app, WHATSAPP_META_APP_ID). When an admin
+presses "Turn on WhatsApp", we ask Telnyx for a hosted signup page and open it for them: they log
+in with Facebook, name their business and pick the number; Telnyx does the rest with Meta. We then
+check Telnyx every few minutes and switch WhatsApp on as soon as the number is registered, add our
+standard message templates, and tell the company's admins.
 
 Telnyx documents the Tech Provider calls only in its guide, so replies are read loosely here.
-Without an app id configured, the old way stays: the Outreach team switches WhatsApp on by hand.
-
-Reusing the Facebook/Instagram login app's id is not by itself proof that Telnyx has accepted
-that app as a Tech Provider partner yet (that's a one-time step done by hand on Meta's and
-Telnyx's side). Rather than a config flag staff would have to remember to flip, automatic() asks
-Telnyx itself (GET /whatsapp/foreign_apps, cached briefly) whether our app id is on its accepted
-list, and only then starts making live Telnyx calls; until Telnyx says yes, it falls back to the
-safe staff-assisted path by itself, no file to edit.
+Without WHATSAPP_META_APP_ID the old way stays: the Outreach team switches WhatsApp on by hand.
 """
 from __future__ import annotations
 
