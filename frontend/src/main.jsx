@@ -58,7 +58,7 @@ class RootErrorBoundary extends React.Component {
               </div>
               <div>
                 <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#f1f5f9" }}>Application UI Recovery</h2>
-                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>OutReach by Aivhub</div>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Outreach by Aivhub</div>
               </div>
             </div>
             

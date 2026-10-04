@@ -2236,7 +2236,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   whiteSpace: "pre-wrap"
                 }}>
                   {embedCodeType === "inline"
-                    ? `<!-- OutReach by Aivhub Cal.com Inline Booking Embed -->
+                    ? `<!-- Outreach by Aivhub Cal.com Inline Booking Embed -->
 <iframe
   src="${appBaseUrl}/book/${embedEventSlug}?embed=true"
   width="100%"
@@ -2245,7 +2245,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
   style="border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);"
   allow="camera; microphone"
 ></iframe>`
-                    : `<!-- OutReach by Aivhub Cal.com Floating Popup Button -->
+                    : `<!-- Outreach by Aivhub Cal.com Floating Popup Button -->
 <script>
   (function (C, A, L) {
     let p = function (a, ar) { a.q.push(ar); };
@@ -2427,7 +2427,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#0F172A" }}>
-                        OutReach by Aivhub Managed Cal.com Engine
+                        Outreach by Aivhub Managed Cal.com Engine
                       </span>
                       <span style={{
                         display: "inline-flex",
@@ -2529,7 +2529,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 {showDeveloperOptions && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
                     <div style={{ fontSize: 12, color: "#64748B", marginBottom: 12 }}>
-                      Only configure these if you are connecting an external cloud Cal.com enterprise account. The default OutReach by Aivhub engine is already active and requires zero credentials.
+                      Only configure these if you are connecting an external cloud Cal.com enterprise account. The default Outreach by Aivhub engine is already active and requires zero credentials.
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
                       <div>

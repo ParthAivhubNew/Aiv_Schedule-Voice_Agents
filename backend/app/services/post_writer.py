@@ -409,7 +409,7 @@ async def resolve_image_credentials(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Resolve the image engine from OutReach's own keys (the platform record only).
+    """Resolve the image engine from Outreach's own keys (the platform record only).
 
     An explicitly chosen provider is honoured: "pollinations" stays free even when a paid
     key is saved, and "openai"/"stability"/"fal" use that provider's saved IMAGE key (OpenAI

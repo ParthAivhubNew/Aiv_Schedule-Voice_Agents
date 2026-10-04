@@ -104,7 +104,7 @@ async def test_stop_at_zero_per_plugin_only_when_enforced(db):
         await K.add_credits(db, "scheduler", 10)
         await db.commit()
         ok, why = await K.can_start(db, "voice_minute")
-        assert not ok and "AI Voice" in why
+        assert not ok and "Out of Voice credits" in why
         gate = await check_call_allowed(db, "+447700900123")
         assert not gate.allowed
         assert (await K.can_start(db, "ai_post"))[0] is True  # scheduler still has credits
@@ -132,7 +132,7 @@ async def test_low_warning_at_twenty_percent_once(db, monkeypatch):
         await K.settle(db)
         await _call_log(db, "cl_low2", "00:30")
         await K.settle(db)
-    assert sent == ["AI Voice (calls and WhatsApp): credits running low"]
+    assert sent == ["Voice: credits running low"]
 
 
 async def test_admin_sees_wallets_operator_does_not(client, db):
@@ -184,6 +184,22 @@ async def test_signup_gets_no_free_credits(anon, db, monkeypatch):
         mine = (await c.get("/api/billing/overview")).json()
     assert mine["enforce"] is True and all(w["balance"] == 0 for w in mine["wallets"])
     assert all(active is False for active in mine["has_active_plan"].values())
+
+    # Pay-as-you-go: a one-off top-up opens its own app without a plan, and only that app.
+    from sqlalchemy import text
+
+    from app.core.tenancy import org_scope, system_scope
+    from app.services import credits as K
+
+    with system_scope():
+        org_id = (await db.execute(text("SELECT id FROM organizations WHERE name = 'Cred Co'"))).scalar()
+        await db.commit()  # the next transaction starts in the new organisation's scope
+    with org_scope(org_id):
+        await K.add_credits(db, "voice", 60, source="topup")
+        await db.commit()
+    async with _as(r.json()["access_token"]) as c:
+        access = (await c.get("/api/billing/access")).json()["has_active_plan"]
+    assert access["voice"] is True and not any(v for k, v in access.items() if k != "voice")
 
 
 # ── Stripe ─────────────────────────────────────────────────────────────────
@@ -329,6 +345,22 @@ async def _hook(anon, event):
     return (await anon.post("/api/billing/webhook", content=raw, headers=headers)).json()["result"]
 
 
+async def test_payments_for_another_install_are_ignored(anon, db, monkeypatch):
+    """Local and live can share one Stripe sandbox: a payment for a company this server does not
+    have is left alone (no subscription row, no credits) instead of filling the database."""
+    from sqlalchemy import text
+
+    from app.core.tenancy import system_scope
+
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", WHSEC)
+    assert await _hook(anon, {"id": "evt_far", "type": "checkout.session.completed", "data": {"object": {
+        "id": "cs_far", "customer": "cus_far", "subscription": "sub_far", "payment_status": "paid",
+        "metadata": {"org_id": "org_elsewhere", "plans": "", "topups": ""}}}}) == "other_install"
+    with system_scope():
+        assert (await db.execute(text("SELECT count(*) FROM billing_subscriptions WHERE org_id = 'org_elsewhere'"))).scalar() == 0
+        assert (await db.execute(text("SELECT count(*) FROM stripe_events WHERE id = 'evt_far'"))).scalar() == 0
+
+
 def _invoice_paid(event_id, invoice_id, sub_id, lines):
     return {"id": event_id, "type": "invoice.paid", "data": {"object": {
         "id": invoice_id, "customer": "cus_1", "metadata": {},
@@ -410,7 +442,7 @@ async def test_each_plugin_bought_separately_keeps_its_own_plan(client, staff, a
 
     # Later the scheduler is bought from inside the Post scheduler: allowed, and voice stays.
     r = await client.post("/api/billing/checkout", json={"plans": [voice["id"]]})
-    assert r.status_code == 400 and "already have a plan for AI Voice" in r.json()["detail"]
+    assert r.status_code == 400 and "already have a plan for Voice" in r.json()["detail"]
     assert (await client.post("/api/billing/checkout", json={"plans": [social["id"]]})).status_code == 200
     assert calls[-1][2]["customer"] == "cus_1"
     assert await _hook(anon, {"id": "evt_s1", "type": "checkout.session.completed", "data": {"object": {
@@ -473,9 +505,12 @@ async def test_plan_is_changed_and_cancelled_from_the_plugin(client, staff, anon
     assert (await client.post("/api/billing/checkout", json={"plans": [starter["id"]], "back": "/voice/subscription"})).status_code == 200
     assert calls[-1][2]["success_url"].endswith("/voice/subscription?billing=success")
     assert (await client.post("/api/billing/checkout", json={"plans": [starter["id"]], "back": "//evil.test"})).status_code == 422
+    started = []
+    monkeypatch.setattr("app.services.telnyx_provisioning.start_setup", started.append)
     await _hook(anon, {"id": "evt_1", "type": "checkout.session.completed", "data": {"object": {
         "id": "cs_v", "customer": "cus_1", "subscription": "sub_v", "payment_status": "paid",
         "metadata": {"org_id": "org_default", "plans": starter["id"], "topups": ""}}}})
+    assert started == ["org_default"]  # a Voice plan starts its phone line setup straight away
     await _hook(anon, _invoice_paid("evt_2", "in_1", "sub_v", [("price_voice", 19999)]))
     assert await balance() == 79200
     mine = (await client.get("/api/billing/subscriptions")).json()

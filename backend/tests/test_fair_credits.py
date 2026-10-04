@@ -32,7 +32,7 @@ async def test_hold_confirm_release_at_the_starting_price(db):
 
     # 2 left: a post and its image (3) would go below zero by one: refused, nothing held.
     ok, why = await K.hold(db, [_part("gen:b"), _part("genimg:b", "ai_image")])
-    assert not ok and "Post scheduler" in why
+    assert not ok and "Social" in why
     assert await K.wallet_balance(db, "scheduler") == 2
 
     # The price is fixed when the work starts.
@@ -117,7 +117,7 @@ async def test_queue_pauses_at_zero_then_continues_or_starts_new(client, db, mon
     states = {j.id: j.state for j in (await db.execute(select(SocialGenJob))).scalars().all()}
     assert states == {ids[0]: "image_queued", ids[1]: "paused", ids[2]: "paused"}
     posts = {p.id: p for p in (await db.execute(select(SocialPost))).scalars().all()}
-    assert posts["p1"].gen_state == "paused" and "Post scheduler" in posts["p1"].gen_error
+    assert posts["p1"].gen_state == "paused" and "Social" in posts["p1"].gen_error
     assert await K.wallet_balance(db, "scheduler") == 2  # post charged (2), image held (1)
     assert (await client.get("/api/scheduler/generate/paused")).json() == {"jobs": 2, "posts": 2}
 

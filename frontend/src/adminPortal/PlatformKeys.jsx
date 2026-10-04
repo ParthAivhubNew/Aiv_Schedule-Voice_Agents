@@ -16,9 +16,9 @@ const LEADGEN_GROUPS = ["Email Finder", "Business Discovery", "LLM:leadgen"];
 const SCHEDULER_GROUPS = ["LLM:scheduler", "IMAGE:scheduler"];
 // group -> the other plugins' groups sharing the same base name, for the "Copy from" button.
 const COPY_SIBLINGS = {
-  "LLM:voice": [["LLM:leadgen", "Leadgen"], ["LLM:scheduler", "Post Scheduler"]],
-  "LLM:leadgen": [["LLM:voice", "Voice"], ["LLM:scheduler", "Post Scheduler"]],
-  "LLM:scheduler": [["LLM:voice", "Voice"], ["LLM:leadgen", "Leadgen"]],
+  "LLM:voice": [["LLM:leadgen", "Leads"], ["LLM:scheduler", "Social"]],
+  "LLM:leadgen": [["LLM:voice", "Voice"], ["LLM:scheduler", "Social"]],
+  "LLM:scheduler": [["LLM:voice", "Voice"], ["LLM:leadgen", "Leads"]],
 };
 const friendlyGroupName = (g) => g.replace(/:(voice|leadgen|scheduler)$/, (_, s) => ` (${s[0].toUpperCase()}${s.slice(1)}-only)`);
 
@@ -132,8 +132,8 @@ export function PlatformKeys({ canEdit }) {
 
   const tabs = [
     { id: "voice", label: "Voice" },
-    { id: "leadgen", label: "Leadgen" },
-    { id: "scheduler", label: "Post Scheduler" },
+    { id: "leadgen", label: "Leads" },
+    { id: "scheduler", label: "Social" },
   ];
 
   return (
@@ -213,7 +213,7 @@ export function PlatformKeys({ canEdit }) {
 
       {activeTab === "scheduler" && (
         <div style={{ display: "grid", gap: 16 }}>
-          <div style={heading}>Post Scheduler AI</div>
+          <div style={heading}>Social AI</div>
           <PlatformAi canEdit={canEdit} scope="scheduler" showCatalogue={false} showKeys={false} />
 
           <div style={heading}>Writing & Image Keys</div>

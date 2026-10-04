@@ -1,4 +1,4 @@
-"""Putting a company's own Telnyx number on WhatsApp with no work by the OutReach team.
+"""Putting a company's own Telnyx number on WhatsApp with no work by the Outreach team.
 
 Aivhub is a WhatsApp Tech Provider on Telnyx (our Meta app, WHATSAPP_META_APP_ID). When an admin
 presses "Turn on WhatsApp", we ask Telnyx for a hosted signup page and open it for them: they log
@@ -7,7 +7,7 @@ check Telnyx every few minutes and switch WhatsApp on as soon as the number is r
 standard message templates, and tell the company's admins.
 
 Telnyx documents the Tech Provider calls only in its guide, so replies are read loosely here.
-Without WHATSAPP_META_APP_ID the old way stays: the OutReach team switches WhatsApp on by hand.
+Without WHATSAPP_META_APP_ID the old way stays: the Outreach team switches WhatsApp on by hand.
 """
 from __future__ import annotations
 

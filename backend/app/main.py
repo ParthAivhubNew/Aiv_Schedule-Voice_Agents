@@ -34,6 +34,7 @@ from app.api.logs import router as logs_router
 from app.api.sip_webhook import router as sip_webhook_router
 from app.api.telnyx_assistant_webhook import router as telnyx_assistant_webhook_router
 from app.api.enrichment import router as enrichment_router
+from app.api.lead_accounts import router as lead_accounts_router
 from app.api.calcom import router as calcom_router
 from app.api.livekit_router import router as livekit_router
 from app.api.vapi_router import router as vapi_router
@@ -382,7 +383,7 @@ async def lifespan(app: FastAPI):
         from sqlalchemy.future import select
         from app.core.platform import platform_org_id
         from app.core.tenancy import org_scope
-        # Built-in provider rows belong to the platform (OutReach), never to a client company.
+        # Built-in provider rows belong to the platform (Outreach), never to a client company.
         with org_scope(platform_org_id()):
             async with AsyncSessionLocal() as init_db:
                 # Auto-configure LiveKit (self-hosted) connection if missing or not configured
@@ -576,7 +577,7 @@ async def lifespan(app: FastAPI):
     publish_due_task.cancel()
     generation_task.cancel()
     credits_task.cancel()
-    logger.info("Shutting down OutReach by Aivhub Voice Agent API...")
+    logger.info("Shutting down Outreach by Aivhub Voice Agent API...")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -641,6 +642,7 @@ app.include_router(sip_webhook_router)  # Direct /sip-webhook compatibility
 app.include_router(telnyx_assistant_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(telnyx_assistant_webhook_router)  # Direct /telnyx-assistant compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
+app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
 app.include_router(calcom_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router)  # Direct /livekit compatibility
@@ -704,17 +706,17 @@ async def health_check():
 async def privacy_policy():
     from fastapi.responses import HTMLResponse
     return HTMLResponse("""<!doctype html>
-<html><head><title>OutReach by Aivhub - Privacy Policy</title><meta charset="utf-8"><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;color:#222;}</style></head>
+<html><head><title>Outreach by Aivhub - Privacy Policy</title><meta charset="utf-8"><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;color:#222;}</style></head>
 <body>
   <h1>Privacy Policy</h1>
   <p>Last updated: September 2026</p>
-  <p>OutReach by Aivhub ("we", "our") respects your privacy. This Privacy Policy explains how our application connects to social media platforms including Facebook, Instagram, LinkedIn, and X.</p>
+  <p>Outreach by Aivhub ("we", "our") respects your privacy. This Privacy Policy explains how our application connects to social media platforms including Facebook, Instagram, LinkedIn, and X.</p>
   <h2>Information We Collect</h2>
-  <p>When you authorize OutReach by Aivhub to connect to your Facebook or Instagram account, we receive authorization tokens that allow scheduled posting on your behalf. We do not sell or share your personal data with any third parties.</p>
+  <p>When you authorize Outreach by Aivhub to connect to your Facebook or Instagram account, we receive authorization tokens that allow scheduled posting on your behalf. We do not sell or share your personal data with any third parties.</p>
   <h2>How We Use Data</h2>
-  <p>Your authentication tokens are used exclusively to publish social media posts, stories, and updates that you create and schedule inside the OutReach by Aivhub platform.</p>
+  <p>Your authentication tokens are used exclusively to publish social media posts, stories, and updates that you create and schedule inside the Outreach by Aivhub platform.</p>
   <h2>Data Retention and Deletion</h2>
-  <p>You can disconnect your social accounts at any time from the OutReach by Aivhub dashboard. Upon disconnection, stored authorization tokens are permanently deleted from our servers. To request manual deletion of any associated data, email support@aivhub.com.</p>
+  <p>You can disconnect your social accounts at any time from the Outreach by Aivhub dashboard. Upon disconnection, stored authorization tokens are permanently deleted from our servers. To request manual deletion of any associated data, email support@aivhub.com.</p>
 </body></html>""")
 
 @app.get("/terms")
@@ -722,22 +724,22 @@ async def privacy_policy():
 async def terms_of_service():
     from fastapi.responses import HTMLResponse
     return HTMLResponse("""<!doctype html>
-<html><head><title>OutReach by Aivhub - Terms of Service</title><meta charset="utf-8"><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;color:#222;}</style></head>
+<html><head><title>Outreach by Aivhub - Terms of Service</title><meta charset="utf-8"><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;color:#222;}</style></head>
 <body>
   <h1>Terms of Service</h1>
-  <p>By using OutReach by Aivhub social scheduling and AI voice automation features, you agree to comply with applicable platform policies including Meta Platform Terms and Developer Policies.</p>
+  <p>By using Outreach by Aivhub social scheduling and AI voice automation features, you agree to comply with applicable platform policies including Meta Platform Terms and Developer Policies.</p>
 </body></html>""")
 
 @app.get("/data-deletion")
 async def data_deletion():
     from fastapi.responses import HTMLResponse
     return HTMLResponse("""<!doctype html>
-<html><head><title>OutReach by Aivhub - User Data Deletion</title><meta charset="utf-8"><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;color:#222;}</style></head>
+<html><head><title>Outreach by Aivhub - User Data Deletion</title><meta charset="utf-8"><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;color:#222;}</style></head>
 <body>
   <h1>User Data Deletion Instructions</h1>
-  <p>If you wish to delete your user data and access tokens associated with OutReach by Aivhub:</p>
+  <p>If you wish to delete your user data and access tokens associated with Outreach by Aivhub:</p>
   <ol>
-    <li>Navigate to your OutReach by Aivhub Dashboard &rarr; Post Scheduler &rarr; Social Accounts.</li>
+    <li>Navigate to your Outreach by Aivhub Dashboard &rarr; Social &rarr; Social Accounts.</li>
     <li>Click "Disconnect" on any connected Facebook or Instagram account. All access tokens will be immediately purged.</li>
     <li>Alternatively, you can revoke access directly from your Facebook settings under "Business Integrations".</li>
     <li>For complete data removal, contact support@aivhub.com with your account details.</li>
@@ -747,7 +749,7 @@ async def data_deletion():
 @app.get("/")
 async def root():
     return {
-        "message": "Welcome to OutReach by Aivhub API",
+        "message": "Welcome to Outreach by Aivhub API",
         "docs": "/docs",
         "health": "/health"
     }

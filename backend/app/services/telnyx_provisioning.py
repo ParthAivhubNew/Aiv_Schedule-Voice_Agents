@@ -22,6 +22,7 @@ only triggers a re-read from Telnyx; its body is never trusted.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -65,7 +66,7 @@ def client_for(setup) -> TelnyxClient:
     if setup is not None and setup.mode == "managed_account":
         key = open_secret(setup.api_key_sealed or "")
         if not key:
-            raise TelnyxError("Your Telnyx account is still being set up. Try again in a minute.")
+            raise TelnyxError("Your phone line is still being set up. Try again in a minute.")
         return TelnyxClient(key)
     return TelnyxClient(platform_key())
 
@@ -74,6 +75,33 @@ def _complete(setup) -> bool:
     if setup.mode == "managed_account":
         return bool(setup.api_key_sealed and setup.connection_id and setup.messaging_profile_id)
     return bool(setup.billing_group_id and setup.outbound_voice_profile_id and setup.outbound_connection_id)
+
+
+def start_setup(org_id: str) -> None:
+    """After a Voice plan is paid: make the organisation's Telnyx side now, so its Numbers page is
+    ready when the client opens it (that page finishes it otherwise). Never raises."""
+    if not platform_ready():
+        return
+
+    async def run():
+        from sqlalchemy import text
+
+        from app.core.tenancy import org_scope
+        from app.database import AsyncSessionLocal
+
+        try:
+            with org_scope(org_id):
+                async with AsyncSessionLocal() as db:
+                    name = (await db.execute(text("SELECT name FROM organizations WHERE id = :i"), {"i": org_id})).scalar()
+                    await ensure_setup(db, name or "")
+                    await db.commit()
+        except Exception as err:
+            logger.warning(f"[telnyx] setup for {org_id} after payment failed: {err}")
+
+    try:
+        asyncio.get_running_loop().create_task(run())
+    except Exception as err:
+        logger.warning(f"[telnyx] setup for {org_id} after payment skipped: {err}")
 
 
 async def ensure_setup(db, org_name: str, email: str = "") -> Any:
@@ -92,7 +120,7 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
     was_ready = setup.status == "ready"
     if not platform_ready():
         if not was_ready:
-            setup.status, setup.last_error = "error", "Telnyx is not connected on the platform yet."
+            setup.status, setup.last_error = "error", "Phone numbers are not switched on yet. The Outreach team is setting this up."
         return setup
     manager = TelnyxClient(platform_key())
     try:
@@ -105,7 +133,7 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
                 if acct.get("api_key"):
                     setup.api_key_sealed = seal_secret(acct["api_key"])
             if not setup.api_key_sealed:
-                setup.status, setup.last_error = "new", "Waiting for Telnyx to finish creating the account."
+                setup.status, setup.last_error = "new", "Your phone line is still being set up. Try again in a minute."
                 return setup
             # The managed account needs its own call app and messaging profile pointing at us.
             from app.services.telephony_provider import public_http_base
@@ -113,10 +141,10 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             own = client_for(setup)
             base = public_http_base()
             if not setup.connection_id:
-                app_ = await own.create_call_control_application("OutReach calls", f"{base}/api/telnyx-assistant/call-control")
+                app_ = await own.create_call_control_application("Outreach calls", f"{base}/api/telnyx-assistant/call-control")
                 setup.connection_id = str(app_.get("id") or "")
             if not setup.messaging_profile_id:
-                prof = await own.create_messaging_profile("OutReach messages", f"{base}/api/telnyx/messaging-webhook")
+                prof = await own.create_messaging_profile("Outreach messages", f"{base}/api/telnyx/messaging-webhook")
                 setup.messaging_profile_id = str(prof.get("id") or "")
         else:
             from app.services.telephony_provider import public_http_base
@@ -135,7 +163,7 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             if not setup.outbound_connection_id:
                 # Same webhook as our other Call Control apps: it handles every kind of call we place.
                 app_ = await manager.create_call_control_application(
-                    f"OutReach calls: {label}", f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id)
+                    f"Outreach calls: {label}", f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id)
                 setup.outbound_connection_id = str(app_.get("id") or "")
             from app.services import voice_assistants as VA
             if VA.enabled_for_org(_org()):
@@ -211,7 +239,7 @@ async def keep_webhook(db, setup) -> None:
         current = await client.get_call_control_application(app_id)
         if current.get("webhook_event_url") != url:
             await client.update_call_control_application(
-                app_id, application_name=current.get("application_name") or "OutReach calls", webhook_event_url=url)
+                app_id, application_name=current.get("application_name") or "Outreach calls", webhook_event_url=url)
         await K._put_doc(db, key, {**doc, app_id: url})
         await db.commit()
     except Exception as err:
@@ -309,7 +337,7 @@ async def refresh_verification(db, sub, client: TelnyxClient) -> Any:
     if status != sub.status:
         sub.status = status
         if status in ("declined", "expired"):
-            sub.reason = _group_reason(group) or "Telnyx did not accept the documents."
+            sub.reason = _group_reason(group) or "The documents were not accepted."
         await _notify_verification(sub)
     return sub
 
@@ -320,10 +348,10 @@ async def _notify_verification(sub) -> None:
 
         if sub.status == "approved":
             await notify("numbers", "Your business is verified for phone numbers",
-                         ["Telnyx approved your documents. You can now buy phone numbers in OutReach."])
+                         ["Your documents are approved. You can now buy phone numbers in Outreach."])
         elif sub.status in ("declined", "expired"):
             await notify("numbers", "Your phone number verification needs attention",
-                         [f"Telnyx could not approve your documents: {sub.reason or 'no reason given'}.",
+                         [f"Your documents could not be approved: {sub.reason or 'no reason given'}.",
                           "Open Numbers in the Voice plugin to upload new documents."])
     except Exception:
         pass
@@ -378,7 +406,7 @@ async def _activate(db, order, telnyx_order: Dict[str, Any]) -> None:
         from app.core.notify import notify
 
         await notify("numbers", f"Your number {order.phone_number} is ready",
-                     [f"<b>{order.phone_number}</b> is now yours and ready for calls in OutReach."])
+                     [f"<b>{order.phone_number}</b> is now yours and ready for calls in Outreach."])
     except Exception:
         pass
 
@@ -396,7 +424,7 @@ async def refresh_order(db, order, client: TelnyxClient) -> Any:
         await _activate(db, order, res)
     if status == "failure":
         errs = [str(pn.get("status") or "") for pn in res.get("phone_numbers") or []]
-        order.error = order.error or ("Telnyx could not complete the order. " + ", ".join(e for e in errs if e)).strip()
+        order.error = order.error or ("The order could not be completed. " + ", ".join(e for e in errs if e)).strip()
     order.status = status
     return order
 

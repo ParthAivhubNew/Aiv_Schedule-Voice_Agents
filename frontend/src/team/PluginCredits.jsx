@@ -1,6 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { Coins } from "lucide-react";
-import { C, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
 
 // In a plugin's sidebar (admins only): that plugin's credits at a glance; opens its
@@ -15,12 +13,14 @@ export function PluginCredits({ wallet, operator, onOpen, refreshKey }) {
   }, [isAdmin, wallet, refreshKey]);
 
   if (!w) return null;
-  const colour = w.empty ? "#F87171" : w.low ? "#FBBF24" : "#C8CCD6";
+  const state = w.empty ? "empty" : w.low ? "low" : undefined;
   return (
-    <button type="button" onClick={onOpen} title={w.empty ? "Out of credits: this app is paused" : "Plan and credits"}
-      style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px 8px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${w.empty || w.low ? colour : C.inkLine}`, background: "transparent", color: colour, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-      <Coins size={14} />
-      <span style={{ flex: 1, textAlign: "left" }}>{Number(w.balance || 0).toLocaleString()} credits</span>
+    <button type="button" onClick={onOpen} className="ui-credits" data-state={state} title={w.empty ? "Out of credits: this app is paused" : "Plan and credits"}>
+      <span>
+        <span className="ui-credits-label">{w.empty ? "Out of credits" : w.low ? "Credits running low" : "Credits"}</span>
+        <span className="ui-credits-num">{Number(w.balance || 0).toLocaleString()}</span>
+      </span>
+      <span className="ui-credits-action">Top up</span>
     </button>
   );
 }

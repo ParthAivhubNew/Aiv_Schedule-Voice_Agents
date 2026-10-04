@@ -47,7 +47,7 @@ async def verify_domain_dns(domain: str, dkim_selector: Optional[str] = None) ->
 
     if not has_dns:
         logger.warning("dnspython is not installed: DNS checks are skipped (pip install -r requirements.txt).")
-        result["recommendations"].append("DNS checks are unavailable on the server right now. Ask the OutReach team to install dnspython.")
+        result["recommendations"].append("DNS checks are unavailable on the server right now. Ask the Outreach team to install dnspython.")
         return result
 
     # 1. SPF Check

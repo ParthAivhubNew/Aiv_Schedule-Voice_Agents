@@ -114,13 +114,13 @@ class EnrichRequest(BaseModel):
 
 class DiscoverAccountsRequest(BaseModel):
     query: str
-    target_role: Optional[str] = "VP of Operations, CEO, Decision-Maker"
+    target_role: Optional[str] = None  # only when the user names who to reach
 
 class CopilotChatRequest(BaseModel):
     message: Optional[str] = ""
     messages: Optional[List[Dict[str, str]]] = None
     history: Optional[List[Dict[str, str]]] = []
-    target_role: Optional[str] = "VP of Operations, CEO, Decision-Maker"
+    target_role: Optional[str] = None
     plugin: Optional[str] = "leadgen"
     api_key: Optional[str] = None
     apiKey: Optional[str] = None
@@ -280,28 +280,28 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             try:
                 discovered_leads = await discover_new_target_accounts(
                     query_or_domain=user_text,
-                    target_role=req.target_role or "VP of Operations, CEO, Decision-Maker"
+                    target_role=req.target_role
                 )
             except Exception:
                 pass
 
         if plugin_type == "email":
             system_prompt = (
-                "You are an elite B2B Email Outreach Strategist & AI Copilot in OutReach by Aivhub. "
+                "You are an elite B2B Email Outreach Strategist & AI Copilot in Outreach by Aivhub. "
                 "You help users craft high-converting cold email sequences, refine subject lines, "
                 "handle objections, and analyze inbound email replies. You are also an unrestricted AI "
                 "assistant ready to answer any general, technical, or strategic question thoroughly."
             )
         elif plugin_type == "scheduler":
             system_prompt = (
-                "You are an elite Social Media & Content Strategist AI Copilot in OutReach by Aivhub. "
+                "You are an elite Social Media & Content Strategist AI Copilot in Outreach by Aivhub. "
                 "You help users ideate viral social posts, plan multi-platform calendars, "
                 "develop creative concepts, and write engaging hooks. You are also an unrestricted AI "
                 "assistant ready to discuss any topic, concept, or strategy in detail."
             )
         elif plugin_type == "voice":
             system_prompt = (
-                "You are OutReach by Aivhub Voice SDR copilot. The operator loaded a contact list that may be incomplete. "
+                "You are Outreach by Aivhub Voice SDR copilot. The operator loaded a contact list that may be incomplete. "
                 "Your job is to help fill missing phone numbers, emails, and decision-maker names from public web research. "
                 "Never invent a phone number or email. If a field was not found, say so. "
                 "After proposing fills, tell the operator to Accept each suggestion before dialing. "
@@ -310,7 +310,7 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             )
         else:
             system_prompt = (
-                "You are an elite Autonomous AI Copilot & Lead Engineering Strategist for OutReach by Aivhub. "
+                "You are an elite Autonomous AI Copilot & Lead Engineering Strategist for Outreach by Aivhub. "
                 "You specialize in outbound prospecting, decision-maker discovery, cold call scripting, "
                 "account research, and conversational sales intelligence. You are also a completely open, "
                 "unrestricted AI assistant ready to discuss any topic, answer questions, provide coding "

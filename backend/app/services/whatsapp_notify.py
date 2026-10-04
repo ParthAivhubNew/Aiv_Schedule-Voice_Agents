@@ -12,7 +12,7 @@ from sqlalchemy.future import select
 
 logger = logging.getLogger("whatsapp_notify")
 
-TURN_ON = "Turn on WhatsApp for one of your numbers in Subscription → Numbers to send from OutReach."
+TURN_ON = "Turn on WhatsApp for one of your numbers in Subscription → Numbers to send from Outreach."
 
 
 def digits_only(raw: str) -> str:

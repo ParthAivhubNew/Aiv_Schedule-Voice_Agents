@@ -121,7 +121,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
                 Admin Controls
               </div>
 
-              {/* AI Configuration (OutReach's own organisation only) */}
+              {/* AI Configuration (Outreach's own organisation only) */}
               {onOpenCommonAi && <button
                 onClick={() => { setOpen(false); onOpenCommonAi(); }}
                 style={{

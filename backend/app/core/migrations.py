@@ -136,7 +136,7 @@ async def _platform_split(conn: AsyncConnection) -> None:
 
 
 async def _ai_keys_owner_only(conn: AsyncConnection) -> None:
-    """AI keys belong to OutReach only. Aivhub's AI keys move to the platform record (unless the
+    """AI keys belong to Outreach only. Aivhub's AI keys move to the platform record (unless the
     platform already has one by that name); every other company's own AI keys are switched off
     (kept, never used: the AI resolvers read the platform record only)."""
     from app.core.platform import AIVHUB_ORG, platform_org_id

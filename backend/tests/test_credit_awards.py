@@ -37,7 +37,7 @@ async def test_giving_credits_takes_a_preview_and_a_retype(staff, db, monkeypatc
 
     p = (await staff.post("/api/admin-api/clients/org_acme/credit-awards/preview", json=GIVE)).json()
     assert p["before"] == 0 and p["after"] == 120 and p["labelText"] == "Given (no payment)"
-    assert "giving 120 AI Voice (calls and WhatsApp) credits to Acme Ltd" in p["summary"] and "0 → 120" in p["summary"]
+    assert "giving 120 Voice credits to Acme Ltd" in p["summary"] and "0 → 120" in p["summary"]
     orgs = {o["id"]: o for o in (await staff.get("/api/admin-api/clients")).json()}
     assert orgs["org_acme"]["wallets"]["voice"] == 0  # a preview changes nothing
 

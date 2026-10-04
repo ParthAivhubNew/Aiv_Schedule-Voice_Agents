@@ -39,9 +39,9 @@ from sqlalchemy.future import select
 logger = logging.getLogger("credits")
 
 WALLETS: Dict[str, str] = {
-    "voice": "AI Voice (calls and WhatsApp)",
-    "leadgen": "Lead generation",
-    "scheduler": "Post scheduler",
+    "voice": "Voice",
+    "leadgen": "Leads",
+    "scheduler": "Social",
 }
 
 # Rate card: credits per unit, and which wallet pays. charged=False: priced but not billed yet.

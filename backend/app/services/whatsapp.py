@@ -2,7 +2,7 @@
 
 WhatsApp's rule: a free-form message can only be sent within 24 hours of the contact's last
 message. Outside that window only an approved template may be sent.
-WhatsApp is part of the Voice app and runs only on Telnyx. Auto-replies are off: OutReach's own
+WhatsApp is part of the Voice app and runs only on Telnyx. Auto-replies are off: Outreach's own
 AI never answers WhatsApp (see tell_admins).
 """
 from __future__ import annotations
@@ -140,7 +140,7 @@ async def update_status(db, telnyx_id: str, status: str, error: str = "") -> Non
 
 
 # ── New messages: a person replies ──────────────────────────────────────────
-# Auto-replies are off: OutReach's own AI is never used for WhatsApp. Telnyx's AI assistant is
+# Auto-replies are off: Outreach's own AI is never used for WhatsApp. Telnyx's AI assistant is
 # the only AI WhatsApp may use, once it is confirmed for WhatsApp on these numbers; until then
 # the company's admins are told about each conversation with something new to read.
 def tell_admins(thread, text: str) -> None:

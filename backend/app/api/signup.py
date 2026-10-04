@@ -209,10 +209,10 @@ async def _send_verification(op: Operator) -> bool:
 
     token = _sign({"typ": "verify_email", "sub": op.id, "email": (op.email or "").lower()}, VERIFY_TTL_S)
     link = f"{_base_url()}/api/auth/verify-email?t={token}"
-    subject = "Confirm your email for OutReach by Aivhub"
+    subject = "Confirm your email for Outreach by Aivhub"
     msg = render(subject, [
         f"Hi {html.escape(op.name or '')},",
-        "Confirm your email address to finish creating your OutReach by Aivhub account.",
+        "Confirm your email address to finish creating your Outreach by Aivhub account.",
         "The link works for 3 days. If you did not sign up, ignore this email.",
     ], {"label": "Confirm email", "url": link})
     res = await send_system_email(op.email or "", subject, msg["html"], msg["text"])
@@ -319,10 +319,10 @@ async def forgot_password(body: ForgotBody, request: Request, db: AsyncSession =
     if op and op.is_active is not False and op.email:
         token = _sign({"typ": "pw_reset", "sub": op.id, "fp": _pw_fingerprint(op)}, RESET_TTL_S)
         link = f"{_base_url()}/reset-password?t={token}"
-        subject = "Reset your OutReach by Aivhub password"
+        subject = "Reset your Outreach by Aivhub password"
         msg = render(subject, [
             f"Hi {html.escape(op.name or '')},",
-            "Someone asked to reset the password for your OutReach by Aivhub account.",
+            "Someone asked to reset the password for your Outreach by Aivhub account.",
             "The link works for 1 hour and only once. If this was not you, ignore this email: your password stays the same.",
         ], {"label": "Choose a new password", "url": link})
         await send_system_email(op.email, subject, msg["html"], msg["text"])
@@ -387,7 +387,7 @@ def _google_sub(claims: Dict[str, Any]) -> str:
 
 GOOGLE_ERRORS = {
     "failed": "Google sign-in did not work. Try again.",
-    "no_account": "No OutReach account uses this Google email. Create one, or ask your admin to add you.",
+    "no_account": "No Outreach account uses this Google email. Create one, or ask your admin to add you.",
     "disabled": "This account is switched off. Ask your admin.",
 }
 
@@ -399,7 +399,7 @@ class FirebaseBody(BaseModel):
 @router.post("/firebase")
 async def firebase_sign_in(body: FirebaseBody, request: Request, db: AsyncSession = Depends(get_db)):
     """The sign-in page signs in with Google through Firebase and sends us the ID token; we check
-    it and sign the user in to OutReach (or create their company when signup is on)."""
+    it and sign the user in to Outreach (or create their company when signup is on)."""
     from app.api.auth import sign_in_as
 
     if not firebase_ready():

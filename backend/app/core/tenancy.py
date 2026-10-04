@@ -43,7 +43,7 @@ TENANT_TABLES: List[str] = [
     "whatsapp_threads", "whatsapp_messages", "whatsapp_signups", "credit_grants", "billing_subscriptions",
     "voice_assistants", "call_briefs",
     "email_mailboxes", "email_send_logs", "email_messages", "email_campaigns", "email_sequence_steps",
-    "email_enrollments", "enrichment_attempts",
+    "email_enrollments", "enrichment_attempts", "lead_accounts",
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.
@@ -149,7 +149,7 @@ async def ensure_tenancy(conn: AsyncConnection) -> None:
             f"WITH CHECK (org_id = current_setting('app.org_id', true))"
         ))
 
-    # Client organisations use OutReach's own AI and telephony providers without holding or
+    # Client organisations use Outreach's own AI and telephony providers without holding or
     # seeing the keys: they may read (never change) the platform's provider connections.
     # Mailboxes and calendars stay private to each organisation.
     if await _table_exists(conn, "connections"):

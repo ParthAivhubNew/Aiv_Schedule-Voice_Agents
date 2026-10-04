@@ -297,7 +297,7 @@ export const INITIAL_COMMON_AI_CONFIG = {
 
   // Master Subscription & Token Quota (Live database metrics populated on load)
   subscription: {
-    tenantName: "OutReach by Aivhub Workspace",
+    tenantName: "Outreach by Aivhub Workspace",
     planTier: "Metered Workspace Subscription",
     monthlyTokenQuota: 0,
     tokensUsed: 0,
@@ -314,10 +314,10 @@ export const C = {
   ink: "#12141C",
   inkSoft: "#1B1E29",
   inkLine: "#2A2D3A",
-  paper: "#F6F5F2",
+  paper: "#F5F6F8",
   paperCard: "#FFFFFF",
-  paperSoft: "#EFEDE8",
-  border: "#E4E1D9",
+  paperSoft: "#F0F2F5",
+  border: "#E3E6EB",
   cobalt: "#3457D5",
   cobaltSoft: "#EAEEFC",
   cobaltDeep: "#26409E",
@@ -338,10 +338,10 @@ export const C = {
   shadowCard: "0 2px 8px rgba(0,0,0,0.04)",
 };
 
-export const FONT_DISPLAY = "'Space Grotesk', sans-serif";
+export const FONT_DISPLAY = "'Inter', sans-serif";
 export const FONT_BODY = "'Inter', sans-serif";
 export const FONT_MONO = "'JetBrains Mono', monospace";
-export const HUB_PAPER = "#fcfbf8";
+export const HUB_PAPER = "#F8F9FB";
 
 
 

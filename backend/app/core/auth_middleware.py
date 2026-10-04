@@ -58,7 +58,7 @@ STAFF_API = re.compile(_OPT_API + r"admin-api(/|$)")
 
 
 def platform_org() -> str:
-    """The platform record holding OutReach's provider keys (not a company; see core/platform)."""
+    """The platform record holding Outreach's provider keys (not a company; see core/platform)."""
     from app.core.platform import platform_org_id
 
     return platform_org_id()
@@ -251,8 +251,8 @@ class AuthMiddleware:
             (rel.startswith("/scheduler/ai-settings") and method != "GET") or \
             re.match(r"^/logs(/|$)", rel) is not None  # system logs: staff read them in the admin portal
         if managed and ctx["org_id"] != platform_org():
-            # Provider keys, AI models, engines and system logs are run by OutReach for client organisations.
-            return await _deny(scope, receive, send, 403, "This is managed by the OutReach team.", code="managed_by_outreach")
+            # Provider keys, AI models, engines and system logs are run by Outreach for client organisations.
+            return await _deny(scope, receive, send, 403, "This is managed by the Outreach team.", code="managed_by_outreach")
 
         scope.setdefault("state", {})["auth"] = ctx
         # Every database session in this request runs inside the user's organisation.

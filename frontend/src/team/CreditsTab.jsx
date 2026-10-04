@@ -40,7 +40,7 @@ export function WalletCard({ w }) {
 }
 
 // The organisation's wallets per app, each app's plan (bought on that app's Subscription page), and history.
-// OutReach staff manage plans, credits and the rate card in the admin portal (/admin).
+// Outreach staff manage plans, credits and the rate card in the admin portal (/admin).
 export function CreditsTab() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -101,7 +101,7 @@ export function CreditsTab() {
         )}
       </div>
       {!data.stripeReady ? (
-        <div style={{ fontSize: 13, color: C.slate, background: C.paperSoft, padding: "10px 12px", borderRadius: 10 }}>Online payments are coming soon. Until then the OutReach team adds credits for you.</div>
+        <div style={{ fontSize: 13, color: C.slate, background: C.paperSoft, padding: "10px 12px", borderRadius: 10 }}>Online payments are coming soon. Until then the Outreach team adds credits for you.</div>
       ) : (
         <>
           <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 8 }}>Each app has its own plan and is paid for on its own, from that app's Subscription page.</div>

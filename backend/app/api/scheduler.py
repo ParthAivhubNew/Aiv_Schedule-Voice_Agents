@@ -303,10 +303,10 @@ def _auto_none(value: Optional[str]) -> Optional[str]:
 
 
 # Per-company choices that are design, not AI: how images look. The AI itself (provider,
-# model, keys) is chosen by OutReach staff in the admin portal for every company.
+# model, keys) is chosen by Outreach staff in the admin portal for every company.
 ORG_IMAGE_PREFS = ("imageStyle", "imageAspectRatio")
-NO_TEXT_AI = "The writing AI is not available right now. Please try again later or contact OutReach support."
-NO_IMAGE_AI = "The image AI is not available right now. Please try again later or contact OutReach support."
+NO_TEXT_AI = "The writing AI is not available right now. Please try again later or contact Outreach support."
+NO_IMAGE_AI = "The image AI is not available right now. Please try again later or contact Outreach support."
 
 
 async def _load_ai_settings(db: AsyncSession, slot: str = "main") -> Dict[str, Any]:
@@ -369,7 +369,7 @@ async def _saved_ai_keys(db: AsyncSession, scope: str = "scheduler") -> Dict[str
 
 
 async def _resolve_text_ai(db: AsyncSession, payload: Optional[Dict[str, Any]] = None, slot: str = "main") -> Dict[str, Any]:
-    """The writing AI staff chose (main or backup) with OutReach's key. Whatever the request
+    """The writing AI staff chose (main or backup) with Outreach's key. Whatever the request
     asks for (provider, key, model, endpoint) is ignored: companies never choose the AI."""
     from app.services.llm_gateway import resolve_llm_credentials, _same_provider
 
@@ -1775,7 +1775,7 @@ async def chat_plan(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
         company_context,
     ) if x)
 
-    system_prompt = f"""You are Plan AI, the editorial partner{" for " + company_name if company_name else ""} inside OutReach by Aivhub Post Scheduler.
+    system_prompt = f"""You are Plan AI, the editorial partner{" for " + company_name if company_name else ""} inside Outreach by Aivhub Social, its post-planning app.
 You are a direct chat window with scheduler skills: plan dates, write captions, revise a focused post, describe images, answer strategy. You are connected to this company's profile, knowledge search, the current calendar, pinned dates, and selected channels.
 
 {facts or "Use only company facts supplied. Never invent a brand, URL, offering, or statistic."}

@@ -517,7 +517,7 @@ async def connection_uses(db: AsyncSession, conn: Connection) -> List[str]:
         ai = await _resolve_text_ai(db, {})
         base = str(cfg.get("base_url") or "").rstrip("/")
         if same(ai.get("provider")) or (base and str(ai.get("base_url") or "").rstrip("/") == base):
-            uses.append("Post scheduler: writes captions, plans and Plan AI replies")
+            uses.append("Social: writes captions, plans and Plan AI replies")
         if same(stack.get("llm")):
             uses.append("Voice calls: the AI that talks on calls")
     elif group == "IMAGE":
@@ -525,7 +525,7 @@ async def connection_uses(db: AsyncSession, conn: Connection) -> List[str]:
 
         prefs = await _resolve_image_prefs(db, {})
         if not prefs.get("provider") or same(prefs.get("provider")):
-            uses.append("Post scheduler: post images")
+            uses.append("Social: post images")
     elif group == "Text-to-Speech" and same(stack.get("tts")):
         uses.append("Voice calls: the speaking voice")
     elif group == "Speech-to-Text" and same(stack.get("stt")):

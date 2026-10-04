@@ -22,7 +22,7 @@ import { TeamModal } from "./team/TeamModal";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "./utils/route";
 
 function CallingRoot(props) {
-  // AI and carrier keys are run by OutReach: only its own organisation sees that page.
+  // AI and carrier keys are run by Outreach: only its own organisation sees that page.
   return (
     <CallingWorkspace
       {...props}
@@ -170,7 +170,7 @@ function MainApp({ onSignedOut }) {
 
   // Refresh who I am and what I can see (roles may have changed since sign-in).
   const operatorId = operator && operator.id;
-  // Only OutReach's own organisation manages AI and carrier keys; clients never see those screens.
+  // Only Outreach's own organisation manages AI and carrier keys; clients never see those screens.
   const platformOrg = Boolean(operator && operator.is_platform_org);
   useEffect(() => {
     if (!operatorId) return;
@@ -673,7 +673,7 @@ function MainApp({ onSignedOut }) {
           }}
         >
           {p === "leadgen" && (
-            <SafeErrorBoundary label="Lead Generation" onReset={handleBackToHub}>
+            <SafeErrorBoundary label="Leads" onReset={handleBackToHub}>
               <LeadGenerationPlugin
                 operator={operator}
                 onBackToHub={handleBackToHub}
@@ -685,7 +685,7 @@ function MainApp({ onSignedOut }) {
           )}
 
           {p === "scheduler" && (
-            <SafeErrorBoundary label="Post Scheduler" onReset={handleBackToHub}>
+            <SafeErrorBoundary label="Social" onReset={handleBackToHub}>
               <SocialWorkspaceGate
                 operator={operator}
                 onBackToHub={handleBackToHub}
@@ -700,7 +700,7 @@ function MainApp({ onSignedOut }) {
           )}
 
           {p === "voice" && (
-            <SafeErrorBoundary label="Voice Assistant" onReset={handleBackToHub}>
+            <SafeErrorBoundary label="Voice" onReset={handleBackToHub}>
               <CallingRoot
                 operator={operator}
                 onBackToHub={handleBackToHub}

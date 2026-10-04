@@ -142,7 +142,7 @@ async def patch(thread_id: str, body: ThreadPatch, db: AsyncSession = Depends(ge
 # Number markers in capabilities:
 #   whatsapp            live: inbox, sending and confirmations use this number
 #   whatsapp_requested  signup with Meta under way: the company's own (Telnyx hosted page) when
-#                       automatic, else the OutReach team's
+#                       automatic, else the Outreach team's
 #   whatsapp_ready      signup done; the company may switch WhatsApp off and on again by itself
 WA_MARKS = ("whatsapp", "whatsapp_requested", "whatsapp_ready")
 
@@ -165,7 +165,7 @@ async def request_whatsapp(number_id: str, request: Request, db: AsyncSession = 
     """Turn WhatsApp on for a number. Instant once Meta's business signup is done for it. The first
     time we return Telnyx's signup page for the admin to finish with Meta; we switch WhatsApp on
     ourselves as soon as Telnyx shows the number registered. Without a Tech Provider app set up,
-    the OutReach team does the signup with the company instead."""
+    the Outreach team does the signup with the company instead."""
     n = await _admin_number(db, request, number_id)
     caps = [c for c in (n.capabilities or []) if c not in WA_MARKS]
     had = set(n.capabilities or [])

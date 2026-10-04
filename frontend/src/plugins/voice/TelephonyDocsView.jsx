@@ -98,7 +98,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
     { id: "carrier_account", label: "1. Create Telnyx or Twilio Carrier Account" },
     { id: "buy_number", label: "2. Purchase Dedicated Phone Number (Voice + SMS)" },
     { id: "webhook_config", label: "3. Configure Webhook URL in Carrier Portal" },
-    { id: "trunking_hub", label: "4. Enter Phone Number & Carrier Secret in OutReach by Aivhub" },
+    { id: "trunking_hub", label: "4. Enter Phone Number & Carrier Secret in Outreach by Aivhub" },
     { id: "voice_engine", label: "5. Configure xAI Grok Voice or OpenAI Realtime API Key" },
     { id: "calendar_sync", label: "6. Link Cal.com for Instant In-Call Bookings" },
     { id: "live_test", label: "7. Place Inbound Test Call & Verify Live UI Banner" },
@@ -156,7 +156,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
               </div>
               <div>
                 <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, margin: 0, color: "#fff" }}>
-                  OutReach by Aivhub Telephony & Inbound Connection Hub
+                  Outreach by Aivhub Telephony & Inbound Connection Hub
                 </h2>
                 <div style={{ fontSize: 13, color: "#C7D2FE", marginTop: 3 }}>
                   Everything you need to get your AI Voice Agent live with a real phone number.
@@ -379,10 +379,10 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: "26px 30px", boxShadow: C.shadowCard }}>
               <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, margin: "0 0 10px 0", color: C.textInk }}>
-                How OutReach by Aivhub Voice Inbound Telephony Works
+                How Outreach by Aivhub Voice Inbound Telephony Works
               </h3>
               <p style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.slate, lineHeight: 1.6, margin: "0 0 20px 0" }}>
-                OutReach by Aivhub transforms standard carrier phone calls into real-time conversational AI dialogue. When an external customer or lead dials your dedicated business phone number, the carrier sends an HTTP webhook into our server, which instantly opens a bi-directional audio stream with the AI voice engine.
+                Outreach by Aivhub transforms standard carrier phone calls into real-time conversational AI dialogue. When an external customer or lead dials your dedicated business phone number, the carrier sends an HTTP webhook into our server, which instantly opens a bi-directional audio stream with the AI voice engine.
               </p>
 
               {/* Visual Flow Diagram */}
@@ -409,7 +409,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
 
                   <div style={{ flex: 1, minWidth: 140, background: "rgba(255,255,255,0.06)", borderRadius: 10, padding: 12, border: "1px solid rgba(255,255,255,0.1)" }}>
                     <div style={{ fontSize: 20 }}>⚡</div>
-                    <div style={{ fontWeight: 700, fontSize: 13, marginTop: 4, color: "#818CF8" }}>3. OutReach by Aivhub Server</div>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginTop: 4, color: "#818CF8" }}>3. Outreach by Aivhub Server</div>
                     <div style={{ fontSize: 11, color: "#94A3B8" }}>Answers in &lt;50ms, initiates SIP audio</div>
                   </div>
 
@@ -539,9 +539,9 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                   <ol style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: "#334155", margin: "0 0 12px 24px", lineHeight: 1.6 }}>
                     <li>In the Telnyx left menu, go to <strong>Voice &rarr; Call Control / TeXML Applications</strong>.</li>
                     <li>Click <strong>Add New Application</strong>.</li>
-                    <li>Set Application Name to: <strong>OutReach by Aivhub Voice AI Operator</strong>.</li>
+                    <li>Set Application Name to: <strong>Outreach by Aivhub Voice AI Operator</strong>.</li>
                     <li>Under <strong>Webhook API Version</strong>, choose <strong>API v2</strong>.</li>
-                    <li>In the <strong>Webhook URL</strong> field, paste your OutReach by Aivhub server webhook URL:</li>
+                    <li>In the <strong>Webhook URL</strong> field, paste your Outreach by Aivhub server webhook URL:</li>
                   </ol>
 
                   {/* Webhook Copy Box */}
@@ -591,13 +591,13 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                     <span style={{ width: 26, height: 26, borderRadius: "50%", background: "#2563EB", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800 }}>4</span>
                     <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.textInk }}>
-                      Copy Credentials into OutReach by Aivhub Telephony Hub
+                      Copy Credentials into Outreach by Aivhub Telephony Hub
                     </span>
                   </div>
                   <ol style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: "#334155", margin: "0 0 12px 24px", lineHeight: 1.6 }}>
                     <li>In Telnyx Portal, go to <strong>Account Settings &rarr; Keys & Credentials</strong> and copy your <strong>API V2 Key</strong>.</li>
                     <li>In the Call Control Application you just created, copy the <strong>Webhook Signing Secret</strong>.</li>
-                    <li>In OutReach by Aivhub, click the button below to open the Trunking Hub, choose <strong>Telnyx</strong>, enter your number and keys, and click <strong>Save & Connect</strong>.</li>
+                    <li>In Outreach by Aivhub, click the button below to open the Trunking Hub, choose <strong>Telnyx</strong>, enter your number and keys, and click <strong>Save & Connect</strong>.</li>
                   </ol>
 
                   <div style={{ margin: "0 0 0 24px" }}>
@@ -640,7 +640,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                     Twilio Voice Webhook Setup
                   </h3>
                   <p style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.slate, margin: 0 }}>
-                    If you prefer Twilio or already own a Twilio phone number, follow these steps to route inbound calls to OutReach by Aivhub.
+                    If you prefer Twilio or already own a Twilio phone number, follow these steps to route inbound calls to Outreach by Aivhub.
                   </p>
                 </div>
                 <a
@@ -707,7 +707,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                     </span>
                   </div>
                   <p style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: "#334155", margin: "0 0 12px 24px", lineHeight: 1.6 }}>
-                    From your Twilio Console home dashboard, copy your <strong>Account SID</strong> and <strong>Auth Token</strong>. Open the OutReach by Aivhub Connections & Providers view, select <strong>Twilio</strong>, and save your credentials.
+                    From your Twilio Console home dashboard, copy your <strong>Account SID</strong> and <strong>Auth Token</strong>. Open the Outreach by Aivhub Connections & Providers view, select <strong>Twilio</strong>, and save your credentials.
                   </p>
                 </div>
               </div>
@@ -723,7 +723,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                 AI Voice Intelligence & Natural Flow Tuning
               </h3>
               <p style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.slate, margin: "0 0 20px 0" }}>
-                OutReach by Aivhub uses real-time spoken language models to provide ultra-low latency, human-sounding phone conversations with verbal nods and instant turn-taking.
+                Outreach by Aivhub uses real-time spoken language models to provide ultra-low latency, human-sounding phone conversations with verbal nods and instant turn-taking.
               </p>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16, marginBottom: 24 }}>
@@ -810,12 +810,12 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                 <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, background: "#F8FAFC" }}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.textInk, marginBottom: 6 }}>1. Get Cal.com API Key</div>
                   <p style={{ fontSize: 13, color: C.slate, margin: 0, lineHeight: 1.5 }}>
-                    In your Cal.com dashboard, navigate to <strong>Settings &rarr; Developer &rarr; API Keys</strong>. Click <em>Add New Key</em>, name it <code>OutReach by Aivhub Agent</code>, and copy the generated token.
+                    In your Cal.com dashboard, navigate to <strong>Settings &rarr; Developer &rarr; API Keys</strong>. Click <em>Add New Key</em>, name it <code>Outreach by Aivhub Agent</code>, and copy the generated token.
                   </p>
                 </div>
 
                 <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, background: "#F8FAFC" }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: C.textInk, marginBottom: 6 }}>2. Enter API Key in OutReach by Aivhub</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: C.textInk, marginBottom: 6 }}>2. Enter API Key in Outreach by Aivhub</div>
                   <p style={{ fontSize: 13, color: C.slate, margin: 0, lineHeight: 1.5 }}>
                     Open the <strong>Cal.com Booking Hub</strong> or <strong>Communication Accounts</strong> modal. Paste your API key and set your target event slug (e.g. <code>15min</code> or <code>discovery-call</code>).
                   </p>
@@ -846,7 +846,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                     ❓ Why did the phone ring 2 or 3 times before the AI picked up?
                   </div>
                   <p style={{ fontSize: 13, color: C.slate, margin: 0, lineHeight: 1.6 }}>
-                    In PSTN telecommunications, standard cellular carrier networks (AT&T, Verizon, T-Mobile, Vodafone) take approximately 1.5 to 2.5 seconds to route cellular radio signals to the Telnyx/Twilio data center. As soon as the carrier dispatches the webhook to our server, OutReach by Aivhub answers the call in under <strong>50 milliseconds</strong>.
+                    In PSTN telecommunications, standard cellular carrier networks (AT&T, Verizon, T-Mobile, Vodafone) take approximately 1.5 to 2.5 seconds to route cellular radio signals to the Telnyx/Twilio data center. As soon as the carrier dispatches the webhook to our server, Outreach by Aivhub answers the call in under <strong>50 milliseconds</strong>.
                   </p>
                 </div>
 
@@ -855,7 +855,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                     ❓ Does the incoming call banner appear even if I am working in another plugin?
                   </div>
                   <p style={{ fontSize: 13, color: C.slate, margin: 0, lineHeight: 1.6 }}>
-                    <strong>Yes!</strong> OutReach by Aivhub has a root-level universal listener. Whether you are typing a post in the <em>Post Scheduler</em>, searching filters in <em>Lead Gen</em>, or scheduling in <em>Cal.com</em>, a floating incoming call card appears at the top right with audio chime and caller details. Clicking <strong>Jump to Call & Take Over</strong> preserves 100% of your unsaved work in that app.
+                    <strong>Yes!</strong> Outreach by Aivhub has a root-level universal listener. Whether you are typing a post in <em>Social</em>, searching filters in <em>Leads</em>, or scheduling in <em>Cal.com</em>, a floating incoming call card appears at the top right with audio chime and caller details. Clicking <strong>Jump to Call & Take Over</strong> preserves 100% of your unsaved work in that app.
                   </p>
                 </div>
 

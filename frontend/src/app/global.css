@@ -16,12 +16,361 @@ button, input, select, textarea {
   font-family: inherit;
 }
 
-/* Square corners everywhere. Almost every box, button and field sets its rounding inline, so
-   this one rule takes it away; only true circles (border-radius: 50%: spinners, radio dots) keep
-   theirs. Delete this rule to get the rounded look back, or change 0 to a small value such as 4px
-   for slightly softened corners. */
-[style*="border-radius"]:not([style*="border-radius: 50%"]) {
-  border-radius: 0 !important;
+/* Soft corners everywhere. Almost every box, button and field sets its rounding inline, with a
+   dozen different values; these rules even them out: 8px for cards and panels (anything set to
+   12px or more), 6px for everything else. Circles and pills (50%, 99px, 999px) and no rounding
+   at all keep what they set, and so do the two shapes rounded on top only. */
+[style*="border-radius"]:where(:not([style*="border-radius: 50%"]):not([style*="border-radius: 99"]):not([style*="border-radius: 0"]):not([style*="border-radius: 8px 8px 0"]):not([style*="border-radius: 3px 3px 0"])) {
+  border-radius: 6px !important;
+}
+[style*="border-radius: 12px"], [style*="border-radius: 14px"], [style*="border-radius: 16px"],
+[style*="border-radius: 18px"], [style*="border-radius: 20px"], [style*="border-radius: 22px"], [style*="border-radius: 24px"] {
+  border-radius: 8px !important;
+}
+
+/* ---------- The shared look (chosen 2026-10-03: soft corners, cool neutrals, dark sidebar) ----------
+   Controls styled with these classes get real hover, focus and disabled states, which inline
+   styles cannot give them. New and reworked screens should use these instead of inline styles. */
+:root {
+  --ui-accent: #3457D5;
+  --ui-accent-hover: #2A49BD;
+  --ui-accent-soft: #EEF2FE;
+  --ui-accent-ink: #26409E;
+  --ui-ring: rgba(52, 87, 213, 0.22);
+  --ui-bg: #F5F6F8;
+  --ui-surface: #FFFFFF;
+  --ui-sunken: #F8F9FB;
+  --ui-hover: #F0F2F5;
+  --ui-line: #E3E6EB;
+  --ui-line-soft: #EDEFF2;
+  --ui-line-strong: #CBD1D9;
+  --ui-ink: #111827;
+  --ui-ink-2: #374151;
+  --ui-muted: #6B7280;
+  --ui-faint: #9CA3AF;
+  --ui-bad: #B4390A;
+  --ui-bad-soft: #FBE9E6;
+  --ui-r: 8px;
+  --ui-r-sm: 6px;
+  --ui-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --ui-side-bg: #111520;
+  --ui-side-ink: #C9CDD6;
+  --ui-side-strong: #FFFFFF;
+  --ui-side-muted: #7D8494;
+  --ui-side-hover: rgba(255, 255, 255, 0.06);
+  --ui-side-active: rgba(255, 255, 255, 0.10);
+  --ui-side-active-icon: #8FA6FF;
+  --ui-side-line: rgba(255, 255, 255, 0.08);
+}
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  font: 500 13px/1 'Inter', sans-serif;
+  border: 1px solid transparent;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.ui-btn--sm { height: 30px; padding: 0 10px; font-size: 12.5px; }
+.ui-btn--primary { background: var(--ui-accent); color: #FFFFFF; box-shadow: 0 1px 2px rgba(38, 64, 158, 0.25); }
+.ui-btn--primary:hover:not(:disabled) { background: var(--ui-accent-hover); }
+.ui-btn--secondary { background: var(--ui-surface); color: var(--ui-ink); border-color: var(--ui-line); box-shadow: var(--ui-shadow); }
+.ui-btn--secondary:hover:not(:disabled) { background: var(--ui-sunken); border-color: var(--ui-line-strong); }
+.ui-btn--ghost { background: transparent; color: var(--ui-ink-2); }
+.ui-btn--ghost:hover:not(:disabled) { background: var(--ui-hover); color: var(--ui-ink); }
+.ui-btn--danger { background: transparent; color: var(--ui-bad); }
+.ui-btn--danger:hover:not(:disabled) { background: var(--ui-bad-soft); }
+.ui-btn:disabled, .ui-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+
+.ui-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ui-muted);
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color 0.12s, color 0.12s;
+}
+.ui-icon-btn:hover:not(:disabled) { background: var(--ui-hover); color: var(--ui-ink); }
+.ui-icon-btn[aria-pressed="true"], .ui-icon-btn[aria-expanded="true"] { background: var(--ui-hover); color: var(--ui-ink); }
+.ui-icon-btn--sm { width: 28px; height: 28px; }
+
+.ui-link {
+  background: none;
+  border: 0;
+  padding: 2px;
+  color: var(--ui-accent);
+  font: 500 12.5px 'Inter', sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--ui-r-sm);
+}
+.ui-link:hover { color: var(--ui-accent-hover); text-decoration: underline; text-underline-offset: 3px; }
+
+.ui-btn:focus-visible, .ui-icon-btn:focus-visible, .ui-link:focus-visible, .ui-nav-item:focus-visible,
+.ui-menu-item:focus-visible, .ui-chip:focus-visible, .ui-title-btn:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+.ui-card { background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--ui-r); box-shadow: var(--ui-shadow); }
+
+.ui-input {
+  height: 34px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-r-sm);
+  padding: 0 10px;
+  font: 13px 'Inter', sans-serif;
+  color: var(--ui-ink);
+  background: var(--ui-surface);
+  min-width: 0;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.ui-input::placeholder { color: var(--ui-faint); }
+.ui-input:focus, .ui-field:focus-within { outline: 0; border-color: var(--ui-accent); box-shadow: 0 0 0 3px var(--ui-ring); }
+
+.ui-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 210px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-r);
+  box-shadow: 0 10px 28px rgba(16, 24, 40, 0.14);
+  padding: 4px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+}
+.ui-menu--left { left: 0; right: auto; }
+.ui-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  font: 13px 'Inter', sans-serif;
+  color: var(--ui-ink-2);
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.ui-menu-item:hover:not(:disabled) { background: var(--ui-hover); color: var(--ui-ink); }
+.ui-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.ui-menu-item--danger { color: var(--ui-bad); }
+.ui-menu-item--danger:hover:not(:disabled) { background: var(--ui-bad-soft); color: var(--ui-bad); }
+.ui-menu-meta { margin-left: auto; padding-left: 16px; color: var(--ui-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.ui-menu-sep { border: 0; border-top: 1px solid var(--ui-line-soft); margin: 4px 0; }
+
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--ui-line);
+  background: var(--ui-surface);
+  font: 500 12.5px 'Inter', sans-serif;
+  color: var(--ui-ink-2);
+  padding: 7px 10px;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+.ui-chip:hover:not(:disabled) { border-color: var(--ui-line-strong); background: var(--ui-sunken); color: var(--ui-ink); }
+.ui-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.ui-scroll { scrollbar-width: thin; scrollbar-color: var(--ui-line-strong) transparent; }
+.ui-spin { animation: ui-spin 1s linear infinite; }
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+.ui-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.ui-scroll::-webkit-scrollbar-thumb { background: var(--ui-line-strong); border-radius: 99px; }
+.ui-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Top of every app's sidebar: Home and the other apps. */
+.ui-switcher {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 4px 6px;
+  padding: 3px;
+  border: 1px solid var(--ui-side-line);
+  border-radius: var(--ui-r);
+}
+.ui-switcher-btn {
+  flex: 1 1 0;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--ui-side-muted);
+  font: 500 12.5px 'Inter', sans-serif;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s;
+}
+.ui-switcher-btn--home { flex: 0 0 auto; padding: 0 9px; }
+.ui-switcher-btn:hover { background: var(--ui-side-hover); color: var(--ui-side-strong); }
+.ui-switcher-btn[aria-current="page"] { background: var(--ui-side-active); color: var(--ui-side-strong); cursor: default; }
+.ui-switcher-btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+
+/* Bottom of an app's sidebar: the app's credits, opening its Subscription page. */
+.ui-credits {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--ui-side-line);
+  border-radius: var(--ui-r);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: 'Inter', sans-serif;
+  transition: background-color 0.12s;
+}
+.ui-credits:hover { background: var(--ui-side-hover); }
+.ui-credits:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.ui-credits-label { display: block; font-size: 11px; color: var(--ui-side-muted); }
+.ui-credits-num { display: block; font-size: 15px; font-weight: 600; color: var(--ui-side-strong); font-variant-numeric: tabular-nums; }
+.ui-credits-action { font-size: 12.5px; font-weight: 500; color: var(--ui-side-active-icon); }
+.ui-credits[data-state="low"] { border-color: rgba(251, 191, 36, 0.45); }
+.ui-credits[data-state="low"] .ui-credits-label { color: #FBBF24; }
+.ui-credits[data-state="empty"] { border-color: rgba(248, 113, 113, 0.5); }
+.ui-credits[data-state="empty"] .ui-credits-label { color: #F87171; }
+
+/* App sidebar: page links grouped under small labels. */
+.ui-nav-label {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ui-side-muted);
+  padding: 14px 14px 6px;
+}
+.ui-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  margin: 1px 4px;
+  padding: 0 10px;
+  color: var(--ui-side-ink);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: 500 13px 'Inter', sans-serif;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s, color 0.12s;
+}
+.ui-nav-item svg { color: var(--ui-side-muted); flex-shrink: 0; }
+.ui-nav-item:hover:not(:disabled) { background: var(--ui-side-hover); color: var(--ui-side-strong); }
+.ui-nav-item[aria-current="page"] { background: var(--ui-side-active); color: var(--ui-side-strong); }
+.ui-nav-item[aria-current="page"] svg { color: var(--ui-side-active-icon); }
+.ui-nav-item[data-locked="true"] { opacity: 0.4; cursor: not-allowed; }
+.ui-nav-count--live { background: var(--ui-accent); color: #FFFFFF; }
+.ui-nav-count {
+  margin-left: auto;
+  min-width: 18px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  text-align: center;
+  background: var(--ui-side-hover);
+  color: var(--ui-side-strong);
+  border-radius: var(--ui-r-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Page header title that opens a menu (e.g. the List page's saved lists). */
+.ui-title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 16px 'Inter', sans-serif;
+  letter-spacing: -0.01em;
+  color: var(--ui-ink);
+  background: transparent;
+  border: 0;
+  padding: 6px 8px;
+  margin-left: -8px;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ui-title-btn:hover { background: var(--ui-hover); }
+.ui-title-btn svg { color: var(--ui-muted); }
+
+/* Tables: quiet header, row hover, cells that are fields only look like fields on hover/focus. */
+.ui-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ui-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ui-sunken);
+  text-align: left;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--ui-muted);
+  padding: 0 12px;
+  height: 36px;
+  border-bottom: 1px solid var(--ui-line);
+  white-space: nowrap;
+}
+.ui-table td { padding: 0 12px; height: 46px; border-bottom: 1px solid var(--ui-line-soft); color: var(--ui-ink-2); white-space: nowrap; }
+.ui-table tbody tr:hover td { background: var(--ui-sunken); }
+.ui-table tbody tr.is-selected td { background: var(--ui-accent-soft); }
+.ui-table td.is-filled { background: var(--ui-accent-soft); }
+.ui-table input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--ui-accent); cursor: pointer; vertical-align: middle; }
+.ui-table input[type="checkbox"]:disabled { opacity: 0.35; cursor: not-allowed; }
+.ui-cell-input {
+  width: 100%;
+  height: 30px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--ui-r-sm);
+  background: transparent;
+  font: 13px 'Inter', sans-serif;
+  color: var(--ui-ink-2);
+  transition: border-color 0.12s, background-color 0.12s, box-shadow 0.12s;
+}
+.ui-cell-input::placeholder { color: var(--ui-faint); }
+.ui-cell-input:hover { border-color: var(--ui-line); background: var(--ui-surface); }
+.ui-cell-input:focus { outline: 0; border-color: var(--ui-accent); background: var(--ui-surface); box-shadow: 0 0 0 3px var(--ui-ring); }
+.ui-row-actions { display: inline-flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.ui-table tr:hover .ui-row-actions, .ui-table tr:focus-within .ui-row-actions { opacity: 1; }
+@media (hover: none) {
+  .ui-row-actions { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-btn, .ui-icon-btn, .ui-input, .ui-chip, .ui-nav-item, .ui-cell-input, .ui-row-actions { transition: none; }
 }
 
 /* Home page app cards: the border takes the app's colour and the shadow deepens. No jump. */
@@ -30,7 +379,7 @@ button, input, select, textarea {
 }
 .app-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 14px 34px rgba(18, 20, 28, 0.08);
+  box-shadow: 0 6px 20px rgba(16, 24, 40, 0.08);
 }
 
 @media (max-width: 480px) {
@@ -39,55 +388,66 @@ button, input, select, textarea {
   }
 }
 
-/* Phones and narrow windows: an app's sidebar becomes a bar across the top that scrolls
-   sideways, and the page below it takes the full width. */
+/* Phones and narrow windows: an app's sidebar becomes a drawer that slides in from the left when
+   the menu button in the app's header is tapped (components/MobileNav.jsx), and the page takes
+   the full width. Wide screens never show the menu button or the backdrop. */
+.mobile-nav-btn,
+.mobile-topbar,
+.mobile-nav-backdrop {
+  display: none !important;
+}
 @media (max-width: 820px) {
-  .app-shell {
-    flex-direction: column !important;
+  .mobile-nav-btn {
+    display: inline-flex !important;
+    margin-left: -6px;
+    color: var(--ui-ink) !important;
+  }
+  .mobile-topbar {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    min-height: 52px;
+    padding: 0 12px;
+    background: #FFFFFF;
+    border-bottom: 1px solid var(--ui-line);
+    flex-shrink: 0;
   }
   .app-sidebar {
-    width: 100% !important;
-    min-width: 0 !important;
-    height: auto !important;
-    flex: 0 0 auto;
-    flex-direction: row !important;
-    align-items: center !important;
-    gap: 4px;
-    padding: 8px 10px !important;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 300;
+    height: 100% !important;
+    max-width: 85vw;
+    overflow-y: auto !important;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
   }
-  .app-sidebar::-webkit-scrollbar {
-    display: none;
+  .is-nav-open .app-sidebar {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.2s ease;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
   }
-  /* The app's name block: the highlighted app in the switcher says where you are, and the room
-     is better spent on the page links. */
-  .app-sidebar > :first-child {
-    display: none !important;
-  }
-  .app-sidebar-nav {
-    display: flex !important;
-    flex-direction: row !important;
-    gap: 4px;
-  }
-  .app-sidebar > *,
-  .app-sidebar-nav > * {
-    flex: 0 0 auto !important;
-    width: auto !important;
-    margin: 0 !important;
-    padding-top: 6px !important;
-    padding-bottom: 6px !important;
-    white-space: nowrap;
-  }
-  .app-sidebar-spacer,
-  .app-sidebar-extra {
-    display: none !important;
+  .is-nav-open .mobile-nav-backdrop {
+    display: block !important;
+    position: fixed;
+    inset: 0;
+    z-index: 299;
+    background: rgba(15, 18, 28, 0.45);
   }
   .app-main {
-    height: auto !important;
-    flex: 1 1 auto !important;
-    min-height: 0;
+    width: 100%;
+  }
+  .hide-mobile {
+    display: none !important;
+  }
+  /* Kept in view beside a long column on wide screens; once the columns stack it would sit on
+     top of everything scrolling under it, so it scrolls with the page. */
+  .sticky-wide {
+    position: static !important;
   }
 
   /* Two panes side by side (a main area and a fixed-width side panel) stack instead: the main
@@ -105,7 +465,7 @@ button, input, select, textarea {
     min-width: 0 !important;
     flex: 1 0 70vh !important;
     border-left: none !important;
-    border-top: 1px solid #E4E1D9;
+    border-top: 1px solid #E3E6EB;
   }
   .split-resize {
     display: none !important;
@@ -146,6 +506,19 @@ button, input, select, textarea {
   }
   .list-grid > :last-child {
     min-height: 520px;
+  }
+  /* Voice's List page runs edge to edge on wide screens; on phones the list gets its own gutter
+     and List AI sits below it with a line on top instead of on its left. */
+  .app-page.app-page--flush {
+    padding: 0 !important;
+  }
+  .list-main {
+    padding: 14px !important;
+    overflow: visible !important;
+  }
+  .list-ai {
+    border-left: none !important;
+    border-top: 1px solid #E3E6EB;
   }
   /* Working hours: the day, then Open/Closed, then the times on a line of their own. */
   .day-row {

@@ -58,7 +58,7 @@ async def resolve_llm_credentials(
     scope: str = ""
 ) -> Dict[str, Any]:
     """
-    Resolves API credentials: an explicit key (internal callers only), else OutReach's own keys
+    Resolves API credentials: an explicit key (internal callers only), else Outreach's own keys
     saved in the platform record, else that provider's environment key. A company's own saved
     keys are never used, and a requested provider is never swapped for a different one.
 
@@ -92,7 +92,7 @@ async def resolve_llm_credentials(
             "model": mod
         }
 
-    # Otherwise OutReach's saved keys (the platform record only), restricted to the LLM group -
+    # Otherwise Outreach's saved keys (the platform record only), restricted to the LLM group -
     # a Telephony/Calendar/etc. connection's key must never be sent to a chat LLM API.
     if db is not None:
         try:
@@ -233,7 +233,7 @@ async def call_open_chat_llm(
 
     # Default system prompt for open conversational partner
     effective_system = system_prompt or (
-        "You are an expert autonomous AI partner in the OutReach by Aivhub workspace. "
+        "You are an expert autonomous AI partner in the Outreach by Aivhub workspace. "
         "You have deep expertise in B2B business intelligence, outbound sales engineering, "
         "autonomous lead generation, copywriting, content scheduling, and software architecture. "
         "You provide open, thoughtful, highly capable, and articulate answers on ANY topic, "
@@ -689,7 +689,7 @@ async def stream_open_chat_llm(
     resolved_model = creds.get("model")
 
     effective_system = system_prompt or (
-        "You are an expert autonomous AI partner in the OutReach by Aivhub workspace."
+        "You are an expert autonomous AI partner in the Outreach by Aivhub workspace."
     )
 
     formatted_messages = []

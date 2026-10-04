@@ -2,7 +2,10 @@ import React, { useState, useEffect } from "react";
 import { Lock, Sparkles } from "lucide-react";
 import { api } from "../api/apiClient";
 import { SubscriptionPage } from "../team/SubscriptionPage";
+import { BILLING_CHANGED } from "../hub/BillingReturnBanner";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
+
+const RETRY_MS = [1500, 4000, 10000];
 
 /**
  * Hook to check if the current organisation has an active paid plan for a given wallet.
@@ -12,22 +15,31 @@ export function usePluginAccess(wallet) {
   const [hasPlan, setHasPlan] = useState(false);
   const [billingData, setBillingData] = useState(null);
 
-  const check = async () => {
+  const check = async (attempt = 0) => {
     try {
       const res = await api.getBillingAccess();
       setBillingData(res);
       const activeMap = res?.has_active_plan || {};
       setHasPlan(Boolean(activeMap[wallet]));
+      setLoading(false);
     } catch (_) {
-      // Fail closed: if the access check itself is broken, don't guess at access.
+      // A failed check (a network blip, the server restarting) is not "no plan": try again a
+      // few times, still loading meanwhile, before failing closed.
+      if (attempt < RETRY_MS.length) {
+        setTimeout(() => check(attempt + 1), RETRY_MS[attempt]);
+        return;
+      }
       setHasPlan(false);
-    } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
     check();
+    // Look again when a payment changes the plan (SubscriptionPage says so after a checkout).
+    const again = () => check();
+    window.addEventListener(BILLING_CHANGED, again);
+    return () => window.removeEventListener(BILLING_CHANGED, again);
   }, [wallet]);
 
   return { loading, hasPlan, billingData, refresh: check };
@@ -145,7 +157,7 @@ export function PluginAccessGate({
                           Subscription Required
                         </div>
                         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>
-                          Choose a plan below to unlock all {pluginName} features.
+                          Choose a plan or buy a top-up below to unlock all {pluginName} features.
                         </div>
                       </div>
                     </div>

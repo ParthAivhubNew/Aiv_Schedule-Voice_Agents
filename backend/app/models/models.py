@@ -663,7 +663,7 @@ class CreditGrant(Base):
 
 
 class CreditAward(Base):
-    """Credits given by OutReach staff from the owner portal: a permanent record (the database
+    """Credits given by Outreach staff from the owner portal: a permanent record (the database
     refuses to change or delete a row; see tenancy.ensure_append_only). Not per-organisation:
     staff and finance read every company's. label says how it was paid for: given (no payment),
     offline (paid outside Stripe, with its reference) or paid (paid, with its reference)."""
@@ -1308,6 +1308,31 @@ class EnrichmentAttempt(Base):
     latency_ms = Column(Integer, default=0)
     hit = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class LeadAccount(Base):
+    """A company a Leads user saved: from AI Lead Scout, the Copilot, an import or by hand. Holds
+    only what a web search, a research run or the user supplied; anything unknown stays empty."""
+    __tablename__ = "lead_accounts"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    name = Column(String, nullable=False)
+    domain = Column(String, default="", index=True)  # e.g. acme.co.uk; how duplicates are spotted
+    website = Column(String, default="")
+    phone = Column(String, default="")
+    email = Column(String, default="")
+    contact_name = Column(String, default="")
+    contact_title = Column(String, default="")
+    industry = Column(String, default="")
+    region = Column(String, default="")
+    notes = Column(Text, default="")  # what the search said about it, or the user's own note
+    source = Column(String, default="manual")  # scout, copilot, import, manual
+    source_url = Column(String, default="")
+    research = Column(JSON, nullable=True)  # last research run: overview, people, phones, emails, socials, sources
+    researched_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class SeedInbox(Base):

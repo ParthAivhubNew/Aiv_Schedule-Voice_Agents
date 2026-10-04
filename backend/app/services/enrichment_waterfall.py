@@ -299,7 +299,7 @@ async def lookup_person_waterfall(
     keys = await finder_keys()
     if not keys:
         return {"found": False, "error": "not_configured",
-                "detail": "Email finding isn't set up yet. The OutReach team adds it in the owner portal."}
+                "detail": "Email finding isn't set up yet. The Outreach team adds it in the owner portal."}
     found_email, status, winner, catch_all = "", "", "", None
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         for provider, key in keys.items():

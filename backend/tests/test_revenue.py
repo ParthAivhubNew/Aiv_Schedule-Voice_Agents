@@ -66,7 +66,7 @@ async def test_lead_generation_pays_per_lead_found_and_stops_at_zero(db, monkeyp
         with org_scope("org_acme"):
             assert await K.wallet_balance(db, "leadgen") == 0
         r = await c.post("/api/enrichment/copilot-chat", json=body)
-        assert r.status_code == 402 and "Lead generation" in r.json()["detail"]
+        assert r.status_code == 402 and "Leads" in r.json()["detail"]
         # Other apps' chat never touches Lead generation credits.
         r = await c.post("/api/enrichment/copilot-chat", json={**body, "plugin": "voice"})
         assert r.status_code == 200
@@ -86,7 +86,7 @@ async def test_image_redraw_costs_one_post_scheduler_credit(client, db, monkeypa
     assert (await client.post("/api/scheduler/generate-image", json={"prompt": "a van"})).status_code == 200
     assert await K.wallet_balance(db, "scheduler") == 0
     r = await client.post("/api/scheduler/generate-image", json={"prompt": "a van"})
-    assert r.status_code == 402 and "Post scheduler" in r.json()["detail"]
+    assert r.status_code == 402 and "Social" in r.json()["detail"]
 
     # A failed draw is free, shows a plain error and never names the provider.
     async def failed(**kwargs):

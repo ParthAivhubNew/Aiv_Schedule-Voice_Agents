@@ -156,7 +156,7 @@ async def test_google_unknown_account_without_signup(anon, monkeypatch):
     token = _firebase(monkeypatch)
     monkeypatch.setenv("ALLOW_SIGNUP", "false")
     r = await anon.post("/api/auth/firebase", json={"idToken": token("stranger@x.test", "g-999")})
-    assert r.status_code == 403 and "No OutReach account" in r.json()["detail"]
+    assert r.status_code == 403 and "No Outreach account" in r.json()["detail"]
 
 
 async def test_forgot_and_reset_password(anon, db, monkeypatch):

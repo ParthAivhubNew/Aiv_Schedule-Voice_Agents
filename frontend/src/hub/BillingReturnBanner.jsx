@@ -2,6 +2,10 @@ import React, { useState } from "react";
 import { CheckCircle2, X } from "lucide-react";
 import { C, FONT_BODY } from "../tokens";
 
+// Sent on `window` when a plan or credits change after a payment, so whatever shows a plan
+// (e.g. an app's locked menu, usePluginAccess) can look again without a page reload.
+export const BILLING_CHANGED = "aivhub:billing-changed";
+
 // After Stripe Checkout sends people back: ?billing=success|cancelled (read once, then removed).
 export function takeBillingParam() {
   try {
