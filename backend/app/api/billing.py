@@ -78,6 +78,7 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     return {
         "stripeReady": B.configured(),
         "testMode": B.test_mode(),
+        "taxAdded": B.automatic_tax(),  # prices exclude tax: Stripe adds VAT at Checkout
         "enforce": s["enforce"],
         "wallets": wallets_dict,
         "has_active_plan": has_active_plan,
