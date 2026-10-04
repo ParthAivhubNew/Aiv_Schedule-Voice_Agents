@@ -978,7 +978,7 @@ export function CallingWorkspace({
       globalAudioRef.current.onerror = () => {
         setIsPlayingAudio(false);
         setActiveAudioLogId("");
-        alert("Audio stream was not captured or archived for this call.");
+        showToast("No recording was kept for this call.");
       };
     }
     globalAudioRef.current.src = `/api/calls/${logId}/recording`;
@@ -990,7 +990,7 @@ export function CallingWorkspace({
       .catch((err) => {
         setIsPlayingAudio(false);
         setActiveAudioLogId("");
-        alert("Could not play audio recording: " + (err.message || err));
+        showToast("Couldn't play the recording. Try again.");
       });
   };
   const [chat, setChat] = useState(() => {
@@ -3783,7 +3783,7 @@ export function CallingWorkspace({
                               try {
                                 const res = await fetch(withToken(`/api/calls/${l.id}/recording/download`));
                                 if (!res.ok) {
-                                  alert("No audio recording is available for this call.");
+                                  showToast("No recording was kept for this call.");
                                   return;
                                 }
                                 const blob = await res.blob();
@@ -3796,7 +3796,7 @@ export function CallingWorkspace({
                                 window.URL.revokeObjectURL(url);
                                 document.body.removeChild(a);
                               } catch (err) {
-                                alert("Failed to download recording: " + (err.message || err));
+                                showToast("Couldn't download the recording. Try again.");
                               }
                             }}
                             title="Download WAV audio recording"

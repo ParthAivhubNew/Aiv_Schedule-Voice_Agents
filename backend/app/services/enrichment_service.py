@@ -866,6 +866,111 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
         "socials": socials
     }
 
+# UK dialling codes of towns and cities. A firm's number in one town starts with that town's code,
+# so its other offices' numbers can be told apart ("0121" Birmingham, "01752" Plymouth).
+_UK_AREA_CODES = {
+    "london": "020", "birmingham": "0121", "solihull": "0121", "sutton coldfield": "0121", "leeds": "0113",
+    "sheffield": "0114", "nottingham": "0115", "leicester": "0116", "bristol": "0117", "reading": "0118",
+    "edinburgh": "0131", "glasgow": "0141", "liverpool": "0151", "manchester": "0161", "salford": "0161",
+    "stockport": "0161", "newcastle": "0191", "sunderland": "0191", "gateshead": "0191", "cardiff": "029",
+    "belfast": "028", "southampton": "023", "portsmouth": "023", "coventry": "024", "plymouth": "01752",
+    "worcester": "01905", "exeter": "01392", "cambridge": "01223", "oxford": "01865", "york": "01904",
+    "bradford": "01274", "hull": "01482", "preston": "01772", "stoke": "01782", "derby": "01332",
+    "norwich": "01603", "brighton": "01273", "bournemouth": "01202", "poole": "01202", "aberdeen": "01224",
+    "dundee": "01382", "swansea": "01792", "newport": "01633", "wolverhampton": "01902", "walsall": "01922",
+    "dudley": "01384", "milton keynes": "01908", "northampton": "01604", "peterborough": "01733",
+    "cheltenham": "01242", "gloucester": "01452", "bath": "01225", "chester": "01244", "warrington": "01925",
+    "bolton": "01204", "blackburn": "01254", "blackpool": "01253", "lancaster": "01524", "carlisle": "01228",
+    "middlesbrough": "01642", "darlington": "01325", "halifax": "01422", "huddersfield": "01484",
+    "wakefield": "01924", "doncaster": "01302", "rotherham": "01709", "barnsley": "01226", "lincoln": "01522",
+    "ipswich": "01473", "colchester": "01206", "chelmsford": "01245", "southend": "01702", "st albans": "01727",
+    "luton": "01582", "bedford": "01234", "swindon": "01793", "salisbury": "01722", "guildford": "01483",
+    "canterbury": "01227", "maidstone": "01622", "truro": "01872", "taunton": "01823", "shrewsbury": "01743",
+    "telford": "01952", "hereford": "01432", "inverness": "01463", "perth": "01738", "stirling": "01786",
+}
+_TOWN_OF_CODE: Dict[str, str] = {}
+for _town, _code in _UK_AREA_CODES.items():
+    _TOWN_OF_CODE.setdefault(_code, _town)  # the first town listed names the code
+
+
+def _uk_number(phone: str) -> str:
+    """A UK number as dialled at home: "+44 (0)121 456 7890" -> "01214567890"."""
+    digits = re.sub(r"\D", "", phone or "")
+    if digits.startswith("00"):
+        digits = digits[2:]
+    return "0" + digits[2:].lstrip("0") if digits.startswith("44") else digits
+
+
+def _dialling_code(phone: str) -> str:
+    number = _uk_number(phone)
+    return max((c for c in _TOWN_OF_CODE if number.startswith(c)), key=len, default="")
+
+
+def _code_for_place(place: str) -> str:
+    low = (place or "").lower()
+    towns = [t for t in _UK_AREA_CODES if re.search(rf"\b{re.escape(t)}\b", low)]
+    return _UK_AREA_CODES[max(towns, key=len)] if towns else ""
+
+
+def _town_in_email(email: str) -> str:
+    """The town an office address is for: "exeter@firm.co.uk" -> "exeter"."""
+    words = set(re.split(r"[._+-]", (email or "").split("@")[0].lower()))
+    return next((t for t in _UK_AREA_CODES if t.replace(" ", "") in words), "")
+
+
+_GENERAL_MAILBOXES = {"info", "hello", "enquiries", "enquiry", "contact", "office", "admin", "mail", "reception", "sales", "help"}
+_JOB_MAILBOXES = {"jobs", "careers", "career", "recruitment", "vacancies", "hr", "cv"}
+
+
+def _mailbox_rank(email: str) -> int:
+    """General addresses (info@) first, people's next, recruitment (jobs@) last."""
+    local = (email or "").split("@")[0].lower()
+    return 0 if local in _GENERAL_MAILBOXES else 2 if local in _JOB_MAILBOXES else 1
+
+
+def _split_by_office(phones: List[str], emails: List[str], place: str,
+                     page_phones: List[str], page_emails: List[str]) -> Tuple[List[str], List[str], List[Dict[str, str]]]:
+    """The office's own numbers and addresses first (the office page's, then the town's, then
+    national numbers and general addresses), and another town's apart, as other offices. The
+    office is the searched town, else the town of the office page's number. A jobs@ address
+    never comes first."""
+    code = _code_for_place(place) or next((c for c in map(_dialling_code, page_phones) if c), "")
+    if not code:
+        return phones, sorted(emails, key=_mailbox_rank), []
+    main_phones, main_emails, others = [], [], []
+    for p in phones:
+        c = _dialling_code(p)
+        if c and c != code and p not in page_phones:
+            others.append({"town": _TOWN_OF_CODE[c].title(), "phone": p})
+        else:
+            main_phones.append(p)
+    for e in emails:
+        town = _town_in_email(e)
+        if town and _UK_AREA_CODES[town] != code and e not in page_emails:
+            others.append({"town": town.title(), "email": e})
+        else:
+            main_emails.append(e)
+    main_phones.sort(key=lambda p: (p not in page_phones, _dialling_code(p) != code))
+    main_emails.sort(key=lambda e: (e not in page_emails, not _town_in_email(e), _mailbox_rank(e)))
+    return main_phones, main_emails, others
+
+
+async def _page_contacts(url: str) -> Dict[str, Any]:
+    """The phones, addresses and description on one page (the office page a company was found on)."""
+    phones: set = set()
+    emails: set = set()
+    description = ""
+    try:
+        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=httpx.Timeout(10.0, connect=4.0), follow_redirects=True) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                _, _, description = await _ingest_html(resp.text, phones, emails, {})
+    except Exception as e:
+        logger.warning(f"Could not read page {url}: {e}")
+    return {"phones": [p for p in phones if _is_real_phone(p)], "emails": [e for e in emails if _is_public_email(e)],
+            "description": description}
+
+
 async def enrich_prospect_intelligence(
     name: str,
     company: Optional[str] = None,
@@ -874,7 +979,10 @@ async def enrich_prospect_intelligence(
     deep: bool = True,
     place: Optional[str] = None,
     person: Optional[str] = None,
+    page_url: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """page_url: the page the company was found on. When it is one office's page on the company's
+    own site, that office's details come first and other offices' are kept apart."""
     target_company = company or name
     snippets: List[Dict[str, str]] = []
     scraped_info: Dict[str, Any] = {}
@@ -889,6 +997,9 @@ async def enrich_prospect_intelligence(
             home = _usable_website(domain)
             if home:
                 scraped_info = await crawl_homepage_contacts(home)
+    office: Dict[str, Any] = {}
+    if host and page_url and _host_of(page_url) == host and urllib.parse.urlparse(page_url).path.strip("/"):
+        office = await _page_contacts(page_url)
 
     search_terms = []
     if host:
@@ -967,8 +1078,8 @@ async def enrich_prospect_intelligence(
         if "reddit.com" in url.lower():
             reddit_mentions.append({"title": title, "url": url, "snippet": (s.get("snippet") or "")[:180]})
 
-    discovered_phones = [p for p in (scraped_info.get("phones") or []) if _is_real_phone(p)]
-    for p in snippet_phones:
+    discovered_phones: List[str] = []
+    for p in (office.get("phones") or []) + (scraped_info.get("phones") or []) + snippet_phones:
         if _is_real_phone(p) and p not in discovered_phones:
             discovered_phones.append(p)
     host = ""
@@ -976,7 +1087,8 @@ async def enrich_prospect_intelligence(
         host = _host_of(domain if domain.startswith("http") else "https://" + domain)
         if _is_junk_web_host(host):
             host = ""
-    raw_emails = [e for e in (scraped_info.get("emails") or []) if _is_public_email(e)]
+    raw_emails = [e for e in (office.get("emails") or []) + (scraped_info.get("emails") or []) if _is_public_email(e)]
+    raw_emails = list(dict.fromkeys(raw_emails))
     for e in snippet_emails:
         if _is_public_email(e) and e not in raw_emails:
             raw_emails.append(e)
@@ -990,7 +1102,9 @@ async def enrich_prospect_intelligence(
     if host:
         ranked = [e for e in discovered_emails if host.split(":")[0] in e] + [e for e in discovered_emails if host.split(":")[0] not in e]
         discovered_emails = ranked
-    company_pitch = scraped_info.get("description", "")
+    discovered_phones, discovered_emails, other_offices = _split_by_office(
+        discovered_phones, discovered_emails, place_bit, office.get("phones") or [], office.get("emails") or [])
+    company_pitch = scraped_info.get("description", "") or office.get("description", "")
 
     # Prefer a real company homepage — never LinkedIn/social/search as "domain"
     resolved_domain = ""
@@ -1051,7 +1165,9 @@ async def enrich_prospect_intelligence(
         "primaryPhone": discovered_phones[0] if discovered_phones else "",
         "emails": discovered_emails,
         "primaryEmail": primary_email,
-        "overview": company_pitch or (snippets[0]["snippet"] if snippets else "No detailed summary found."),
+        "otherOffices": other_offices,
+        "overview": company_pitch or next((s["snippet"] for s in snippets if place_bit and place_bit.lower() in (s.get("snippet") or "").lower()),
+                                          snippets[0]["snippet"] if snippets else "No detailed summary found."),
         "openingHook": hook,
         "keyPeople": people[:3],
         "socials": socials,

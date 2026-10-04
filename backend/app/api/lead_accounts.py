@@ -162,12 +162,13 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     await _can_research(db)
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
-                                                  domain=row.domain or row.website or None, person=row.contact_name or None)
+                                                  domain=row.domain or row.website or None, person=row.contact_name or None,
+                                                  place=row.region or None, page_url=row.source_url or None)
     except Exception:
         raise HTTPException(status_code=502, detail=f"Couldn't research {row.name} right now. Nothing was charged; try again in a minute.")
     people = [{"name": _clean(p.get("name"), 120), "role": _clean(p.get("roleHint"), 120), "source": p.get("source") or ""}
               for p in (data.get("keyPeople") or []) if p.get("name")]
-    found = bool(data.get("phones") or data.get("emails") or people or data.get("socials")
+    found = bool(data.get("phones") or data.get("emails") or data.get("otherOffices") or people or data.get("socials")
                  or (data.get("overview") and data.get("overview") != "No detailed summary found."))
     overview = data.get("overview") or ""
     row.research = {
@@ -175,6 +176,7 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
         "people": people,
         "phones": [p for p in (data.get("phones") or [])][:5],
         "emails": [e for e in (data.get("emails") or [])][:5],
+        "other_offices": (data.get("otherOffices") or [])[:8],
         "socials": data.get("socials") or {},
         "sources": [c for c in (data.get("citations") or [])][:8],
     }

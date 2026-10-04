@@ -641,6 +641,7 @@ function ApprovalsBoard({
   genProgress,
   retryGeneration,
   scheduleNames,
+  showToast,
 }) {
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
@@ -869,11 +870,11 @@ function ApprovalsBoard({
     e.target.value = "";
     if (!file) return;
     if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
-      window.alert("Use a PNG, JPG or WebP picture.");
+      showToast("Use a PNG, JPG or WebP picture.");
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
-      window.alert("That picture is over 8 MB. Pick a smaller one.");
+      showToast("That picture is over 8 MB. Pick a smaller one.");
       return;
     }
     const reader = new FileReader();
@@ -4608,6 +4609,7 @@ export function SocialWorkspace({
                 genProgress={genProgress}
                 scheduleNames={scheduleNames}
                 retryGeneration={retryGeneration}
+                showToast={showToast}
               />
             </div>
           </div>

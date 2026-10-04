@@ -26,7 +26,7 @@ export function domainOf(url) {
 
 function hasFindings(a) {
   const r = a?.research;
-  return Boolean(r && (r.overview || r.people?.length || r.phones?.length || r.emails?.length || Object.keys(r.socials || {}).length));
+  return Boolean(r && (r.overview || r.people?.length || r.phones?.length || r.emails?.length || r.other_offices?.length || Object.keys(r.socials || {}).length));
 }
 
 function copy(value, onToast) {
@@ -172,7 +172,9 @@ export function ScoutView({ store }) {
     const d = domainOf(r.site);
     return d ? savedKeys.has(d) : savedKeys.has(String(r.name || "").toLowerCase());
   };
-  const asAccount = (r) => ({ name: r.name, website: r.site || "", phone: r.phone || "", notes: r.snippet || "", source: "scout", source_url: r.sourceUrl || "" });
+  // The town searched for ("accountants in Birmingham"): Research looks for that office's details.
+  const town = (searched.match(/\b(?:in|near|around)\s+(.+)$/i) || [])[1]?.trim() || "";
+  const asAccount = (r) => ({ name: r.name, website: r.site || "", phone: r.phone || "", notes: r.snippet || "", region: town, source: "scout", source_url: r.sourceUrl || "" });
 
   const run = async (e, preset) => {
     if (e) e.preventDefault();
@@ -405,6 +407,14 @@ function Dossier({ account, store }) {
           <div style={label}>Contact details found</div>
           <div style={{ ...text, fontSize: 13.5, color: C.textInk, display: "flex", gap: 14, flexWrap: "wrap", fontVariantNumeric: "tabular-nums" }}>
             {[...(r.phones || []), ...(r.emails || [])].map((v) => <span key={v}>{v}</span>)}
+          </div>
+        </div>
+      ) : null}
+      {r.other_offices?.length ? (
+        <div>
+          <div style={label}>Other offices</div>
+          <div style={{ ...text, fontSize: 13.5, color: C.textInk, display: "flex", flexDirection: "column", gap: 2, fontVariantNumeric: "tabular-nums" }}>
+            {r.other_offices.map((o) => <span key={o.phone || o.email}><span style={{ color: C.slate }}>{o.town}:</span> {o.phone || o.email}</span>)}
           </div>
         </div>
       ) : null}

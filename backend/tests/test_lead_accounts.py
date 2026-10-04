@@ -62,12 +62,13 @@ async def test_each_company_sees_only_its_own_accounts(db):
 async def test_research_fills_only_empty_fields_and_pays_one_credit_per_find(db, monkeypatch):
     calls = []
 
-    async def fake_research(name, company=None, domain=None, person=None, **_):
-        calls.append(company)
+    async def fake_research(name, company=None, domain=None, person=None, place=None, page_url=None, **_):
+        calls.append((company, place, page_url))
         if company == "Nothing Online Ltd":
             return {"phones": [], "emails": [], "keyPeople": [], "socials": {}, "overview": "No detailed summary found."}
         return {"domain": "https://briggateoptics.example", "phones": ["0113 496 0377"], "primaryPhone": "0113 496 0377",
                 "emails": ["hello@briggateoptics.example"], "primaryEmail": "hello@briggateoptics.example",
+                "otherOffices": [{"town": "York", "phone": "01904 496 0000"}],
                 "overview": "Independent opticians in Leeds.", "openingHook": "pitch about voice AI",
                 "keyPeople": [{"name": "Marcus Reid", "roleHint": "Owner", "source": "https://x.example"}],
                 "socials": {}, "citations": [{"title": "Briggate Opticians", "url": "https://briggateoptics.example"}]}
@@ -80,7 +81,8 @@ async def test_research_fills_only_empty_fields_and_pays_one_credit_per_find(db,
         await db.commit()
     async with _client(token) as c:
         accs = (await c.post("/api/leads/accounts", json={"accounts": [
-            {"name": "Briggate Opticians", "phone": "0113 496 0100"}, {"name": "Nothing Online Ltd"}]})).json()["accounts"]
+            {"name": "Briggate Opticians", "phone": "0113 496 0100", "region": "Leeds", "source": "scout",
+             "source_url": "https://briggateoptics.example/leeds"}, {"name": "Nothing Online Ltd"}]})).json()["accounts"]
         brig = next(a for a in accs if a["name"] == "Briggate Opticians")
         none = next(a for a in accs if a["name"] == "Nothing Online Ltd")
 
@@ -97,6 +99,9 @@ async def test_research_fills_only_empty_fields_and_pays_one_credit_per_find(db,
         assert got["email"] == "hello@briggateoptics.example" and got["domain"] == "briggateoptics.example"
         assert got["contact_name"] == "Marcus Reid" and got["contact_title"] == "Owner"
         assert got["research"]["overview"] == "Independent opticians in Leeds."
+        # researched for its town, from the page it was found on; another office's number kept apart
+        assert calls[-1] == ("Briggate Opticians", "Leeds", "https://briggateoptics.example/leeds")
+        assert got["research"]["other_offices"] == [{"town": "York", "phone": "01904 496 0000"}]
         assert "pitch" not in str(got["research"])  # the Voice sales line is not kept
         assert got["researched_at"]
         with org_scope("org_acme"):
