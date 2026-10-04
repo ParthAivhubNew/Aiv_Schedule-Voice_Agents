@@ -165,7 +165,7 @@ async def get_usage_quotas(db: AsyncSession = Depends(get_db)):
     plugins = [
         {
             "id": "voice",
-            "name": "AI Voice Assistant",
+            "name": "Voice",
             "color": "#3457D5",
             "units": f"{len(calls)} calls · {voice_mins} mins · {booked_calls} booked from call",
             "detail": f"{log_counts.get('voice', 0) + log_counts.get('telephony', 0)} process events",
@@ -174,7 +174,7 @@ async def get_usage_quotas(db: AsyncSession = Depends(get_db)):
         },
         {
             "id": "scheduler",
-            "name": "Post Scheduler",
+            "name": "Social",
             "color": "#0C8C7D",
             "units": f"{len(posts)} posts · {posts_published} published · {posts_scheduled} scheduled",
             "detail": f"{log_counts.get('scheduler', 0)} process events",
@@ -201,7 +201,7 @@ async def get_usage_quotas(db: AsyncSession = Depends(get_db)):
         },
         {
             "id": "leadgen",
-            "name": "Lead Generation",
+            "name": "Leads",
             "color": "#8B5CF6",
             "units": f"{len(prospects)} prospects · {len(missions)} missions",
             "detail": f"{log_counts.get('crawler_rag', 0)} crawl/RAG events",

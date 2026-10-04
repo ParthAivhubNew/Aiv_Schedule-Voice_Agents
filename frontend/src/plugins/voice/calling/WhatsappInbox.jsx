@@ -192,7 +192,7 @@ export function WhatsappInbox() {
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{t.contactName || t.contactNumber}</div>
                 <div style={{ fontSize: 12, color: C.slate, fontFamily: FONT_MONO }}>{t.contactNumber} → {t.ourNumber}</div>
               </div>
-<span title="OutReach never answers WhatsApp for you; you are emailed when a conversation has something new." style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.slate }}>
+<span title="Outreach never answers WhatsApp for you; you are emailed when a conversation has something new." style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.slate }}>
                 <Bot size={14} /> Auto-replies off
               </span>
             </div>

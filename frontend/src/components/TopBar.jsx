@@ -107,53 +107,38 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
 
   return (
     <div ref={bellRef} style={{ position: "relative", flexShrink: 0 }}>
-      <style>{`
-        @keyframes aivhubBellPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(52,87,213,0.45); transform: scale(1); }
-          50% { box-shadow: 0 0 0 8px rgba(52,87,213,0); transform: scale(1.06); }
-        }
-      `}</style>
       <button
         type="button"
+        className="ui-icon-btn"
         onClick={(e) => {
           e.stopPropagation();
           setOpen((o) => !o);
         }}
         title={hasUnread ? `${unreadCount} unread` : "Notifications"}
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 10,
-          border: hasUnread ? `2px solid ${C.cobalt}` : `1px solid ${C.border}`,
-          background: hasUnread ? C.cobalt : C.paperSoft,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          position: "relative",
-          color: hasUnread ? "#fff" : C.slate,
-          animation: hasUnread ? "aivhubBellPulse 1.6s ease-in-out infinite" : "none",
-        }}
+        aria-expanded={open}
+        style={{ width: 36, height: 36 }}
       >
-        <Bell size={16} />
+        <Bell size={17} />
         {hasUnread && (
           <span
             style={{
               position: "absolute",
-              top: -4,
-              right: -4,
-              minWidth: 18,
-              height: 18,
-              padding: "0 5px",
+              top: 3,
+              right: 2,
+              minWidth: 16,
+              height: 16,
+              padding: "0 4px",
               borderRadius: 99,
-              background: C.redSolid,
+              background: C.cobalt,
               color: "#fff",
               fontSize: 10,
-              fontWeight: 800,
+              fontWeight: 600,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               border: "2px solid #fff",
+              boxSizing: "content-box",
+              fontVariantNumeric: "tabular-nums",
             }}
           >
             {unreadCount > 9 ? "9+" : unreadCount}

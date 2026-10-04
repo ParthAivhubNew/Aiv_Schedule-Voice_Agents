@@ -1,4 +1,4 @@
-"""Putting a company's own Telnyx number on WhatsApp with no work by the OutReach team.
+"""Putting a company's own Telnyx number on WhatsApp with no work by the Outreach team.
 
 Aivhub is a WhatsApp Tech Provider on Telnyx (our Meta app: WHATSAPP_META_APP_ID, or — since one
 Meta app can hold Facebook/Instagram login and WhatsApp Tech Provider access side by side — the
@@ -11,7 +11,7 @@ minutes and switch WhatsApp on as soon as the number is registered, add our stan
 templates, and tell the company's admins.
 
 Telnyx documents the Tech Provider calls only in its guide, so replies are read loosely here.
-Without an app id configured, the old way stays: the OutReach team switches WhatsApp on by hand.
+Without an app id configured, the old way stays: the Outreach team switches WhatsApp on by hand.
 
 Reusing the Facebook/Instagram login app's id is not by itself proof that Telnyx has accepted
 that app as a Tech Provider partner yet (that's a one-time step done by hand on Meta's and

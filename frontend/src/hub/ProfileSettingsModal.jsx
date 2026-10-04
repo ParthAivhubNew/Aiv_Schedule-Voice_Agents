@@ -6,7 +6,7 @@ import { api } from "../api/apiClient";
 const label = { display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 };
 const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 };
 
-// Your own name, email and which emails OutReach sends you.
+// Your own name, email and which emails Outreach sends you.
 export function ProfileSettingsModal({ isOpen, onClose, operator, setOperator }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

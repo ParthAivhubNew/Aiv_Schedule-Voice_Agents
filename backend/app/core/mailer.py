@@ -1,4 +1,4 @@
-"""System email: messages sent by OutReach by Aivhub itself (invites, password resets, alerts).
+"""System email: messages sent by Outreach by Aivhub itself (invites, password resets, alerts).
 
 One mailbox for the whole platform: the one staff set in the owner portal (Platform mailbox),
 or else the environment:
@@ -25,7 +25,7 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger("mailer")
 
-BRAND = "OutReach by Aivhub"
+BRAND = "Outreach by Aivhub"
 
 
 def _saved() -> Dict[str, Any]:

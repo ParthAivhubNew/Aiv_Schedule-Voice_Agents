@@ -81,7 +81,7 @@ export function AdminApp() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 16px" }}>
           <ShieldCheck size={20} color="#8FA6FF" />
           <div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>OutReach admin</div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>Outreach admin</div>
             <div style={{ fontSize: 11, color: "#9CA3AF" }}>Aivhub staff only</div>
           </div>
         </div>

@@ -1564,7 +1564,7 @@ class CalendarService:
                     f"{_h.escape(date_str)} at {_h.escape(time_str)} {_h.escape(short_label(host_tz))}, "
                     f"{duration_minutes} min, host {_h.escape(resolved_host_name or '')}.",
                 ],
-                {"label": "Open OutReach", "url": (_cfg.PUBLIC_BASE_URL or "").rstrip("/") + "/"},
+                {"label": "Open Outreach", "url": (_cfg.PUBLIC_BASE_URL or "").rstrip("/") + "/"},
             )
         except Exception:
             pass

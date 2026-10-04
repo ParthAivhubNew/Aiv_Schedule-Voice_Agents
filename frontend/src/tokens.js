@@ -2,12 +2,12 @@ export const C = {
   ink: "#12141C",
   inkSoft: "#1B1E29",
   inkLine: "#2A2D3A",
-  paper: "#F6F5F2",
-  bg: "#F6F5F2",
+  paper: "#F5F6F8",
+  bg: "#F5F6F8",
   paperCard: "#FFFFFF",
-  paperSoft: "#EFEDE8",
-  border: "#E4E1D9",
-  borderLight: "#ECEAE4",
+  paperSoft: "#F0F2F5",
+  border: "#E3E6EB",
+  borderLight: "#EDEFF2",
   borderHover: "#3457D5",
   
   cobalt: "#3457D5",
@@ -38,12 +38,12 @@ export const C = {
   shadowCardHover: "0 4px 12px rgba(0,0,0,0.08)",
 };
 
-export const FONT_DISPLAY = "'Space Grotesk', sans-serif";
+export const FONT_DISPLAY = "'Inter', sans-serif";
 export const FONT_BODY = "'Inter', sans-serif";
 export const FONT_MONO = "'JetBrains Mono', monospace";
-export const HUB_PAPER = "#fcfbf8";
+export const HUB_PAPER = "#F8F9FB";
 // The text of every navigation option (Home, and the pages in each app's sidebar).
-export const NAV_TEXT = { fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600 };
+export const NAV_TEXT = { fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500 };
 
 export const STATUS_MAP = {
   active: { label: "Active", fg: "#3457D5", bg: "#EAEEFC" },

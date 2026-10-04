@@ -17,11 +17,11 @@ import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER, STATUS_MAP } from "./constants";
 export function AppChrome() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
       * { box-sizing: border-box; }
       html, body, #root { height: 100%; margin: 0; }
       ::-webkit-scrollbar { width: 8px; height: 8px; }
-      ::-webkit-scrollbar-thumb { background: #D8D5CD; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb { background: #CBD1D9; border-radius: 4px; }
       select:focus, input:focus, textarea:focus { border-color: ${C.cobalt} !important; }
 
       /* Buttons: a soft shadow on hover and a small press. They no longer jump and grow, which
@@ -181,33 +181,17 @@ export function NotificationBell({ notifications, setNotifications, onNavigate }
 
   return (
     <div style={{ position: "relative" }}>
-      <style>{`
-        @keyframes aivhubBellPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(52,87,213,0.45); transform: scale(1); }
-          50% { box-shadow: 0 0 0 8px rgba(52,87,213,0); transform: scale(1.06); }
-        }
-      `}</style>
       <button
+        type="button"
+        className="ui-icon-btn"
         onClick={() => setOpen((o) => !o)}
         title={hasUnread ? `${unread} unread` : "Notifications"}
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 10,
-          border: hasUnread ? `2px solid ${C.cobalt}` : `1px solid ${C.border}`,
-          background: hasUnread ? C.cobalt : "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          position: "relative",
-          color: hasUnread ? "#fff" : C.slate,
-          animation: hasUnread ? "aivhubBellPulse 1.6s ease-in-out infinite" : "none",
-        }}
+        aria-expanded={open}
+        style={{ width: 36, height: 36 }}
       >
-        <Bell size={16} color={hasUnread ? "#fff" : C.slate} />
+        <Bell size={17} />
         {hasUnread && (
-          <span style={{ position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 999, background: C.redSolid || C.red, color: "#fff", fontSize: 10, fontFamily: FONT_BODY, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px", border: "2px solid #fff", boxShadow: "0 2px 4px rgba(0,0,0,0.18)" }}>
+          <span style={{ position: "absolute", top: 3, right: 2, minWidth: 16, height: 16, borderRadius: 999, background: C.cobalt, color: "#fff", fontSize: 10, fontFamily: FONT_BODY, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", border: "2px solid #fff", boxSizing: "content-box", fontVariantNumeric: "tabular-nums" }}>
             {unread > 9 ? "9+" : unread}
           </span>
         )}

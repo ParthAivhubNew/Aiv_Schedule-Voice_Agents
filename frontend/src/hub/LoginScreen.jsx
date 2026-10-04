@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Lock, Eye, EyeOff, AlertTriangle, RefreshCw, CheckCircle2, Mail, User, Building2, ArrowRight, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, AlertTriangle, RefreshCw, CheckCircle2, Mail, ArrowRight, ArrowLeft } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
-import { BrandMark } from "./BrandMark";
+import { BrandLockup } from "./BrandMark";
 import { AuthShowcase } from "./AuthShowcase";
 import { googleErrorText, googleIdToken } from "./firebaseGoogle";
 
@@ -26,19 +26,16 @@ function takeReturnParams() {
 
 const PATH_FOR = { signin: "/signin", signup: "/signup", forgot: "/signin", "check-email": "/signup", reset: "/reset-password" };
 
-const inputBase = {
-  width: "100%", height: 46, borderRadius: 12, border: `1px solid ${C.border}`, background: "#F7F7F5",
-  padding: "0 14px 0 40px", fontFamily: FONT_BODY, fontSize: 14, color: C.textInk, outline: "none",
-  transition: "border-color .15s, background .15s, box-shadow .15s",
-};
-
-function Field({ id, label, icon: Icon, right, ...props }) {
+// `aside` sits at the right of the label (e.g. "Forgot password?"); `right` inside the field.
+function Field({ id, label, aside, right, ...props }) {
   return (
     <div className="auth-field">
-      <label htmlFor={id} style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.textInk, marginBottom: 6 }}>{label}</label>
+      <div className="auth-label">
+        <label htmlFor={id}>{label}</label>
+        {aside}
+      </div>
       <div style={{ position: "relative" }}>
-        <Icon size={15} color={C.slateLight} style={{ position: "absolute", left: 14, top: 15.5, pointerEvents: "none" }} />
-        <input id={id} {...props} style={{ ...inputBase, paddingRight: right ? 44 : 14 }} />
+        <input id={id} className="auth-input" {...props} style={right ? { paddingRight: 42 } : undefined} />
         {right}
       </div>
     </div>
@@ -70,7 +67,7 @@ function GoogleButton({ label, onClick, disabled }) {
 }
 
 const TITLES = {
-  signin: ["Welcome back", "Sign in to your account"],
+  signin: ["Sign in", ""],  // the logo just above already says where you are
   signup: ["Create your account", "Set up your company in under a minute"],
   forgot: ["Forgot your password?", "We will email you a link to choose a new one"],
   reset: ["Choose a new password", "Use at least 8 characters"],
@@ -235,7 +232,6 @@ export function LoginScreen({ onLogin }) {
   const onSubmit = { signin: signIn, signup: signUp, forgot, reset }[mode];
   const submitLabel = { signin: "Sign in", signup: "Create account", forgot: "Send reset link", reset: "Save new password" }[mode];
   const busyLabel = { signin: "Signing in…", signup: "Creating your workspace…", forgot: "Sending…", reset: "Saving…" }[mode];
-  const showTabs = Boolean(config?.allowSignup) && (mode === "signin" || mode === "signup");
 
   return (
     <div className="auth-root">
@@ -244,23 +240,12 @@ export function LoginScreen({ onLogin }) {
 
       <main className="auth-panel">
         <div className="auth-card">
-          <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", marginBottom: 22 }}>
-            <BrandMark size={38} />
-            <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 21, color: C.ink, letterSpacing: "-0.02em" }}>
-              OutReach <span style={{ color: C.cobalt }}>by Aivhub</span>
-            </span>
+          <div className="auth-brand">
+            <BrandLockup size={36} />
           </div>
 
-          {showTabs && (
-            <div className="auth-tabs" role="tablist" aria-label="Sign in or create an account">
-              <span className="auth-tab-pill" style={{ transform: mode === "signup" ? "translateX(100%)" : "translateX(0)" }} />
-              <button type="button" role="tab" aria-selected={mode === "signin"} onClick={() => setMode("signin")}>Sign in</button>
-              <button type="button" role="tab" aria-selected={mode === "signup"} onClick={() => setMode("signup")}>Create account</button>
-            </div>
-          )}
-
-          <h1 className="auth-title auth-pop" key={`t-${mode}`}>{title}</h1>
-          <p className="auth-sub auth-pop" key={`s-${mode}`}>{subtitle}</p>
+          <h1 className="auth-title auth-pop" key={`t-${mode}`} style={subtitle ? undefined : { marginBottom: 20 }}>{title}</h1>
+          {subtitle ? <p className="auth-sub auth-pop" key={`s-${mode}`}>{subtitle}</p> : null}
 
           {mode === "check-email" ? (
             <div className="auth-stack">
@@ -284,9 +269,9 @@ export function LoginScreen({ onLogin }) {
 
               <div className={`auth-extra ${mode === "signup" ? "open" : ""}`} aria-hidden={mode !== "signup"}>
                 <div className="auth-extra-inner">
-                  <Field id="signup-company" label="Company name" icon={Building2} value={company} tabIndex={mode === "signup" ? 0 : -1}
+                  <Field id="signup-company" label="Company name" value={company} tabIndex={mode === "signup" ? 0 : -1}
                     autoComplete="organization" onChange={(e) => { setCompany(e.target.value); setError(null); }} placeholder="Acme Ltd" />
-                  <Field id="signup-name" label="Your name" icon={User} value={name} tabIndex={mode === "signup" ? 0 : -1}
+                  <Field id="signup-name" label="Your name" value={name} tabIndex={mode === "signup" ? 0 : -1}
                     autoComplete="name" onChange={(e) => { setName(e.target.value); setError(null); }} placeholder="Alex Morgan" />
                   {/* Left empty by people; bots tend to fill it. */}
                   <input tabIndex={-1} aria-hidden="true" autoComplete="off" value={trap} onChange={(e) => setTrap(e.target.value)} name="website" className="auth-trap" />
@@ -294,7 +279,7 @@ export function LoginScreen({ onLogin }) {
               </div>
 
               {mode !== "reset" && (
-                <Field id="login-username" label={mode === "signin" ? "Email or username" : "Work email"} icon={Mail}
+                <Field id="login-username" label={mode === "signin" ? "Email or username" : "Work email"}
                   type={mode === "signin" ? "text" : "email"} autoComplete={mode === "signup" ? "email" : "username"}
                   value={username} onChange={(e) => { setUsername(e.target.value); setError(null); }}
                   placeholder="you@company.com" autoFocus={mode !== "signup"} />
@@ -302,17 +287,13 @@ export function LoginScreen({ onLogin }) {
 
               {mode !== "forgot" && (
                 <div>
-                  <Field id="login-password" label={mode === "reset" ? "New password" : "Password"} icon={Lock}
+                  <Field id="login-password" label={mode === "reset" ? "New password" : "Password"}
+                    aside={mode === "signin" ? <button type="button" className="auth-link" onClick={() => setMode("forgot")}>Forgot password?</button> : null}
                     type={showPassword ? "text" : "password"} value={password} right={pwToggle}
                     autoComplete={mode === "signin" ? "current-password" : "new-password"}
                     onChange={(e) => { setPassword(e.target.value); setError(null); }}
                     placeholder={mode === "signin" ? "Your password" : "At least 8 characters"} autoFocus={mode === "reset"} />
                   {mode !== "signin" && password && <StrengthBar password={password} />}
-                  {mode === "signin" && (
-                    <div style={{ textAlign: "right", marginTop: 8 }}>
-                      <button type="button" className="auth-link" onClick={() => setMode("forgot")}>Forgot password?</button>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -334,7 +315,7 @@ export function LoginScreen({ onLogin }) {
               )}
 
               <button type="submit" className="auth-primary" disabled={loading}>
-                {loading ? (<><RefreshCw size={15} className="auth-spin" /> {busyLabel}</>) : (<>{submitLabel} <ArrowRight size={15} /></>)}
+                {loading ? (<><RefreshCw size={15} className="auth-spin" /> {busyLabel}</>) : submitLabel}
               </button>
 
               {(mode === "forgot" || mode === "reset") && (
@@ -348,7 +329,7 @@ export function LoginScreen({ onLogin }) {
                     <>
                       Don&apos;t have an account?{" "}
                       <button type="button" className="auth-link" style={{ display: "inline", padding: 0, fontWeight: 600 }} onClick={() => setMode("signup")}>
-                        Create an account
+                        Create one
                       </button>
                     </>
                   )}
@@ -401,47 +382,47 @@ function StrengthBar({ password }) {
 }
 
 const AUTH_CSS = `
-.auth-root { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(420px, 1fr); background: #fcfbf8; font-family: ${FONT_BODY}; }
-.auth-panel { display: flex; align-items: center; justify-content: center; padding: 40px 24px; background: #fff; border-left: 1px solid ${C.border}; }
-.auth-card { width: 100%; max-width: 400px; animation: authIn .45s cubic-bezier(.16,1,.3,1) both; }
-.auth-title { font-family: ${FONT_DISPLAY}; font-weight: 700; font-size: 26px; letter-spacing: -0.03em; color: ${C.ink}; text-align: center; margin: 0 0 6px; }
-.auth-sub { font-size: 14px; color: ${C.slate}; text-align: center; margin: 0 0 22px; }
-.auth-stack { display: flex; flex-direction: column; gap: 14px; }
-.auth-field input:focus { border-color: ${C.cobalt} !important; background: #fff !important; box-shadow: 0 0 0 4px rgba(52,87,213,.12); }
-.auth-eye { position: absolute; right: 8px; top: 7px; width: 32px; height: 32px; border: none; background: none; color: ${C.slateLight}; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
-.auth-eye:hover { color: ${C.ink}; }
-.auth-primary { height: 48px; border-radius: 12px; border: none; color: #fff; font-family: ${FONT_DISPLAY}; font-weight: 600; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
-  background: linear-gradient(120deg, ${C.cobalt}, #2B47B8 45%, ${C.teal}); background-size: 200% 100%; background-position: 0% 0; box-shadow: 0 10px 24px rgba(52,87,213,.25); }
-.auth-primary:hover:not(:disabled) { background-position: 100% 0; }
+.auth-root { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); background: #fff; font-family: ${FONT_BODY}; }
+.auth-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; background: #fff; }
+.auth-card { width: 100%; max-width: 380px; animation: authIn .35s ease-out both; }
+.auth-brand { display: flex; justify-content: center; margin-bottom: 32px; }
+.auth-title { font-family: ${FONT_DISPLAY}; font-weight: 600; font-size: 24px; letter-spacing: -0.02em; color: ${C.ink}; margin: 0 0 6px; text-align: center; }
+.auth-sub { font-size: 14px; color: ${C.slate}; margin: 0 0 24px; line-height: 1.5; text-align: center; }
+.auth-stack { display: flex; flex-direction: column; gap: 16px; }
+.auth-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.auth-label label { font-size: 13px; font-weight: 500; color: ${C.textInk}; }
+.auth-input { width: 100%; box-sizing: border-box; height: 40px; border-radius: 6px; border: 1px solid ${C.border}; background: #fff; padding: 0 12px; font-family: ${FONT_BODY}; font-size: 14px; color: ${C.textInk}; outline: none; transition: border-color .12s, box-shadow .12s; }
+.auth-input::placeholder { color: ${C.slateLight}; }
+.auth-input:hover { border-color: #CBD1D9; }
+.auth-input:focus { border-color: ${C.cobalt}; box-shadow: 0 0 0 3px rgba(52,87,213,.22); }
+.auth-eye { position: absolute; right: 4px; top: 4px; width: 32px; height: 32px; border: none; background: none; color: ${C.slateLight}; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
+.auth-eye:hover { color: ${C.ink}; background: #F0F2F5; }
+.auth-primary { height: 40px; border-radius: 6px; border: none; color: #fff; background: ${C.cobalt}; font-family: ${FONT_BODY}; font-weight: 500; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 1px 2px rgba(38,64,158,.25); transition: background .12s; }
+.auth-primary:hover:not(:disabled) { background: #2A49BD; }
 .auth-primary:disabled { opacity: .75; cursor: wait; }
-.auth-secondary { height: 46px; border-radius: 12px; border: 1px solid ${C.border}; background: #fff; display: flex; align-items: center; justify-content: center; gap: 10px; font-family: ${FONT_BODY}; font-weight: 600; font-size: 14px; color: ${C.textInk}; cursor: pointer; }
-.auth-link { background: none; border: none; padding: 0; color: ${C.cobalt}; font-family: ${FONT_BODY}; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
-button.auth-link:hover, button.auth-secondary:hover, button.auth-eye:hover { transform: none !important; box-shadow: none !important; }
-.auth-link:hover { text-decoration: underline; }
+.auth-secondary { height: 40px; border-radius: 6px; border: 1px solid ${C.border}; background: #fff; display: flex; align-items: center; justify-content: center; gap: 10px; font-family: ${FONT_BODY}; font-weight: 500; font-size: 14px; color: ${C.textInk}; cursor: pointer; transition: background .12s, border-color .12s; }
+.auth-secondary:hover:not(:disabled) { background: #F8F9FB; border-color: #CBD1D9; }
+.auth-link { background: none; border: none; padding: 0; color: ${C.cobalt}; font-family: ${FONT_BODY}; font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.auth-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.auth-primary:focus-visible, .auth-secondary:focus-visible, .auth-link:focus-visible, .auth-eye:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; }
 .auth-or { display: flex; align-items: center; gap: 12px; color: ${C.slateLight}; font-size: 12px; }
 .auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: ${C.border}; }
-.auth-foot { font-size: 12px; color: ${C.slate}; text-align: center; margin: 2px 0 0; line-height: 1.5; }
+.auth-foot { font-size: 13px; color: ${C.slate}; text-align: center; margin: 4px 0 0; line-height: 1.5; }
 .auth-foot a { color: ${C.slate}; }
-.auth-legal { display: flex; justify-content: center; gap: 16px; margin-top: 28px; font-size: 12px; }
+.auth-legal { display: flex; justify-content: center; gap: 16px; margin-top: 40px; font-size: 12px; }
 .auth-legal a { color: ${C.slateLight}; text-decoration: none; }
 .auth-legal a:hover { color: ${C.ink}; text-decoration: underline; }
-.auth-tabs { position: relative; display: grid; grid-template-columns: 1fr 1fr; background: #F1F0EC; border-radius: 12px; padding: 4px; margin-bottom: 22px; }
-.auth-tabs button { position: relative; z-index: 1; height: 36px; border: none; background: none; font-family: ${FONT_BODY}; font-weight: 600; font-size: 13.5px; color: ${C.slate}; cursor: pointer; border-radius: 9px; }
-.auth-tabs button[aria-selected="true"] { color: ${C.ink}; }
-.auth-tabs button:hover { transform: none !important; box-shadow: none !important; }
-.auth-tab-pill { position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: 36px; background: #fff; border-radius: 9px; box-shadow: 0 2px 8px rgba(18,20,28,.08); transition: transform .35s cubic-bezier(.16,1,.3,1); }
-.auth-extra { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .35s cubic-bezier(.16,1,.3,1), opacity .25s; margin-bottom: -14px; }
+.auth-extra { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s ease, opacity .2s; margin-bottom: -16px; }
 .auth-extra.open { grid-template-rows: 1fr; opacity: 1; margin-bottom: 0; }
-.auth-extra-inner { overflow: hidden; display: flex; flex-direction: column; gap: 14px; }
+.auth-extra-inner { overflow: hidden; display: flex; flex-direction: column; gap: 16px; }
 .auth-extra-inner > :last-of-type { margin-bottom: 0; }
 .auth-trap { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
-.auth-pop { animation: authPop .25s ease both; }
+.auth-pop { animation: authPop .2s ease both; }
 .auth-spin { animation: authSpin 1s linear infinite; }
-.auth-mail-art { width: 64px; height: 64px; border-radius: 20px; margin: 0 auto; display: flex; align-items: center; justify-content: center; background: ${C.cobaltSoft || "#E8EDFB"}; animation: authFloat 3s ease-in-out infinite; }
-@keyframes authIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes authPop { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+.auth-mail-art { width: 56px; height: 56px; border-radius: 8px; margin: 0 auto; display: flex; align-items: center; justify-content: center; background: ${C.cobaltSoft || "#E8EDFB"}; }
+@keyframes authIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes authPop { from { opacity: 0; } to { opacity: 1; } }
 @keyframes authSpin { to { transform: rotate(360deg); } }
-@keyframes authFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-@media (max-width: 960px) { .auth-root { grid-template-columns: 1fr; } .auth-show { display: none !important; } .auth-panel { border-left: none; min-height: 100vh; } }
+@media (max-width: 960px) { .auth-root { grid-template-columns: 1fr; } .auth-show { display: none !important; } .auth-panel { min-height: 100vh; } }
 @media (prefers-reduced-motion: reduce) { .auth-root *, .auth-root *::before, .auth-root *::after { animation: none !important; transition: none !important; } }
 `;

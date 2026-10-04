@@ -42,7 +42,7 @@ export function MailboxesView() {
       <Note error>{err}</Note>
       <Note error={msg.error}>{msg.text}</Note>
       {overview && !overview.warmupPartnerReady && (
-        <Note>Warmup will use your own mailboxes only until the OutReach team adds the platform mailbox. Connect two or more mailboxes so they warm each other.</Note>
+        <Note>Warmup will use your own mailboxes only until the Outreach team adds the platform mailbox. Connect two or more mailboxes so they warm each other.</Note>
       )}
       <div style={row}>
         <div style={small}>Each mailbox warms up for about 3–4 weeks (5 a day rising to your daily target), then sends campaigns. Bounces over 2% pause it automatically.</div>

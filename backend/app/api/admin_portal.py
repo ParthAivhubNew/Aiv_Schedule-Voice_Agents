@@ -13,7 +13,7 @@ import time
 import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
-from typing import Any, Deque, Dict, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -843,7 +843,7 @@ async def put_rates(body: RatesBody, request: Request):
 
 # ── Platform keys (provider keys every company runs on) ─────────────────────
 async def _as_platform(fn, *args):
-    """Run a Connections handler inside the platform record, where OutReach's keys live."""
+    """Run a Connections handler inside the platform record, where Outreach's keys live."""
     from app.core.auth_middleware import platform_org
     from app.core.tenancy import org_scope
 
@@ -1052,8 +1052,8 @@ async def test_platform_mailbox(request: Request):
     from app.core.mailer import render, send_system_email
 
     to = _who(request).get("email") or ""
-    parts = render("Platform mailbox works", ["This test was sent from OutReach's platform mailbox."])
-    res = await send_system_email(to, "OutReach platform mailbox test", parts["html"], parts["text"])
+    parts = render("Platform mailbox works", ["This test was sent from Outreach's platform mailbox."])
+    res = await send_system_email(to, "Outreach platform mailbox test", parts["html"], parts["text"])
     if not res.get("ok"):
         raise HTTPException(status_code=400, detail=res.get("error") or "Not sent.")
     return {"ok": True, "to": to}
@@ -1092,7 +1092,7 @@ async def alert_seen(alert_id: str, request: Request):
 @router.get("/platform-ai/{scope}")
 async def get_platform_ai(request: Request, scope: str = "scheduler"):
     """The writing and image AI (main and backup) every company uses, which
-    providers OutReach has keys for, and how each one did last time."""
+    providers Outreach has keys for, and how each one did last time."""
     from app.api.scheduler import _saved_ai_keys
     from app.core.auth_middleware import platform_org
     from app.core.tenancy import org_scope

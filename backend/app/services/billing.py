@@ -140,7 +140,7 @@ async def sync_plan_to_stripe(p) -> None:
     """Create the product and USD price in Stripe (prices can't change there: a new price is
     made when ours changes)."""
     if not p.stripe_product_id:
-        prod = await stripe("POST", "/products", {"name": f"OutReach {p.name}", "metadata": {"plan_id": p.id, "wallet": p.wallet}},
+        prod = await stripe("POST", "/products", {"name": f"Outreach {p.name}", "metadata": {"plan_id": p.id, "wallet": p.wallet}},
                             idempotency_key=f"prod-{p.id}")
         p.stripe_product_id = prod["id"]
     price: Dict[str, Any] = {"product": p.stripe_product_id, "currency": p.currency or "usd", "unit_amount": p.price_usd_cents,
@@ -366,6 +366,17 @@ async def _org_for_customer(customer_id: str) -> str:
             return row.org_id if row else ""
 
 
+async def _org_exists(org_id: str) -> bool:
+    from sqlalchemy import text
+
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            return (await db.execute(text("SELECT 1 FROM organizations WHERE id = :i"), {"i": org_id})).first() is not None
+
+
 async def _plan_by_price(db, price_id: str):
     from app.models.models import BillingPlan
 
@@ -404,6 +415,10 @@ async def handle_event(event: Dict[str, Any]) -> str:
     if not org_id:
         logger.warning(f"[billing] {etype} {event_id}: no organisation found")
         return "no_org"
+    if not await _org_exists(org_id):
+        # One Stripe account can serve several installs (a shared sandbox): another one's payment.
+        logger.info(f"[billing] {etype} {event_id}: organisation {org_id} is not on this server")
+        return "other_install"
 
     with org_scope(org_id):
         async with AsyncSessionLocal() as db:
@@ -414,6 +429,7 @@ async def handle_event(event: Dict[str, Any]) -> str:
             if obj.get("customer") and not sub.stripe_customer_id:
                 sub.stripe_customer_id = obj["customer"]
             done = "ignored"
+            bought = set()  # apps whose plan was bought by this event
 
             # async_payment_succeeded: bank debits (e.g. Bacs) are paid days after Checkout completes.
             if etype in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
@@ -423,6 +439,7 @@ async def handle_event(event: Dict[str, Any]) -> str:
                     ids = [i for i in ((obj.get("metadata") or {}).get("plans") or "").split(",") if i]
                     rows = (await db.execute(select(BillingPlan).where(BillingPlan.id.in_(ids)))).scalars().all() if ids else []
                     sub.plans = {**(sub.plans or {}), **{p.wallet: p.id for p in rows}}
+                    bought = {p.wallet for p in rows}
                 done = "checkout"
                 if obj.get("payment_status") in ("paid", "no_payment_required"):
                     for item in [i for i in ((obj.get("metadata") or {}).get("topups") or "").split(",") if i]:
@@ -471,7 +488,7 @@ async def handle_event(event: Dict[str, Any]) -> str:
                 try:
                     from app.core.notify import notify
 
-                    await notify("low_credits", "Your OutReach payment did not go through",
+                    await notify("low_credits", "Your Outreach payment did not go through",
                                  ["Stripe could not take your subscription payment. Update your card in Plans & credits → Manage billing."])
                 except Exception:
                     pass
@@ -502,4 +519,8 @@ async def handle_event(event: Dict[str, Any]) -> str:
                 from app.services import voice_access
 
                 voice_access.kick(org_id)  # calls back on straight away after a top-up
+            if "voice" in bought:
+                from app.services import telnyx_provisioning as TP
+
+                TP.start_setup(org_id)  # its phone line can be set up straight away
             return done

@@ -208,7 +208,7 @@ async def test_new_user_gets_an_email_when_the_mailbox_is_set(client, monkeypatc
     roles = {r["name"]: r["id"] for r in (await client.get("/api/auth/roles")).json()}
     r = await client.post("/api/auth/users", json={"username": "mia", "name": "Mia", "email": "mia@example.com", "role_ids": [roles["Viewer"]]})
     assert r.json()["emailed"] is True
-    assert sent and sent[0]["To"] == "mia@example.com" and "OutReach by Aivhub" in sent[0]["From"]
+    assert sent and sent[0]["To"] == "mia@example.com" and "Outreach by Aivhub" in sent[0]["From"]
     body = sent[0].get_body(("plain",)).get_content()
     assert r.json()["temporary_password"] in body and "mia" in body
 

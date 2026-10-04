@@ -131,7 +131,7 @@ export function SignIn({ onSignedIn }) {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>
-                OutReach
+                Outreach
               </span>
               <span
                 style={{

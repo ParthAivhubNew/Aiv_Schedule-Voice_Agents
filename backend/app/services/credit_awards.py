@@ -1,4 +1,4 @@
-"""Credits given by OutReach staff from the owner portal, with several confirmations.
+"""Credits given by Outreach staff from the owner portal, with several confirmations.
 
 1. preview: the staff admin picks the wallet, the amount, how it was paid for and a reason
    (a payment reference too when it was paid). Nothing changes yet; they get a summary
@@ -198,7 +198,7 @@ async def approve(db, pending_id: str, staff: Dict[str, Any], confirm: str) -> D
                                         note=note, by=p["staffName"], ref=p["id"], paid_cents=p["paidCents"],
                                         paid_currency=p["currency"])
             odb.add(Notification(id=f"n_{uuid.uuid4().hex[:6]}", type="success",
-                                 text=f"OutReach added {p['amount']:,} {K.WALLETS[p['wallet']]} credits. New balance {after:,}."))
+                                 text=f"Outreach added {p['amount']:,} {K.WALLETS[p['wallet']]} credits. New balance {after:,}."))
             award = CreditAward(id=p["id"], org_id=p["orgId"], org_name=p["orgName"], wallet=p["wallet"],
                                 amount=p["amount"], label=p["label"], reason=p["reason"], payment_ref=p["paymentRef"],
                                 paid_cents=p["paidCents"], paid_currency=p["currency"], expires_at=expires,
@@ -304,9 +304,9 @@ async def _email_everyone(r: Dict[str, Any]) -> None:
         for to in await _staff_emails(r["staffEmail"]):
             await send_system_email(to, subject, msg["html"], msg["text"])
 
-        client_subject = f"OutReach added {r['amount']:,} {r['walletName']} credits"
+        client_subject = f"Outreach added {r['amount']:,} {r['walletName']} credits"
         client_lines = [
-            f"OutReach added <b>{r['amount']:,} {e(r['walletName'])}</b> credits to {e(r['orgName'])}.",
+            f"Outreach added <b>{r['amount']:,} {e(r['walletName'])}</b> credits to {e(r['orgName'])}.",
             f"New balance: {r['after']:,} (was {r['before']:,}).",
             (f"Payment: {paid}." if r["label"] != "given" else "These credits are free of charge."),
             f"Reference {e(r['id'])}. Questions? Reply to this email.",

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, CheckCircle2, CreditCard, ExternalLink } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
-import { takeBillingParam } from "../hub/BillingReturnBanner";
+import { BILLING_CHANGED, takeBillingParam } from "../hub/BillingReturnBanner";
 import { btn, day, fmt, heading, money, MonthlyUsage, WalletCard, WALLET_COLOUR } from "./CreditsTab";
 
 const card = { border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", background: "#fff" };
@@ -27,17 +27,31 @@ export function SubscriptionPage({ wallet, back }) {
       const [ov, plans] = await Promise.all([api.getBillingOverview(), api.getLivePlans()]);
       setData(ov);
       setLive(plans);
+      return ov;
     } catch (err) {
       setError(err.message);
+      return null;
     }
   }, []);
 
-  // Stripe tells us about payments a moment after they happen, so look again shortly after one.
+  // Stripe tells us about a payment a moment after it happens (up to a minute), so after a
+  // checkout keep looking for a minute. Whenever this app's plan or credits change, say so, so
+  // the app's menu unlocks without a page reload.
   const loadSoon = useCallback(() => {
-    load();
-    const timers = [3000, 8000].map((ms) => setTimeout(load, ms));
-    return () => timers.forEach(clearTimeout);
-  }, [load]);
+    let timer;
+    let seen = null;
+    const until = Date.now() + 60000;
+    const look = async () => {
+      const ov = await load();
+      const credits = ov?.wallets?.find((x) => x.key === wallet);
+      const now = JSON.stringify([ov?.subscription?.plans?.[wallet] || "", credits?.balance ?? null]);
+      if (ov && now !== seen) window.dispatchEvent(new Event(BILLING_CHANGED));
+      seen = now;
+      if (Date.now() < until) timer = setTimeout(look, 4000);
+    };
+    look();
+    return () => clearTimeout(timer);
+  }, [load, wallet]);
 
   useEffect(() => (returned === "success" ? loadSoon() : void load()), [returned, load, loadSoon]);
 
@@ -162,7 +176,7 @@ export function SubscriptionPage({ wallet, back }) {
       {error && <div role="alert" style={{ color: C.red, fontSize: 12.5, marginTop: 8 }}>{error}</div>}
 
       {!data.stripeReady ? (
-        <div style={{ fontSize: 13, color: C.slate, background: C.paperSoft, padding: "10px 12px", borderRadius: 10, marginTop: 16 }}>Online payments are coming soon. Until then the OutReach team adds credits for you.</div>
+        <div style={{ fontSize: 13, color: C.slate, background: C.paperSoft, padding: "10px 12px", borderRadius: 10, marginTop: 16 }}>Online payments are coming soon. Until then the Outreach team adds credits for you.</div>
       ) : (
         <>
           <div style={heading}>Monthly plans</div>

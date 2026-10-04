@@ -165,7 +165,7 @@ export function BehaviourFields({ a, set }) {
         </label>
       </div>
       <label style={label}>Words to recognise (names, brands; comma separated; used by Deepgram Nova-3 and Flux)
-        <input aria-label="Words to recognise" placeholder="Aivhub, OutReach, Siobhan" value={a.keyterms} onChange={(e) => set({ keyterms: e.target.value })} style={input} />
+        <input aria-label="Words to recognise" placeholder="Aivhub, Outreach, Siobhan" value={a.keyterms} onChange={(e) => set({ keyterms: e.target.value })} style={input} />
       </label>
       <div style={{ display: "grid", gap: 6 }}>
         <div style={label}>People the agent can put callers through to</div>

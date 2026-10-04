@@ -12,7 +12,7 @@ export function Queue({ canEdit, openClient }) {
   const open = (q?.verifications || []).filter((v) => !["approved"].includes(v.status));
   return (
     <>
-      <PageTitle title="Queue" sub="Verifications and WhatsApp requests waiting on the OutReach team." />
+      <PageTitle title="Queue" sub="Verifications and WhatsApp requests waiting on the Outreach team." />
       <Note error>{err}</Note>
       <Note error={msg.error}>{msg.text}</Note>
 

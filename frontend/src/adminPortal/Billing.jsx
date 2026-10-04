@@ -4,7 +4,7 @@ import { C, FONT_BODY } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, PageTitle, Table, btn, cell, fmt, heading, input, mono, money, useAction, when } from "./ui";
 
-const WALLETS = [["voice", "Voice"], ["leadgen", "Lead generation"], ["email", "Email"], ["scheduler", "Post scheduler"]];
+const WALLETS = [["voice", "Voice"], ["leadgen", "Leads"], ["email", "Email"], ["scheduler", "Social"]];
 
 // The app a Stripe product is most likely for, from its name (staff can change it).
 const guessWallet = (name) => (/social|post|schedul/i.test(name) ? "scheduler" : /lead/i.test(name) ? "leadgen" : /mail/i.test(name) ? "email" : "voice");

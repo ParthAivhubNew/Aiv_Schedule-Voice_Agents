@@ -21,8 +21,8 @@ _RANK = {NONE: 0, VIEW: 1, FULL: 2}
 SECTIONS: List[Tuple[str, str, str, str]] = [
     ("calling", "Calling", "Voice", "Contact lists, dialling, live calls, call history, schedule and AI templates."),
     ("analytics", "Analytics", "Voice", "Call and meeting results, trends and team performance."),
-    ("scheduler", "Post scheduler", "Social", "Planning, writing, approving and publishing social posts."),
-    ("leadgen", "Lead generation", "Growth", "Finding and enriching companies and contacts."),
+    ("scheduler", "Social", "Social", "Planning, writing, approving and publishing social posts."),
+    ("leadgen", "Leads", "Growth", "Finding and enriching companies and contacts."),
     ("email", "Email outreach", "Growth", "Email campaigns and sequences."),
     ("calcom", "Meetings & calendar", "Meetings", "Booking pages, event types and bookings."),
     ("company", "Company profile", "Settings", "Company details, services, FAQs and knowledge sources."),
@@ -108,6 +108,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/logs"), "process_logs"),
     (re.compile(r"^/enrichment/copilot-chat$"), None),  # shared AI chat used by every plugin
     (re.compile(r"^/enrichment"), "leadgen"),
+    (re.compile(r"^/leads(/|$)"), "leadgen"),
     (re.compile(r"^/scheduler"), "scheduler"),
     (re.compile(r"^/email/u/"), None),  # unsubscribe links (public; signed)
     (re.compile(r"^/email"), "email"),

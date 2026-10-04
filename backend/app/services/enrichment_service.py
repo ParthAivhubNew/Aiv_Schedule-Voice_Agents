@@ -24,7 +24,7 @@ SEARCH_HEADERS = {
 _JUNK_WEB_HOSTS = (
     "bing.com", "google.", "duckduckgo.", "yahoo.com", "yandex.", "baidu.com",
     "linkedin.com", "facebook.com", "twitter.com", "x.com", "instagram.com",
-    "youtube.com", "youtu.be", "reddit.com", "wikipedia.org", "wikimedia.org",
+    "youtube.com", "youtu.be", "reddit.com", "wikipedia.", "wikimedia.", "wikidata.", "wiktionary.",
     "pinterest.com", "tiktok.com", "microsoft.com", "office.com", "live.com",
     "schema.org", "w3.org", "cloudflare.com", "sentry.io",
 )
@@ -50,6 +50,15 @@ def _host_of(url: str) -> str:
         return ""
 
 
+def _visible_text(el) -> str:
+    """An element's text as it reads on the page. get_text(strip=True) joins the pieces around
+    <b> highlights with nothing between them ("Oakwood<b>Dental</b>Practice" -> "OakwoodDentalPractice")."""
+    if el is None:
+        return ""
+    joined = re.sub(r"\s+", " ", el.get_text(" ", strip=True))
+    return re.sub(r"\s+([,.;:!?)])", r"\1", joined).strip()
+
+
 def _is_junk_web_host(host_or_url: str) -> bool:
     h = (host_or_url or "").lower()
     if "://" in h or "/" in h:
@@ -57,6 +66,37 @@ def _is_junk_web_host(host_or_url: str) -> bool:
     if not h:
         return True
     return any(j in h for j in _JUNK_WEB_HOSTS)
+
+
+# Words in a search that say nothing about which business or place is meant.
+_GENERIC_SEARCH_WORDS = {
+    "the", "and", "for", "with", "from", "near", "uk", "ltd", "limited", "inc", "llc", "plc",
+    "company", "companies", "business", "businesses", "firm", "firms", "contact", "contacts",
+    "phone", "email", "emails", "number", "numbers", "address", "official", "website", "site",
+    "linkedin", "find", "get", "list", "please", "top", "best", "local", "area", "com", "org", "net",
+}
+
+
+def _search_keys(query: str) -> List[str]:
+    """The searched words that a result about it would mention (first 5 letters, so
+    "accountants" also matches "accounting"). For site:example.co.uk, the site's name."""
+    keys: List[str] = []
+    for tok in re.findall(r"site:\S+|[^\W_]+", (query or "").lower()):
+        if tok.startswith("site:"):
+            tok = _host_of(tok[5:]).split(".")[0]
+        if len(tok) >= 3 and not tok.isdigit() and tok not in _GENERIC_SEARCH_WORDS and tok[:5] not in keys:
+            keys.append(tok[:5])
+    return keys
+
+
+def _on_topic(results: List[Dict[str, str]], query: str) -> List[Dict[str, str]]:
+    """Only the results that mention something that was searched for. Bing answers searches it
+    takes for a robot with unrelated pages (Wikipedia, shops, tutorials) that mention none of it."""
+    keys = _search_keys(query)
+    if not keys:
+        return results
+    return [r for r in results
+            if any(k in f"{r.get('title') or ''} {r.get('snippet') or ''} {r.get('url') or ''}".lower() for k in keys)]
 
 
 def _unwrap_result_url(url: str) -> str:
@@ -150,14 +190,14 @@ async def search_duckduckgo_lite(query: str, max_results: int = 5) -> List[Dict[
                             url = "https://" + url.lstrip("/")
                         if url and _is_junk_web_host(url):
                             url = ""
-                        title = a.get_text(strip=True)
+                        title = _visible_text(a)
                         cur_item = {"title": title, "snippet": "", "url": url or ""}
                         if title or url:
                             results.append(cur_item)
                     else:
                         td = tr.find("td", class_="result-snippet")
                         if td and cur_item:
-                            cur_item["snippet"] = td.get_text(strip=True)
+                            cur_item["snippet"] = _visible_text(td)
                     if len(results) >= max_results:
                         break
     except Exception as err:
@@ -196,7 +236,8 @@ async def search_tavily(query: str, max_results: int = 5) -> List[Dict[str, str]
             resp = await client.post(
                 "https://api.tavily.com/search",
                 headers={"Authorization": f"Bearer {key}"},
-                json={"query": query, "max_results": max_results, "search_depth": "basic"},
+                # British results, as SEARCH_HEADERS asks of the other engines ("Birmingham" is not Alabama).
+                json={"query": query, "max_results": max_results, "search_depth": "basic", "country": "united kingdom"},
             )
             await _bump_vendor_call("tavily")  # Tavily bills the request whether or not it helped
             if resp.status_code == 200:
@@ -227,13 +268,14 @@ async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, st
     if not query or not query.strip():
         return []
 
+    # Each engine's off-topic results are dropped; an engine left with none hands over to the next.
     # 1. Tavily if configured
-    results = await search_tavily(query, max_results=max_results)
+    results = _on_topic(await search_tavily(query, max_results=max_results), query)
     if results:
         return results
 
     # 2. DuckDuckGo Lite
-    results = await search_duckduckgo_lite(query, max_results=max_results)
+    results = _on_topic(await search_duckduckgo_lite(query, max_results=max_results), query)
     if results:
         return results
 
@@ -250,8 +292,8 @@ async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, st
                     url_elem = link.select_one(".result__url")
                     a_elem = link.select_one("a.result__a")
 
-                    title = title_elem.get_text(strip=True) if title_elem else ""
-                    snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
+                    title = _visible_text(title_elem)
+                    snippet = _visible_text(snippet_elem)
                     raw_url = url_elem.get_text(strip=True) if url_elem else ""
                     if not raw_url and a_elem and a_elem.get("href"):
                         href = a_elem.get("href") or ""
@@ -271,6 +313,7 @@ async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, st
     except Exception as err:
         logger.debug(f"DuckDuckGo HTML search error for '{query}': {err}")
 
+    results = _on_topic(results, query)
     if results:
         return results
 
@@ -284,7 +327,7 @@ async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, st
                     a = li.select_one("h2 a")
                     cite = li.select_one("cite")
                     snippet_el = li.select_one(".b_caption p") or li.select_one("p")
-                    title = a.get_text(strip=True) if a else ""
+                    title = _visible_text(a)
                     href = (a.get("href") or "").strip() if a else ""
                     cite_text = cite.get_text(strip=True) if cite else ""
                     url = _unwrap_result_url(href)
@@ -298,13 +341,13 @@ async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, st
                             url = await _resolve_redirect_once(href) if href else ""
                     if url and _is_junk_web_host(url):
                         url = ""
-                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+                    snippet = _visible_text(snippet_el)
                     if title or snippet or url:
                         results.append({"title": title, "snippet": snippet, "url": url})
     except Exception as err:
         logger.warning(f"Bing search fallback error for '{query}': {err}")
 
-    return results
+    return _on_topic(results, query)
 
 
 search_duckduckgo = search_open_web
@@ -874,6 +917,111 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
         "socials": socials
     }
 
+# UK dialling codes of towns and cities. A firm's number in one town starts with that town's code,
+# so its other offices' numbers can be told apart ("0121" Birmingham, "01752" Plymouth).
+_UK_AREA_CODES = {
+    "london": "020", "birmingham": "0121", "solihull": "0121", "sutton coldfield": "0121", "leeds": "0113",
+    "sheffield": "0114", "nottingham": "0115", "leicester": "0116", "bristol": "0117", "reading": "0118",
+    "edinburgh": "0131", "glasgow": "0141", "liverpool": "0151", "manchester": "0161", "salford": "0161",
+    "stockport": "0161", "newcastle": "0191", "sunderland": "0191", "gateshead": "0191", "cardiff": "029",
+    "belfast": "028", "southampton": "023", "portsmouth": "023", "coventry": "024", "plymouth": "01752",
+    "worcester": "01905", "exeter": "01392", "cambridge": "01223", "oxford": "01865", "york": "01904",
+    "bradford": "01274", "hull": "01482", "preston": "01772", "stoke": "01782", "derby": "01332",
+    "norwich": "01603", "brighton": "01273", "bournemouth": "01202", "poole": "01202", "aberdeen": "01224",
+    "dundee": "01382", "swansea": "01792", "newport": "01633", "wolverhampton": "01902", "walsall": "01922",
+    "dudley": "01384", "milton keynes": "01908", "northampton": "01604", "peterborough": "01733",
+    "cheltenham": "01242", "gloucester": "01452", "bath": "01225", "chester": "01244", "warrington": "01925",
+    "bolton": "01204", "blackburn": "01254", "blackpool": "01253", "lancaster": "01524", "carlisle": "01228",
+    "middlesbrough": "01642", "darlington": "01325", "halifax": "01422", "huddersfield": "01484",
+    "wakefield": "01924", "doncaster": "01302", "rotherham": "01709", "barnsley": "01226", "lincoln": "01522",
+    "ipswich": "01473", "colchester": "01206", "chelmsford": "01245", "southend": "01702", "st albans": "01727",
+    "luton": "01582", "bedford": "01234", "swindon": "01793", "salisbury": "01722", "guildford": "01483",
+    "canterbury": "01227", "maidstone": "01622", "truro": "01872", "taunton": "01823", "shrewsbury": "01743",
+    "telford": "01952", "hereford": "01432", "inverness": "01463", "perth": "01738", "stirling": "01786",
+}
+_TOWN_OF_CODE: Dict[str, str] = {}
+for _town, _code in _UK_AREA_CODES.items():
+    _TOWN_OF_CODE.setdefault(_code, _town)  # the first town listed names the code
+
+
+def _uk_number(phone: str) -> str:
+    """A UK number as dialled at home: "+44 (0)121 456 7890" -> "01214567890"."""
+    digits = re.sub(r"\D", "", phone or "")
+    if digits.startswith("00"):
+        digits = digits[2:]
+    return "0" + digits[2:].lstrip("0") if digits.startswith("44") else digits
+
+
+def _dialling_code(phone: str) -> str:
+    number = _uk_number(phone)
+    return max((c for c in _TOWN_OF_CODE if number.startswith(c)), key=len, default="")
+
+
+def _code_for_place(place: str) -> str:
+    low = (place or "").lower()
+    towns = [t for t in _UK_AREA_CODES if re.search(rf"\b{re.escape(t)}\b", low)]
+    return _UK_AREA_CODES[max(towns, key=len)] if towns else ""
+
+
+def _town_in_email(email: str) -> str:
+    """The town an office address is for: "exeter@firm.co.uk" -> "exeter"."""
+    words = set(re.split(r"[._+-]", (email or "").split("@")[0].lower()))
+    return next((t for t in _UK_AREA_CODES if t.replace(" ", "") in words), "")
+
+
+_GENERAL_MAILBOXES = {"info", "hello", "enquiries", "enquiry", "contact", "office", "admin", "mail", "reception", "sales", "help"}
+_JOB_MAILBOXES = {"jobs", "careers", "career", "recruitment", "vacancies", "hr", "cv"}
+
+
+def _mailbox_rank(email: str) -> int:
+    """General addresses (info@) first, people's next, recruitment (jobs@) last."""
+    local = (email or "").split("@")[0].lower()
+    return 0 if local in _GENERAL_MAILBOXES else 2 if local in _JOB_MAILBOXES else 1
+
+
+def _split_by_office(phones: List[str], emails: List[str], place: str,
+                     page_phones: List[str], page_emails: List[str]) -> Tuple[List[str], List[str], List[Dict[str, str]]]:
+    """The office's own numbers and addresses first (the office page's, then the town's, then
+    national numbers and general addresses), and another town's apart, as other offices. The
+    office is the searched town, else the town of the office page's number. A jobs@ address
+    never comes first."""
+    code = _code_for_place(place) or next((c for c in map(_dialling_code, page_phones) if c), "")
+    if not code:
+        return phones, sorted(emails, key=_mailbox_rank), []
+    main_phones, main_emails, others = [], [], []
+    for p in phones:
+        c = _dialling_code(p)
+        if c and c != code and p not in page_phones:
+            others.append({"town": _TOWN_OF_CODE[c].title(), "phone": p})
+        else:
+            main_phones.append(p)
+    for e in emails:
+        town = _town_in_email(e)
+        if town and _UK_AREA_CODES[town] != code and e not in page_emails:
+            others.append({"town": town.title(), "email": e})
+        else:
+            main_emails.append(e)
+    main_phones.sort(key=lambda p: (p not in page_phones, _dialling_code(p) != code))
+    main_emails.sort(key=lambda e: (e not in page_emails, not _town_in_email(e), _mailbox_rank(e)))
+    return main_phones, main_emails, others
+
+
+async def _page_contacts(url: str) -> Dict[str, Any]:
+    """The phones, addresses and description on one page (the office page a company was found on)."""
+    phones: set = set()
+    emails: set = set()
+    description = ""
+    try:
+        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=httpx.Timeout(10.0, connect=4.0), follow_redirects=True) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                _, _, description = await _ingest_html(resp.text, phones, emails, {})
+    except Exception as e:
+        logger.warning(f"Could not read page {url}: {e}")
+    return {"phones": [p for p in phones if _is_real_phone(p)], "emails": [e for e in emails if _is_public_email(e)],
+            "description": description}
+
+
 async def enrich_prospect_intelligence(
     name: str,
     company: Optional[str] = None,
@@ -882,7 +1030,10 @@ async def enrich_prospect_intelligence(
     deep: bool = True,
     place: Optional[str] = None,
     person: Optional[str] = None,
+    page_url: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """page_url: the page the company was found on. When it is one office's page on the company's
+    own site, that office's details come first and other offices' are kept apart."""
     target_company = company or name
     snippets: List[Dict[str, str]] = []
     scraped_info: Dict[str, Any] = {}
@@ -897,6 +1048,9 @@ async def enrich_prospect_intelligence(
             home = _usable_website(domain)
             if home:
                 scraped_info = await crawl_homepage_contacts(home)
+    office: Dict[str, Any] = {}
+    if host and page_url and _host_of(page_url) == host and urllib.parse.urlparse(page_url).path.strip("/"):
+        office = await _page_contacts(page_url)
 
     search_terms = []
     if host:
@@ -975,8 +1129,8 @@ async def enrich_prospect_intelligence(
         if "reddit.com" in url.lower():
             reddit_mentions.append({"title": title, "url": url, "snippet": (s.get("snippet") or "")[:180]})
 
-    discovered_phones = [p for p in (scraped_info.get("phones") or []) if _is_real_phone(p)]
-    for p in snippet_phones:
+    discovered_phones: List[str] = []
+    for p in (office.get("phones") or []) + (scraped_info.get("phones") or []) + snippet_phones:
         if _is_real_phone(p) and p not in discovered_phones:
             discovered_phones.append(p)
     host = ""
@@ -984,7 +1138,8 @@ async def enrich_prospect_intelligence(
         host = _host_of(domain if domain.startswith("http") else "https://" + domain)
         if _is_junk_web_host(host):
             host = ""
-    raw_emails = [e for e in (scraped_info.get("emails") or []) if _is_public_email(e)]
+    raw_emails = [e for e in (office.get("emails") or []) + (scraped_info.get("emails") or []) if _is_public_email(e)]
+    raw_emails = list(dict.fromkeys(raw_emails))
     for e in snippet_emails:
         if _is_public_email(e) and e not in raw_emails:
             raw_emails.append(e)
@@ -998,7 +1153,9 @@ async def enrich_prospect_intelligence(
     if host:
         ranked = [e for e in discovered_emails if host.split(":")[0] in e] + [e for e in discovered_emails if host.split(":")[0] not in e]
         discovered_emails = ranked
-    company_pitch = scraped_info.get("description", "")
+    discovered_phones, discovered_emails, other_offices = _split_by_office(
+        discovered_phones, discovered_emails, place_bit, office.get("phones") or [], office.get("emails") or [])
+    company_pitch = scraped_info.get("description", "") or office.get("description", "")
 
     # Prefer a real company homepage — never LinkedIn/social/search as "domain"
     resolved_domain = ""
@@ -1059,7 +1216,9 @@ async def enrich_prospect_intelligence(
         "primaryPhone": discovered_phones[0] if discovered_phones else "",
         "emails": discovered_emails,
         "primaryEmail": primary_email,
-        "overview": company_pitch or (snippets[0]["snippet"] if snippets else "No detailed summary found."),
+        "otherOffices": other_offices,
+        "overview": company_pitch or next((s["snippet"] for s in snippets if place_bit and place_bit.lower() in (s.get("snippet") or "").lower()),
+                                          snippets[0]["snippet"] if snippets else "No detailed summary found."),
         "openingHook": hook,
         "keyPeople": people[:3],
         "socials": socials,
@@ -1082,28 +1241,170 @@ async def enrich_prospect_intelligence(
 
     return summary_result
 
+# Business directories and data brokers: a result there is about a company (or a list of them)
+# but the address is not that company's own website.
+_DIRECTORY_HOSTS = (
+    "contactout.com", "bizseek.", "yell.com", "yelp.", "cylex", "thomsonlocal.", "freeindex.", "192.com",
+    "scoot.co.uk", "hotfrog.", "bark.com", "checkatrade.", "trustpilot.", "tripadvisor.", "endole.",
+    "companycheck.", "opencorporates.", "company-information.service.gov.uk", "dnb.com", "zoominfo.",
+    "rocketreach.", "apollo.io", "crunchbase.", "glassdoor.", "indeed.", "healthgps.", "nearbydentist.",
+    "nhs.uk", "whatclinic.", "doctify.", "iwantgreatcare.", "firmania.", "brownbook.", "misterwhat.",
+    "yably.", "cybo.", "find-open.", "infobel.", "kompass.", "europages.", "manta.com", "bbb.org",
+    "yellowpages.", "lusha.", "signalhire.", "datanyze.", "craft.co", "companieslist.", "cbinsights.",
+    "prospeo.", "leadiq.", "seamless.ai", "kaspr.", "hunter.io", "snov.io", "adapt.io", "uplead.", "getprospect.",
+    "trustatrader.", "mybuilder.", "ratedpeople.", "rightio.", "hamuch.", "watersafe.", "myjobquote.", "which.co.uk",
+    "houzz.", "threebestrated.", "expertise.com", "cpadirectory.", "vouchedfor.", "accountantsup.", "unbiased.co.uk", "icaew.",
+    "rightmove.", "zoopla.", "onthemarket.", "primelocation.",
+)
+
+# Page names that are not a company's name ("Contact Us | Meliora Dental").
+_GENERIC_PAGE_TITLES = {
+    "contact us", "contact", "home", "home page", "homepage", "about us", "about", "welcome", "our team", "team",
+    "book online", "book an appointment", "services", "our services", "find us", "location", "locations", "index",
+    "companies house", "gov.uk",
+}
+# What directories and brokers add after a company's name.
+_NAME_NOISE = re.compile(r"\s*(overview,? address (&|and) contact|email format.*|company profile.*|"
+                         r"contact (details|information|info|number).*|reviews?( and ratings)?|official (site|website))$", re.I)
+
+
+def _site_name(url: str) -> str:
+    """The name part of a website's address: "bishopfleming" for www.bishopfleming.co.uk/contact."""
+    labels = _host_of(url).split(".")
+    while labels and (len(labels[-1]) <= 2 or labels[-1] in ("com", "org", "net", "gov", "edu", "nhs", "ltd", "plc", "info", "biz")):
+        labels.pop()
+    return labels[-1] if labels else ""
+
+
+def _only_searched_words(text: str, query: str) -> bool:
+    """"Birmingham" or "Accountants" when that is what was searched: the search, not a name."""
+    keys = set(_search_keys(query))
+    words = [w[:5] for w in re.findall(r"[^\W_]+", text.lower()) if len(w) >= 3 and w not in _GENERIC_SEARCH_WORDS]
+    return bool(keys) and bool(words) and all(w in keys for w in words)
+
+
+def _squash(text: str, amp: str = "") -> str:
+    """Letters and digits only: "Smith & Co" -> "smithco" (or "smithandco" with amp="and")."""
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower().replace("&", amp))
+
+
+def _has_site_name(text: str, site: str) -> bool:
+    return site in _squash(text) or site in _squash(text, "and")
+
+
+def _words_spelling(text: str, squashed: str) -> str:
+    """The words in text that spell a website's name ("Leeds Dental Clinic" for "leedsdentalclinic")."""
+    words = re.findall(r"[^\s|,;:()]+", text or "")
+    for amp in ("", "and"):
+        for i in range(len(words)):
+            spelt = ""
+            for j in range(i, min(i + 6, len(words))):
+                spelt += _squash(words[j], amp)
+                if spelt == squashed:
+                    return " ".join(words[i:j + 1]).strip(" .-")
+                if not squashed.startswith(spelt):
+                    break
+    return ""
+
+
+def _company_name_from_title(title: str, url: str, query: str = "", snippet: str = "") -> str:
+    """The company's name from a search result ("Accountants in Birmingham - Menzies LLP" ->
+    "Menzies LLP"). On a company's own site: the title part with the site's name in it, else the
+    words in the title or snippet that spell the site's name, else the site's name; "" when the
+    page lists businesses instead. On a directory: the first title part that is not a page name,
+    the search itself, or the directory's add-on."""
+    parts = [_NAME_NOISE.sub("", re.sub(r"^welcome to\s+", "", p.strip(), flags=re.I)).strip(" ,.-")
+             for p in re.split(r"\s+[-|:—–]\s+|:\s+", title or "")]
+    listing = any(_is_listing_title(p, query) for p in parts)
+    names = [p for p in parts if len(p) >= 2 and p.lower() not in _GENERIC_PAGE_TITLES
+             and not _is_listing_title(p, query) and not _only_searched_words(p, query)]
+    site = _squash(_site_name(url))
+    if _is_directory_host(url) or len(site) < 3:
+        # On a directory, neither its own name ("HaMuch.com") nor a part with every searched word
+        # in it ("Affordable Manchester Plumbers") is a business.
+        keys = _search_keys(query)
+        names = [n for n in names if not (len(site) >= 3 and _has_site_name(n, site))
+                 and (len(keys) < 2 or not all(k in n.lower() for k in keys))]
+        return names[0] if names and not listing else ""
+    for name in names:
+        if _has_site_name(name, site):
+            # "Watkins Solicitors in Bristol, Bath and Somerset" -> "Watkins Solicitors"
+            return (len(name.split()) > 5 and _words_spelling(name, site)) or name
+    spelt = _words_spelling(f"{title} {snippet}", site)
+    if spelt and not _only_searched_words(spelt, query):
+        return spelt
+    return "" if listing else _site_name(url).replace("-", " ").title()
+
+
+def _is_directory_host(url: str) -> bool:
+    host = _host_of(url)
+    return bool(host) and any(d in host for d in _DIRECTORY_HOSTS)
+
+
+# Anywhere in a title, these mean a page about many businesses (or a data broker's page about
+# one person: "Jane Smith Email & Phone Number").
+_LISTS_MANY = re.compile(
+    r"\b(email|phone)( address)? (&|and) (phone|email)( number| address)?\b"
+    r"|\bnear (me|you)\b|\bin your area\b|^(the )?(best|top)\b|\btop \d+\b|\b\d+\s+(best|top)\b|^search results\b|^find\b|\b\d{2,}\+\s"
+    r"|\b\d{2,}\+?\s+(\w+\s+)?(practices|companies|businesses|firms|clinics|results|listings|agencies|shops|providers)\b")
+
+
+def _is_listing_title(name: str, query: str) -> bool:
+    """A results page that lists many businesses ("Dentists in Leeds", "Top 10 accountants",
+    "153 practices near you") rather than one business."""
+    low, q = name.lower().strip(), (query or "").lower().strip()
+    if q and low == q:
+        return True
+    if _LISTS_MANY.search(low):
+        return True
+    keys = _search_keys(q)
+    if any(m.group(1)[:5] in keys for m in re.finditer(r"\b\d{2,}\+?\s+(?:\w+\s+)?(\w+s)\b", low)):
+        return True  # "121 Solicitors serving Bristol"
+    # "<plural trade> in <place>" where the trade or the place is what was searched, e.g.
+    # "Dentists in Leeds" for "dental practices in Leeds". (A business really called "Smiles in
+    # Leeds" would be dropped too; such names are rare next to directory pages.)
+    m = re.match(r"^([a-z&' -]{3,40}?s) (in|near|around) ([a-z][a-z' -]+)$", low)
+    words = set(q.split())
+    return bool(m and (any(w in words for w in m.group(1).split() if len(w) > 3)
+                       or any(w in words for w in m.group(3).split() if len(w) > 2)))
+
+
+# Encyclopedias and dictionaries: about a place or a word, never one business.
+_REFERENCE_PAGE = re.compile(r"wiki(pedia|media|data|tionary|wand)|britannica|\bdictionary\b", re.I)
+
+
 async def discover_new_target_accounts(
     query_or_domain: str,
-    target_role: Optional[str] = "VP, Operations, Decision-Maker"
+    target_role: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    search_query = f"{query_or_domain} contact phone email {target_role}"
+    # The searcher's own words (and a role only if they gave one): padding them with words
+    # like "contact phone email CEO" pulled in data-broker pages and left engines with nothing.
+    search_query = f"{query_or_domain} {target_role}".strip() if target_role else query_or_domain
     results = await search_open_web(search_query, max_results=8)
     
     discovered_accounts = []
+    seen = set()
     for idx, item in enumerate(results):
         title = item.get("title", "")
         snippet = item.get("snippet", "")
         url = item.get("url", "")
         
-        comp_name = title.split(" - ")[0].split(" | ")[0].split(" : ")[0].strip()
+        comp_name = _company_name_from_title(title, url, query_or_domain, snippet)
         if not comp_name or len(comp_name) < 2 or "duckduckgo" in comp_name.lower():
+            continue  # no name, or a page listing businesses: not offered (and not charged)
+        if _LISTS_MANY.search(title.lower()):
+            continue
+        if _REFERENCE_PAGE.search(f"{title} {url}"):
             continue
 
         phone_match = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', snippet)
         phone_candidate = phone_match.group(0).strip() if (phone_match and _is_real_phone(phone_match.group(0))) else ""
         phone = await _telnyx_confirmed_phone(phone_candidate) if phone_candidate else ""
 
-        usable_site = _usable_website(url)
+        usable_site = "" if _is_directory_host(url) else _usable_website(url)
+        if (usable_site or comp_name.lower()) in seen:
+            continue
+        seen.add(usable_site or comp_name.lower())
 
         # Realistic fit score based on authentic verified data availability
         fit_score = 40
@@ -1117,13 +1418,14 @@ async def discover_new_target_accounts(
         discovered_accounts.append({
             "id": f"disc_{idx}_{idx}",
             "name": comp_name,
-            "sector": "Target Industry",
-            "region": "National / Global",
+            # A web result does not say a company's sector or region: left empty, not guessed.
+            "sector": "",
+            "region": "",
             "phone": phone,
             "site": usable_site,
             "contactPerson": "",  # Empty until verified contact is found
             "snippet": snippet,
-            "openingHook": f"Saw {comp_name}'s recent operations focus on {snippet[:60]}... Calling to discuss how our AI voice receptionist can convert more inbound inquiries." if snippet else "",
+            "openingHook": "",
             "fit": min(fit_score, 100),
             "sourceUrl": url
         })

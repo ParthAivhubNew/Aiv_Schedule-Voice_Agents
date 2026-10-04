@@ -133,6 +133,11 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
   // Notifications
   const [copiedId, setCopiedId] = useState(null);
   const [saveMessage, setSaveMessage] = useState("");
+  // A failure shows in the message bar at the foot of the screen, above any open dialog.
+  const showProblem = (msg) => {
+    setSaveMessage(msg);
+    setTimeout(() => setSaveMessage(""), 6000);
+  };
   const [calApiKey, setCalApiKey] = useState("");
   const [calBaseUrl, setCalBaseUrl] = useState("");
   const [showDeveloperOptions, setShowDeveloperOptions] = useState(false);
@@ -304,7 +309,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
   const handleCreateBooking = async (e) => {
     e.preventDefault();
     if (!prospectName || !attendeeEmail || !selectedSlot) {
-      alert("Please fill in attendee name, email, and choose a time slot.");
+      showProblem("Please fill in attendee name, email, and choose a time slot.");
       return;
     }
     setBookingInProgress(true);
@@ -324,7 +329,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       setBookingNotes("");
       await loadData();
     } catch (err) {
-      alert(err.message || "Failed to book meeting.");
+      showProblem(err.message || "Failed to book meeting.");
     } finally {
       setBookingInProgress(false);
     }
@@ -343,7 +348,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       setReschedulingBooking(null);
       await loadData();
     } catch (err) {
-      alert(err.message || "Failed to reschedule meeting.");
+      showProblem(err.message || "Failed to reschedule meeting.");
     } finally {
       setReschedulingLoading(false);
     }
@@ -357,7 +362,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       setCancelReason("");
       await loadData();
     } catch (err) {
-      alert(err.message || "Failed to cancel booking.");
+      showProblem(err.message || "Failed to cancel booking.");
     }
   };
 
@@ -381,7 +386,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       });
       await loadData();
     } catch (err) {
-      alert(err.message || "Failed to create event type.");
+      showProblem(err.message || "Failed to create event type.");
     }
   };
 
@@ -391,7 +396,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       await api.deleteCalcomEventType(id);
       await loadData();
     } catch (err) {
-      alert("Failed to delete event type.");
+      showProblem("Failed to delete event type.");
     }
   };
 
@@ -459,17 +464,17 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       if (acc.config?.email) setHostEmail(acc.config.email);
       await loadData();
     } catch (err) {
-      alert("Failed to set primary account.");
+      showProblem("Failed to set primary account.");
     }
   };
 
   const handleTestAccount = async () => {
     if (!accountForm.email) {
-      alert("Enter the Gmail address first.");
+      setAccountTestResult({ success: false, message: "Enter the Gmail address first." });
       return;
     }
     if (!accountForm.password && !accountForm.id) {
-      alert("Gmail needs a 16-character App Password. Normal Gmail password is rejected.");
+      setAccountTestResult({ success: false, message: "Gmail needs a 16-character App Password. Normal Gmail password is rejected." });
       return;
     }
     setAccountTesting(true);
@@ -515,7 +520,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
   const handleSaveAccount = async (e) => {
     e.preventDefault();
     if (!accountForm.email) {
-      alert("Email is required.");
+      setAccountTestResult({ success: false, message: "Email is required." });
       return;
     }
     try {
@@ -541,7 +546,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       setShowAccountModal(false);
       await loadData();
     } catch (err) {
-      alert("Failed to save communication account.");
+      setAccountTestResult({ success: false, message: "Failed to save communication account." });
     }
   };
 
@@ -2236,7 +2241,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   whiteSpace: "pre-wrap"
                 }}>
                   {embedCodeType === "inline"
-                    ? `<!-- OutReach by Aivhub Cal.com Inline Booking Embed -->
+                    ? `<!-- Outreach by Aivhub Cal.com Inline Booking Embed -->
 <iframe
   src="${appBaseUrl}/book/${embedEventSlug}?embed=true"
   width="100%"
@@ -2245,7 +2250,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
   style="border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);"
   allow="camera; microphone"
 ></iframe>`
-                    : `<!-- OutReach by Aivhub Cal.com Floating Popup Button -->
+                    : `<!-- Outreach by Aivhub Cal.com Floating Popup Button -->
 <script>
   (function (C, A, L) {
     let p = function (a, ar) { a.q.push(ar); };
@@ -2427,7 +2432,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#0F172A" }}>
-                        OutReach by Aivhub Managed Cal.com Engine
+                        Outreach by Aivhub Managed Cal.com Engine
                       </span>
                       <span style={{
                         display: "inline-flex",
@@ -2529,7 +2534,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 {showDeveloperOptions && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
                     <div style={{ fontSize: 12, color: "#64748B", marginBottom: 12 }}>
-                      Only configure these if you are connecting an external cloud Cal.com enterprise account. The default OutReach by Aivhub engine is already active and requires zero credentials.
+                      Only configure these if you are connecting an external cloud Cal.com enterprise account. The default Outreach by Aivhub engine is already active and requires zero credentials.
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
                       <div>

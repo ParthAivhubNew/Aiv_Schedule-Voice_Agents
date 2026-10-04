@@ -115,7 +115,7 @@ async def _operator_json(db: AsyncSession, op: Operator) -> Dict[str, Any]:
         "must_change_password": bool(op.must_change_password),
         "last_login_at": op.last_login_at.isoformat() if op.last_login_at else None,
         "org_id": org_of(op),
-        # OutReach's own organisation runs the AI/telephony provider settings; clients never see them.
+        # Outreach's own organisation runs the AI/telephony provider settings; clients never see them.
         "is_platform_org": org_of(op) == __import__("app.core.platform", fromlist=["x"]).platform_org_id(),
     }
 
@@ -174,11 +174,11 @@ async def _email_temp_password(op: Operator, password: str, welcome: bool, by: s
     link = (settings.PUBLIC_BASE_URL or "").rstrip("/") + "/"
     who = _h.escape(by) if by else "Your admin"
     if welcome:
-        subject = "Your OutReach by Aivhub account"
-        lines = [f"{who} added you to OutReach by Aivhub.", f"Username: <b>{_h.escape(op.username)}</b><br>Temporary password: <b>{_h.escape(password)}</b>",
+        subject = "Your Outreach by Aivhub account"
+        lines = [f"{who} added you to Outreach by Aivhub.", f"Username: <b>{_h.escape(op.username)}</b><br>Temporary password: <b>{_h.escape(password)}</b>",
                  "You will choose your own password when you first sign in."]
     else:
-        subject = "Your OutReach by Aivhub password was reset"
+        subject = "Your Outreach by Aivhub password was reset"
         lines = [f"{who} reset your password.", f"Username: <b>{_h.escape(op.username)}</b><br>Temporary password: <b>{_h.escape(password)}</b>",
                  "You will choose a new password when you sign in. If you did not expect this, tell your admin."]
     msg = render(subject, lines, {"label": "Sign in", "url": link})
@@ -193,7 +193,7 @@ async def _security_notice(db: AsyncSession, ctx: Dict[str, Any], line: str, ski
     try:
         ids = [a.id for a in await admins_in(db, ctx["org_id"]) if a.id not in (ctx["operator_id"], skip)]
         if ids:
-            await notify("security", "Security change in OutReach by Aivhub", [line], only_user_ids=ids)
+            await notify("security", "Security change in Outreach by Aivhub", [line], only_user_ids=ids)
     except Exception:
         pass
 

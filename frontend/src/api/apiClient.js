@@ -233,8 +233,6 @@ export const api = {
   // Prospects & Registry
   getProspects: () => apiRequest('/prospects'),
   getRegistry: () => apiRequest('/prospects/registry'),
-  getLeadgenProspects: () => apiRequest('/prospects/leadgen'),
-  saveLeadgenProspects: (leads) => apiRequest('/prospects/leadgen', { method: 'POST', body: { leads } }),
 
   // Calls
   getLiveCalls: (opts = {}) => apiRequest(opts.includeEnded ? '/calls/live?include_ended=true' : '/calls/live'),
@@ -330,7 +328,13 @@ export const api = {
 
   // AI Lead Radar & Enrichment
   enrichProspect: (payload) => apiRequest('/enrichment/enrich-prospect', { method: 'POST', body: payload }),
-  discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload }),
+  discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload, timeoutMs: 90000 }),
+  // Leads saved accounts (stored per company on the server)
+  listLeadAccounts: () => apiRequest('/leads/accounts'),
+  saveLeadAccounts: (accounts) => apiRequest('/leads/accounts', { method: 'POST', body: { accounts } }),
+  updateLeadAccount: (id, changes) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
+  deleteLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  researchLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/research`, { method: 'POST', timeoutMs: 120000 }),
   fillContactGaps: (payload, extra = {}) => apiRequest('/enrichment/fill-gaps', { method: 'POST', body: payload, signal: extra.signal }),
   copilotChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
   openChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),

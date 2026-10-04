@@ -77,7 +77,7 @@ async def ensure_aivhub_ready() -> None:
         with org_scope(AIVHUB_ORG):
             async with AsyncSessionLocal() as db:
                 for wallet in K.WALLETS:
-                    await K.grant(db, DEMO_CREDITS, note="Demo credits from OutReach", by="OutReach", wallet=wallet)
+                    await K.grant(db, DEMO_CREDITS, note="Demo credits from Outreach", by="Outreach", wallet=wallet)
                 await K.set_org_settings(db, {"enforce": True}, AIVHUB_ORG)
                 await db.commit()
         with system_scope():

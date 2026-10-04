@@ -1,4 +1,4 @@
-"""Error codes for AI work: what users see, and what OutReach staff are told.
+"""Error codes for AI work: what users see, and what Outreach staff are told.
 
 Users see the code and a plain message (never the provider, its key or its raw error). Staff
 see the code with the full detail: an owner-portal banner and an email to STAFF_ADMIN_EMAIL,
@@ -134,7 +134,7 @@ async def _email_staff(code: str, detail: str, ref: str, org: str) -> None:
         from app.core.mailer import render, send_system_email
 
         level = "URGENT: " if STAFF_CODES.get(code) == "urgent" else ""
-        subject = f"{level}OutReach {'AI ' if code.startswith('AI') else ''}{code} for {org}"
+        subject = f"{level}Outreach {'AI ' if code.startswith('AI') else ''}{code} for {org}"
         lines = [f"<b>{code}</b>: {CODES.get(code, '')}", f"Company: {org}", f"Detail: {detail[:800]}"]
         if ref:
             lines.append(f"Reference: {ref}")

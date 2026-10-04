@@ -26,6 +26,51 @@ function numberPrice(n) {
   return c > 0 ? `${c.toLocaleString()} Voice credit${c === 1 ? "" : "s"} a month` : "Included";
 }
 
+// What getting a number involves, shown until the company has one (also before buying is switched
+// on, so documents can be got ready).
+function HowToGetANumber({ price }) {
+  const setup = Number(price?.setupCredits || 0);
+  const monthly = Number(price?.monthlyCredits || 0);
+  const credits = (n) => `${n.toLocaleString()} Voice credit${n === 1 ? "" : "s"}`;
+  const cost = [setup > 0 && `Setup: ${credits(setup)}`, monthly > 0 && `then ${credits(monthly)} a month`].filter(Boolean).join(", ");
+  const steps = [
+    [BadgeCheck, "Verify your business", "UK rules require the phone network to know who uses each number. Upload your documents here; they are checked, usually within about 72 hours."],
+    [Search, "Choose your number", `Search by town or area code and buy it.${cost ? ` ${cost}.` : ""}`],
+    [Phone, "Start calling", "It becomes your caller ID straight away, and you can turn on WhatsApp for it."],
+  ];
+  return (
+    <div style={card}>
+      <div style={h2}>How to get a phone number</div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "10px 0 16px" }}>
+        {steps.map(([Icon, title, text], i) => (
+          <div key={title} style={{ display: "flex", gap: 10, alignItems: "flex-start", flex: "1 1 220px", minWidth: 0 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 9, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Icon size={15} color={C.cobalt} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: C.textInk }}>{i + 1}. {title}</div>
+              <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>{text}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>What you need for step 1</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+        {[[Building2, "Registered company", "Certificate of incorporation, plus a utility bill under 3 months old showing the business name and address."],
+          [User, "Sole trader", "Passport or photo ID, plus a utility bill under 3 months old showing your name and address."]].map(([Icon, title, text]) => (
+          <div key={title} style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: "10px 12px", background: "#FAFAF8" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: C.textInk }}><Icon size={14} color={C.slate} /> {title}</div>
+            <div style={{ fontSize: 12.5, color: C.slate, marginTop: 3, lineHeight: 1.45 }}>{text}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: C.slate, marginTop: 10 }}>
+        Files as PDF, JPG or PNG, up to 10 MB each. The form lists exactly what is needed when you start.
+      </div>
+    </div>
+  );
+}
+
 // Verification status as a small tracker: Submitted → Under review → Approved / Declined.
 function Tracker({ v, onRedo }) {
   const declined = v.status === "declined" || v.status === "expired" || v.status === "error";
@@ -60,7 +105,7 @@ function Tracker({ v, onRedo }) {
         <div style={{ marginTop: 14, padding: "10px 12px", borderRadius: 10, background: C.redSoft, color: C.red, fontSize: 13, display: "flex", gap: 8, alignItems: "flex-start" }}>
           <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            <b>Reason:</b> {v.reason || "Telnyx did not give a reason."}
+            <b>Reason:</b> {v.reason || "No reason was given."}
             <div style={{ marginTop: 8 }}><button type="button" style={btn(true)} onClick={onRedo}><FileUp size={14} /> Upload new documents</button></div>
           </div>
         </div>
@@ -118,7 +163,7 @@ function VerificationWizard({ onDone, onCancel }) {
         <div style={h2}>Verify your business</div>
         <span style={{ fontSize: 12, color: C.slate }}>Step {step} of 2</span>
       </div>
-      <p style={sub}>UK regulators need to know who uses each number. Telnyx checks your documents, usually within about 72 hours.</p>
+      <p style={sub}>UK regulators need to know who uses each number. Your documents are checked, usually within about 72 hours.</p>
 
       {step === 1 && (
         <>
@@ -141,7 +186,7 @@ function VerificationWizard({ onDone, onCancel }) {
 
       {step === 2 && (
         <>
-          {!fields && !error && <div style={{ fontSize: 13, color: C.slate, display: "flex", gap: 6, alignItems: "center" }}><Loader2 size={14} className="nx-spin" /> Loading what Telnyx needs…</div>}
+          {!fields && !error && <div style={{ fontSize: 13, color: C.slate, display: "flex", gap: 6, alignItems: "center" }}><Loader2 size={14} className="nx-spin" /> Loading the form…</div>}
           <div style={{ display: "grid", gap: 14 }}>
             {(fields || []).map((f) => (
               <div key={f.id}>
@@ -171,7 +216,7 @@ function VerificationWizard({ onDone, onCancel }) {
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 18 }}>
             <button type="button" style={btn(false)} onClick={() => setStep(1)}>Back</button>
             <button type="button" style={btn(true, busy || !fields)} disabled={busy || !fields} onClick={submit}>
-              {busy ? <><Loader2 size={14} className="nx-spin" /> Sending to Telnyx…</> : "Submit for review"}
+              {busy ? <><Loader2 size={14} className="nx-spin" /> Sending…</> : "Submit for review"}
             </button>
           </div>
         </>
@@ -240,7 +285,7 @@ function BuyNumber({ verified, onOrdered }) {
                 <div style={{ fontSize: 12, color: C.slate }}>{n.region || "UK"}{n.features?.length ? ` · ${n.features.join(", ")}` : ""}</div>
               </div>
               <div style={{ fontSize: 12.5, color: C.slate, textAlign: "right" }}>{numberPrice(n)}
-                {n.telnyxMonthlyCost != null && <><br /><span title="What Telnyx charges us (only OutReach staff see this)">Telnyx: {n.telnyxMonthlyCost} {n.telnyxCurrency}/mo</span></>}
+                {n.telnyxMonthlyCost != null && <><br /><span title="What Telnyx charges us (only Outreach staff see this)">Telnyx: {n.telnyxMonthlyCost} {n.telnyxCurrency}/mo</span></>}
               </div>
               <button type="button" style={btn(true, !verified || busy)} disabled={!verified || Boolean(busy)} onClick={() => buy(n)}
                 title={verified ? "Buy this number" : "Verify your business first"}>
@@ -388,9 +433,11 @@ export function NumbersPage() {
 
       {!data.platformReady && (
         <div style={{ ...card, background: "#FFF8EB", borderColor: "#F3D9A4", fontSize: 13.5, color: "#7A5200" }}>
-          Buying numbers is not switched on yet. The OutReach team is connecting Telnyx; this page will unlock automatically.
+          Buying numbers is not switched on yet. The Outreach team is setting this up; the form to upload your documents appears here once it is.
+          Meanwhile you can get the documents below ready.
         </div>
       )}
+      {active.length === 0 && <HowToGetANumber price={data.price} />}
       {data.account.status === "error" && data.account.error && (
         <div style={{ ...card, background: C.redSoft, borderColor: "#F0C4B8", fontSize: 13, color: C.red }}>{data.account.error}</div>
       )}
@@ -410,7 +457,7 @@ export function NumbersPage() {
           <div style={h2}>Orders</div>
           {pendingOrders.map((o) => (
             <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "6px 0" }}>
-              <Loader2 size={14} className="nx-spin" color={C.cobalt} /> <span style={{ fontFamily: FONT_MONO }}>{o.phoneNumber}</span> — setting up with Telnyx
+              <Loader2 size={14} className="nx-spin" color={C.cobalt} /> <span style={{ fontFamily: FONT_MONO }}>{o.phoneNumber}</span> — being set up
             </div>
           ))}
           {failedOrders.map((o) => (
@@ -432,7 +479,7 @@ export function NumbersPage() {
               <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14 }}>{n.e164}</span>
               {n.isDefault && <span style={{ fontSize: 11, fontWeight: 700, color: C.cobalt, background: C.cobaltSoft, padding: "2px 8px", borderRadius: 99 }}>Default caller ID</span>}
               {n.capabilities.includes("whatsapp") && <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 99 }}>WhatsApp</span>}
-              {n.capabilities.includes("whatsapp_requested") && <span title={signups[n.id] ? "Waiting for the WhatsApp signup to finish with Meta." : "The OutReach team will contact you to finish Meta's WhatsApp business check for this number."} style={{ fontSize: 11, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "2px 8px", borderRadius: 99 }}>WhatsApp being set up</span>}
+              {n.capabilities.includes("whatsapp_requested") && <span title={signups[n.id] ? "Waiting for the WhatsApp signup to finish with Meta." : "The Outreach team will contact you to finish Meta's WhatsApp business check for this number."} style={{ fontSize: 11, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "2px 8px", borderRadius: 99 }}>WhatsApp being set up</span>}
               {signups[n.id]?.status === "failed" && <span title={signups[n.id].error} style={{ fontSize: 11, fontWeight: 700, color: C.red, background: C.redSoft, padding: "2px 8px", borderRadius: 99 }}>WhatsApp signup failed</span>}
               <span style={{ flex: 1 }} />
               {!n.capabilities.includes("whatsapp") && !n.capabilities.includes("whatsapp_requested") && (
@@ -443,7 +490,7 @@ export function NumbersPage() {
               {(n.capabilities.includes("whatsapp") || n.capabilities.includes("whatsapp_requested")) && (
                 <button type="button" style={btn(false)} onClick={async () => {
                   const live = n.capabilities.includes("whatsapp");
-                  if (live && !window.confirm(`Turn off WhatsApp on ${n.e164}? Messages to it will not show in OutReach until you turn it on again.`)) return;
+                  if (live && !window.confirm(`Turn off WhatsApp on ${n.e164}? Messages to it will not show in Outreach until you turn it on again.`)) return;
                   try { await api.whatsappOff(n.id); setNote(live ? `WhatsApp is off for ${n.e164}.` : "WhatsApp request cancelled."); load(); } catch (err) { setError(err.message); }
                 }}>{n.capabilities.includes("whatsapp") ? "Turn off WhatsApp" : "Cancel request"}</button>
               )}

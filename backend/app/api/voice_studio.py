@@ -241,7 +241,7 @@ async def test_call(body: TestCallBody, request: Request, db: AsyncSession = Dep
     if not op.phone:
         raise HTTPException(status_code=400, detail="Add your phone number first.")
     if not VA.enabled_for_org(ctx["org_id"]):
-        raise HTTPException(status_code=400, detail="Test calls work once your call assistant is switched on by OutReach.")
+        raise HTTPException(status_code=400, detail="Test calls work once your call assistant is switched on by Outreach.")
     picked, err = await pick_caller_id(db, ctx, body.fromNumber or None)
     if err:
         raise HTTPException(status_code=403, detail=err)

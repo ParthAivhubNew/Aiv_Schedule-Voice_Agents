@@ -45,15 +45,17 @@ def _is_aivhub_org(org_id: str) -> bool:
 
 
 async def _has_active_plan(db: AsyncSession, wallets_dict: List[Dict[str, Any]], org_id: str = "") -> Dict[str, bool]:
-    """Per-wallet: does the org's subscription cover it with a live status. Shared by /access
-    (any operator) and /overview (admin-only) so the "what counts as active" rule lives in one
-    place. Aivhub's own org always counts as covered, on every wallet, regardless of whether a
-    subscription row exists for it."""
+    """Per-wallet: may the org use this app: its subscription covers it with a live status, or
+    the wallet has credits (one-off top-ups or staff grants: pay-as-you-go; credits held by a
+    call in progress count, so the app never locks mid-call). Shared by /access (any operator)
+    and /overview (admin-only) so the rule lives in one place. Aivhub's own org always counts
+    as covered, on every wallet, regardless of whether a subscription row exists for it."""
     if _is_aivhub_org(org_id):
         return {w["key"]: True for w in wallets_dict}
     sub = await B.subscription_row(db)
     sub_plans = (sub.plans or {}) if (sub and sub.status in LIVE_SUB_STATUSES) else {}
-    return {w["key"]: bool(sub_plans.get(w["key"])) for w in wallets_dict}
+    return {w["key"]: bool(sub_plans.get(w["key"])) or (w.get("balance") or 0) + (w.get("held") or 0) > 0
+            for w in wallets_dict}
 
 
 @router.get("/access")

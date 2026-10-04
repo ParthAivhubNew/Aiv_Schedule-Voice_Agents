@@ -873,7 +873,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: "-0.01em" }}>
                 {scopePlugin === "voice" ? "Voice AI keys"
                   : scopePlugin === "email" ? "Email Outreach AI keys"
-                  : scopePlugin === "leadgen" ? "Lead Generation AI keys"
+                  : scopePlugin === "leadgen" ? "Leads AI keys"
                   : "AI Configuration"}
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
@@ -894,9 +894,9 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
         {!scopePlugin ? (
         <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
           {[
-            { id: "leadgen", label: "Lead Generation", icon: Search, color: "#8B5CF6" },
+            { id: "leadgen", label: "Leads", icon: Search, color: "#8B5CF6" },
             { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
-            { id: "voice", label: "AI Voice Assistant", icon: PhoneCall, color: C.cobalt },
+            { id: "voice", label: "Voice", icon: PhoneCall, color: C.cobalt },
             { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
           ].map((t) => {
             const Icon = t.icon;
@@ -943,7 +943,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                   <Search size={18} color="#8B5CF6" />
                   <div>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      Lead Generation AI Configuration
+                      Leads AI Configuration
                     </div>
                     <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
                       Powers autonomous account discovery, decision-maker extraction, and live website dossiers.
@@ -963,7 +963,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                  Lead Generation AI Capabilities (User Definable)
+                  Leads AI Capabilities (User Definable)
                 </div>
                 <span style={{ fontSize: 11.5, color: C.slate }}>
                   Type any custom model name or pick from suggestions
@@ -1025,7 +1025,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                   <PhoneCall size={18} color={C.cobalt} />
                   <div>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-                      AI Voice Assistant Configuration
+                      Voice AI Configuration
                     </div>
                     <div style={{ fontSize: 12, color: C.slate, marginTop: 1 }}>
                       Powers real-time phone conversations, ultra-low latency TTS, acoustic STT, and PSTN carrier dialing.
@@ -1045,7 +1045,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>
-                  Voice Assistant AI Capabilities (User Definable)
+                  Voice AI Capabilities (User Definable)
                 </div>
                 <span style={{ fontSize: 11.5, color: C.slate }}>
                   Type any custom model name or pick from suggestions
@@ -1076,7 +1076,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>
-                        {usageStats?.tenantName || operator?.name || "OutReach by Aivhub Workspace"}
+                        {usageStats?.tenantName || operator?.name || "Outreach by Aivhub Workspace"}
                       </div>
                       <span style={{
                         display: "inline-flex",
@@ -1201,7 +1201,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                       <CalendarDays size={15} color={C.teal} />
                       <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Social Media Posts</span>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: C.teal }}>Post Scheduler</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.teal }}>Social</span>
                   </div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
                     {usageStats?.summary?.posts ?? 0} <span style={{ fontSize: 13, fontWeight: 500, color: C.slate }}>posts</span>

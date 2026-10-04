@@ -41,6 +41,7 @@ import { useEscapeLayer } from "./escapeLayers";
 import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
 import { PluginCredits } from "../../team/PluginCredits";
 import { AppSwitcher } from "../../hub/AppSwitcher";
+import { MobileNavBackdrop, MobileTopBar, useMobileNav } from "../../components/MobileNav";
 import { onRouteChange, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
@@ -105,7 +106,7 @@ function CreditsPaused({ count, reason, busy, onContinue, onStartNew, onTopUp })
   return (
     <div role="alert" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "10px 16px 0", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.red}`, background: "#FFF5F5", fontSize: 12.5, color: C.red }}>
       <span style={{ flex: "1 1 260px", minWidth: 0 }}>
-        <b>AI writing paused.</b> {reason || "Out of Post scheduler credits."} {count} post{count === 1 ? "" : "s"} waiting; nothing was charged for them.
+        <b>AI writing paused.</b> {reason || "Out of Social credits."} {count} post{count === 1 ? "" : "s"} waiting; nothing was charged for them.
       </span>
       {onTopUp ? <button type="button" style={b(false)} onClick={onTopUp}>Top up</button> : <span>Ask your admin to top up.</span>}
       <button type="button" style={b(true)} disabled={busy} onClick={onContinue}>Continue where it stopped</button>
@@ -182,7 +183,7 @@ function GenProgressBar({ pct, label, compact }) {
           {n}%
         </div>
       </div>
-      <div style={{ height: compact ? 4 : 6, borderRadius: 99, background: C.paperSoft || "#EFEDE8", overflow: "hidden" }}>
+      <div style={{ height: compact ? 4 : 6, borderRadius: 99, background: C.paperSoft || "#F0F2F5", overflow: "hidden" }}>
         <div style={{
           height: "100%",
           width: n + "%",
@@ -640,6 +641,7 @@ function ApprovalsBoard({
   genProgress,
   retryGeneration,
   scheduleNames,
+  showToast,
 }) {
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
@@ -868,11 +870,11 @@ function ApprovalsBoard({
     e.target.value = "";
     if (!file) return;
     if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
-      window.alert("Use a PNG, JPG or WebP picture.");
+      showToast("Use a PNG, JPG or WebP picture.");
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
-      window.alert("That picture is over 8 MB. Pick a smaller one.");
+      showToast("That picture is over 8 MB. Pick a smaller one.");
       return;
     }
     const reader = new FileReader();
@@ -1941,7 +1943,7 @@ class SimpleBoundary extends React.Component {
     if (this.state.err) {
       return (
         <div style={{ padding: 32, fontFamily: FONT_BODY, color: C.ink }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Post scheduler hit an error</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Social hit an error</div>
           <div style={{ color: C.slate, marginBottom: 16 }}>{String(this.state.err.message || this.state.err)}</div>
           <button
             type="button"
@@ -2369,7 +2371,7 @@ function SimpleAccountsPage({
                 style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
               />
               <div style={{ fontSize: 12, color: C.slate, marginTop: 8, lineHeight: 1.45 }}>
-                If Facebook shows “Login is currently unavailable for this app”: turn on Facebook Login for Business, paste the matching Configuration ID, add this callback URL, and add your Facebook user as Admin/Tester while the app is in Development. That wrench popup is Meta, not OutReach logout. Saved pages below stay until you Reconnect or Remove.
+                If Facebook shows “Login is currently unavailable for this app”: turn on Facebook Login for Business, paste the matching Configuration ID, add this callback URL, and add your Facebook user as Admin/Tester while the app is in Development. That wrench popup is Meta, not Outreach logout. Saved pages below stay until you Reconnect or Remove.
               </div>
             </div>
           ) : null}
@@ -2479,6 +2481,7 @@ export function SocialWorkspace({
   // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
   // Home links straight to /scheduler/subscription.
   const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
+  const nav = useMobileNav(page);
   const { hasPlan: schedulerHasPlan, loading: schedulerPlanLoading } = usePluginAccess("scheduler");
   const pluginLocked = !schedulerPlanLoading && !schedulerHasPlan;
   useEffect(() => onRouteChange(() => {
@@ -2973,7 +2976,7 @@ export function SocialWorkspace({
           showToast(text);
           try {
             if (typeof window !== "undefined" && "Notification" in window && window.Notification.permission === "granted" && document.hidden) {
-              new window.Notification("OutReach Post scheduler", { body: text });
+              new window.Notification("Outreach Social", { body: text });
             }
           } catch (_) { /* browser notifications are a bonus */ }
         });
@@ -3704,7 +3707,7 @@ export function SocialWorkspace({
 
   const openApprovals = (id, targetDate) => {
     if (pluginLocked) {
-      showToast("Subscribe to a plan to unlock Post Scheduler.");
+      showToast("Choose a plan or buy a top-up to unlock Social.");
       return;
     }
     const target = id ? posts.find((p) => p.id === id) : null;
@@ -3835,21 +3838,22 @@ export function SocialWorkspace({
   };
 
   return (
-    <div className="app-shell" style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
+    <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
+      <MobileNavBackdrop nav={nav} />
       <AppChrome />
       <div className="app-sidebar" style={{ width: 228, minWidth: 228, background: C.ink, height: "100vh", display: "flex", flexDirection: "column", padding: "18px 12px", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 12px" }}>
           <div style={{ width: 28, height: 28, borderRadius: 8, background: C.teal, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <CalendarDays size={15} color="#fff" />
           </div>
-          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#fff" }}>Post scheduler</span>
+          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#fff" }}>Social</span>
         </div>
         <AppSwitcher current="scheduler" onHome={onBackToHub} />
 
         <button
           type="button"
           onClick={() => {
-            if (pluginLocked) { showToast("Subscribe to a plan to unlock Post Scheduler."); return; }
+            if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; }
             setPage("plan"); setApprovalOpen(false);
           }}
           style={{
@@ -3901,7 +3905,7 @@ export function SocialWorkspace({
         <button
           type="button"
           onClick={() => {
-            if (pluginLocked) { showToast("Subscribe to a plan to unlock Post Scheduler."); return; }
+            if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; }
             setApprovalOpen(false); setPage("accounts");
           }}
           style={{
@@ -3959,6 +3963,7 @@ export function SocialWorkspace({
       </div>
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <MobileTopBar nav={nav} title="Social" />
         <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
           onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
           onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />
@@ -3982,7 +3987,7 @@ export function SocialWorkspace({
               </div>
               <div>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Subscription Required</div>
-                <div style={{ fontSize: 12.5, color: C.slate }}>Choose a plan below to unlock Post Scheduler.</div>
+                <div style={{ fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Social.</div>
               </div>
             </div>
             <SubscriptionPage wallet="scheduler" back="/scheduler" />
@@ -4003,7 +4008,7 @@ export function SocialWorkspace({
         ) : page === "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Subscription</div>
-            <div style={{ fontSize: 13, color: C.slate, marginBottom: 16 }}>Your post scheduler plan and credits. Change plan, top up, or cancel.</div>
+            <div style={{ fontSize: 13, color: C.slate, marginBottom: 16 }}>Your Social plan and credits. Change plan, top up, or cancel.</div>
             <SubscriptionPage wallet="scheduler" back="/scheduler" />
           </div>
         ) : (
@@ -4608,6 +4613,7 @@ export function SocialWorkspace({
                 genProgress={genProgress}
                 scheduleNames={scheduleNames}
                 retryGeneration={retryGeneration}
+                showToast={showToast}
               />
             </div>
           </div>

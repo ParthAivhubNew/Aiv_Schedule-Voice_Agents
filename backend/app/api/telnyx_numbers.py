@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -28,7 +28,7 @@ def _admin(request: Request) -> Dict[str, Any]:
 
 
 def _staff(ctx: Dict[str, Any]) -> bool:
-    """OutReach staff see what Telnyx charges us; customers only ever see our own prices."""
+    """Outreach staff see what Telnyx charges us; customers only ever see our own prices."""
     from app.core.auth_middleware import platform_org
 
     return ctx.get("org_id") == platform_org()
@@ -39,7 +39,8 @@ async def _our_price(db: AsyncSession) -> Dict[str, Any]:
     from app.services import credits as K
 
     card = await K.rates(db)
-    return {"monthlyCredits": card["phone_number_month"]["credits"], "creditsPerMinute": card["voice_minute"]["credits"]}
+    return {"monthlyCredits": card["phone_number_month"]["credits"], "setupCredits": card["number_setup"]["credits"],
+            "creditsPerMinute": card["voice_minute"]["credits"]}
 
 
 async def _org_name(db: AsyncSession, org_id: str) -> str:
@@ -51,11 +52,11 @@ async def _org_name(db: AsyncSession, org_id: str) -> str:
 
 async def _ready_client(db: AsyncSession, ctx: Dict[str, Any]):
     if not TP.platform_ready():
-        raise HTTPException(status_code=503, detail="Phone numbers are not switched on yet. The OutReach team is setting this up.")
+        raise HTTPException(status_code=503, detail="Phone numbers are not switched on yet. The Outreach team is setting this up.")
     setup = await TP.ensure_setup(db, await _org_name(db, ctx["org_id"]), ctx.get("email") or "")
     await db.commit()
     if setup.status != "ready":
-        raise HTTPException(status_code=503, detail=setup.last_error or "Your Telnyx account is still being set up. Try again in a minute.")
+        raise HTTPException(status_code=503, detail=setup.last_error or "Your phone line is still being set up. Try again in a minute.")
     return setup, TP.client_for(setup)
 
 
@@ -181,7 +182,7 @@ async def submit_verification(
         await K.charge(db, "number_setup", 1, f"setup:{ctx.get('org_id')}:{country.upper()}:{number_type}", "Phone number setup fee")
     await db.commit()
     if sub.status == "error":
-        raise HTTPException(status_code=502, detail=sub.reason or "Telnyx did not accept the submission.")
+        raise HTTPException(status_code=502, detail=sub.reason or "The submission was not accepted.")
     return _sub_json(sub)
 
 
@@ -245,7 +246,7 @@ async def order(body: OrderBody, request: Request, db: AsyncSession = Depends(ge
                              by=ctx.get("name", ""))
     await db.commit()
     if o.status == "failure":
-        raise HTTPException(status_code=502, detail=o.error or "Telnyx could not place the order.")
+        raise HTTPException(status_code=502, detail=o.error or "The order could not be placed.")
     return {"id": o.id, "status": o.status, "phoneNumber": o.phone_number}
 
 
@@ -271,7 +272,7 @@ async def release(number_id: str, request: Request, db: AsyncSession = Depends(g
     try:
         await _release_number(db, n)
     except TelnyxError as err:
-        raise HTTPException(status_code=502, detail=f"Telnyx could not release this number: {err}")
+        raise HTTPException(status_code=502, detail=f"This number could not be released: {err}")
     await db.commit()
     return {"ok": True}
 

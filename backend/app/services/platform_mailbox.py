@@ -1,4 +1,4 @@
-"""OutReach's own mailbox (e.g. one.com), set by staff in the owner portal.
+"""Outreach's own mailbox (e.g. one.com), set by staff in the owner portal.
 
 It does two jobs:
 - System email (invites, password resets, alerts) goes out from it (app.core.mailer), in

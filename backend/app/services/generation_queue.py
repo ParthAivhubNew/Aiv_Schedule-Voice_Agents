@@ -550,7 +550,7 @@ async def _batch_finished(job: Dict[str, Any]) -> None:
         if opts.get("by") and started and datetime.utcnow() - started > EMAIL_AFTER and not watching:
             from app.core.notify import notify
 
-            await notify("posts_ready", text, [text + ".", "Open the Post scheduler to review and approve them."],
+            await notify("posts_ready", text, [text + ".", "Open Social to review and approve them."],
                          only_user_ids=[opts["by"]])
     except Exception as err:
         logger.warning(f"[GenQueue] batch {batch} finish note skipped: {err}")

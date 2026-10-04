@@ -3,10 +3,10 @@ import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, Pill, btn, card, heading, input, useAction, useLoad } from "./ui";
 
-const blank = { email: "", from_name: "OutReach by Aivhub", preset: "one.com", password: "", smtp_host: "", smtp_port: "", smtp_security: "", imap_host: "", imap_port: "", username: "" };
+const blank = { email: "", from_name: "Outreach by Aivhub", preset: "one.com", password: "", smtp_host: "", smtp_port: "", smtp_security: "", imap_host: "", imap_port: "", username: "" };
 const label = { fontSize: 12, fontWeight: 600, color: C.slate, display: "grid", gap: 4 };
 
-// OutReach's own mailbox (e.g. one.com): sends system email (invites, resets, alerts) and is the
+// Outreach's own mailbox (e.g. one.com): sends system email (invites, resets, alerts) and is the
 // warmup partner for every client mailbox. Saving logs in to SMTP and IMAP first.
 export function PlatformMailbox({ canEdit }) {
   const [data, err, reload] = useLoad(adminApi.platformMailbox);
