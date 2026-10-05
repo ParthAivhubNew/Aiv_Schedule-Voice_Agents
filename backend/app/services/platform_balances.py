@@ -102,9 +102,11 @@ async def get_telnyx_live_balance() -> Dict[str, Any]:
 
 
 async def get_deepseek_live_balance() -> Dict[str, Any]:
-    key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    # Platform Keys (any plugin's saved "DeepSeek" LLM key) first, DEEPSEEK_API_KEY only as a
+    # fallback for an install that set it the old way, before that screen read from the database.
+    key = await _platform_key("deepseek") or os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not key:
-        return {"status": "not_configured", "error": "DEEPSEEK_API_KEY is not set."}
+        return {"status": "not_configured", "error": "No DeepSeek key saved."}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.get("https://api.deepseek.com/user/balance",
