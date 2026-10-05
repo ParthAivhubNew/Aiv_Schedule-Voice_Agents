@@ -312,24 +312,27 @@ async def _assess(db: AsyncSession, provider: str, label: str, live: Dict[str, A
     out = {"id": provider, "name": label, **live}
     if live.get("status") != "ok":
         return out
-    remaining = float(live.get("remaining") or 0)
-    points = await _append_history(db, provider, remaining)
-    burn = _burn_per_day(points)
-    runway = (remaining / burn) if (burn and burn > 0) else None
-    headroom = None
-    if wallet and live.get("unit") == "usd" and liabilities.get(wallet) is not None:
-        headroom = round(remaining - liabilities[wallet], 2)
-    recommended_topup = round(burn * 14, 2) if burn else None
+    try:
+        remaining = float(live.get("remaining") or 0)
+        points = await _append_history(db, provider, remaining)
+        burn = _burn_per_day(points)
+        runway = (remaining / burn) if (burn and burn > 0) else None
+        headroom = None
+        if wallet and live.get("unit") == "usd" and liabilities.get(wallet) is not None:
+            headroom = round(remaining - liabilities[wallet], 2)
+        recommended_topup = round(burn * 14, 2) if burn else None
 
-    status = "ok"
-    if remaining <= 0 or (headroom is not None and headroom <= 0) or (runway is not None and runway < RUNWAY_CRITICAL_DAYS):
-        status = "critical"
-    elif (headroom is not None and recommended_topup and headroom < recommended_topup) or (runway is not None and runway < RUNWAY_LOW_DAYS):
-        status = "low"
+        status = "ok"
+        if remaining <= 0 or (headroom is not None and headroom <= 0) or (runway is not None and runway < RUNWAY_CRITICAL_DAYS):
+            status = "critical"
+        elif (headroom is not None and recommended_topup and headroom < recommended_topup) or (runway is not None and runway < RUNWAY_LOW_DAYS):
+            status = "low"
 
-    out.update({"burnPerDay": round(burn, 2) if burn else None, "runwayDays": round(runway, 1) if runway else None,
-                "headroomUsd": headroom, "recommendedTopupUsd": recommended_topup, "status": status,
-                "liabilityUsd": liabilities.get(wallet) if wallet else None, "wallet": wallet})
+        out.update({"burnPerDay": round(burn, 2) if burn else None, "runwayDays": round(runway, 1) if runway else None,
+                    "headroomUsd": headroom, "recommendedTopupUsd": recommended_topup, "status": status,
+                    "liabilityUsd": liabilities.get(wallet) if wallet else None, "wallet": wallet})
+    except Exception as err:
+        logger.warning(f"[platform_balances] {provider} assessment failed: {err}")
     return out
 
 
@@ -340,14 +343,25 @@ async def check_and_alert(db: AsyncSession) -> List[Dict[str, Any]]:
 
     from app.services.credits import platform_liability_usd
 
-    liabilities = await platform_liability_usd()
-    results = await asyncio.gather(*(poller() for _, poller, _ in POLLERS.values()))
+    try:
+        liabilities = await platform_liability_usd()
+    except Exception as err:
+        logger.warning(f"[platform_balances] liability rollup failed, checking balances without headroom: {err}")
+        liabilities = {}
+
+    results = await asyncio.gather(*(poller() for _, poller, _ in POLLERS.values()), return_exceptions=True)
     out = []
     for (provider, (label, _, wallet)), live in zip(POLLERS.items(), results):
-        assessed = await _assess(db, provider, label, live, wallet, liabilities)
-        out.append(assessed)
-        if assessed.get("status") in ("low", "critical"):
-            await _maybe_alert(db, assessed)
+        if isinstance(live, Exception):
+            logger.warning(f"[platform_balances] {provider} poller raised: {live}")
+            continue
+        try:
+            assessed = await _assess(db, provider, label, live, wallet, liabilities)
+            out.append(assessed)
+            if assessed.get("status") in ("low", "critical"):
+                await _maybe_alert(db, assessed)
+        except Exception as err:
+            logger.warning(f"[platform_balances] {provider} check failed: {err}")
     await db.commit()
     return out
 
@@ -397,19 +411,35 @@ async def get_platform_balances_overview(db: AsyncSession) -> Dict[str, Any]:
 
     import asyncio
 
-    liabilities = await platform_liability_usd()
-    results = await asyncio.gather(*(poller() for _, poller, _ in POLLERS.values()))
+    # Liability/headroom is an extra, nice-to-have cross-check -- it must never be able to take
+    # down the live balance display itself if it fails for any reason (new/odd data, a DB hiccup).
+    try:
+        liabilities = await platform_liability_usd()
+    except Exception as err:
+        logger.warning(f"[platform_balances] liability rollup failed, showing balances without headroom: {err}")
+        liabilities = {}
+
+    results = await asyncio.gather(*(poller() for _, poller, _ in POLLERS.values()), return_exceptions=True)
     pollable = {}
     for (provider, (label, _, wallet)), live in zip(POLLERS.items(), results):
+        if isinstance(live, Exception):
+            logger.warning(f"[platform_balances] {provider} poller raised: {live}")
+            pollable[provider] = {"name": label, "status": "error", "error": str(live)[:200]}
+            continue
         if live.get("status") != "ok":
             pollable[provider] = {"name": label, **live}
             continue
-        points = await _history(db, provider)
-        remaining = float(live.get("remaining") or 0)
-        burn = _burn_per_day(points + [{"t": datetime.now(timezone.utc).isoformat(), "remaining": remaining}])
-        runway = (remaining / burn) if (burn and burn > 0) else None
-        headroom = round(remaining - liabilities[wallet], 2) if (wallet and live.get("unit") == "usd" and liabilities.get(wallet) is not None) else None
-        recommended_topup = round(burn * 14, 2) if burn else None
+        try:
+            points = await _history(db, provider)
+            remaining = float(live.get("remaining") or 0)
+            burn = _burn_per_day(points + [{"t": datetime.now(timezone.utc).isoformat(), "remaining": remaining}])
+            runway = (remaining / burn) if (burn and burn > 0) else None
+            headroom = round(remaining - liabilities[wallet], 2) if (wallet and live.get("unit") == "usd" and liabilities.get(wallet) is not None) else None
+            recommended_topup = round(burn * 14, 2) if burn else None
+        except Exception as err:
+            logger.warning(f"[platform_balances] {provider} runway/headroom calc failed, showing raw balance only: {err}")
+            pollable[provider] = {"name": label, **live}
+            continue
         status = "ok"
         if remaining <= 0 or (headroom is not None and headroom <= 0) or (runway is not None and runway < RUNWAY_CRITICAL_DAYS):
             status = "critical"
