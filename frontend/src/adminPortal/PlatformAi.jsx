@@ -50,7 +50,7 @@ export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true 
         {scope === "scheduler" && block("Images", "image", data.imageProviders || [])}
       </div>
       {canEdit && (
-        <button type="button" style={{ ...btn(true), marginTop: 12 }} onClick={() => run(() => adminApi.setPlatformAi(scope, draft), "Saved.")}>
+        <button type="button" style={{ ...btn(true), marginTop: 12, justifySelf: "start" }} onClick={() => run(() => adminApi.setPlatformAi(scope, draft), "Saved.")}>
           Save AI settings
         </button>
       )}

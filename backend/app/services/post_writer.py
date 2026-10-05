@@ -518,6 +518,35 @@ async def generate_image_with_provider(
     width: Optional[int] = None,
     height: Optional[int] = None,
     db: Any = None,
+    scope: str = "scheduler",
+) -> Dict[str, Any]:
+    """Thin wrapper over _generate_image_with_provider: logs real usage (provider/model, one
+    call) for every paid render so its real cost can be tracked, whatever provider answered."""
+    result = await _generate_image_with_provider(
+        prompt, provider=provider, api_key=api_key, model=model, base_url=base_url,
+        style=style, aspect_ratio=aspect_ratio, width=width, height=height, db=db,
+    )
+    if db is not None and result.get("status") == "ok" and (result.get("provider") or "") not in ("", "pollinations"):
+        try:
+            from app.services.ai_pricing import record_usage
+
+            await record_usage(db, plugin=scope, kind="image", provider=result.get("provider") or "", model=result.get("model") or "", units=1.0)
+        except Exception as err:
+            logger.debug(f"[post_writer] image usage not recorded: {err}")
+    return result
+
+
+async def _generate_image_with_provider(
+    prompt: str,
+    provider: Optional[str] = "pollinations",
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    style: str = "modern_saas",
+    aspect_ratio: str = "16:9",
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    db: Any = None,
 ) -> Dict[str, Any]:
     """
     Renders an AI image using the saved ChatGPT/OpenAI key when present.

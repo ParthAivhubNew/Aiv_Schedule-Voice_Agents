@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, AlertTriangle, RefreshCw, Save, ShieldAlert, Wallet, ExternalLink, Info, Receipt } from "lucide-react";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
+import { RefreshCw, Save, ShieldAlert, Wallet, Receipt } from "lucide-react";
+import { C, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, PageTitle, Pill, btn, card, cell, heading, input, useAction, useLoad } from "./ui";
 
@@ -27,8 +27,6 @@ export function Balances({ canEdit }) {
   }
 
   const { pollable = {} } = data;
-  const telnyx = pollable.telnyx || {};
-  const deepseek = pollable.deepseek || {};
 
   const handleToggleAlert = (id) => {
     if (!canEdit) return;
@@ -87,66 +85,12 @@ export function Balances({ canEdit }) {
         <div style={{ ...heading, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
           <Wallet size={16} color="#8B5CF6" /> Live Account Balances
         </div>
+        <div style={{ fontSize: 12.5, color: C.slate, marginTop: -8, marginBottom: 12 }}>
+          Polled every 6 hours. Runway is how fast each is actually depleting, from what really happened — not a guess.
+          Headroom (where shown) is that balance minus what we still owe customers in credits they've already bought.
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
-          {/* Telnyx Card */}
-          <div style={{ ...card, display: "grid", gap: 12, border: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Telnyx Telephony</div>
-              {telnyx.status === "ok" ? (
-                parseFloat(telnyx.available_credit || 0) < 20 ? (
-                  <Pill tone="amber">Low Balance</Pill>
-                ) : (
-                  <Pill tone="green">Live Connected</Pill>
-                )
-              ) : (
-                <Pill tone="red">{telnyx.error || "Offline"}</Pill>
-              )}
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Available Credit
-              </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 700, color: C.ink, marginTop: 2 }}>
-                {telnyx.status === "ok" ? `$${parseFloat(telnyx.available_credit || 0).toFixed(2)} ${telnyx.currency || "USD"}` : "—"}
-              </div>
-            </div>
-            <div style={{ fontSize: 12, color: C.slate, borderTop: `1px solid ${C.border}`, paddingTop: 8, display: "flex", justifyContent: "space-between" }}>
-              <span>Total Account Balance:</span>
-              <span style={{ fontWeight: 600, color: C.ink }}>
-                {telnyx.status === "ok" ? `$${parseFloat(telnyx.balance || 0).toFixed(2)}` : "—"}
-              </span>
-            </div>
-          </div>
-
-          {/* DeepSeek Card */}
-          <div style={{ ...card, display: "grid", gap: 12, border: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>DeepSeek LLM</div>
-              {deepseek.status === "ok" ? (
-                parseFloat(deepseek.total_balance || 0) < 10 ? (
-                  <Pill tone="amber">Low Balance</Pill>
-                ) : (
-                  <Pill tone="green">Live Connected</Pill>
-                )
-              ) : (
-                <Pill tone={deepseek.status === "not_configured" ? "amber" : "red"}>
-                  {deepseek.error || "Offline"}
-                </Pill>
-              )}
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Total Balance
-              </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 700, color: C.ink, marginTop: 2 }}>
-                {deepseek.status === "ok" ? `$${parseFloat(deepseek.total_balance || 0).toFixed(2)} ${deepseek.currency || "USD"}` : "—"}
-              </div>
-            </div>
-            <div style={{ fontSize: 12, color: C.slate, borderTop: `1px solid ${C.border}`, paddingTop: 8, display: "flex", justifyContent: "space-between" }}>
-              <span>Topped-up: ${parseFloat(deepseek.topped_up_balance || 0).toFixed(2)}</span>
-              <span>Granted: ${parseFloat(deepseek.granted_balance || 0).toFixed(2)}</span>
-            </div>
-          </div>
+          {Object.entries(pollable).map(([id, p]) => <BalanceCard key={id} p={p} />)}
         </div>
       </div>
 
@@ -242,6 +186,115 @@ export function Balances({ canEdit }) {
       </div>
 
       <VendorSpend />
+      <ModelPricing />
+    </div>
+  );
+}
+
+// ── Live provider cards: one shape for every pollable provider, whatever its unit ──
+function BalanceCard({ p }) {
+  const tone = { ok: "green", low: "amber", critical: "red", error: "red", not_configured: "amber" }[p.status] || "amber";
+  const label = { ok: "Healthy", low: "Low", critical: "CRITICAL", not_configured: "Not set up" }[p.status] || (p.error || "Offline");
+  const connected = p.status === "ok" || p.status === "low" || p.status === "critical";
+  const fmtRemaining = (n) => (p.unit === "usd" ? `$${Number(n || 0).toFixed(2)}` : `${Number(n || 0).toLocaleString()} ${p.unit || ""}`);
+  return (
+    <div style={{ ...card, display: "grid", gap: 10, border: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}>{p.name}</div>
+        <Pill tone={tone}>{label}</Pill>
+      </div>
+      {connected ? (
+        <>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em" }}>Remaining</div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 700, color: C.ink, marginTop: 2 }}>{fmtRemaining(p.remaining)}</div>
+          </div>
+          <div style={{ fontSize: 12, color: C.slate, display: "grid", gap: 3, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+            <div>Runway: <b style={{ color: C.ink }}>{p.runwayDays != null ? `${p.runwayDays} day(s)` : "not enough history yet"}</b></div>
+            {p.headroomUsd != null && <div>Headroom after customer liability: <b style={{ color: C.ink }}>${Number(p.headroomUsd).toFixed(2)}</b></div>}
+            {p.recommendedTopupUsd ? <div>Recommended top-up: <b style={{ color: C.ink }}>${Number(p.recommendedTopupUsd).toFixed(2)}</b> (~2 weeks)</div> : null}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 12.5, color: C.slate }}>{p.error || "—"}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Section 4: Model Pricing -- every provider/model real usage has ever touched, auto-detected ──
+function ModelPricing() {
+  const [data, err, reload] = useLoad(adminApi.modelPricing);
+  const [msg, run] = useAction(reload);
+  const [drafts, setDrafts] = useState({});
+
+  const items = data?.items || [];
+  const draftOf = (it) => ({ priceIn: it.priceIn, priceOut: it.priceOut, ...(drafts[it.id] || {}) });
+  const set = (id, field, value) => setDrafts((d) => ({ ...d, [id]: { ...d[id], [field]: value } }));
+  const save = (it) => {
+    const d = draftOf(it);
+    run(() => adminApi.saveModelPrice(it.id, parseFloat(d.priceIn) || 0, parseFloat(d.priceOut) || 0), "Saved.");
+  };
+
+  return (
+    <div>
+      <div style={{ ...heading, display: "flex", alignItems: "center", gap: 8 }}>
+        <Receipt size={16} color="#2563EB" /> Model Pricing
+      </div>
+      <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2, marginBottom: 12 }}>
+        Every provider/model real AI calls have actually used, found automatically -- nothing here is a fixed list.
+        A new model shows up the first time it's called, waiting for a price. $ per 1K tokens (LLM in/out separately),
+        per call (image, email finders, lookups), per minute (speech-to-text) or per 1K characters (text-to-speech).
+      </div>
+      <Note error={err}>{err}</Note>
+      <Note error={msg.error}>{msg.text}</Note>
+      {items.length === 0 ? (
+        <div style={{ ...card, color: C.slate, fontSize: 13 }}>No AI usage recorded yet.</div>
+      ) : (
+        <div style={{ ...card, padding: 0, overflow: "hidden", border: `1px solid ${C.border}` }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+              <thead>
+                <tr style={{ background: "#F9FAFB", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 600, fontSize: 12 }}>
+                  <th style={{ padding: "10px 16px" }}>Provider</th>
+                  <th style={{ padding: "10px 16px" }}>Model</th>
+                  <th style={{ padding: "10px 16px" }}>Kind</th>
+                  <th style={{ padding: "10px 16px" }}>Price in / unit</th>
+                  <th style={{ padding: "10px 16px" }}>Price out (LLM)</th>
+                  <th style={{ padding: "10px 16px" }}>Status</th>
+                  <th style={{ padding: "10px 16px" }} />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => {
+                  const d = draftOf(it);
+                  return (
+                    <tr key={it.id} style={{ borderBottom: `1px solid ${C.border}`, background: it.confirmed ? "#fff" : "#FFFBEB" }}>
+                      <td style={{ padding: "10px 16px", fontWeight: 600 }}>{it.provider}</td>
+                      <td style={{ padding: "10px 16px", fontFamily: FONT_MONO, fontSize: 12 }}>{it.model || "—"}</td>
+                      <td style={{ padding: "10px 16px" }}>{it.kind}</td>
+                      <td style={{ padding: "10px 16px" }}>
+                        <input type="number" step="0.0001" value={d.priceIn} onChange={(e) => set(it.id, "priceIn", e.target.value)} style={{ ...input, width: 110 }} />
+                      </td>
+                      <td style={{ padding: "10px 16px" }}>
+                        {it.kind === "llm" ? (
+                          <input type="number" step="0.0001" value={d.priceOut} onChange={(e) => set(it.id, "priceOut", e.target.value)} style={{ ...input, width: 110 }} />
+                        ) : <span style={{ color: C.slate }}>—</span>}
+                      </td>
+                      <td style={{ padding: "10px 16px" }}>
+                        {it.confirmed ? <Pill tone="green">Priced</Pill> : <Pill tone="amber">Needs a price</Pill>}
+                      </td>
+                      <td style={{ padding: "10px 16px" }}>
+                        <button type="button" style={btn(false)} onClick={() => save(it)}>Save</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

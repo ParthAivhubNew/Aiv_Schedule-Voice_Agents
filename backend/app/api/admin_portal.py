@@ -1252,6 +1252,52 @@ async def vendor_costs(request: Request, month: str = ""):
         return await R.vendor_spend(db, month)
 
 
+@router.get("/model-pricing")
+async def get_model_pricing(request: Request):
+    """Every provider/model that has actually been used, with its $ price if staff have set one
+    yet. Nothing here is a fixed list: a new model just shows up the first time it's called."""
+    from app.services.ai_pricing import list_prices
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return {"items": await list_prices(db)}
+
+
+class ModelPriceBody(BaseModel):
+    priceIn: float
+    priceOut: float = 0.0
+
+
+@router.put("/model-pricing/{price_id}")
+async def put_model_pricing(price_id: str, body: ModelPriceBody, request: Request):
+    from app.services.ai_pricing import set_price
+
+    who = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            out = await set_price(db, price_id, body.priceIn, body.priceOut, who.get("name") or who.get("email") or "")
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+        await db.commit()
+    return out
+
+
+@router.get("/model-pricing/monthly-cost")
+async def get_model_pricing_monthly_cost(request: Request, month: str = ""):
+    """Real $ this month cost us across every AI call, by provider/model -- from recorded
+    usage, not a guess. Compare against the rate-card credits actually charged for the margin."""
+    import re
+
+    from app.services.ai_pricing import monthly_cost
+
+    _who(request)
+    month = month or datetime.utcnow().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    async with AsyncSessionLocal() as db:
+        return await monthly_cost(db, month)
+
+
 @router.get("/unit-costs")
 async def get_unit_costs(request: Request):
     from app.services import revenue as R

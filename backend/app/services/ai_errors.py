@@ -16,6 +16,8 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy.future import select
+
 logger = logging.getLogger("ai_errors")
 
 CODES: Dict[str, str] = {
@@ -126,9 +128,34 @@ async def alert_staff(code: str, detail: str, *, ref: str = "", org_id: Optional
         await _email_staff(code, detail, ref, org)
 
 
+async def _staff_emails() -> List[str]:
+    """Every active staff_admin, plus the bootstrap STAFF_ADMIN_EMAIL if set -- the same owner
+    list credit_awards.py emails for spend-limit notices, so a low-balance alert never depends
+    on one person's inbox or one env var nobody rotates when staff changes."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import StaffUser
+
+    out = [(os.getenv("STAFF_ADMIN_EMAIL") or "").strip()]
+    try:
+        with system_scope():
+            async with AsyncSessionLocal() as db:
+                out += [s.email for s in (await db.execute(select(StaffUser).where(
+                    StaffUser.role == "staff_admin", StaffUser.is_active.is_not(False)))).scalars().all()]
+    except Exception as err:
+        logger.warning(f"[ai-errors] could not list staff admins: {err}")
+    seen, uniq = set(), []
+    for e in out:
+        e = (e or "").strip().lower()
+        if e and e not in seen:
+            seen.add(e)
+            uniq.append(e)
+    return uniq
+
+
 async def _email_staff(code: str, detail: str, ref: str, org: str) -> None:
-    to = (os.getenv("STAFF_ADMIN_EMAIL") or "").strip()
-    if not to:
+    recipients = await _staff_emails()
+    if not recipients:
         return
     try:
         from app.core.mailer import render, send_system_email
@@ -141,7 +168,8 @@ async def _email_staff(code: str, detail: str, ref: str, org: str) -> None:
         lines.append("See the owner portal (Platform AI) for the provider's health." if code.startswith("AI")
                      else "See the owner portal (Plans & pricing → Telnyx costs).")
         msg = render(subject, lines, None)
-        await send_system_email(to, subject, msg["html"], msg["text"])
+        for to in recipients:
+            await send_system_email(to, subject, msg["html"], msg["text"])
     except Exception as err:
         logger.warning(f"[ai-errors] staff email failed: {err}")
 

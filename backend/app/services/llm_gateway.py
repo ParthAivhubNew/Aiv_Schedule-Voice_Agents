@@ -27,6 +27,21 @@ def _read_timeout(max_tokens: int) -> float:
     return 45.0 if (max_tokens or 0) <= 2048 else 150.0
 
 
+async def _record(db: Optional[AsyncSession], scope: str, result: Dict[str, Any]) -> None:
+    """Logs this call's real token usage so the real cost can be computed from it -- never raises
+    or slows down the reply; telemetry can't be allowed to break the call it's measuring."""
+    if db is None or not result.get("success") or not result.get("usage"):
+        return
+    try:
+        from app.services.ai_pricing import record_usage
+
+        usage = result["usage"]
+        await record_usage(db, plugin=scope or "", kind="llm", provider=result.get("provider") or "",
+                           model=result.get("model") or "", input_tokens=usage.get("input", 0), output_tokens=usage.get("output", 0))
+    except Exception as err:
+        logger.debug(f"[llm_gateway] usage not recorded: {err}")
+
+
 # Output ceilings most models on these providers accept; asking for more is rejected.
 _OUTPUT_CAPS = (
     ("anthropic", 8192), ("claude", 8192), ("deepseek", 8192), ("groq", 8192),
@@ -321,24 +336,26 @@ async def call_open_chat_llm(
     resolved_model = norm_model
 
     if "anthropic" in resolved_provider or "claude" in resolved_provider:
-        return await _call_anthropic(
+        result = await _call_anthropic(
             messages=formatted_messages,
             api_key=resolved_key,
             model=resolved_model,
             temperature=temperature,
             max_tokens=max_tokens
         )
-
-    # 2. OPENAI / DEEPSEEK / GROQ / XAI / OLLAMA / CUSTOM OPENAI-COMPATIBLE
-    return await _call_openai_compatible(
-        messages=formatted_messages,
-        api_key=resolved_key,
-        provider=resolved_provider,
-        model=resolved_model,
-        base_url=resolved_base_url,
-        temperature=temperature,
-        max_tokens=max_tokens
-    )
+    else:
+        # 2. OPENAI / DEEPSEEK / GROQ / XAI / OLLAMA / CUSTOM OPENAI-COMPATIBLE
+        result = await _call_openai_compatible(
+            messages=formatted_messages,
+            api_key=resolved_key,
+            provider=resolved_provider,
+            model=resolved_model,
+            base_url=resolved_base_url,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+    await _record(db, scope, result)
+    return result
 
 
 async def _call_anthropic(
@@ -376,12 +393,14 @@ async def _call_anthropic(
             if res.status_code == 200:
                 data = res.json()
                 text = "".join([block.get("text", "") for block in data.get("content", [])])
+                usage = data.get("usage") or {}
                 return {
                     "success": True,
                     "reply": text.strip(),
                     "model": data.get("model", model),
                     "provider": "anthropic",
                     "truncated": data.get("stop_reason") == "max_tokens",
+                    "usage": {"input": int(usage.get("input_tokens") or 0), "output": int(usage.get("output_tokens") or 0)},
                 }
             else:
                 err_text = res.text[:300]
@@ -475,12 +494,14 @@ async def _call_openai_compatible(
                 data = res.json()
                 choice = (data.get("choices") or [{}])[0]
                 content = (choice.get("message") or {}).get("content", "") or ""
+                usage = data.get("usage") or {}
                 return {
                     "success": True,
                     "reply": content.strip(),
                     "model": data.get("model", target_model),
                     "provider": provider,
                     "truncated": choice.get("finish_reason") == "length",
+                    "usage": {"input": int(usage.get("prompt_tokens") or 0), "output": int(usage.get("completion_tokens") or 0)},
                 }
             else:
                 err_text = res.text[:300]
@@ -601,13 +622,17 @@ async def call_open_chat_llm_with_tools(
                             "arguments": json.dumps(block.get("input") or {})
                         }
                     })
-            return {
+            usage = data.get("usage") or {}
+            result = {
                 "success": True,
                 "reply": "".join(text_parts).strip(),
                 "tool_calls": tool_calls,
                 "model": data.get("model", target_model),
-                "provider": "anthropic"
+                "provider": "anthropic",
+                "usage": {"input": int(usage.get("input_tokens") or 0), "output": int(usage.get("output_tokens") or 0)},
             }
+            await _record(db, scope, result)
+            return result
         except Exception as e:
             logger.error(f"[TOOLS] Anthropic tool-call request failed: {e}")
             return {"success": False, "error": str(e), "tool_calls": [], "reply": ""}
@@ -646,13 +671,17 @@ async def call_open_chat_llm_with_tools(
             return {"success": False, "error": f"API returned status {res.status_code}: {err_text}", "tool_calls": [], "reply": ""}
         data = res.json()
         message = data.get("choices", [{}])[0].get("message", {}) or {}
-        return {
+        usage = data.get("usage") or {}
+        result = {
             "success": True,
             "reply": message.get("content") or "",
             "tool_calls": message.get("tool_calls") or [],
             "model": data.get("model", target_model),
             "provider": resolved_provider,
+            "usage": {"input": int(usage.get("prompt_tokens") or 0), "output": int(usage.get("completion_tokens") or 0)},
         }
+        await _record(db, scope, result)
+        return result
     except Exception as e:
         logger.error(f"[TOOLS] LLM tool-call request to {endpoint} failed: {e}")
         return {"success": False, "error": str(e), "tool_calls": [], "reply": ""}

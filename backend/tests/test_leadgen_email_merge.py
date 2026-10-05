@@ -19,10 +19,13 @@ def test_starter_credits_is_zero_by_default():
 
 
 def test_platform_balance_non_pollable_defaults():
-    """Verify checklist of non-pollable providers."""
+    """Verify checklist of providers with no balance API at all (ElevenLabs/Deepgram/Hunter/etc.
+    moved to live polling -- see platform_balances.POLLERS -- so they're no longer here)."""
     ids = [p["id"] for p in NON_POLLABLE_DEFAULTS]
-    for required in ("openai", "anthropic", "groq", "xai", "elevenlabs", "deepgram", "cartesia", "calcom"):
+    for required in ("openai", "anthropic", "groq", "xai", "cartesia", "calcom", "icypeas"):
         assert required in ids
+    for now_pollable in ("elevenlabs", "deepgram", "hunter", "findymail", "leadmagic", "bettercontact", "tavily"):
+        assert now_pollable not in ids
 
 
 @pytest.mark.asyncio

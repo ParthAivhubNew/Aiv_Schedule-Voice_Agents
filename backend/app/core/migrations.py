@@ -285,6 +285,25 @@ async def _prospect_leadgen_columns(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE prospects ADD COLUMN IF NOT EXISTS opening_hook TEXT DEFAULT ''"))
 
 
+async def _seed_lookup_vendor_prices(conn: AsyncConnection) -> None:
+    """Carries forward the per-call vendor prices that used to be hardcoded in
+    enrichment_waterfall.py (COST_USD / OTHER_VENDOR_COST_USD) into provider_prices, so billing
+    keeps working exactly as it did -- just as editable data now instead of Python constants.
+    Runs once; staff can change any of these freely afterwards on the Model Pricing screen."""
+    import uuid
+
+    seed = {
+        "icypeas": 0.01, "hunter": 0.03, "findymail": 0.03, "leadmagic": 0.02, "bettercontact": 0.05,
+        "tavily": 0.008, "telnyx_lookup": 0.003,
+    }
+    for provider, price in seed.items():
+        await conn.execute(text(
+            "INSERT INTO provider_prices (id, provider, model, kind, price_in_usd, price_out_usd, confirmed, created_at, updated_at, updated_by) "
+            "VALUES (:id, :p, '', 'lookup', :price, 0, TRUE, now(), now(), 'migration') "
+            "ON CONFLICT (provider, model, kind) DO NOTHING"
+        ), {"id": f"pp_{uuid.uuid4().hex[:12]}", "p": provider, "price": price})
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -303,6 +322,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_13_split_shared_provider_keys", _split_shared_provider_keys_per_plugin),
     ("2026_10_14_remove_seeded_billing_plans", _remove_seeded_billing_plans),
     ("2026_10_15_prospect_leadgen_columns", _prospect_leadgen_columns),
+    ("2026_10_16_seed_lookup_vendor_prices", _seed_lookup_vendor_prices),
 ]
 
 

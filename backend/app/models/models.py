@@ -1312,6 +1312,49 @@ class EnrichmentAttempt(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class ProviderPrice(Base):
+    """What one unit of a provider+model actually costs us -- staff-entered (or still waiting to
+    be), the one source every AI/vendor cost figure in the platform is computed from. A new
+    model seen in real usage gets a blank placeholder row automatically; nothing here is
+    hardcoded in Python, so a model or provider that didn't exist yesterday needs no code change
+    to be tracked, only a price typed in once it shows up."""
+    __tablename__ = "provider_prices"
+    __table_args__ = (UniqueConstraint("provider", "model", "kind", name="uq_provider_price"),)
+
+    id = Column(String, primary_key=True)
+    provider = Column(String, nullable=False, index=True)
+    model = Column(String, default="")  # "" for providers with no model variants (Hunter, BetterContact...)
+    kind = Column(String, nullable=False)  # llm | image | tts | stt | lookup
+    # Meaning of price_in_usd depends on kind: per 1K input tokens (llm), per call (image, lookup),
+    # per minute (stt), per 1K characters (tts). price_out_usd (per 1K output tokens) is llm-only.
+    price_in_usd = Column(Float, default=0.0)
+    price_out_usd = Column(Float, default=0.0)
+    confirmed = Column(Boolean, default=False)  # false until staff has actually set/checked this price
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by = Column(String, default="")
+
+
+class AiUsage(Base):
+    """Every AI call's real usage, captured automatically regardless of provider or model -- the
+    same way enrichment_attempts already tracks the Leadgen vendors. cost_usd is computed from
+    ProviderPrice at call time and stored, so editing a price later never rewrites history."""
+    __tablename__ = "ai_usage"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    plugin = Column(String, default="")  # voice | leadgen | scheduler
+    kind = Column(String, nullable=False)  # llm | image | tts | stt
+    provider = Column(String, nullable=False)
+    model = Column(String, default="")
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
+    units = Column(Float, default=0.0)  # calls / minutes / characters -- whichever `kind` implies
+    cost_usd = Column(Float, default=0.0)
+    priced = Column(Boolean, default=False)  # false if no confirmed price existed yet at call time
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class LeadAccount(Base):
     """A company a Leads user saved: from AI Lead Scout, the Copilot, an import or by hand. Holds
     only what a web search, a research run or the user supplied; anything unknown stays empty."""

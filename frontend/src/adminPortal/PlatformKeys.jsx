@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useLoad } from "./ui";
-import { PlatformMailbox } from "./PlatformMailbox";
 import { PlatformAi } from "./PlatformAi";
 
 const NEEDS_PHONE = ["Telephony", "Messaging"];
@@ -232,9 +231,6 @@ export function PlatformKeys({ canEdit }) {
 
           <div style={heading}>Email Finder & Discovery Keys</div>
           {renderGroupCards(LEADGEN_GROUPS)}
-
-          <div style={heading}>Platform Mailbox</div>
-          <PlatformMailbox canEdit={canEdit} />
         </div>
       )}
 

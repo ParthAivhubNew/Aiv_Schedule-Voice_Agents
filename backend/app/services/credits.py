@@ -232,6 +232,47 @@ async def balance(db, wallet: Optional[str] = None) -> int:
     return sum([await wallet_balance(db, w) for w in WALLETS])
 
 
+async def platform_liability_usd(days: int = 30) -> Dict[str, Optional[float]]:
+    """What we still owe customers, in real $, per wallet -- every organisation's unspent
+    credits, converted using the blended $-per-credit rate actually observed over the last
+    `days` (real AiUsage/EnrichmentAttempt cost divided by real credits charged in that same
+    window -- nothing hardcoded, it's whatever the real numbers say right now). None for a
+    wallet with no priced usage yet: there's nothing true to convert with, and a made-up rate
+    would be worse than admitting we don't know yet."""
+    from sqlalchemy import text as _text
+
+    from app.core.orgs import active_org_ids
+    from app.core.tenancy import org_scope, system_scope
+    from app.database import AsyncSessionLocal
+
+    since = datetime.utcnow() - timedelta(days=days)
+    with system_scope():
+        async with AsyncSessionLocal() as sdb:
+            used = dict((await sdb.execute(_text(
+                "SELECT wallet, -sum(amount) FROM credit_ledger WHERE kind = 'usage' AND created_at >= :s GROUP BY 1"),
+                {"s": since})).all())
+            ai_cost = dict((await sdb.execute(_text(
+                "SELECT plugin, sum(cost_usd) FROM ai_usage WHERE created_at >= :s GROUP BY 1"), {"s": since})).all())
+            leadgen_cost = (await sdb.execute(_text(
+                "SELECT sum(cost_usd) FROM enrichment_attempts WHERE created_at >= :s"), {"s": since})).scalar() or 0.0
+
+    out: Dict[str, Optional[float]] = {}
+    for wallet in WALLETS:
+        credits_used = float(used.get(wallet, 0) or 0)
+        real_cost = float(ai_cost.get(wallet, 0) or 0) + (float(leadgen_cost) if wallet == "leadgen" else 0.0)
+        if credits_used <= 0 or real_cost <= 0:
+            out[wallet] = None
+            continue
+        rate = real_cost / credits_used
+        outstanding = 0
+        for org_id in await active_org_ids():
+            with org_scope(org_id):
+                async with AsyncSessionLocal() as odb:
+                    outstanding += max(0, await wallet_balance(odb, wallet))
+        out[wallet] = round(outstanding * rate, 2)
+    return out
+
+
 async def wallets(db, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
     now = now or datetime.utcnow()
     s = await org_settings(db)

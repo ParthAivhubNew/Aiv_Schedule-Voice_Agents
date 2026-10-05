@@ -124,6 +124,25 @@ async def _telnyx_number_health_loop():
             logger.warning(f"[Telnyx] Number health sweep failed: {loop_err}")
 
 
+async def _platform_balance_check_loop():
+    """Every 6 hours: poll every platform provider we can get a real balance from, track how
+    fast each is actually depleting, and email staff when one goes low or critical. See
+    app.services.platform_balances for the burn-rate/runway/reserve math."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.services.platform_balances import check_and_alert
+    while True:
+        try:
+            await asyncio.sleep(21600)
+            with system_scope():
+                async with AsyncSessionLocal() as db:
+                    await check_and_alert(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Balances] Check cycle failed: {loop_err}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database tables...")
@@ -599,6 +618,7 @@ async def lifespan(app: FastAPI):
     from app.services.email_worker import email_loop
     email_task = asyncio.create_task(email_loop())
     number_health_task = asyncio.create_task(_telnyx_number_health_loop())
+    balance_check_task = asyncio.create_task(_platform_balance_check_loop())
 
     yield
 
@@ -607,6 +627,7 @@ async def lifespan(app: FastAPI):
     generation_task.cancel()
     credits_task.cancel()
     number_health_task.cancel()
+    balance_check_task.cancel()
     logger.info("Shutting down Outreach by Aivhub Voice Agent API...")
 
 app = FastAPI(

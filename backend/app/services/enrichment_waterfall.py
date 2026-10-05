@@ -72,13 +72,13 @@ def classify_pecr_entity(company_name: str, email: str = "") -> str:
 
 PROVIDERS = ["icypeas", "hunter", "findymail", "leadmagic", "bettercontact"]
 LABELS = {"icypeas": "Icypeas", "hunter": "Hunter", "findymail": "Findymail", "leadmagic": "LeadMagic", "bettercontact": "BetterContact"}
-# What one successful search costs us on each provider's entry plan (USD, for the margin report).
-COST_USD = {"icypeas": 0.01, "hunter": 0.03, "findymail": 0.03, "leadmagic": 0.02, "bettercontact": 0.05}
+# What one successful search costs us on each provider lives in the provider_prices table now
+# (Platform Keys -> Model Pricing), not here -- see app.services.ai_pricing.price_per_call.
 
 # Other pay-as-you-go data providers billed per call rather than per verified result (open-web
-# search and phone validation) — not part of the email-finder waterfall above, but priced here
-# too so the admin portal's vendor-spend estimate has one place to read real per-call costs from.
-OTHER_VENDOR_COST_USD = {"tavily": 0.008, "telnyx_lookup": 0.003}
+# search and phone validation) — not part of the email-finder waterfall above, but priced the
+# same way (provider_prices) so the admin portal's vendor-spend estimate has one place to read
+# real per-call costs from.
 OTHER_VENDOR_LABELS = {"tavily": "Tavily (web search)", "telnyx_lookup": "Telnyx (number lookup)"}
 HTTP_TIMEOUT = httpx.Timeout(20.0, connect=8.0)
 
@@ -321,8 +321,11 @@ async def lookup_person_waterfall(
                 if _PROVIDER_FAILS[provider] >= CIRCUIT_FAIL_LIMIT:
                     _PROVIDER_BACKOFF_UNTIL[provider] = time.time() + CIRCUIT_RESET_SECONDS
                 continue
+            from app.services.ai_pricing import price_per_call
+
+            cost = await price_per_call(db, provider) if email_addr else 0.0
             db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider=provider,
-                                     found_email=email_addr or "", cost_usd=COST_USD[provider] if email_addr else 0.0,
+                                     found_email=email_addr or "", cost_usd=cost,
                                      latency_ms=int((time.time() - started) * 1000), hit=st == "verified"))
             if st == "verified":
                 found_email, status, winner = email_addr, st, provider

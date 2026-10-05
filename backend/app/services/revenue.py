@@ -62,8 +62,9 @@ async def vendor_spend(db, month: str) -> Dict[str, Any]:
     finders are exact (every attempt is logged with its real cost); Tavily/Telnyx are a call-count
     estimate at their known per-call price, since those calls aren't logged per-attempt. No auto
     top-up — staff still fund each account by hand on that provider's own site."""
+    from app.services.ai_pricing import price_per_call
     from app.services.credits import _get_doc
-    from app.services.enrichment_waterfall import COST_USD, LABELS, OTHER_VENDOR_COST_USD, OTHER_VENDOR_LABELS
+    from app.services.enrichment_waterfall import LABELS, OTHER_VENDOR_LABELS
 
     start, end = month_range(month)
     rows = (await db.execute(text(
@@ -83,8 +84,9 @@ async def vendor_spend(db, month: str) -> Dict[str, Any]:
     calls_doc = await _get_doc(db, f"vendor_calls:{month}")
     for provider, label in OTHER_VENDOR_LABELS.items():
         calls = int(calls_doc.get(provider, 0) or 0)
+        price = await price_per_call(db, provider)
         providers.append({"provider": provider, "label": label, "calls": calls,
-                           "costUsd": round(calls * OTHER_VENDOR_COST_USD[provider], 2), "exact": False})
+                           "costUsd": round(calls * price, 2), "exact": False})
     providers.sort(key=lambda p: -p["costUsd"])
     return {"month": month, "providers": providers, "totalUsd": round(sum(p["costUsd"] for p in providers), 2)}
 

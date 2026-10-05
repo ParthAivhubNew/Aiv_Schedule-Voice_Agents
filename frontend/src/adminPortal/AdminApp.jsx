@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ClipboardList, Coins, KeyRound, LayoutDashboard, LogOut, PoundSterling, ScrollText, ShieldCheck, Users, UserCog, Wallet } from "lucide-react";
+import { ClipboardList, Coins, KeyRound, LayoutDashboard, LogOut, Mail, PoundSterling, ScrollText, ShieldCheck, Users, UserCog, Wallet } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
 import { AlertsBanner } from "./Alerts";
@@ -9,10 +9,12 @@ import { Clients } from "./Clients";
 import { Dashboard } from "./Dashboard";
 import { Logs } from "./Logs";
 import { PlatformKeys } from "./PlatformKeys";
+import { PlatformMailbox } from "./PlatformMailbox";
 import { Revenue } from "./Revenue";
 import { Queue } from "./Queue";
 import { SignIn } from "./SignIn";
 import { Staff } from "./Staff";
+import { PageTitle } from "./ui";
 
 const PAGES = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -22,6 +24,7 @@ const PAGES = [
   { id: "billing", label: "Plans & pricing", icon: Coins },
   { id: "balances", label: "Balances", icon: Wallet },
   { id: "keys", label: "Platform keys", icon: KeyRound },
+  { id: "mailbox", label: "Mailbox", icon: Mail },
   { id: "logs", label: "Logs", icon: ScrollText },
   { id: "staff", label: "Staff", icon: UserCog },
 ];
@@ -112,6 +115,12 @@ export function AdminApp() {
         {page === "billing" && <Billing canEdit={canEdit} />}
         {page === "balances" && <Balances canEdit={canEdit} />}
         {page === "keys" && <PlatformKeys canEdit={canEdit} />}
+        {page === "mailbox" && (
+          <>
+            <PageTitle title="Platform mailbox" sub="The one mailbox that sends every system email: invites, password resets, low-balance alerts." />
+            <PlatformMailbox canEdit={canEdit} />
+          </>
+        )}
         {page === "logs" && <Logs />}
         {page === "staff" && <Staff me={staff} canEdit={canEdit} />}
       </main>
