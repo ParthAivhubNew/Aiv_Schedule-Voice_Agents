@@ -26,7 +26,6 @@ from app.services.social_oauth import (
     PLATFORMS as OAUTH_PLATFORMS,
     get_oauth_app,
     public_app_dict,
-    save_oauth_app,
     start_oauth,
     finish_oauth,
     callback_html,
@@ -1109,27 +1108,15 @@ async def list_accounts(refresh: bool = False, db: AsyncSession = Depends(get_db
 
 @router.get("/oauth/apps")
 async def list_oauth_apps(db: AsyncSession = Depends(get_db)):
+    """Read-only status (configured or not, no secrets) so each org's Connect buttons know
+    what's available. Saving the Client ID/Secret/Config ID is staff-only now -- see the owner
+    portal's Social OAuth Apps screen (app.api.admin_portal) -- not something any organisation
+    should be able to overwrite for the whole platform from inside its own Social settings."""
     out = []
     for plat in OAUTH_PLATFORMS:
         app = await get_oauth_app(db, plat)
         out.append(public_app_dict(app))
     return {"apps": out, "platforms": list(OAUTH_PLATFORMS)}
-
-
-@router.post("/oauth/apps")
-async def upsert_oauth_app(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-    plat = normalize_platform(payload.get("platform") or "")
-    if plat not in OAUTH_PLATFORMS:
-        raise HTTPException(status_code=400, detail="Unsupported platform")
-    app = await save_oauth_app(
-        db,
-        plat,
-        payload.get("clientId") or payload.get("client_id") or "",
-        payload.get("clientSecret") or payload.get("client_secret") or "",
-        payload.get("redirectUri") or payload.get("redirect_uri") or "",
-        config_id=payload.get("configId") or payload.get("config_id") or "",
-    )
-    return {"status": "ok", "app": public_app_dict(app)}
 
 
 @router.get("/oauth/{platform}/start")

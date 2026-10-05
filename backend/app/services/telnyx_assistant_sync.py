@@ -93,6 +93,24 @@ async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
 
             outbound_ctx = await context_resolver.resolve_outbound(db)
             inbound_ctx = await context_resolver.resolve_inbound(db, "unknown")
+
+            # Same booking-policy instructions the self-hosted voice pipeline already gets
+            # (voice_modular.py) -- without this, the live Telnyx assistant never learns it
+            # should wrap up and hang up at all, so it just keeps talking after goodbyes.
+            # tool_name="hangup", support_delay=False: Telnyx AI Assistant's built-in hang-up
+            # tool is `hangup`, not the self-hosted engine's `end_call(delay_seconds=...)`.
+            try:
+                from app.services.booking_policy import normalize_booking_policy, voice_booking_instructions, voice_hangup_instructions
+                from app.services.calendar_service import calendar_service
+
+                setting = await calendar_service.get_or_create_settings(db)
+                policy = normalize_booking_policy(getattr(setting, "booking_policy", None))
+                for ctx in (outbound_ctx, inbound_ctx):
+                    ctx["policy_booking_instructions"] = voice_booking_instructions(policy)
+                    ctx["policy_hangup_instructions"] = voice_hangup_instructions(policy, tool_name="hangup", support_delay=False)
+            except Exception as policy_err:
+                logger.warning(f"[TELNYX-SYNC] Booking policy load notice: {policy_err}")
+
             outbound_tpl = await template_engine.get_active_template(db, direction="outbound")
             inbound_tpl = await template_engine.get_active_template(db, direction="inbound")
             outbound_prompt = template_engine.render_system_prompt(outbound_tpl, outbound_ctx)
@@ -115,15 +133,38 @@ async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
 
     try:
         from app.services.telephony_provider import public_http_base
-        patch_body = {
-            "instructions": instructions,
-            "dynamic_variables_webhook_url": f"{public_http_base()}/api/telnyx-assistant/call-event",
-        }
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=12.0) as client:
+            # Read the assistant's current tools first so adding `hangup` can never wipe out
+            # tools staff configured by hand in the Telnyx portal (check_availability,
+            # book_appointment, etc. -- those aren't managed by this codebase).
+            tools = []
+            try:
+                get_res = await client.get(f"{TELNYX_ASSISTANTS_URL}/{assistant_id}", headers=headers)
+                if get_res.status_code == 200:
+                    body = get_res.json()
+                    tools = list((body.get("data", body) or {}).get("tools") or [])
+            except Exception as get_err:
+                logger.warning(f"[TELNYX-SYNC] Could not read current tools before sync, leaving tools untouched: {get_err}")
+                tools = None  # None = don't send a tools field at all rather than risk clobbering
+            if tools is not None and not any(isinstance(t, dict) and t.get("type") == "hangup" for t in tools):
+                tools.append({"type": "hangup", "description": "Use this once a short goodbye has been said and the call is naturally over."})
+
+            patch_body = {
+                "instructions": instructions,
+                "dynamic_variables_webhook_url": f"{public_http_base()}/api/telnyx-assistant/call-event",
+                # A literal {{greeting}} placeholder: our call-event webhook resolves it per call
+                # (assistant.initialization fires before the assistant speaks), so Telnyx can
+                # speak the opening line immediately on answer instead of waiting for an LLM
+                # round-trip to generate it as the model's first turn.
+                "greeting": "{{greeting}}",
+            }
+            if tools is not None:
+                patch_body["tools"] = tools
             res = await client.patch(
                 f"{TELNYX_ASSISTANTS_URL}/{assistant_id}",
                 json=patch_body,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                headers=headers,
             )
     except Exception as req_err:
         logger.error(f"[TELNYX-SYNC] Request to Telnyx failed: {req_err}")

@@ -380,7 +380,6 @@ export const api = {
   deleteSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}`, { method: 'DELETE' }),
   publishPost: (postId, payload) => apiRequest(`/scheduler/posts/${postId}/publish`, { method: 'POST', body: payload || {} }),
   getSocialOauthApps: () => apiRequest('/scheduler/oauth/apps'),
-  saveSocialOauthApp: (payload) => apiRequest('/scheduler/oauth/apps', { method: 'POST', body: payload }),
   startSocialOauth: (platform, frontend) => apiRequest(`/scheduler/oauth/${platform}/start${frontend ? `?frontend=${encodeURIComponent(frontend)}` : ''}`),
 
   // Dedicated Process Logs (Multi-Subsystem)

@@ -1062,8 +1062,13 @@ class CalendarService:
 
         native = await self._native_slots(db, setting, date_str, event_type_slug, host_tz)
         cal_open: List[Dict[str, Any]] = []
+        # True only once Cal.com has actually answered successfully for a real event type --
+        # not just "cal_open has few/no entries", which is indistinguishable from a genuinely
+        # busy real day. Only an actual failure to query (no key, no matching event type, a bad
+        # response, an exception) should fall back to the native/synthetic grid below.
+        cal_queried_ok = False
 
-        # Cal.com if connected — parse ISO times properly. Sparse/garbled days fall back to native.
+        # Cal.com if connected — parse ISO times properly.
         if setting.api_key:
             try:
                 api_key = self._calcom_api_key(setting)
@@ -1118,18 +1123,19 @@ class CalendarService:
                                     continue
                                 parsed.append({"time": hhmm, "iso": s.get("start") or s.get("time") if isinstance(s, dict) else s, "available": True})
                             cal_open = parsed
+                            cal_queried_ok = True
             except Exception as e:
                 logger.debug(f"Cal.com slot fetch failed, using native schedule generator: {e}")
 
         native_open = [s for s in native if s.get("available")]
-        # Prefer host diary (native) whenever Cal.com is sparse or emptier — never starve the day to 1 junk slot.
-        if cal_open and len(cal_open) >= 4 and len(cal_open) >= len(native_open):
+        if cal_queried_ok:
+            # Cal.com is configured and genuinely answered -- trust it even if it's a busy day
+            # with zero openings. Silently substituting the synthetic native grid here would
+            # mean confidently offering times that were never actually free.
             slots = cal_open
         else:
-            if cal_open and len(cal_open) < 4:
-                logger.info(
-                    f"Cal.com returned {len(cal_open)} slot(s) for {date_str}; using native {len(native_open)} openings instead."
-                )
+            if setting.api_key:
+                logger.info(f"Cal.com slot query did not succeed for {date_str}; using native {len(native_open)} openings instead.")
             slots = native
 
         if prospect_tz:

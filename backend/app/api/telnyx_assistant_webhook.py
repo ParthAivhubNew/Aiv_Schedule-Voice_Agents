@@ -327,9 +327,19 @@ async def handle_telnyx_assistant_call_event(request: Request):
             call_direction = "outbound"
 
         try:
-            from app.services.conversation_engine import context_resolver
+            from app.services.conversation_engine import context_resolver, template_engine
             async with AsyncSessionLocal() as db:
                 call_context = await context_resolver.resolve_inbound(db, caller_phone or "unknown")
+                # The greeting is direction-specific (outbound opens differently from inbound
+                # reception), so it's rendered from that direction's own active template here --
+                # not read off call_context, which resolve_inbound always builds regardless of
+                # the call's real direction (it's only used above for prospect/company lookup).
+                greeting_text = ""
+                try:
+                    greeting_tpl = await template_engine.get_active_template(db, direction=call_direction)
+                    greeting_text = template_engine.render_initial_greeting(greeting_tpl, call_context)
+                except Exception as greet_err:
+                    logger.warning(f"[TELNYX-ASSISTANT] Greeting render failed, Telnyx will fall back to its own default: {greet_err}")
             prospect = call_context.get("prospect") or {}
             company = call_context.get("company") or {}
             if call_direction == "inbound":
@@ -337,18 +347,26 @@ async def handle_telnyx_assistant_call_event(request: Request):
                 ccid = call_control_id_from_assistant_payload(payload)
                 if ccid:
                     asyncio.create_task(track_inbound(ccid, caller_phone, prospect.get("name") or ""))
+            agent_name, company_name = company.get("agent_name") or "", company.get("name") or ""
+            # Telnyx substitutes {{greeting}} literally from this variable -- an empty value
+            # would have it say nothing at all, so this always has a spoken fallback, never "".
+            if not greeting_text.strip():
+                greeting_text = f"Hi, this is {agent_name or 'your assistant'}" + (f" from {company_name}." if company_name else ".")
             return {
                 "dynamic_variables": {
                     "caller_name": prospect.get("name") or "there",
                     "customer_name": prospect.get("name") or "there",
-                    "company_name": company.get("name") or "",
-                    "agent_name": company.get("agent_name") or "",
+                    "company_name": company_name,
+                    "agent_name": agent_name,
                     "call_direction": call_direction,
+                    "greeting": greeting_text,
                 }
             }
         except Exception as err:
             logger.warning(f"[TELNYX-ASSISTANT] Dynamic variable resolution failed: {err}")
-            return {"dynamic_variables": {"call_direction": call_direction}}
+            # Still resolve {{greeting}} to something spoken, even on total failure -- an unset
+            # variable would otherwise leave Telnyx speaking the literal "{{greeting}}" text.
+            return {"dynamic_variables": {"call_direction": call_direction, "greeting": "Hi, thanks for your time."}}
 
     if any(kw in event_type.lower() for kw in _CALL_END_KEYWORDS):
         from app.services.telnyx_assistant_calls import call_control_id_from_assistant_payload, finish_call, is_tracked

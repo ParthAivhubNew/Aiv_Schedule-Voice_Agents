@@ -259,8 +259,14 @@ def voice_booking_instructions(policy: Optional[Dict[str, Any]]) -> str:
     return body
 
 
-def voice_hangup_instructions(policy: Optional[Dict[str, Any]]) -> str:
-    """WRAP-UP / hang-up lines. Wording prefers Extra call rules; defaults if none."""
+def voice_hangup_instructions(policy: Optional[Dict[str, Any]], tool_name: str = "end_call", support_delay: bool = True) -> str:
+    """WRAP-UP / hang-up lines. Wording prefers Extra call rules; defaults if none.
+
+    tool_name/support_delay let a caller point this at whichever hang-up tool their voice
+    pipeline actually has: the self-hosted xAI/LiveKit engine's own `end_call(delay_seconds=...)`
+    (the default, unchanged), or Telnyx AI Assistant's built-in `hangup` tool, which takes no
+    delay_seconds at all -- telling the model to pass one there would reference a parameter the
+    tool doesn't have."""
     p = normalize_booking_policy(policy)
     delay = int(p.get("hangup_delay_seconds") or 4)
     delay = max(2, min(delay, 15))
@@ -290,9 +296,12 @@ def voice_hangup_instructions(policy: Optional[Dict[str, Any]]) -> str:
         )
     else:
         lines.append(f'  Speak a short goodbye. Default: "{goodbye}" (or EXTRA hang-up goodbye if written).')
-    lines.append(
-        f"- Then call end_call with delay_seconds around {delay} so the goodbye can finish speaking before the line drops."
-    )
+    if support_delay:
+        lines.append(
+            f"- Then call {tool_name} with delay_seconds around {delay} so the goodbye can finish speaking before the line drops."
+        )
+    else:
+        lines.append(f"- Then call {tool_name} so the line drops right after the goodbye.")
     lines.append("- Never leave the line open after wrap-up. Never hang up mid-sentence without finishing the goodbye.")
     if extra and re.search(r"hang[\s\-]?up|goodbye|before i (hang|cut)|end the call", extra, re.I):
         lines.append(

@@ -241,9 +241,85 @@ export function PlatformKeys({ canEdit }) {
 
           <div style={heading}>Writing & Image Keys</div>
           {renderGroupCards(SCHEDULER_GROUPS)}
+
+          <div style={heading}>Social OAuth Apps</div>
+          <SocialOAuthApps canEdit={canEdit} />
         </div>
       )}
     </>
+  );
+}
+
+const OAUTH_LABELS = { linkedin: "LinkedIn", x: "X", facebook: "Facebook", instagram: "Instagram", threads: "Threads" };
+
+// The one shared developer-app registration (Client ID/Secret) behind every organisation's
+// "Connect LinkedIn/Facebook/..." button -- staff-only. Organisations only ever see whether
+// it's configured, never these values (see SocialWorkspace.jsx's read-only status check).
+function SocialOAuthApps({ canEdit }) {
+  const [data, err, reload] = useLoad(adminApi.socialOauthApps);
+  const [msg, run] = useAction(reload);
+  const [open, setOpen] = useState("");
+  const [draft, setDraft] = useState({ clientId: "", clientSecret: "", configId: "" });
+
+  if (!data) return <Note error={err}>{err}</Note>;
+  const platforms = (data.platforms || []).filter((p) => p !== "instagram");
+  const appFor = (p) => (data.apps || []).find((a) => a.platform === p) || {};
+
+  const save = (platform) => run(() => {
+    if (!draft.clientId.trim() || !draft.clientSecret.trim()) {
+      throw new Error("Client ID and Client Secret are both required.");
+    }
+    return adminApi.saveSocialOauthApp(platform, {
+      clientId: draft.clientId.trim(),
+      clientSecret: draft.clientSecret.trim(),
+      configId: draft.configId.trim(),
+      redirectUri: (data.defaultCallback || {})[platform] || "",
+    }).then((r) => { setOpen(""); return r; });
+  }, `${OAUTH_LABELS[platform] || platform}: app saved. Organisations can now click Connect.`);
+
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ fontSize: 12.5, color: C.slate }}>
+        One Client ID + Secret per network, shared by every organisation's "Connect" button. Paste these from each
+        network's own developer portal; register the callback URL shown below there too.
+      </div>
+      <Note error={msg.error}>{msg.text}</Note>
+      {platforms.map((p) => {
+        const app = appFor(p);
+        const isOpen = open === p;
+        const isFacebook = p === "facebook";
+        return (
+          <div key={p} style={{ ...card, display: "grid", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontWeight: 700 }}>{OAUTH_LABELS[p] || p}{isFacebook ? " (also powers Instagram)" : ""}</div>
+              {app.configured ? <Pill tone="green">Configured{app.clientIdHint ? `: ${app.clientIdHint}` : ""}</Pill> : <Pill>Not set up</Pill>}
+            </div>
+            <div style={mono}>Callback URL: {(data.defaultCallback || {})[p] || app.callbackUrl || ""}</div>
+            {canEdit && (isOpen ? (
+              <div style={{ display: "grid", gap: 6, maxWidth: 420 }}>
+                <input aria-label={`${p} client id`} placeholder="Client ID" value={draft.clientId}
+                  onChange={(e) => setDraft({ ...draft, clientId: e.target.value })} style={input} />
+                <input aria-label={`${p} client secret`} type="password" placeholder={app.hasSecret ? "New secret (empty = keep saved one)" : "Client secret"}
+                  value={draft.clientSecret} onChange={(e) => setDraft({ ...draft, clientSecret: e.target.value })} style={input} />
+                {isFacebook && (
+                  <input aria-label="Facebook Login for Business Configuration ID" placeholder="Facebook Login for Business -- Configuration ID (optional)"
+                    value={draft.configId} onChange={(e) => setDraft({ ...draft, configId: e.target.value })} style={input} />
+                )}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" style={btn(true)} onClick={() => save(p)}>Save</button>
+                  <button type="button" style={btn(false)} onClick={() => setOpen("")}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" style={{ ...btn(false), justifySelf: "start" }}
+                onClick={() => { setOpen(p); setDraft({ clientId: "", clientSecret: "", configId: "" }); }}>
+                {app.configured ? "Replace" : "Set up"}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

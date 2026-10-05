@@ -852,6 +852,40 @@ async def _as_platform(fn, *args):
             return await fn(*args, db)
 
 
+@router.get("/social-oauth-apps")
+async def list_social_oauth_apps(request: Request):
+    """The one shared developer-app registration per social network (Client ID/Secret/Config
+    ID) that every organisation's "Connect LinkedIn/Facebook/..." button relies on -- staff
+    only. Secrets are never returned, only a hint and whether one is saved."""
+    from app.services.social_oauth import PLATFORMS, default_redirect_uri, get_oauth_app, public_app_dict
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        apps = [public_app_dict(await get_oauth_app(db, plat)) for plat in PLATFORMS]
+    return {"apps": apps, "platforms": list(PLATFORMS),
+            "defaultCallback": {p: default_redirect_uri(p) for p in PLATFORMS}}
+
+
+class SocialOAuthAppBody(BaseModel):
+    clientId: str = ""
+    clientSecret: str = ""
+    configId: str = ""
+    redirectUri: str = ""
+
+
+@router.put("/social-oauth-apps/{platform}")
+async def put_social_oauth_app(platform: str, body: SocialOAuthAppBody, request: Request):
+    from app.services.social_oauth import PLATFORMS, normalize_platform, public_app_dict, save_oauth_app
+
+    _admin_only(request)
+    plat = normalize_platform(platform)
+    if plat not in PLATFORMS:
+        raise HTTPException(status_code=400, detail="Unsupported platform.")
+    async with AsyncSessionLocal() as db:
+        app_row = await save_oauth_app(db, plat, body.clientId, body.clientSecret, body.redirectUri, config_id=body.configId)
+    return {"app": public_app_dict(app_row)}
+
+
 @router.get("/platform-keys")
 async def platform_keys(request: Request):
     """Provider groups with masked keys (never the keys themselves) and the Telnyx assistant."""

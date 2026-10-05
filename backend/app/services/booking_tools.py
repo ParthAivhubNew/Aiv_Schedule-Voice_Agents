@@ -162,12 +162,17 @@ async def execute_smart_booking_tool(
                 prospect_tz=timezone
             )
             if slots and isinstance(slots, list):
-                # Return up to 6 formatted slots
-                formatted = [s.get("time") or s.get("start") or str(s) for s in slots[:6]]
+                # `slots` is the whole day's grid (booked/past/lunch slots included, each
+                # carrying its own "available" flag) -- must filter to real openings before
+                # truncating, or the first 6 half-hour-step slots from opening time (e.g.
+                # 09:00-10:15) get handed to the caller every time regardless of what's
+                # actually free, hiding every real opening later in the day.
+                open_slots = [s for s in slots if s.get("available")]
+                formatted = [s.get("time") or s.get("start") or str(s) for s in open_slots[:6]]
                 return {
                     "success": True,
                     "available_slots": formatted,
-                    "total_found": len(slots),
+                    "total_found": len(open_slots),
                     "timezone": timezone
                 }
             return {

@@ -115,6 +115,8 @@ export const adminApi = {
   platformBalances: () => request("/platform-balances"),
   saveBalanceChecklist: (checklist) => request("/platform-balances/checklist", { method: "POST", body: { checklist } }),
   vendorCosts: (month) => request(`/vendor-costs?month=${q(month)}`),
+  socialOauthApps: () => request("/social-oauth-apps"),
+  saveSocialOauthApp: (platform, body) => request(`/social-oauth-apps/${q(platform)}`, { method: "PUT", body }),
   modelPricing: () => request("/model-pricing"),
   saveModelPrice: (id, priceIn, priceOut) => request(`/model-pricing/${q(id)}`, { method: "PUT", body: { priceIn, priceOut } }),
   modelPricingMonthlyCost: (month) => request(`/model-pricing/monthly-cost?month=${q(month)}`),

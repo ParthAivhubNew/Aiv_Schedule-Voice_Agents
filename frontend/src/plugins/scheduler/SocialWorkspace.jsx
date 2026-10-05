@@ -2156,11 +2156,10 @@ function SimpleAccountsPage({
   setKnowledgeSources,
   operator,
 }) {
+  // Whether each network's shared app (Client ID/Secret) is set up -- read-only here. Staff set
+  // that up once for the whole platform from the owner portal's Social OAuth Apps screen;
+  // regular organisations only ever see this yes/no status, never the credentials themselves.
   const [oauthApps, setOauthApps] = useState([]);
-  const [setupPlat, setSetupPlat] = useState("linkedin");
-  const [setupForm, setSetupForm] = useState({ clientId: "", clientSecret: "", configId: "" });
-  const [publicBaseUrl, setPublicBaseUrl] = useState(defaultPublicApiUrl);
-  const [savingApp, setSavingApp] = useState(false);
 
   const loadApps = useCallback(() => {
     api.getSocialOauthApps()
@@ -2171,54 +2170,6 @@ function SimpleAccountsPage({
   useEffect(() => { loadApps(); }, [loadApps]);
 
   const appFor = (plat) => oauthApps.find((a) => a.platform === plat) || {};
-  const chFor = (id) => CHANNELS.find((c) => c.id === id) || { id, label: id, color: C.ink, soft: HUB_PAPER, mark: id.slice(0, 2) };
-
-  const resolvedPublicBase = () => {
-    const typed = (publicBaseUrl || "").trim().replace(/\/$/, "");
-    if (typed) return typed;
-    const savedCb = appFor(setupPlat).callbackUrl || "";
-    const saved = String(savedCb).replace(/\/api\/scheduler\/oauth\/[^/]+\/callback.*$/, "");
-    if (saved && !saved.includes("127.0.0.1") && !saved.includes("localhost")) return saved;
-    try {
-      const o = (window.location.origin || "").replace(/\/$/, "");
-      if (o && !o.includes("localhost") && !o.includes("127.0.0.1")) return o;
-    } catch (_) {}
-    return "http://127.0.0.1:8000";
-  };
-
-  const callbackFor = (plat) => `${resolvedPublicBase()}/api/scheduler/oauth/${plat}/callback`;
-  const setupApp = appFor(setupPlat);
-  const setupLabel = chFor(setupPlat).label;
-
-  const saveApp = async () => {
-    if (!setupForm.clientId.trim() || !setupForm.clientSecret.trim()) {
-      showToast("Client ID and Client Secret required.");
-      return;
-    }
-    const base = resolvedPublicBase();
-    if (!/^https?:\/\//i.test(base)) {
-      showToast("Public API URL must start with https:// or http://");
-      return;
-    }
-    setSavingApp(true);
-    try {
-      await api.saveSocialOauthApp({
-        platform: setupPlat,
-        clientId: setupForm.clientId.trim(),
-        clientSecret: setupForm.clientSecret.trim(),
-        configId: setupForm.configId.trim(),
-        redirectUri: `${base}/api/scheduler/oauth/${setupPlat}/callback`,
-      });
-      setSetupForm({ clientId: "", clientSecret: "", configId: "" });
-      setPublicBaseUrl(base);
-      loadApps();
-      showToast(setupLabel + " app saved. Register the callback URL, then Connect.");
-    } catch (e) {
-      showToast(e.message || "Could not save app");
-    } finally {
-      setSavingApp(false);
-    }
-  };
 
   const displayName = (a) => {
     const h = String((a && a.handle) || "").trim();
@@ -2327,80 +2278,6 @@ function SimpleAccountsPage({
           setKnowledgeSources={setKnowledgeSources}
           showToast={showToast}
         />
-
-        {operator?.is_platform_org && (
-        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Network app setup (Aivhub staff only, once per network)</div>
-          <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginBottom: 14 }}>
-            Paste Client ID + Secret from the platform developer portal. Operators then only click Connect.
-          </div>
-          <label style={labelStyle}>Public API URL (no path)</label>
-          <input
-            value={publicBaseUrl}
-            onChange={(e) => setPublicBaseUrl(e.target.value)}
-            placeholder="https://app.aivhub.com"
-            style={{ width: "100%", boxSizing: "border-box", marginBottom: 12, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
-          />
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-            {CHANNELS.map((ch) => (
-              <button
-                key={ch.id}
-                type="button"
-                onClick={() => setSetupPlat(ch.id)}
-                style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: setupPlat === ch.id ? C.ink : HUB_PAPER, color: setupPlat === ch.id ? "#fff" : C.ink, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-              >
-                {ch.label}{appFor(ch.id).configured ? " ✓" : ""}
-              </button>
-            ))}
-          </div>
-          <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
-            Callback URL to register on {setupLabel}:
-            {(setupPlat === "facebook" || setupPlat === "instagram" ? ["facebook", "instagram"] : [setupPlat]).map((p) => (
-              <code key={p} style={{ display: "block", marginTop: 4, padding: "8px 10px", background: HUB_PAPER, borderRadius: 8, color: C.ink, wordBreak: "break-all" }}>
-                {callbackFor(p)}
-              </code>
-            ))}
-          </div>
-          {(setupPlat === "facebook" || setupPlat === "instagram") ? (
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Facebook Login for Business — Configuration ID</label>
-              <input
-                value={setupForm.configId}
-                onChange={(e) => setSetupForm((f) => ({ ...f, configId: e.target.value }))}
-                placeholder={setupApp.hasConfigId ? "saved — paste to replace" : "From Facebook Login for Business → Configurations"}
-                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
-              />
-              <div style={{ fontSize: 12, color: C.slate, marginTop: 8, lineHeight: 1.45 }}>
-                If Facebook shows “Login is currently unavailable for this app”: turn on Facebook Login for Business, paste the matching Configuration ID, add this callback URL, and add your Facebook user as Admin/Tester while the app is in Development. That wrench popup is Meta, not Outreach logout. Saved pages below stay until you Reconnect or Remove.
-              </div>
-            </div>
-          ) : null}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
-            <div>
-              <label style={labelStyle}>Client ID</label>
-              <input
-                value={setupForm.clientId}
-                onChange={(e) => setSetupForm((f) => ({ ...f, clientId: e.target.value }))}
-                placeholder={setupApp.clientIdHint || "client id"}
-                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Client secret</label>
-              <input
-                type="password"
-                value={setupForm.clientSecret}
-                onChange={(e) => setSetupForm((f) => ({ ...f, clientSecret: e.target.value }))}
-                placeholder={setupApp.hasSecret ? "•••• saved" : "secret"}
-                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY }}
-              />
-            </div>
-            <button type="button" onClick={saveApp} disabled={savingApp} style={{ ...priBtn, height: 38, background: C.teal, whiteSpace: "nowrap" }}>
-              {savingApp ? "Saving…" : "Save app"}
-            </button>
-          </div>
-        </div>
-        )}
 
       </div>
     </div>
