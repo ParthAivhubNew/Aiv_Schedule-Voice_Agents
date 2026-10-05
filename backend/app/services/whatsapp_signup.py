@@ -45,10 +45,27 @@ TEMPLATES = [
 CONFIRMATION = "outreach_meeting_confirmation"
 
 
-def app_id() -> str:
+async def app_id() -> str:
+    """WHATSAPP_META_APP_ID if set (a dedicated app for exactly this); otherwise the same Meta
+    app already used for Facebook/Instagram login -- staff-saved in Platform Keys -> Social ->
+    Social OAuth Apps first (the DB is the live source of truth there now), the FACEBOOK_OAUTH_CLIENT_ID
+    env var only as a fallback for an install that's never opened that screen."""
     from app.config import settings
 
-    return (os.getenv("WHATSAPP_META_APP_ID") or settings.FACEBOOK_OAUTH_CLIENT_ID or "").strip()
+    dedicated = (os.getenv("WHATSAPP_META_APP_ID") or "").strip()
+    if dedicated:
+        return dedicated
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services.social_oauth import get_oauth_app
+
+        async with AsyncSessionLocal() as db:
+            fb = await get_oauth_app(db, "facebook")
+        if fb.get("clientId"):
+            return str(fb["clientId"]).strip()
+    except Exception as err:
+        logger.debug(f"[whatsapp_signup] Facebook app id DB lookup skipped: {err}")
+    return (settings.FACEBOOK_OAUTH_CLIENT_ID or "").strip()
 
 
 def _client() -> TelnyxClient:
@@ -67,7 +84,7 @@ async def automatic() -> bool:
     Telnyx's own records are the one source of truth for whether that onboarding is done."""
     import time
 
-    app, key = app_id(), platform_key()
+    app, key = await app_id(), platform_key()
     if not (app and key):
         return False
     if os.getenv("WHATSAPP_META_APP_ID", "").strip():
@@ -124,7 +141,7 @@ async def start(db, number) -> Any:
     s = await signup_for(db, number.id)
     if s and s.status == "link_sent" and s.signup_url and not expired(s):
         return s
-    data = await _client().create_hosted_signup(app_id())
+    data = await _client().create_hosted_signup(await app_id())
     link = _url(data)
     if not link:
         raise TelnyxError("Telnyx did not return a signup link.")
