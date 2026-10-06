@@ -584,7 +584,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
   });
 
   const appBaseUrl = typeof window !== "undefined" ? window.location.origin : "";
-  const calcomPublicUrl = typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:3000` : "";
+  // This product's own bookings run on the native engine above (Admin Engine Active) -- this is
+  // just a convenience link to the real Cal.com, for anyone who wants to sign into their own
+  // separate Cal.com account. Not connected to this organisation's data in any way.
+  const calcomPublicUrl = "https://app.cal.com";
   const primaryAccount = accounts.find(a => a.config?.is_primary) || accounts[0];
 
   return (
@@ -668,27 +671,6 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button
-              onClick={() => window.open(calcomPublicUrl, "_blank")}
-              title="Open full Cal.com web application in new tab"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "7px 12px",
-                borderRadius: 8,
-                border: "1px solid #CBD5E1",
-                background: "#FFFFFF",
-                fontSize: 12,
-                fontWeight: 600,
-                color: "#334155",
-                cursor: "pointer"
-              }}
-            >
-              <ExternalLink size={14} />
-              Open Cal.com Web App
-            </button>
-
             <button
               onClick={loadData}
               disabled={loading}
@@ -2375,45 +2357,40 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
             </div>
           )}
 
-          {/* TAB 9: LIVE CAL.COM WEB APP */}
+          {/* TAB 9: CAL.COM (BRING YOUR OWN ACCOUNT) */}
           {activeTab === "webConsole" && (
             <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#FFF", padding: "12px 18px", borderRadius: 12, border: "1px solid #E2E8F0" }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
-                    Live Cal.com Web Application Console
-                  </div>
-                  <div style={{ fontSize: 12, color: "#64748B" }}>
-                    Embedded Cal.com dashboard ({calcomPublicUrl}).
-                  </div>
+              <div style={{ background: "#FFF", padding: "12px 18px", borderRadius: 12, border: "1px solid #E2E8F0" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
+                  Cal.com
                 </div>
+                <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+                  This organisation's own bookings run on the engine above (Admin Engine Active) -- not Cal.com. This is
+                  just a quick way in for anyone who wants to sign into their own separate Cal.com account. Cal.com
+                  doesn't allow its pages to be embedded here, so it opens in a new tab.
+                </div>
+              </div>
+
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 12, border: "1px dashed #CBD5E1", background: "#F8FAFC", minHeight: 400 }}>
                 <button
                   onClick={() => window.open(calcomPublicUrl, "_blank")}
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 6,
-                    padding: "6px 12px",
-                    borderRadius: 7,
-                    border: "1px solid #CBD5E1",
+                    gap: 8,
+                    padding: "10px 18px",
+                    borderRadius: 9,
+                    border: "none",
                     background: "#10B981",
                     color: "#FFF",
-                    fontSize: 12,
-                    fontWeight: 600,
+                    fontSize: 13,
+                    fontWeight: 700,
                     cursor: "pointer"
                   }}
                 >
-                  <ExternalLink size={13} />
-                  Open in New Window
+                  <ExternalLink size={15} />
+                  Log in to Cal.com (opens app.cal.com)
                 </button>
-              </div>
-
-              <div style={{ flex: 1, borderRadius: 12, overflow: "hidden", border: "1px solid #CBD5E1", background: "#FFF", minHeight: 520 }}>
-                <iframe
-                  src={calcomPublicUrl}
-                  title="Cal.com Live Web App"
-                  style={{ width: "100%", height: "100%", border: "none" }}
-                />
               </div>
             </div>
           )}
