@@ -148,6 +148,7 @@ export function PlatformKeys({ canEdit }) {
     { id: "voice", label: "Voice" },
     { id: "leadgen", label: "Leads" },
     { id: "scheduler", label: "Social" },
+    { id: "datasources", label: "Data Sources" },
   ];
 
   return (
@@ -231,9 +232,16 @@ export function PlatformKeys({ canEdit }) {
 
           <div style={heading}>Email Finder & Discovery Keys</div>
           {renderGroupCards(LEADGEN_GROUPS)}
+        </div>
+      )}
 
+      {activeTab === "datasources" && (
+        <div style={{ display: "grid", gap: 16 }}>
           <div style={heading}>Data Sources</div>
           <DataSources canEdit={canEdit} />
+
+          <div style={heading}>Scraped Data</div>
+          <BusinessRecordsBrowser />
         </div>
       )}
 
@@ -337,9 +345,32 @@ function DataSources({ canEdit }) {
   const [open, setOpen] = useState("");
   const [draft, setDraft] = useState(emptyDataSource);
   const [testResult, setTestResult] = useState({});
+  const [startOpen, setStartOpen] = useState("");
+  const [startQueries, setStartQueries] = useState("");
+  const [runsOpen, setRunsOpen] = useState("");
+  const [runsData, setRunsData] = useState({});
 
   if (!data) return <Note error={err}>{err}</Note>;
   const sources = data.sources || [];
+
+  const startRun = (s) => run(async () => {
+    const queries = startQueries.split("\n").map((q) => q.trim()).filter(Boolean);
+    if (!queries.length) throw new Error("Enter at least one search term, one per line.");
+    const r = await adminApi.startDataSource(s.id, queries);
+    setStartOpen("");
+    setStartQueries("");
+    return r;
+  }, `Started -- working through the list now.`);
+
+  const toggleRuns = async (s) => {
+    if (runsOpen === s.id) {
+      setRunsOpen("");
+      return;
+    }
+    setRunsOpen(s.id);
+    const r = await adminApi.dataSourceRuns(s.id);
+    setRunsData((d) => ({ ...d, [s.id]: r.runs || [] }));
+  };
 
   const toBody = (d) => {
     let config;
@@ -384,36 +415,70 @@ function DataSources({ canEdit }) {
 
   const runStateTone = (state) => (state === "running" ? "green" : state === "error" || state === "stuck" ? "red" : state === "paused" ? "amber" : undefined);
 
+  const EXAMPLE_CONFIG = {
+    api: JSON.stringify({
+      trust_tier: "verified_registry", search_endpoint: "/search?q=", search_param: "q",
+      search_items_path: "items", id_field_from_search: "id", profile_endpoint: "/items/{id}",
+      test_query: "a real example this API should actually find",
+      field_map: { name: "title", registration_number: "id", address: "address", industry: "category" },
+    }, null, 2),
+    scrape: JSON.stringify({ trust_tier: "scraped", url_template: "https://example.com/search?q={query}" }, null, 2),
+  };
+
+  const field = (label, hint, children) => (
+    <div style={{ display: "grid", gap: 2 }}>
+      <label style={{ fontSize: 11.5, fontWeight: 600, color: C.textInk }}>{label}</label>
+      {children}
+      {hint && <div style={{ fontSize: 11, color: C.slate }}>{hint}</div>}
+    </div>
+  );
+
   const form = (id) => (
-    <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-      <input aria-label="Source name" placeholder="Name (e.g. Companies House)" value={draft.name}
-        onChange={(e) => setDraft({ ...draft, name: e.target.value })} style={input} />
+    <div style={{ display: "grid", gap: 10, marginTop: 8 }}>
+      {field("Name", "Shown on the card above -- anything descriptive, e.g. \"Companies House\" or \"Yellow Pages\".",
+        <input aria-label="Source name" placeholder="e.g. Companies House" value={draft.name}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })} style={input} />)}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <select aria-label="Kind" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} style={{ ...input, flex: "1 1 120px" }}>
-          <option value="api">api</option>
-          <option value="scrape">scrape</option>
-        </select>
-        <select aria-label="Auth type" value={draft.authType} onChange={(e) => setDraft({ ...draft, authType: e.target.value })} style={{ ...input, flex: "1 1 160px" }}>
-          <option value="none">none</option>
-          <option value="api_key_basic">api_key_basic</option>
-          <option value="api_key_header">api_key_header</option>
-          <option value="bearer">bearer</option>
-        </select>
-        <input aria-label="Status" placeholder="status" value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })} style={{ ...input, flex: "1 1 100px" }} />
+        {field("Kind", "\"api\" if the site gives you a real API with a key; \"scrape\" if there's no API and we read the page instead.",
+          <select aria-label="Kind" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} style={{ ...input, minWidth: 120 }}>
+            <option value="api">api</option>
+            <option value="scrape">scrape</option>
+          </select>)}
+        {field("Auth type", "How the key is sent. Most REST APIs use \"api_key_header\" or \"bearer\" -- check that API's own docs.",
+          <select aria-label="Auth type" value={draft.authType} onChange={(e) => setDraft({ ...draft, authType: e.target.value })} style={{ ...input, minWidth: 170 }}>
+            <option value="none">none -- no key needed</option>
+            <option value="api_key_basic">api_key_basic -- key as HTTP Basic username</option>
+            <option value="api_key_header">api_key_header -- key in a custom header</option>
+            <option value="bearer">bearer -- "Authorization: Bearer &lt;key&gt;"</option>
+          </select>)}
+        {field("Status", "\"active\" to let it be used; \"disabled\" to keep it saved but switched off.",
+          <input aria-label="Status" placeholder="active" value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })} style={{ ...input, minWidth: 100 }} />)}
       </div>
-      <input aria-label="Base URL" placeholder="Base URL" value={draft.baseUrl} onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })} style={input} />
-      <input aria-label="API key" type="password" autoComplete="off" placeholder={id ? "New key (empty = keep saved one)" : "API key"}
-        value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} style={{ ...input, ...mono }} />
-      <input aria-label="Provides fields" placeholder="Fields this source can fill (comma-separated, e.g. name, address, industry)"
-        value={draft.providesFields} onChange={(e) => setDraft({ ...draft, providesFields: e.target.value })} style={input} />
+      {field("Base URL", "The API's root address, no trailing slash -- e.g. https://api.example.com (endpoints below are relative to this).",
+        <input aria-label="Base URL" placeholder="https://api.example.com" value={draft.baseUrl} onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })} style={input} />)}
+      {field("API key", "Paste it here, not in the config JSON -- this field is the one place it's actually used for auth.",
+        <input aria-label="API key" type="password" autoComplete="off" placeholder={id ? "New key (empty = keep saved one)" : "API key"}
+          value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} style={{ ...input, ...mono }} />)}
+      {field("Fields this source can fill", "Comma-separated, just for your own reference when more than one source could answer the same question -- e.g. name, address, industry.",
+        <input aria-label="Provides fields" placeholder="name, address, industry" value={draft.providesFields}
+          onChange={(e) => setDraft({ ...draft, providesFields: e.target.value })} style={input} />)}
       <div style={{ display: "flex", gap: 6 }}>
-        <input aria-label="Max concurrent requests" type="number" min="1" placeholder="Max concurrent" value={draft.maxConcurrentRequests}
-          onChange={(e) => setDraft({ ...draft, maxConcurrentRequests: e.target.value })} style={{ ...input, flex: "1 1 120px" }} />
-        <input aria-label="Delay between requests (ms)" type="number" min="0" placeholder="Min delay (ms)" value={draft.minDelayMs}
-          onChange={(e) => setDraft({ ...draft, minDelayMs: e.target.value })} style={{ ...input, flex: "1 1 120px" }} />
+        {field("Max concurrent", "How many requests to this source at once -- keep this low (2-5) unless the API's own docs say it allows more.",
+          <input aria-label="Max concurrent requests" type="number" min="1" value={draft.maxConcurrentRequests}
+            onChange={(e) => setDraft({ ...draft, maxConcurrentRequests: e.target.value })} style={{ ...input, minWidth: 100 }} />)}
+        {field("Delay between requests (ms)", "A pause between requests, so a slow/free site isn't hammered.",
+          <input aria-label="Delay between requests (ms)" type="number" min="0" value={draft.minDelayMs}
+            onChange={(e) => setDraft({ ...draft, minDelayMs: e.target.value })} style={{ ...input, minWidth: 100 }} />)}
       </div>
-      <textarea aria-label="Config JSON" placeholder="Config (endpoints, field mapping -- JSON)" value={draft.config}
-        onChange={(e) => setDraft({ ...draft, config: e.target.value })} rows={8} style={{ ...input, ...mono, fontSize: 11.5 }} />
+      {field(
+        <>Config (JSON) <button type="button" style={{ ...btn(false), fontSize: 10.5, padding: "1px 6px", marginLeft: 8 }}
+          onClick={() => setDraft({ ...draft, config: EXAMPLE_CONFIG[draft.kind] })}>Insert an example for "{draft.kind}"</button></>,
+        draft.kind === "api"
+          ? "For an api source: search_endpoint + search_param (how to search), search_items_path (where the results list sits in the response), profile_endpoint (optional -- a details page per result), field_map (which field in the response becomes each saved fact), and test_query (a real term the Test button should actually find)."
+          : "For a scrape source: url_template with {query} where the search term goes -- e.g. https://example.com/search?q={query}. The page is read and an AI pulls out the facts, so no field_map is needed here.",
+        <textarea aria-label="Config JSON" placeholder={EXAMPLE_CONFIG[draft.kind]} value={draft.config}
+          onChange={(e) => setDraft({ ...draft, config: e.target.value })} rows={9} style={{ ...input, ...mono, fontSize: 11.5 }} />
+      )}
       <div style={{ display: "flex", gap: 6 }}>
         <button type="button" style={btn(true)} onClick={() => save(id)}>Save</button>
         <button type="button" style={btn(false)} onClick={() => setOpen("")}>Cancel</button>
@@ -442,22 +507,60 @@ function DataSources({ canEdit }) {
             </div>
             {s.lastError && <div style={{ fontSize: 12, color: C.red || "#c0392b" }}>Last error: {s.lastError}</div>}
             {test && (
-              <div style={{ fontSize: 12, color: test.ok ? C.slate : (C.red || "#c0392b") }}>
-                {test.ok ? `Test OK -- ${test.hits} result(s) found.` : `Test failed: ${test.error}`}
+              <div style={{ fontSize: 12, color: test.ok ? (test.hits ? "#15803d" : C.slate) : (C.red || "#c0392b") }}>
+                {test.ok
+                  ? (test.hits ? `Test OK -- found ${test.hits} result(s), e.g. "${test.sample?.title || test.sample?.name || JSON.stringify(test.sample).slice(0, 60)}".` : test.note)
+                  : `Test failed: ${test.error}`}
               </div>
             )}
             <div style={mono}>{s.baseUrl}</div>
             {canEdit && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <button type="button" style={btn(false)} onClick={() => control(s, "test")}>Test</button>
-                {s.runState === "paused" ? (
-                  <button type="button" style={btn(false)} onClick={() => control(s, "resume")}>Resume</button>
-                ) : (
-                  <button type="button" style={btn(false)} onClick={() => control(s, "pause")}>Pause</button>
+                {s.runState === "running" && (
+                  <>
+                    <button type="button" style={btn(false)} onClick={() => control(s, "pause")}>Pause</button>
+                    <button type="button" style={btn(false)} onClick={() => control(s, "stop")}>Stop</button>
+                  </>
                 )}
-                <button type="button" style={btn(false)} onClick={() => control(s, "stop")}>Stop</button>
+                {s.runState === "paused" && (
+                  <>
+                    <button type="button" style={btn(false)} onClick={() => control(s, "resume")}>Resume</button>
+                    <button type="button" style={btn(false)} onClick={() => control(s, "stop")}>Stop</button>
+                  </>
+                )}
+                {s.runState !== "running" && s.runState !== "paused" && (
+                  <button type="button" style={btn(true)} onClick={() => { setStartOpen(s.id); setStartQueries(""); }}>Start a run</button>
+                )}
+                <button type="button" style={btn(false)} onClick={() => toggleRuns(s)}>{runsOpen === s.id ? "Hide runs" : "Runs"}</button>
                 <button type="button" style={btn(false)} onClick={() => edit(s)}>Edit</button>
                 <button type="button" style={btn(false)} onClick={() => remove(s)}>Remove</button>
+              </div>
+            )}
+            {startOpen === s.id && (
+              <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
+                <div style={{ fontSize: 11.5, color: C.slate }}>
+                  One search term per line -- company names, keywords, whatever this source searches by. Each one is looked up and saved; you can Pause or Stop partway through.
+                </div>
+                <textarea aria-label="Search terms, one per line" placeholder={"Tesco\nSainsbury's\nAsda"} value={startQueries}
+                  onChange={(e) => setStartQueries(e.target.value)} rows={5} style={{ ...input, ...mono, fontSize: 12 }} />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" style={btn(true)} onClick={() => startRun(s)}>Start</button>
+                  <button type="button" style={btn(false)} onClick={() => setStartOpen("")}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {runsOpen === s.id && (
+              <div style={{ display: "grid", gap: 4, marginTop: 4, borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
+                {(runsData[s.id] || []).length === 0 && <div style={{ fontSize: 12, color: C.slate }}>No runs yet.</div>}
+                {(runsData[s.id] || []).map((r) => (
+                  <div key={r.id} style={{ fontSize: 11.5, color: C.slate, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <Pill tone={r.status === "done" ? "green" : r.status === "error" || r.status === "stuck" ? "red" : undefined}>{r.status}</Pill>
+                    <span>found {r.recordsFound}, new {r.recordsNew}</span>
+                    <span>{r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}</span>
+                    {r.errorMessage && <span style={{ color: C.red || "#c0392b" }}>{r.errorMessage}</span>}
+                  </div>
+                ))}
               </div>
             )}
             {isOpen && form(s.id)}
@@ -471,6 +574,101 @@ function DataSources({ canEdit }) {
           Add a data source
         </button>
       ))}
+    </div>
+  );
+}
+
+const CONFIDENCE_TONE = { verified_registry: "green", scraped: undefined, llm_fallback: "amber" };
+
+// The shared BusinessRecord store, in a table -- so staff can actually see what scraping has
+// produced, and search it the same way a user's question would be matched, to check whether a
+// company is in there at all when someone says "I asked and got nothing."
+const PAGE_SIZE = 50;
+
+function BusinessRecordsBrowser() {
+  const [q, setQ] = useState("");
+  const [searched, setSearched] = useState("");
+  const [page, setPage] = useState(0);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = async (term, pageNum) => {
+    setLoading(true);
+    setError("");
+    try {
+      const r = await adminApi.businessRecords(term, PAGE_SIZE, pageNum * PAGE_SIZE);
+      setData(r);
+      setSearched(term);
+      setPage(pageNum);
+    } catch (e) {
+      setError(e.message || "Couldn't load.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load("", 0); }, []);
+
+  const records = data?.records || [];
+  const total = data?.total || 0;
+  const from = total ? page * PAGE_SIZE + 1 : 0;
+  const to = Math.min(total, (page + 1) * PAGE_SIZE);
+
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ fontSize: 12.5, color: C.slate }}>
+        Every company fact actually saved so far, shared across every organisation. Search it the same way a
+        user's question would match -- name, domain, registration number, industry, region, email or phone.
+      </div>
+      <form onSubmit={(e) => { e.preventDefault(); load(q, 0); }} style={{ display: "flex", gap: 6 }}>
+        <input aria-label="Search scraped data" placeholder="Search by name, domain, industry, region..." value={q}
+          onChange={(e) => setQ(e.target.value)} style={{ ...input, flex: 1 }} />
+        <button type="submit" style={btn(true)}>Search</button>
+        {searched && <button type="button" style={btn(false)} onClick={() => { setQ(""); load("", 0); }}>Clear</button>}
+      </form>
+      <Note error={error}>{error}</Note>
+      {data && (
+        <div style={{ fontSize: 11.5, color: C.slate, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span>
+            {total ? `Showing ${from}-${to} of ${total}` : "0"} {searched ? `match(es) for "${searched}"` : "record(s) total"}
+            {searched && total === 0 && ' -- nothing found for this. If a user says they asked about this and got nothing, this confirms it was never found by any source yet.'}
+          </span>
+          {total > PAGE_SIZE && (
+            <span style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+              <button type="button" style={btn(false)} disabled={page === 0} onClick={() => load(searched, page - 1)}>Previous</button>
+              <button type="button" style={btn(false)} disabled={to >= total} onClick={() => load(searched, page + 1)}>Next</button>
+            </span>
+          )}
+        </div>
+      )}
+      {loading ? <div style={{ fontSize: 12.5, color: C.slate }}>Loading…</div> : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: `1px solid ${C.border}` }}>
+                {["Name", "Reg #", "Domain", "Industry", "Region", "Confidence", "Sources", "Updated"].map((h) => (
+                  <th key={h} style={{ padding: "6px 8px", color: C.slate, fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((r) => (
+                <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: "6px 8px", fontWeight: 600 }}>{r.name}</td>
+                  <td style={{ padding: "6px 8px", ...mono }}>{r.registration_number || "—"}</td>
+                  <td style={{ padding: "6px 8px" }}>{r.domain || "—"}</td>
+                  <td style={{ padding: "6px 8px" }}>{r.industry || "—"}</td>
+                  <td style={{ padding: "6px 8px" }}>{r.region || "—"}</td>
+                  <td style={{ padding: "6px 8px" }}><Pill tone={CONFIDENCE_TONE[r.confidence_tier]}>{r.confidence_tier}</Pill></td>
+                  <td style={{ padding: "6px 8px" }}>{(r.sources || []).length}</td>
+                  <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>{r.fetched_at ? new Date(r.fetched_at).toLocaleDateString() : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

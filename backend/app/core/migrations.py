@@ -331,6 +331,9 @@ async def _seed_companies_house_source(conn: AsyncConnection) -> None:
         "search_items_path": "items",
         "id_field_from_search": "company_number",
         "profile_endpoint": "/company/{id}",
+        # A real term the Test button searches for to prove the key actually works -- Tesco is a
+        # real, stable UK-registered company, so a working key should always find it.
+        "test_query": "Tesco",
         "field_map": {
             "name": "company_name",
             "registration_number": "company_number",
@@ -351,6 +354,40 @@ async def _seed_companies_house_source(conn: AsyncConnection) -> None:
         "config": json.dumps(config),
         "fields": json.dumps(["name", "registration_number", "address", "region", "industry"]),
     })
+
+
+async def _companies_house_test_query(conn: AsyncConnection) -> None:
+    """The Companies House row seeded before test_query existed in its config has no way to
+    prove a key works (the Test button needs a real search term) -- add it without touching
+    anything staff may have already changed on that row."""
+    import json
+
+    row = (await conn.execute(text("SELECT config FROM data_sources WHERE id = 'ds_companies_house'"))).first()
+    if not row:
+        return
+    config = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+    if config.get("test_query"):
+        return
+    config["test_query"] = "Tesco"
+    await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = 'ds_companies_house'"), {"c": json.dumps(config)})
+
+
+async def _business_record_search_indexes(conn: AsyncConnection) -> None:
+    """GIN trigram indexes so searching business_records (name/domain/reg number/industry/
+    region/email/phone, all ILIKE '%term%') stays fast once there are millions of rows -- a plain
+    btree index can't help a leading-wildcard search, pg_trgm's can. SQLite (tests) has no
+    extensions, so this is skipped there rather than failing the whole startup."""
+    if conn.dialect.name != "postgresql":
+        return
+    try:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+    except Exception as err:
+        logger.warning(f"Could not enable pg_trgm (business_records search will fall back to a plain scan): {err}")
+        return
+    for col in ("name", "domain", "registration_number", "industry", "region", "email", "phone"):
+        await conn.execute(text(
+            f"CREATE INDEX IF NOT EXISTS ix_business_records_{col}_trgm ON business_records USING GIN ({col} gin_trgm_ops)"
+        ))
 
 
 STEPS: List[Tuple[str, Step]] = [
@@ -374,6 +411,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_16_seed_lookup_vendor_prices", _seed_lookup_vendor_prices),
     ("2026_10_17_lead_account_business_record_column", _lead_account_business_record_column),
     ("2026_10_17_seed_companies_house_source", _seed_companies_house_source),
+    ("2026_10_18_companies_house_test_query", _companies_house_test_query),
+    ("2026_10_19_business_record_search_indexes", _business_record_search_indexes),
 ]
 
 

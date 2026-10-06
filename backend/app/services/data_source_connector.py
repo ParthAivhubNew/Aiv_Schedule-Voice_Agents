@@ -79,22 +79,59 @@ def _client(source) -> httpx.AsyncClient:
 
 async def search(source, query: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Raw search hits, not yet mapped to BusinessRecord's fields -- used to find candidate
-    identifiers before fetching each one's full profile."""
+    identifiers before fetching each one's full profile. Swallows failures on purpose (a real
+    lookup fans out across several sources; one bad source must never break the rest) -- use
+    test_connection() instead when the caller needs to know WHY nothing came back."""
+    try:
+        return await _raw_search(source, query, limit)
+    except ConnectorError as err:
+        logger.warning(f"[data_source_connector] search failed for {source.name}: {err}")
+        return []
+
+
+class ConnectorError(Exception):
+    """A source call failed for a specific, reportable reason (no key, bad key, wrong URL/
+    endpoint, unreachable host) -- as opposed to a call that succeeded but matched nothing."""
+
+
+async def _raw_search(source, query: str, limit: int = 10) -> List[Dict[str, Any]]:
     cfg = source.config or {}
     endpoint = cfg.get("search_endpoint")
-    if not endpoint or not source.api_key:
-        return []
+    if not endpoint:
+        raise ConnectorError("This source has no search_endpoint set in its config.")
+    if not source.api_key:
+        raise ConnectorError("No API key saved for this source yet.")
     param = cfg.get("search_param", "q")
     try:
         async with _client(source) as client:
             resp = await client.get(endpoint, params={param: query, **(cfg.get("search_extra_params") or {})})
-            resp.raise_for_status()
-            data = resp.json()
     except httpx.HTTPError as err:
-        logger.warning(f"[data_source_connector] search failed for {source.name}: {err}")
-        return []
+        raise ConnectorError(f"Couldn't reach {source.base_url}: {err}") from err
+    if resp.status_code in (401, 403):
+        raise ConnectorError(f"{resp.status_code}: the API key was rejected -- check it's correct and still active.")
+    if resp.status_code == 404:
+        raise ConnectorError(f"404: {endpoint} -- check search_endpoint/base_url in the config.")
+    if resp.status_code >= 400:
+        raise ConnectorError(f"{resp.status_code}: {resp.text[:200]}")
+    data = resp.json()
     items = _dig(data, cfg.get("search_items_path", "items"))
+    if items is None:
+        raise ConnectorError(f"The response had nothing at \"{cfg.get('search_items_path', 'items')}\" -- check search_items_path in the config.")
     return items[:limit] if isinstance(items, list) else []
+
+
+async def test_connection(source, query: str = "") -> Dict[str, Any]:
+    """What the Data Sources screen's Test button calls -- unlike search(), this never hides a
+    real problem behind an empty result list."""
+    q = query or (source.config or {}).get("test_query", "")
+    if not q:
+        return {"ok": False, "error": "Set a \"test_query\" in this source's config (e.g. a real company name it should find), then Test again."}
+    try:
+        hits = await _raw_search(source, q, limit=5)
+    except ConnectorError as err:
+        return {"ok": False, "error": str(err)}
+    return {"ok": True, "hits": len(hits), "sample": hits[0] if hits else None,
+            "note": "" if hits else f'Reached the API fine, but "{q}" matched nothing -- try a different test_query if that seems wrong.'}
 
 
 async def fetch_profile(source, item: Dict[str, Any]) -> Dict[str, Any]:

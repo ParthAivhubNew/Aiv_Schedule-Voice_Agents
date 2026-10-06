@@ -228,6 +228,43 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
     return await lookup_scrape(db, query=query, scope=scope)
 
 
+def _admin_search_filter(q: str):
+    term = q.strip()
+    if not term:
+        return None
+    like = f"%{term}%"
+    return or_(
+        BusinessRecord.name.ilike(like), BusinessRecord.domain.ilike(like),
+        BusinessRecord.registration_number.ilike(like), BusinessRecord.industry.ilike(like),
+        BusinessRecord.region.ilike(like), BusinessRecord.email.ilike(like), BusinessRecord.phone.ilike(like),
+    )
+
+
+async def admin_search(db: AsyncSession, q: str = "", *, limit: int = 100, offset: int = 0) -> List[BusinessRecord]:
+    """For the staff Data Sources screen's "what's actually in the store" table -- plain
+    substring match across every field someone might search by (GIN trigram-indexed, see
+    migrations.py, so this stays fast well past millions of rows), so staff can check whether a
+    company a user asked about is in there without needing to know which exact field it's in."""
+    stmt = select(BusinessRecord)
+    cond = _admin_search_filter(q)
+    if cond is not None:
+        stmt = stmt.where(cond)
+    rows = (await db.execute(stmt.order_by(BusinessRecord.updated_at.desc()).limit(limit).offset(max(0, offset)))).scalars().all()
+    return list(rows)
+
+
+async def admin_count(db: AsyncSession, q: str = "") -> int:
+    """How many rows admin_search(q) matches in total, for "showing X-Y of Z" pagination --
+    counted separately since the page itself is always capped at `limit`."""
+    from sqlalchemy import func
+
+    stmt = select(func.count()).select_from(BusinessRecord)
+    cond = _admin_search_filter(q)
+    if cond is not None:
+        stmt = stmt.where(cond)
+    return int((await db.execute(stmt)).scalar() or 0)
+
+
 def as_dict(row: BusinessRecord) -> Dict[str, Any]:
     return {
         "id": row.id, "name": row.name, "registration_number": row.registration_number or "",

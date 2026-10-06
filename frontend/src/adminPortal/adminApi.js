@@ -125,5 +125,7 @@ export const adminApi = {
   updateDataSource: (id, body) => request(`/data-sources/${q(id)}`, { method: "PUT", body }),
   deleteDataSource: (id) => request(`/data-sources/${q(id)}`, { method: "DELETE" }),
   controlDataSource: (id, action) => request(`/data-sources/${q(id)}/${q(action)}`, { method: "POST" }),
+  startDataSource: (id, queries) => request(`/data-sources/${q(id)}/start`, { method: "POST", body: { queries } }),
   dataSourceRuns: (id) => request(`/data-sources/${q(id)}/runs`),
+  businessRecords: (search = "", limit = 100, offset = 0) => request(`/business-records?q=${q(search)}&limit=${limit}&offset=${offset}`),
 };

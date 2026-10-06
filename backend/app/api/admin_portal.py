@@ -1454,11 +1454,38 @@ async def delete_data_source(source_id: str, request: Request):
     return {"ok": True}
 
 
+class StartRunBody(BaseModel):
+    queries: List[str]  # one search term per item, e.g. a list of company names or keywords
+
+
+@router.post("/data-sources/{source_id}/start")
+async def start_data_source_run(source_id: str, body: StartRunBody, request: Request):
+    """Actually begins fetching: works through `queries` one at a time, saving each result into
+    the shared BusinessRecord store, and keeps going in the background after this call returns
+    (see data_sources.run_batch). Refuses to start a second run while one is already active."""
+    import asyncio
+
+    from app.services import data_sources as DS
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        source = await _get_data_source(db, source_id)
+        try:
+            run = await DS.start_run(db, source, body.queries)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        await db.commit()
+        run_id = run.id
+    asyncio.create_task(DS.run_batch(run_id))
+    async with AsyncSessionLocal() as db:
+        return _data_source_out(await _get_data_source(db, source_id))
+
+
 @router.post("/data-sources/{source_id}/{action}")
 async def control_data_source(source_id: str, action: str, request: Request):
-    """pause/resume/stop set the flag a batch run loop checks between batches (see
-    data_sources.py once the scrape-type batch loop exists); test does a live one-off search
-    right now, so staff can confirm a key/config actually works before relying on it."""
+    """pause/resume/stop drive the run started above (see data_sources.py); test does a live
+    one-off search right now, so staff can confirm a key/config actually works without starting
+    a full run."""
     _admin_only(request)
     if action not in ("pause", "resume", "stop", "test"):
         raise HTTPException(status_code=404, detail="Unknown action.")
@@ -1467,16 +1494,33 @@ async def control_data_source(source_id: str, action: str, request: Request):
         if action == "test":
             from app.services import data_source_connector as connector
 
-            query = (row.config or {}).get("test_query", "test")
-            try:
-                hits = await connector.search(row, query)
-            except Exception as err:
-                return {"ok": False, "error": str(err)}
-            return {"ok": True, "hits": len(hits), "sample": hits[0] if hits else None}
-        row.run_state = {"pause": "paused", "resume": "idle", "stop": "idle"}[action]
-        row.last_error = "" if action == "resume" else row.last_error
+            return await connector.test_connection(row)
+        from app.services import data_sources as DS
+
+        fn = {"pause": DS.pause_run, "resume": DS.resume_run, "stop": DS.stop_run}[action]
+        run = await fn(db, row)
+        if not run:
+            raise HTTPException(status_code=400, detail=f"No run to {action} for this source.")
+        if action != "resume":
+            row.last_error = ""
         await db.commit()
         return _data_source_out(row)
+
+
+@router.get("/business-records")
+async def list_business_records(request: Request, q: str = "", limit: int = 100, offset: int = 0):
+    """The shared store's own table view -- search by name, domain, registration number,
+    industry, region, email or phone, to check whether a company is actually in there (and from
+    which source/confidence tier) when a user says they didn't get an answer for it. `total` is
+    how many match the current search (not the whole table), for paging through it."""
+    from app.services import business_records
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        limit = max(1, min(limit, 500))
+        rows = await business_records.admin_search(db, q, limit=limit, offset=max(0, offset))
+        total = await business_records.admin_count(db, q)
+    return {"records": [business_records.as_dict(r) for r in rows], "total": total, "limit": limit, "offset": max(0, offset)}
 
 
 @router.get("/data-sources/{source_id}/runs")
