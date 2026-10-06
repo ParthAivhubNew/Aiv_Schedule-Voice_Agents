@@ -526,7 +526,7 @@ function DataSources({ canEdit }) {
             {test && (
               <div style={{ fontSize: 12, color: test.ok ? (test.hits ? "#15803d" : C.slate) : (C.red || "#c0392b") }}>
                 {test.ok
-                  ? (test.hits ? `Test OK -- found ${test.hits} result(s), e.g. "${test.sample?.title || test.sample?.name || JSON.stringify(test.sample).slice(0, 60)}".` : test.note)
+                  ? (test.hits ? `Test OK -- found ${test.hits} result(s), e.g. "${test.sample?.title || test.sample?.name || JSON.stringify(test.sample || {}).slice(0, 60)}".` : test.note)
                   : `Test failed: ${test.error}`}
               </div>
             )}
