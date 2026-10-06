@@ -359,8 +359,11 @@ function DataSources({ canEdit }) {
     const r = await adminApi.startDataSource(s.id, queries);
     setStartOpen("");
     setStartQueries("");
+    setRunsOpen(s.id); // jump straight to watching it, so it's obvious something's happening
+    const runs = await adminApi.dataSourceRuns(s.id);
+    setRunsData((d) => ({ ...d, [s.id]: runs.runs || [] }));
     return r;
-  }, `Started -- working through the list now.`);
+  }, `Started -- working through the list now. Watch it below, or "docker compose logs -f backend" on the server.`);
 
   const toggleRuns = async (s) => {
     if (runsOpen === s.id) {
@@ -371,6 +374,20 @@ function DataSources({ canEdit }) {
     const r = await adminApi.dataSourceRuns(s.id);
     setRunsData((d) => ({ ...d, [s.id]: r.runs || [] }));
   };
+
+  // While a run is actually in progress, refresh its panel every couple of seconds so progress
+  // is visible live instead of needing a manual Hide/Runs click to see anything update.
+  useEffect(() => {
+    if (!runsOpen) return undefined;
+    const current = sources.find((s) => s.id === runsOpen);
+    if (!current || current.runState !== "running") return undefined;
+    const id = setInterval(async () => {
+      const r = await adminApi.dataSourceRuns(runsOpen);
+      setRunsData((d) => ({ ...d, [runsOpen]: r.runs || [] }));
+      reload();
+    }, 2500);
+    return () => clearInterval(id);
+  }, [runsOpen, sources, reload]);
 
   const toBody = (d) => {
     let config;
@@ -554,9 +571,10 @@ function DataSources({ canEdit }) {
               <div style={{ display: "grid", gap: 4, marginTop: 4, borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
                 {(runsData[s.id] || []).length === 0 && <div style={{ fontSize: 12, color: C.slate }}>No runs yet.</div>}
                 {(runsData[s.id] || []).map((r) => (
-                  <div key={r.id} style={{ fontSize: 11.5, color: C.slate, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <Pill tone={r.status === "done" ? "green" : r.status === "error" || r.status === "stuck" ? "red" : undefined}>{r.status}</Pill>
-                    <span>found {r.recordsFound}, new {r.recordsNew}</span>
+                  <div key={r.id} style={{ fontSize: 11.5, color: C.slate, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <Pill tone={r.status === "done" ? "green" : r.status === "error" || r.status === "stuck" ? "red" : r.status === "running" ? "green" : undefined}>{r.status}</Pill>
+                    <span>{r.total ? `${r.recordsFound}/${r.total} processed, ${r.recordsNew} new` : `found ${r.recordsFound}, new ${r.recordsNew}`}</span>
+                    {r.status === "running" && r.currentQuery && <span style={{ fontStyle: "italic" }}>now: "{r.currentQuery}"</span>}
                     <span>{r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}</span>
                     {r.errorMessage && <span style={{ color: C.red || "#c0392b" }}>{r.errorMessage}</span>}
                   </div>

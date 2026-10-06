@@ -101,27 +101,31 @@ async def run_batch(run_id: str) -> None:
 
         i = cursor.get("index", 0)
         while i < len(queries):
+            query = queries[i]
+            logger.info(f"[data_sources] {source.name} run {run_id}: ({i + 1}/{total}) looking up \"{query}\"")
             async with AsyncSessionLocal() as db:
                 live = (await db.execute(select(DataSourceRun).where(DataSourceRun.id == run_id))).scalars().first()
                 if not live or live.status != "running":
                     return  # paused or stopped elsewhere -- stop cleanly, cursor already saved
                 try:
-                    saved = await _process_one(db, source, queries[i])
+                    saved = await _process_one(db, source, query)
                 except Exception as err:
-                    logger.warning(f"[data_sources] {source.name} run {run_id} item '{queries[i]}' failed: {err}")
+                    logger.warning(f"[data_sources] {source.name} run {run_id} item '{query}' failed: {err}")
                     saved = False
                 i += 1
-                live.cursor = {**cursor, "index": i}
+                live.cursor = {**cursor, "index": i, "current": query}
                 live.records_found += 1
                 if saved:
                     live.records_new += 1
                 live.updated_at = datetime.utcnow()
+                logger.info(f"[data_sources] {source.name} run {run_id}: \"{query}\" -> {'saved' if saved else 'nothing found'}")
                 if i >= len(queries):
                     live.status = "done"
                     live.finished_at = datetime.utcnow()
                     src = (await db.execute(select(DataSource).where(DataSource.id == source.id))).scalars().first()
                     if src:
                         src.run_state = "idle"
+                    logger.info(f"[data_sources] {source.name} run {run_id}: done -- {live.records_new} new of {total} looked up.")
                 await db.commit()
             if delay and i < len(queries):
                 await asyncio.sleep(delay)
