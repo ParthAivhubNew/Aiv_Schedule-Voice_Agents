@@ -369,9 +369,14 @@ function DataSources({ canEdit }) {
 
   if (!data) return <Note error={err}>{err}</Note>;
 
+  const isBulk = (s) => !!s.config?.bulk_index_url;
+
   const startRun = (s) => run(async () => {
-    const queries = startQueries.split("\n").map((q) => q.trim()).filter(Boolean);
-    if (!queries.length) throw new Error("Enter at least one search term, one per line.");
+    let queries = [];
+    if (!isBulk(s)) {
+      queries = startQueries.split("\n").map((q) => q.trim()).filter(Boolean);
+      if (!queries.length) throw new Error("Enter at least one search term, one per line.");
+    }
     const r = await adminApi.startDataSource(s.id, queries);
     setStartOpen("");
     setStartQueries("");
@@ -493,7 +498,7 @@ function DataSources({ canEdit }) {
         <>Config (JSON) <button type="button" style={{ ...btn(false), fontSize: 10.5, padding: "1px 6px", marginLeft: 8 }}
           onClick={() => setDraft({ ...draft, config: EXAMPLE_CONFIG[draft.kind] })}>Insert an example for "{draft.kind}"</button></>,
         draft.kind === "api"
-          ? "For an api source: search_endpoint + search_param (how to search), search_items_path (where the results list sits in the response), profile_endpoint (optional -- a details page per result), field_map (which field in the response becomes each saved fact), and test_query (a real term the Test button should actually find)."
+          ? "For an api source: search_endpoint + search_param (how to search), search_items_path (where the results list sits in the response), profile_endpoint (optional -- a details page per result), field_map (which field in the response becomes each saved fact), and test_query (a real term the Test button should actually find). If the provider instead publishes its whole dataset as a download (no per-company search needed), set bulk_index_url (the page listing the download links), bulk_link_pattern (a regex matching the file link(s) on that page) and bulk_field_map instead -- Start then imports everything with no search terms at all."
           : "For a scrape source: url_template with {query} where the search term goes -- e.g. https://example.com/search?q={query}. The page is read and an AI pulls out the facts, so no field_map is needed here.",
         <textarea aria-label="Config JSON" placeholder={EXAMPLE_CONFIG[draft.kind]} value={draft.config}
           onChange={(e) => setDraft({ ...draft, config: e.target.value })} rows={9} style={{ ...input, ...mono, fontSize: 11.5 }} />
@@ -549,14 +554,20 @@ function DataSources({ canEdit }) {
                   </>
                 )}
                 {s.runState !== "running" && s.runState !== "paused" && (
-                  <button type="button" style={btn(true)} onClick={() => { setStartOpen(s.id); setStartQueries(""); }}>Start a run</button>
+                  isBulk(s) ? (
+                    <button type="button" style={btn(true)} onClick={() => {
+                      if (window.confirm(`Import ${s.name}'s whole published dataset? This runs in the background and can take a while -- Pause/Stop work the same as any other run.`)) startRun(s);
+                    }}>Start full import</button>
+                  ) : (
+                    <button type="button" style={btn(true)} onClick={() => { setStartOpen(s.id); setStartQueries(""); }}>Start a run</button>
+                  )
                 )}
                 <button type="button" style={btn(false)} onClick={() => toggleRuns(s)}>{runsOpen === s.id ? "Hide runs" : "Runs"}</button>
                 <button type="button" style={btn(false)} onClick={() => edit(s)}>Edit</button>
                 <button type="button" style={btn(false)} onClick={() => remove(s)}>Remove</button>
               </div>
             )}
-            {startOpen === s.id && (
+            {startOpen === s.id && !isBulk(s) && (
               <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
                 <div style={{ fontSize: 11.5, color: C.slate }}>
                   One search term per line -- company names, keywords, whatever this source searches by. Each one is looked up and saved; you can Pause or Stop partway through.

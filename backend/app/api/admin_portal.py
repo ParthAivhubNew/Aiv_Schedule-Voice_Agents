@@ -1455,28 +1455,30 @@ async def delete_data_source(source_id: str, request: Request):
 
 
 class StartRunBody(BaseModel):
-    queries: List[str]  # one search term per item, e.g. a list of company names or keywords
+    queries: List[str] = []  # one search term per item -- empty/unused for a bulk-file source
 
 
 @router.post("/data-sources/{source_id}/start")
 async def start_data_source_run(source_id: str, body: StartRunBody, request: Request):
-    """Actually begins fetching: works through `queries` one at a time, saving each result into
-    the shared BusinessRecord store, and keeps going in the background after this call returns
-    (see data_sources.run_batch). Refuses to start a second run while one is already active."""
-    import asyncio
-
+    """Actually begins fetching. A source with bulk_index_url configured needs no `queries` at
+    all -- key + URL set once is the whole setup -- and streams its provider's full published
+    dataset in the background (see data_sources.run_bulk). Any other source works through
+    `queries` one at a time (data_sources.run_batch). Refuses to start a second run while one is
+    already active."""
     from app.services import data_sources as DS
+    from app.services.data_source_connector import is_bulk
 
     _admin_only(request)
     async with AsyncSessionLocal() as db:
         source = await _get_data_source(db, source_id)
+        bulk = is_bulk(source)
         try:
             run = await DS.start_run(db, source, body.queries)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err))
         await db.commit()
         run_id = run.id
-    asyncio.create_task(DS.run_batch(run_id))
+    DS.spawn(DS.run_bulk(run_id) if bulk else DS.run_batch(run_id))
     async with AsyncSessionLocal() as db:
         return _data_source_out(await _get_data_source(db, source_id))
 

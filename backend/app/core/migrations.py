@@ -342,6 +342,18 @@ async def _seed_companies_house_source(conn: AsyncConnection) -> None:
             "region": "registered_office_address.locality",
             "industry": "sic_codes",
         },
+        # Bulk path: their own free monthly full-dataset download (see data_source_connector.py's
+        # discover_bulk_files/stream_bulk_rows) -- no API key needed for this file, no company
+        # name ever typed; "Start a run" on this source just imports the whole thing.
+        "bulk_index_url": "https://download.companieshouse.gov.uk/en_output.html",
+        "bulk_link_pattern": r"BasicCompanyData-[\d-]+-part\d+_\d+\.zip",
+        "bulk_field_map": {
+            "name": ["CompanyName"],
+            "registration_number": ["CompanyNumber"],
+            "industry": ["SICCode.SicText_1"],
+            "region": ["RegAddress.PostTown"],
+            "address": ["RegAddress.AddressLine1", "RegAddress.PostTown", "RegAddress.PostCode"],
+        },
     }
     await conn.execute(text(
         "INSERT INTO data_sources (id, name, kind, base_url, auth_type, api_key, config, provides_fields, "
@@ -369,6 +381,27 @@ async def _companies_house_test_query(conn: AsyncConnection) -> None:
     if config.get("test_query"):
         return
     config["test_query"] = "Tesco"
+    await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = 'ds_companies_house'"), {"c": json.dumps(config)})
+
+
+async def _companies_house_bulk_config(conn: AsyncConnection) -> None:
+    """Adds the bulk-download fields (see _seed_companies_house_source) to a row seeded before
+    they existed, without touching anything staff may have already changed on it."""
+    import json
+
+    row = (await conn.execute(text("SELECT config FROM data_sources WHERE id = 'ds_companies_house'"))).first()
+    if not row:
+        return
+    config = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+    if config.get("bulk_index_url"):
+        return
+    config["bulk_index_url"] = "https://download.companieshouse.gov.uk/en_output.html"
+    config["bulk_link_pattern"] = r"BasicCompanyData-[\d-]+-part\d+_\d+\.zip"
+    config["bulk_field_map"] = {
+        "name": ["CompanyName"], "registration_number": ["CompanyNumber"],
+        "industry": ["SICCode.SicText_1"], "region": ["RegAddress.PostTown"],
+        "address": ["RegAddress.AddressLine1", "RegAddress.PostTown", "RegAddress.PostCode"],
+    }
     await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = 'ds_companies_house'"), {"c": json.dumps(config)})
 
 
@@ -413,6 +446,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_17_seed_companies_house_source", _seed_companies_house_source),
     ("2026_10_18_companies_house_test_query", _companies_house_test_query),
     ("2026_10_19_business_record_search_indexes", _business_record_search_indexes),
+    ("2026_10_20_companies_house_bulk_config", _companies_house_bulk_config),
 ]
 
 

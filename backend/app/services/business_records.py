@@ -19,7 +19,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import BusinessRecord, DataSource
@@ -109,6 +110,57 @@ async def upsert(db: AsyncSession, *, source_id: str, source_type: str, confiden
         logger.debug(f"[business_records] embedding skipped for {row.id}: {err}")
     await db.flush()
     return row
+
+
+async def bulk_upsert(db: AsyncSession, *, source_id: str, rows: List[Dict[str, Any]]) -> int:
+    """The fast path for a bulk, single-source import (a government registry's own monthly
+    download, not a per-term search) -- hundreds of rows in one statement instead of one
+    upsert() call per row, which would be far too slow at real scale. Every row here is trusted
+    at verified_registry tier (only ever called for authoritative registry files, never scraped/
+    LLM data), so there's no trust-tier comparison to make, only "don't blank out a field another
+    source already found." Skips the per-record embedding upsert() computes -- doing that for
+    millions of rows one at a time isn't viable; semantic search still works for any of these
+    records once something else (a live lookup, a chat answer) re-confirms them normally."""
+    if not rows:
+        return 0
+    now = datetime.utcnow()
+    values = []
+    for data in rows:
+        name = _clean(data.get("name"))
+        registration_number = _clean(data.get("registration_number"), 60)
+        domain = _clean(data.get("domain"), 200).lower()
+        if not (name or registration_number or domain):
+            continue
+        try:
+            ih = identity_hash(registration_number=registration_number, domain=domain, name=name)
+        except ValueError:
+            continue
+        row: Dict[str, Any] = {
+            "id": f"biz_{uuid.uuid4().hex[:16]}", "identity_hash": ih, "confidence_tier": "verified_registry",
+            "sources": [{"source_id": source_id, "source_type": "bulk_csv", "confirmed_at": now.isoformat()}],
+            "raw_data": {source_id: data}, "fetched_at": now, "last_verified_at": now,
+            "created_at": now, "updated_at": now,
+        }
+        for field in _FIELDS:
+            row[field] = _clean(data.get(field), 2000 if field == "description" else 300)
+        values.append(row)
+    if not values:
+        return 0
+    table = BusinessRecord.__table__
+    stmt = pg_insert(table).values(values)
+    update_cols = {f: func.coalesce(func.nullif(stmt.excluded[f], ""), table.c[f]) for f in _FIELDS}
+    update_cols.update({
+        "confidence_tier": "verified_registry",
+        # Never overwrite an already-populated sources/raw_data from a richer source (a live API
+        # lookup, a scrape) -- only fill them in when this is the first time we've seen the row.
+        "sources": func.coalesce(table.c.sources, stmt.excluded.sources),
+        "raw_data": func.coalesce(table.c.raw_data, stmt.excluded.raw_data),
+        "fetched_at": stmt.excluded.fetched_at, "last_verified_at": stmt.excluded.last_verified_at,
+        "updated_at": stmt.excluded.updated_at,
+    })
+    stmt = stmt.on_conflict_do_update(index_elements=["identity_hash"], set_=update_cols)
+    await db.execute(stmt)
+    return len(values)
 
 
 async def lookup_scrape(db: AsyncSession, *, query: str, scope: str = "leadgen") -> Optional[BusinessRecord]:
@@ -256,8 +308,6 @@ async def admin_search(db: AsyncSession, q: str = "", *, limit: int = 100, offse
 async def admin_count(db: AsyncSession, q: str = "") -> int:
     """How many rows admin_search(q) matches in total, for "showing X-Y of Z" pagination --
     counted separately since the page itself is always capped at `limit`."""
-    from sqlalchemy import func
-
     stmt = select(func.count()).select_from(BusinessRecord)
     cond = _admin_search_filter(q)
     if cond is not None:

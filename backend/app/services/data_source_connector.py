@@ -7,8 +7,13 @@ first row using this; a second structured-API source is a new config row, not a 
 """
 from __future__ import annotations
 
+import csv
+import io
 import logging
-from typing import Any, Dict, List, Optional
+import re
+import tempfile
+import zipfile
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 
@@ -132,6 +137,84 @@ async def test_connection(source, query: str = "") -> Dict[str, Any]:
         return {"ok": False, "error": str(err)}
     return {"ok": True, "hits": len(hits), "sample": hits[0] if hits else None,
             "note": "" if hits else f'Reached the API fine, but "{q}" matched nothing -- try a different test_query if that seems wrong.'}
+
+
+# ── Bulk file import: for a source that publishes its whole dataset as a download, not a
+# per-term search -- staff configure the index page + a pattern once; no company names, ever.
+# ──────────────────────────────────────────────────────────────────────────────────────────────
+def is_bulk(source) -> bool:
+    return bool((source.config or {}).get("bulk_index_url"))
+
+
+async def discover_bulk_files(source) -> List[str]:
+    """The download links on a bulk source's index page, matched by bulk_link_pattern -- found
+    fresh every run, so staff never hand-maintain a URL that changes every month."""
+    cfg = source.config or {}
+    index_url, pattern = cfg.get("bulk_index_url"), cfg.get("bulk_link_pattern")
+    if not index_url or not pattern:
+        return []
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        resp = await client.get(index_url)
+        resp.raise_for_status()
+    names = sorted(set(re.findall(pattern, resp.text)))
+    base = index_url.rsplit("/", 1)[0] + "/"
+    return [n if n.startswith("http") else base + n for n in names]
+
+
+def _normalize_header(h: str) -> str:
+    """Strips whitespace/case/punctuation so a file's actual column names match our aliases even
+    with the kind of stray leading space Companies House's own files are documented to have."""
+    return re.sub(r"[^a-z0-9.]", "", h.strip().lower())
+
+
+def _resolve_bulk_columns(headers: List[str], alias_map: Dict[str, Any]) -> Dict[str, List[str]]:
+    norm_to_actual = {_normalize_header(h): h for h in headers}
+    out: Dict[str, List[str]] = {}
+    for field, aliases in alias_map.items():
+        names = aliases if isinstance(aliases, list) else [aliases]
+        matched = [norm_to_actual[_normalize_header(a)] for a in names if _normalize_header(a) in norm_to_actual]
+        if matched:
+            out[field] = matched
+    return out
+
+
+async def stream_bulk_rows(source) -> AsyncIterator[Dict[str, Any]]:
+    """Yields one mapped BusinessRecord dict per row across every file the source's index page
+    currently lists. Each file is streamed to a temp file on disk (a zip needs random-access
+    seeking a network stream can't give; a file never sits fully in memory), then read straight
+    out of the zip entry row by row -- never materializing a whole file's rows at once, so this
+    scales to however large the real dataset is."""
+    cfg = source.config or {}
+    alias_map = cfg.get("bulk_field_map") or {
+        "name": ["CompanyName"], "registration_number": ["CompanyNumber"],
+        "industry": ["SICCode.SicText_1"], "region": ["RegAddress.PostTown"],
+        "address": ["RegAddress.AddressLine1", "RegAddress.PostTown", "RegAddress.PostCode"],
+    }
+    for url in await discover_bulk_files(source):
+        logger.info(f"[data_source_connector] {source.name}: downloading {url}")
+        with tempfile.NamedTemporaryFile(suffix=".zip") as tmp:
+            async with httpx.AsyncClient(timeout=180, follow_redirects=True) as client:
+                async with client.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    async for chunk in resp.aiter_bytes(1 << 20):
+                        tmp.write(chunk)
+            tmp.flush()
+            with zipfile.ZipFile(tmp.name) as zf:
+                for name in zf.namelist():
+                    if not name.lower().endswith(".csv"):
+                        continue
+                    with zf.open(name) as raw:
+                        reader = csv.DictReader(io.TextIOWrapper(raw, encoding="utf-8", errors="replace"))
+                        columns = _resolve_bulk_columns(reader.fieldnames or [], alias_map)
+                        for row in reader:
+                            mapped: Dict[str, Any] = {}
+                            for field, cols in columns.items():
+                                parts = [str(row.get(c, "") or "").strip() for c in cols]
+                                value = ", ".join(p for p in parts if p)
+                                if value:
+                                    mapped[field] = value
+                            if mapped.get("name") or mapped.get("registration_number"):
+                                yield mapped
 
 
 async def fetch_profile(source, item: Dict[str, Any]) -> Dict[str, Any]:
