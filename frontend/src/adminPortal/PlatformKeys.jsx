@@ -349,9 +349,25 @@ function DataSources({ canEdit }) {
   const [startQueries, setStartQueries] = useState("");
   const [runsOpen, setRunsOpen] = useState("");
   const [runsData, setRunsData] = useState({});
+  const sources = data?.sources || [];
+
+  // While a run is actually in progress, refresh its panel every couple of seconds so progress
+  // is visible live instead of needing a manual Hide/Runs click to see anything update. Must run
+  // on every render (not after the "!data" return below) -- a hook skipped on some renders and
+  // not others breaks React's Rules of Hooks and crashes the whole page.
+  useEffect(() => {
+    if (!runsOpen) return undefined;
+    const current = sources.find((s) => s.id === runsOpen);
+    if (!current || current.runState !== "running") return undefined;
+    const id = setInterval(async () => {
+      const r = await adminApi.dataSourceRuns(runsOpen);
+      setRunsData((d) => ({ ...d, [runsOpen]: r.runs || [] }));
+      reload();
+    }, 2500);
+    return () => clearInterval(id);
+  }, [runsOpen, sources, reload]);
 
   if (!data) return <Note error={err}>{err}</Note>;
-  const sources = data.sources || [];
 
   const startRun = (s) => run(async () => {
     const queries = startQueries.split("\n").map((q) => q.trim()).filter(Boolean);
@@ -374,20 +390,6 @@ function DataSources({ canEdit }) {
     const r = await adminApi.dataSourceRuns(s.id);
     setRunsData((d) => ({ ...d, [s.id]: r.runs || [] }));
   };
-
-  // While a run is actually in progress, refresh its panel every couple of seconds so progress
-  // is visible live instead of needing a manual Hide/Runs click to see anything update.
-  useEffect(() => {
-    if (!runsOpen) return undefined;
-    const current = sources.find((s) => s.id === runsOpen);
-    if (!current || current.runState !== "running") return undefined;
-    const id = setInterval(async () => {
-      const r = await adminApi.dataSourceRuns(runsOpen);
-      setRunsData((d) => ({ ...d, [runsOpen]: r.runs || [] }));
-      reload();
-    }, 2500);
-    return () => clearInterval(id);
-  }, [runsOpen, sources, reload]);
 
   const toBody = (d) => {
     let config;
