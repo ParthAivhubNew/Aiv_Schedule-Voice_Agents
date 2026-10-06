@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.enrichment import _can_research, _charge_leads
 from app.database import get_db
 from app.models.models import LeadAccount
+from app.services import business_lookup, business_records
 from app.services.enrichment_service import _host_of, enrich_prospect_intelligence
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
@@ -157,9 +158,23 @@ async def delete_account(account_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/accounts/{account_id}/research")
 async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     """Research one company on the web (1 Leads credit when anything is found). Fills only the
-    fields that are still empty; what the user or an earlier run saved is never overwritten."""
+    fields that are still empty; what the user or an earlier run saved is never overwritten.
+
+    Checks the shared, cross-organisation BusinessRecord store first (instant, free -- someone
+    else may have already looked this company up via Companies House or an earlier search); the
+    live web search below still runs regardless, since it finds things (people, phones, socials)
+    no registry API covers, and whatever it finds is saved back to the shared store afterwards
+    for the next organisation that asks about this same company."""
     row = await _account(db, account_id)
     await _can_research(db)
+    shared = await business_records.lookup(db, name=row.name, domain=row.domain)
+    if shared:
+        row.business_record_id = shared.id
+        row.industry = row.industry or _clean(shared.industry, 120)
+        row.region = row.region or _clean(shared.region, 120)
+        row.phone = row.phone or _clean(shared.phone, 60)
+        row.email = row.email or _clean(shared.email, 200).lower()
+        await db.commit()
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
                                                   domain=row.domain or row.website or None, person=row.contact_name or None,
@@ -188,7 +203,47 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     if people and not row.contact_name:
         row.contact_name, row.contact_title = people[0]["name"], row.contact_title or people[0]["role"]
     row.researched_at = row.updated_at = datetime.utcnow()
+    if found and (row.domain or row.name):
+        # Save what the live search found back into the shared store too, tagged as the least
+        # trusted tier (a web-search summary, not a verified registry) -- the next organisation
+        # that asks about this same company gets this instantly instead of re-searching for it.
+        try:
+            overview = row.research.get("overview") if row.research else ""
+            shared_row = await business_records.upsert(
+                db, source_id="llm_web_search", source_type="llm_fallback", confidence_tier="llm_fallback",
+                data={"name": row.name, "domain": row.domain, "website": row.website, "phone": row.phone,
+                      "email": row.email, "region": row.region, "description": overview},
+            )
+            row.business_record_id = row.business_record_id or shared_row.id
+        except ValueError:
+            pass  # nothing identifiable enough to be worth caching for anyone else
     await db.commit()
     if found:
         await _charge_leads(db, 1, f"Researched {row.name}")
     return _out(row)
+
+
+class AskIn(BaseModel):
+    prompt: str
+
+
+@router.post("/ask")
+async def ask(body: AskIn, db: AsyncSession = Depends(get_db)):
+    """The Data Find chat: ask about one company or describe businesses in open-ended terms
+    (direct or indirect). Answers from the shared BusinessRecord store first, then live Data
+    Sources, then a general web search if even those come up short -- and saves whatever that
+    search finds back into the shared store for the next organisation that asks something
+    similar. Costs 1 Leads credit, same pool as researching a saved account, only when something
+    was actually found."""
+    prompt = _clean(body.prompt, 1000)
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Ask something first.")
+    await _can_research(db)
+    try:
+        out = await business_lookup.answer(db, prompt)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Couldn't look that up right now. Nothing was charged; try again in a minute.")
+    await db.commit()
+    if out.get("results"):
+        await _charge_leads(db, 1, f"Asked: {prompt[:80]}")
+    return out

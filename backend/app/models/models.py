@@ -1376,6 +1376,9 @@ class LeadAccount(Base):
     source_url = Column(String, default="")
     research = Column(JSON, nullable=True)  # last research run: overview, people, phones, emails, socials, sources
     researched_at = Column(DateTime, nullable=True)
+    # Points at the shared, cross-organisation fact about this company (see BusinessRecord below).
+    # This org's own notes/status never leave this row; only the shared, public half is pointed to.
+    business_record_id = Column(String, ForeignKey("business_records.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1389,6 +1392,87 @@ class SeedInbox(Base):
     provider = Column(String, default="google")  # google, microsoft, custom
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DataSource(Base):
+    """A website or API the platform can pull public business data from -- staff-configured in
+    Platform Keys, never hand-coded. Adding a new site or API key is filling in this row, not a
+    deploy: the generic connectors in app.services.data_source_connector/data_source_scraper read
+    everything they need (endpoints, field mapping, scrape+LLM settings) from `config`. Not org-
+    scoped -- a source belongs to the platform, not to one organisation."""
+    __tablename__ = "data_sources"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    kind = Column(String, nullable=False)  # api | scrape
+    base_url = Column(String, default="")
+    auth_type = Column(String, default="none")  # none | api_key | bearer
+    api_key = Column(String, default="")  # staff-entered; never exposed to org users
+    config = Column(JSON, nullable=True)  # endpoint templates, field mapping, scrape+LLM settings
+    provides_fields = Column(JSON, nullable=True)  # which BusinessRecord fields this source can fill
+    max_concurrent_requests = Column(Integer, default=2)
+    min_delay_ms = Column(Integer, default=1000)
+    run_state = Column(String, default="idle")  # idle | running | paused | stopping | error | stuck
+    status = Column(String, default="active")  # active | disabled
+    last_error = Column(Text, default="")
+    last_synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by = Column(String, default="")
+
+
+class DataSourceRun(Base):
+    """One pass of fetching from a DataSource. `cursor` is a checkpoint (last page/offset/id
+    processed) so pausing never loses progress -- resuming just continues from it instead of
+    starting the source over."""
+    __tablename__ = "data_source_runs"
+
+    id = Column(String, primary_key=True)
+    source_id = Column(String, ForeignKey("data_sources.id"), index=True, nullable=False)
+    status = Column(String, default="running")  # running | paused | done | error | stuck
+    cursor = Column(JSON, nullable=True)
+    records_found = Column(Integer, default=0)
+    records_new = Column(Integer, default=0)
+    records_updated = Column(Integer, default=0)
+    error_message = Column(Text, default="")
+    started_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class BusinessRecord(Base):
+    """One outside company's public facts, merged from however many sources confirmed it --
+    shared across every organisation on purpose: this is public data about businesses out in the
+    world, never anything belonging to one of our own users, so there is no org_id and no row-
+    level security on this table (see app.core.tenancy.TENANT_TABLES, which deliberately excludes
+    it). `identity_hash` is how the same company found via two different sources becomes one row
+    instead of a duplicate. An organisation's own notes about a company live on their own
+    LeadAccount row instead, pointed at this one by LeadAccount.business_record_id -- never here."""
+    __tablename__ = "business_records"
+
+    id = Column(String, primary_key=True)
+    identity_hash = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    registration_number = Column(String, default="", index=True)
+    domain = Column(String, default="", index=True)
+    website = Column(String, default="")
+    phone = Column(String, default="")
+    email = Column(String, default="")
+    address = Column(String, default="")
+    industry = Column(String, default="")
+    region = Column(String, default="", index=True)
+    employee_estimate = Column(String, default="")
+    description = Column(Text, default="")
+    sources = Column(JSON, nullable=True)  # [{source_id, source_type, confirmed_at}, ...]
+    confidence_tier = Column(String, default="scraped")  # verified_registry | scraped | llm_fallback
+    raw_data = Column(JSON, nullable=True)  # per-source raw payloads, keyed by source_id
+    embedding = Column(Vector(384), nullable=True)  # for later semantic ("indirect business") search
+    needs_review = Column(Boolean, default=False)
+    fetch_hash = Column(String, default="")  # hash of the last raw fetch; skips reprocessing unchanged content
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    last_verified_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class EmailTemplate(Base):

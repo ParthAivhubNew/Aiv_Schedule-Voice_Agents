@@ -120,4 +120,10 @@ export const adminApi = {
   modelPricing: () => request("/model-pricing"),
   saveModelPrice: (id, priceIn, priceOut) => request(`/model-pricing/${q(id)}`, { method: "PUT", body: { priceIn, priceOut } }),
   modelPricingMonthlyCost: (month) => request(`/model-pricing/monthly-cost?month=${q(month)}`),
+  dataSources: () => request("/data-sources"),
+  createDataSource: (body) => request("/data-sources", { method: "POST", body }),
+  updateDataSource: (id, body) => request(`/data-sources/${q(id)}`, { method: "PUT", body }),
+  deleteDataSource: (id) => request(`/data-sources/${q(id)}`, { method: "DELETE" }),
+  controlDataSource: (id, action) => request(`/data-sources/${q(id)}/${q(action)}`, { method: "POST" }),
+  dataSourceRuns: (id) => request(`/data-sources/${q(id)}/runs`),
 };

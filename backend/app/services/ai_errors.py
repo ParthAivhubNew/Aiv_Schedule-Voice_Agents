@@ -34,8 +34,9 @@ CODES: Dict[str, str] = {
     "AI-99": "Something went wrong. Nothing was charged; our team has been told.",
     # Staff only (never shown to customers).
     "BILL-01": "Call minutes we charged and Telnyx's billed minutes disagree for a month.",
+    "DS-01": "A Data Source run stalled (no progress for a while) and was paused automatically.",
 }
-STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert"}
+STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert"}
 ALERTS_KEY = "staff_alerts"
 MAX_ALERTS = 100
 EMAIL_EVERY = timedelta(minutes=30)  # one email per code and company in this time

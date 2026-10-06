@@ -231,6 +231,9 @@ export function PlatformKeys({ canEdit }) {
 
           <div style={heading}>Email Finder & Discovery Keys</div>
           {renderGroupCards(LEADGEN_GROUPS)}
+
+          <div style={heading}>Data Sources</div>
+          <DataSources canEdit={canEdit} />
         </div>
       )}
 
@@ -319,6 +322,155 @@ function SocialOAuthApps({ canEdit }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const emptyDataSource = { name: "", kind: "api", baseUrl: "", authType: "none", apiKey: "", config: "{}", providesFields: "", maxConcurrentRequests: 2, minDelayMs: 1000, status: "active" };
+
+// Every website/API the platform pulls public company data from (see BusinessRecord) -- staff
+// only. Companies House ships pre-configured as the first row; adding a second source here is a
+// form, never a deploy. Keys are staff-entered and never shown to organisations.
+function DataSources({ canEdit }) {
+  const [data, err, reload] = useLoad(adminApi.dataSources);
+  const [msg, run] = useAction(reload);
+  const [open, setOpen] = useState("");
+  const [draft, setDraft] = useState(emptyDataSource);
+  const [testResult, setTestResult] = useState({});
+
+  if (!data) return <Note error={err}>{err}</Note>;
+  const sources = data.sources || [];
+
+  const toBody = (d) => {
+    let config;
+    try {
+      config = JSON.parse(d.config || "{}");
+    } catch (_) {
+      throw new Error("Config must be valid JSON.");
+    }
+    return {
+      name: d.name.trim(), kind: d.kind, baseUrl: d.baseUrl.trim(), authType: d.authType, apiKey: d.apiKey.trim(),
+      config, providesFields: d.providesFields.split(",").map((f) => f.trim()).filter(Boolean),
+      maxConcurrentRequests: Number(d.maxConcurrentRequests) || 1, minDelayMs: Number(d.minDelayMs) || 0, status: d.status,
+    };
+  };
+
+  const edit = (s) => {
+    setOpen(s.id);
+    setDraft({
+      name: s.name, kind: s.kind, baseUrl: s.baseUrl, authType: s.authType, apiKey: "",
+      config: JSON.stringify(s.config || {}, null, 2), providesFields: (s.providesFields || []).join(", "),
+      maxConcurrentRequests: s.maxConcurrentRequests, minDelayMs: s.minDelayMs, status: s.status,
+    });
+  };
+
+  const save = (id) => run(() => {
+    if (!draft.name.trim()) throw new Error("A data source needs a name.");
+    const body = toBody(draft);
+    return (id ? adminApi.updateDataSource(id, body) : adminApi.createDataSource(body)).then((r) => { setOpen(""); return r; });
+  }, id ? "Saved." : "Added.");
+
+  const remove = (s) => {
+    if (window.confirm(`Remove ${s.name}? Anything already saved from it stays; it just won't be fetched from again.`)) {
+      run(() => adminApi.deleteDataSource(s.id), `${s.name} removed.`);
+    }
+  };
+
+  const control = (s, action) => run(async () => {
+    const r = await adminApi.controlDataSource(s.id, action);
+    if (action === "test") setTestResult((t) => ({ ...t, [s.id]: r }));
+    return r;
+  }, action === "test" ? "Tested." : `${action === "pause" ? "Paused" : action === "resume" ? "Resumed" : "Stopped"}.`);
+
+  const runStateTone = (state) => (state === "running" ? "green" : state === "error" || state === "stuck" ? "red" : state === "paused" ? "amber" : undefined);
+
+  const form = (id) => (
+    <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+      <input aria-label="Source name" placeholder="Name (e.g. Companies House)" value={draft.name}
+        onChange={(e) => setDraft({ ...draft, name: e.target.value })} style={input} />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <select aria-label="Kind" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} style={{ ...input, flex: "1 1 120px" }}>
+          <option value="api">api</option>
+          <option value="scrape">scrape</option>
+        </select>
+        <select aria-label="Auth type" value={draft.authType} onChange={(e) => setDraft({ ...draft, authType: e.target.value })} style={{ ...input, flex: "1 1 160px" }}>
+          <option value="none">none</option>
+          <option value="api_key_basic">api_key_basic</option>
+          <option value="api_key_header">api_key_header</option>
+          <option value="bearer">bearer</option>
+        </select>
+        <input aria-label="Status" placeholder="status" value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })} style={{ ...input, flex: "1 1 100px" }} />
+      </div>
+      <input aria-label="Base URL" placeholder="Base URL" value={draft.baseUrl} onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })} style={input} />
+      <input aria-label="API key" type="password" autoComplete="off" placeholder={id ? "New key (empty = keep saved one)" : "API key"}
+        value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} style={{ ...input, ...mono }} />
+      <input aria-label="Provides fields" placeholder="Fields this source can fill (comma-separated, e.g. name, address, industry)"
+        value={draft.providesFields} onChange={(e) => setDraft({ ...draft, providesFields: e.target.value })} style={input} />
+      <div style={{ display: "flex", gap: 6 }}>
+        <input aria-label="Max concurrent requests" type="number" min="1" placeholder="Max concurrent" value={draft.maxConcurrentRequests}
+          onChange={(e) => setDraft({ ...draft, maxConcurrentRequests: e.target.value })} style={{ ...input, flex: "1 1 120px" }} />
+        <input aria-label="Delay between requests (ms)" type="number" min="0" placeholder="Min delay (ms)" value={draft.minDelayMs}
+          onChange={(e) => setDraft({ ...draft, minDelayMs: e.target.value })} style={{ ...input, flex: "1 1 120px" }} />
+      </div>
+      <textarea aria-label="Config JSON" placeholder="Config (endpoints, field mapping -- JSON)" value={draft.config}
+        onChange={(e) => setDraft({ ...draft, config: e.target.value })} rows={8} style={{ ...input, ...mono, fontSize: 11.5 }} />
+      <div style={{ display: "flex", gap: 6 }}>
+        <button type="button" style={btn(true)} onClick={() => save(id)}>Save</button>
+        <button type="button" style={btn(false)} onClick={() => setOpen("")}>Cancel</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ fontSize: 12.5, color: C.slate }}>
+        Public company data the platform can look up or scrape -- shared across every organisation (see BusinessRecord).
+        Paste an API key here to turn a source on; adding a new site is a form, not a deploy.
+      </div>
+      <Note error={msg.error}>{msg.text}</Note>
+      {sources.map((s) => {
+        const isOpen = open === s.id;
+        const test = testResult[s.id];
+        return (
+          <div key={s.id} style={{ ...card, display: "grid", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontWeight: 700 }}>{s.name}</div>
+              <Pill>{s.kind}</Pill>
+              {s.hasKey ? <Pill tone="green">Key saved</Pill> : <Pill tone="amber">No key</Pill>}
+              <Pill tone={runStateTone(s.runState)}>{s.runState}</Pill>
+              {s.status !== "active" && <Pill>{s.status}</Pill>}
+            </div>
+            {s.lastError && <div style={{ fontSize: 12, color: C.red || "#c0392b" }}>Last error: {s.lastError}</div>}
+            {test && (
+              <div style={{ fontSize: 12, color: test.ok ? C.slate : (C.red || "#c0392b") }}>
+                {test.ok ? `Test OK -- ${test.hits} result(s) found.` : `Test failed: ${test.error}`}
+              </div>
+            )}
+            <div style={mono}>{s.baseUrl}</div>
+            {canEdit && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button type="button" style={btn(false)} onClick={() => control(s, "test")}>Test</button>
+                {s.runState === "paused" ? (
+                  <button type="button" style={btn(false)} onClick={() => control(s, "resume")}>Resume</button>
+                ) : (
+                  <button type="button" style={btn(false)} onClick={() => control(s, "pause")}>Pause</button>
+                )}
+                <button type="button" style={btn(false)} onClick={() => control(s, "stop")}>Stop</button>
+                <button type="button" style={btn(false)} onClick={() => edit(s)}>Edit</button>
+                <button type="button" style={btn(false)} onClick={() => remove(s)}>Remove</button>
+              </div>
+            )}
+            {isOpen && form(s.id)}
+          </div>
+        );
+      })}
+      {canEdit && (open === "+" ? (
+        <div style={card}>{form("")}</div>
+      ) : (
+        <button type="button" style={{ ...btn(false), justifySelf: "start" }} onClick={() => { setOpen("+"); setDraft(emptyDataSource); }}>
+          Add a data source
+        </button>
+      ))}
     </div>
   );
 }

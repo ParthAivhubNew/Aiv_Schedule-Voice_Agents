@@ -126,8 +126,9 @@ async def _telnyx_number_health_loop():
 
 async def _platform_balance_check_loop():
     """Every 6 hours: poll every platform provider we can get a real balance from, track how
-    fast each is actually depleting, and email staff when one goes low or critical. See
-    app.services.platform_balances for the burn-rate/runway/reserve math."""
+    fast each is actually depleting, and email staff when one goes low or critical (see
+    app.services.platform_balances), and separately check for any Data Source batch run that's
+    stalled (see app.services.data_sources) -- same cadence, no reason for a second timer."""
     from app.core.tenancy import system_scope
     from app.database import AsyncSessionLocal
     from app.services.platform_balances import check_and_alert
@@ -137,6 +138,10 @@ async def _platform_balance_check_loop():
             with system_scope():
                 async with AsyncSessionLocal() as db:
                     await check_and_alert(db)
+                async with AsyncSessionLocal() as db:
+                    from app.services.data_sources import check_stuck_runs
+
+                    await check_stuck_runs(db)
         except asyncio.CancelledError:
             raise
         except Exception as loop_err:

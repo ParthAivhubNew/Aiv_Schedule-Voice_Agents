@@ -304,6 +304,55 @@ async def _seed_lookup_vendor_prices(conn: AsyncConnection) -> None:
         ), {"id": f"pp_{uuid.uuid4().hex[:12]}", "p": provider, "price": price})
 
 
+async def _lead_account_business_record_column(conn: AsyncConnection) -> None:
+    """Links a Leads user's saved company to the shared, cross-organisation BusinessRecord fact
+    sheet (see models.py) -- their own notes/status stay on this row; only the pointer is new."""
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS business_record_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lead_accounts_business_record_id ON lead_accounts (business_record_id)"))
+
+
+async def _seed_companies_house_source(conn: AsyncConnection) -> None:
+    """The first api-type DataSource -- a config row, not special-cased code (see
+    data_source_connector.py). Picks up COMPANIES_HOUSE_API_KEY once, as a one-time convenience
+    for whoever already has a key, so there's something to paste into the Data Sources screen
+    straight away; from then on the saved row (editable there) is what's actually used, same as
+    every other staff-entered key in this app."""
+    import json
+    import os
+    import uuid
+
+    exists = (await conn.execute(text("SELECT 1 FROM data_sources WHERE id = 'ds_companies_house'"))).first()
+    if exists:
+        return
+    config = {
+        "trust_tier": "verified_registry",
+        "search_endpoint": "/search/companies",
+        "search_param": "q",
+        "search_items_path": "items",
+        "id_field_from_search": "company_number",
+        "profile_endpoint": "/company/{id}",
+        "field_map": {
+            "name": "company_name",
+            "registration_number": "company_number",
+            "address": ["registered_office_address.address_line_1", "registered_office_address.locality",
+                        "registered_office_address.postal_code"],
+            "region": "registered_office_address.locality",
+            "industry": "sic_codes",
+        },
+    }
+    await conn.execute(text(
+        "INSERT INTO data_sources (id, name, kind, base_url, auth_type, api_key, config, provides_fields, "
+        "max_concurrent_requests, min_delay_ms, run_state, status, created_at, updated_at, updated_by) "
+        "VALUES (:id, 'Companies House (UK)', 'api', 'https://api.company-information.service.gov.uk', "
+        "'api_key_basic', :key, CAST(:config AS JSON), CAST(:fields AS JSON), 5, 200, 'idle', 'active', "
+        "now(), now(), 'migration')"
+    ), {
+        "id": "ds_companies_house", "key": os.getenv("COMPANIES_HOUSE_API_KEY", "").strip(),
+        "config": json.dumps(config),
+        "fields": json.dumps(["name", "registration_number", "address", "region", "industry"]),
+    })
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -323,6 +372,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_14_remove_seeded_billing_plans", _remove_seeded_billing_plans),
     ("2026_10_15_prospect_leadgen_columns", _prospect_leadgen_columns),
     ("2026_10_16_seed_lookup_vendor_prices", _seed_lookup_vendor_prices),
+    ("2026_10_17_lead_account_business_record_column", _lead_account_business_record_column),
+    ("2026_10_17_seed_companies_house_source", _seed_companies_house_source),
 ]
 
 

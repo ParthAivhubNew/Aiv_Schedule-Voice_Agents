@@ -597,6 +597,16 @@ async def call_open_chat_llm_with_tools(
         }
         if system_text:
             payload["system"] = system_text
+        # Anthropic forces a tool with {"type": "tool", "name": "..."} rather than OpenAI's
+        # {"type": "function", "function": {"name": "..."}} -- translate so a caller that wants
+        # exactly one tool called (structured extraction, not a free "auto" choice) gets that
+        # guarantee on both providers, not just OpenAI-compatible ones.
+        if isinstance(tool_choice, dict):
+            forced_name = ((tool_choice.get("function") or {}).get("name")) or tool_choice.get("name")
+            if forced_name:
+                payload["tool_choice"] = {"type": "tool", "name": forced_name}
+        elif tool_choice == "required" and len(anthropic_tools) == 1:
+            payload["tool_choice"] = {"type": "tool", "name": anthropic_tools[0]["name"]}
 
         try:
             client = _get_llm_client()
@@ -685,6 +695,33 @@ async def call_open_chat_llm_with_tools(
     except Exception as e:
         logger.error(f"[TOOLS] LLM tool-call request to {endpoint} failed: {e}")
         return {"success": False, "error": str(e), "tool_calls": [], "reply": ""}
+
+
+async def extract_structured(
+    *, system_prompt: str, user_text: str, schema: Dict[str, Any], tool_name: str = "extract",
+    db: Optional[AsyncSession] = None, scope: str = "", provider: Optional[str] = None,
+    model: Optional[str] = None, max_tokens: int = 800,
+) -> Optional[Dict[str, Any]]:
+    """One forced tool call whose arguments must match `schema` -- the one place both the
+    scrape-extraction and chat-query-parsing paths turn free text into a JSON shape they can
+    trust, instead of each re-parsing a model's prose by hand. Returns the parsed arguments dict,
+    or None if the model didn't call the tool or returned something that wasn't valid JSON."""
+    tool = {"type": "function", "function": {"name": tool_name, "description": "Return exactly these fields.", "parameters": schema}}
+    result = await call_open_chat_llm_with_tools(
+        messages=[{"role": "user", "content": user_text}], tools=[tool], system_prompt=system_prompt,
+        provider=provider, model=model, temperature=0.0, max_tokens=max_tokens,
+        tool_choice={"type": "function", "function": {"name": tool_name}}, db=db, scope=scope,
+    )
+    if not result.get("success"):
+        return None
+    for call in result.get("tool_calls") or []:
+        if (call.get("function") or {}).get("name") != tool_name:
+            continue
+        try:
+            return json.loads(call["function"]["arguments"])
+        except (KeyError, ValueError, TypeError):
+            continue
+    return None
 
 
 async def stream_open_chat_llm(

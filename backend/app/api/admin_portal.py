@@ -1363,6 +1363,141 @@ async def put_unit_costs(body: UnitCostsBody, request: Request):
     return out
 
 
+# ── Data Sources (shared business-data scraping/lookup, staff only) ─────────
+def _data_source_out(row) -> Dict[str, Any]:
+    return {
+        "id": row.id, "name": row.name, "kind": row.kind, "baseUrl": row.base_url,
+        "authType": row.auth_type, "hasKey": bool(row.api_key), "config": row.config or {},
+        "providesFields": row.provides_fields or [], "maxConcurrentRequests": row.max_concurrent_requests,
+        "minDelayMs": row.min_delay_ms, "runState": row.run_state, "status": row.status,
+        "lastError": row.last_error or "", "lastSyncedAt": row.last_synced_at.isoformat() + "Z" if row.last_synced_at else None,
+        "updatedAt": row.updated_at.isoformat() + "Z" if row.updated_at else None,
+    }
+
+
+@router.get("/data-sources")
+async def list_data_sources(request: Request):
+    """Every website/API the platform can pull public business data from -- staff only. Keys are
+    never returned, only whether one is saved (same convention as Social OAuth Apps/Platform Keys)."""
+    from app.models.models import DataSource
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(DataSource).order_by(DataSource.created_at))).scalars().all()
+    return {"sources": [_data_source_out(r) for r in rows]}
+
+
+class DataSourceBody(BaseModel):
+    name: str
+    kind: str  # api | scrape
+    baseUrl: str = ""
+    authType: str = "none"
+    apiKey: str = ""  # blank on an edit keeps the existing key
+    config: Dict[str, Any] = {}
+    providesFields: List[str] = []
+    maxConcurrentRequests: int = 2
+    minDelayMs: int = 1000
+    status: str = "active"
+
+
+@router.post("/data-sources")
+async def create_data_source(body: DataSourceBody, request: Request):
+    from app.models.models import DataSource
+
+    who = _admin_only(request)
+    if body.kind not in ("api", "scrape"):
+        raise HTTPException(status_code=400, detail="kind must be 'api' or 'scrape'.")
+    async with AsyncSessionLocal() as db:
+        row = DataSource(
+            id=f"ds_{uuid.uuid4().hex[:16]}", name=body.name.strip(), kind=body.kind, base_url=body.baseUrl.strip(),
+            auth_type=body.authType, api_key=body.apiKey.strip(), config=body.config, provides_fields=body.providesFields,
+            max_concurrent_requests=max(1, body.maxConcurrentRequests), min_delay_ms=max(0, body.minDelayMs),
+            run_state="idle", status=body.status, updated_by=who.get("name") or who.get("email") or "",
+        )
+        db.add(row)
+        await db.commit()
+        return _data_source_out(row)
+
+
+async def _get_data_source(db, source_id: str):
+    from app.models.models import DataSource
+
+    row = (await db.execute(select(DataSource).where(DataSource.id == source_id))).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="That data source doesn't exist.")
+    return row
+
+
+@router.put("/data-sources/{source_id}")
+async def update_data_source(source_id: str, body: DataSourceBody, request: Request):
+    who = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        row = await _get_data_source(db, source_id)
+        row.name, row.kind, row.base_url = body.name.strip(), body.kind, body.baseUrl.strip()
+        row.auth_type, row.config = body.authType, body.config
+        row.provides_fields, row.status = body.providesFields, body.status
+        row.max_concurrent_requests, row.min_delay_ms = max(1, body.maxConcurrentRequests), max(0, body.minDelayMs)
+        if body.apiKey.strip():
+            row.api_key = body.apiKey.strip()
+        row.updated_by = who.get("name") or who.get("email") or ""
+        await db.commit()
+        return _data_source_out(row)
+
+
+@router.delete("/data-sources/{source_id}")
+async def delete_data_source(source_id: str, request: Request):
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        row = await _get_data_source(db, source_id)
+        await db.delete(row)
+        await db.commit()
+    return {"ok": True}
+
+
+@router.post("/data-sources/{source_id}/{action}")
+async def control_data_source(source_id: str, action: str, request: Request):
+    """pause/resume/stop set the flag a batch run loop checks between batches (see
+    data_sources.py once the scrape-type batch loop exists); test does a live one-off search
+    right now, so staff can confirm a key/config actually works before relying on it."""
+    _admin_only(request)
+    if action not in ("pause", "resume", "stop", "test"):
+        raise HTTPException(status_code=404, detail="Unknown action.")
+    async with AsyncSessionLocal() as db:
+        row = await _get_data_source(db, source_id)
+        if action == "test":
+            from app.services import data_source_connector as connector
+
+            query = (row.config or {}).get("test_query", "test")
+            try:
+                hits = await connector.search(row, query)
+            except Exception as err:
+                return {"ok": False, "error": str(err)}
+            return {"ok": True, "hits": len(hits), "sample": hits[0] if hits else None}
+        row.run_state = {"pause": "paused", "resume": "idle", "stop": "idle"}[action]
+        row.last_error = "" if action == "resume" else row.last_error
+        await db.commit()
+        return _data_source_out(row)
+
+
+@router.get("/data-sources/{source_id}/runs")
+async def list_data_source_runs(source_id: str, request: Request, limit: int = 20):
+    from app.models.models import DataSourceRun
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        await _get_data_source(db, source_id)
+        rows = (await db.execute(
+            select(DataSourceRun).where(DataSourceRun.source_id == source_id)
+            .order_by(DataSourceRun.started_at.desc()).limit(max(1, min(limit, 100)))
+        )).scalars().all()
+    return {"runs": [{
+        "id": r.id, "status": r.status, "recordsFound": r.records_found, "recordsNew": r.records_new,
+        "recordsUpdated": r.records_updated, "errorMessage": r.error_message or "",
+        "startedAt": r.started_at.isoformat() + "Z" if r.started_at else None,
+        "finishedAt": r.finished_at.isoformat() + "Z" if r.finished_at else None,
+    } for r in rows]}
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────
 @router.get("/logs")
 async def logs(request: Request, org_id: str = "", limit: int = 200):
