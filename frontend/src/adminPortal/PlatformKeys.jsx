@@ -367,6 +367,18 @@ function DataSources({ canEdit }) {
     return () => clearInterval(id);
   }, [runsOpen, sources, reload]);
 
+  // A reload/hard-refresh wipes which panel was manually opened (that's just browser state) --
+  // this re-opens Runs for whichever source the SERVER says is actually active, so progress
+  // stays visible across a refresh instead of looking like it vanished.
+  useEffect(() => {
+    const active = sources.find((s) => s.runState === "running" || s.runState === "paused");
+    if (active && runsOpen !== active.id) {
+      setRunsOpen(active.id);
+      adminApi.dataSourceRuns(active.id).then((r) => setRunsData((d) => ({ ...d, [active.id]: r.runs || [] })));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sources.map((s) => s.runState).join(",")]);
+
   if (!data) return <Note error={err}>{err}</Note>;
 
   const isBulk = (s) => !!s.config?.bulk_index_url;
@@ -540,7 +552,9 @@ function DataSources({ canEdit }) {
             <div style={mono}>{s.baseUrl}</div>
             {canEdit && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button type="button" style={btn(false)} onClick={() => control(s, "test")}>Test</button>
+                <button type="button" style={btn(false)} disabled={s.runState === "running"}
+                  title={s.runState === "running" ? "A run is already in progress -- Pause or Stop it first" : ""}
+                  onClick={() => control(s, "test")}>Test</button>
                 {s.runState === "running" && (
                   <>
                     <button type="button" style={btn(false)} onClick={() => control(s, "pause")}>Pause</button>
@@ -563,8 +577,12 @@ function DataSources({ canEdit }) {
                   )
                 )}
                 <button type="button" style={btn(false)} onClick={() => toggleRuns(s)}>{runsOpen === s.id ? "Hide runs" : "Runs"}</button>
-                <button type="button" style={btn(false)} onClick={() => edit(s)}>Edit</button>
-                <button type="button" style={btn(false)} onClick={() => remove(s)}>Remove</button>
+                <button type="button" style={btn(false)} disabled={s.runState === "running" || s.runState === "paused"}
+                  title={s.runState === "running" || s.runState === "paused" ? "Stop the run before editing this source" : ""}
+                  onClick={() => edit(s)}>Edit</button>
+                <button type="button" style={btn(false)} disabled={s.runState === "running" || s.runState === "paused"}
+                  title={s.runState === "running" || s.runState === "paused" ? "Stop the run before removing this source" : ""}
+                  onClick={() => remove(s)}>Remove</button>
               </div>
             )}
             {startOpen === s.id && !isBulk(s) && (
@@ -656,6 +674,9 @@ function BusinessRecordsBrowser() {
         <input aria-label="Search scraped data" placeholder="Search by name, domain, industry, region..." value={q}
           onChange={(e) => setQ(e.target.value)} style={{ ...input, flex: 1 }} />
         <button type="submit" style={btn(true)}>Search</button>
+        <button type="button" style={btn(false)} onClick={() => load(searched, page)} title="Reload this same search/page -- numbers don't update live while a run is in progress">
+          Refresh
+        </button>
         {searched && <button type="button" style={btn(false)} onClick={() => { setQ(""); load("", 0); }}>Clear</button>}
       </form>
       <Note error={error}>{error}</Note>
@@ -678,7 +699,7 @@ function BusinessRecordsBrowser() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ textAlign: "left", borderBottom: `1px solid ${C.border}` }}>
-                {["Name", "Reg #", "Domain", "Industry", "Region", "Confidence", "Sources", "Updated"].map((h) => (
+                {["Name", "Reg #", "Status", "Domain", "Industry", "Region", "Confidence", "Sources", "Updated"].map((h) => (
                   <th key={h} style={{ padding: "6px 8px", color: C.slate, fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -688,6 +709,7 @@ function BusinessRecordsBrowser() {
                 <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                   <td style={{ padding: "6px 8px", fontWeight: 600 }}>{r.name}</td>
                   <td style={{ padding: "6px 8px", ...mono }}>{r.registration_number || "—"}</td>
+                  <td style={{ padding: "6px 8px" }}>{r.status || "—"}</td>
                   <td style={{ padding: "6px 8px" }}>{r.domain || "—"}</td>
                   <td style={{ padding: "6px 8px" }}>{r.industry || "—"}</td>
                   <td style={{ padding: "6px 8px" }}>{r.region || "—"}</td>

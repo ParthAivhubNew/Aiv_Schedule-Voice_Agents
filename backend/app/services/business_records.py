@@ -32,7 +32,9 @@ logger = logging.getLogger("business_records")
 # overall confidence_tier too, not just one field.
 _TRUST = {"verified_registry": 2, "scraped": 1, "llm_fallback": 0}
 _FIELDS = ("name", "registration_number", "domain", "website", "phone", "email", "address",
-           "industry", "region", "employee_estimate", "description")
+           "industry", "region", "employee_estimate", "description", "status", "company_category",
+           "incorporation_date")
+_LIST_FIELDS = ("officers", "significant_control")  # JSON lists, fetched per-company only -- see fetch_profile
 
 
 def _clean(value: Any, limit: int = 500) -> str:
@@ -90,6 +92,12 @@ async def upsert(db: AsyncSession, *, source_id: str, source_type: str, confiden
         existing = getattr(row, field, "") or ""
         if not existing or incoming_rank >= current_rank:
             setattr(row, field, value)
+    for field in _LIST_FIELDS:
+        value = data.get(field)
+        if not value:
+            continue
+        if not getattr(row, field, None) or incoming_rank >= current_rank:
+            setattr(row, field, value)
     if incoming_rank > current_rank:
         row.confidence_tier = confidence_tier
     raw = dict(row.raw_data or {})
@@ -138,7 +146,10 @@ async def bulk_upsert(db: AsyncSession, *, source_id: str, rows: List[Dict[str, 
         row: Dict[str, Any] = {
             "id": f"biz_{uuid.uuid4().hex[:16]}", "identity_hash": ih, "confidence_tier": "verified_registry",
             "sources": [{"source_id": source_id, "source_type": "bulk_csv", "confirmed_at": now.isoformat()}],
-            "raw_data": {source_id: data}, "fetched_at": now, "last_verified_at": now,
+            # The FULL original row (every column the source published), not just what we mapped
+            # to a dedicated field -- nothing the source publishes is thrown away, even for a
+            # field that has no column of its own yet.
+            "raw_data": {source_id: data.get("raw", data)}, "fetched_at": now, "last_verified_at": now,
             "created_at": now, "updated_at": now,
         }
         for field in _FIELDS:
@@ -322,6 +333,9 @@ def as_dict(row: BusinessRecord) -> Dict[str, Any]:
         "email": row.email or "", "address": row.address or "", "industry": row.industry or "",
         "region": row.region or "", "employee_estimate": row.employee_estimate or "",
         "description": row.description or "", "confidence_tier": row.confidence_tier or "scraped",
+        "status": row.status or "", "company_category": row.company_category or "",
+        "incorporation_date": row.incorporation_date or "", "officers": row.officers or [],
+        "significant_control": row.significant_control or [],
         "sources": row.sources or [], "needs_review": bool(row.needs_review),
         "fetched_at": row.fetched_at.isoformat() + "Z" if row.fetched_at else None,
     }

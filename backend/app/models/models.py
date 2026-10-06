@@ -1463,9 +1463,15 @@ class BusinessRecord(Base):
     region = Column(String, default="", index=True)
     employee_estimate = Column(String, default="")
     description = Column(Text, default="")
+    status = Column(String, default="")  # active, dissolved, liquidation, ... -- whatever the source calls it
+    company_category = Column(String, default="")  # private limited, PLC, LLP, ...
+    incorporation_date = Column(String, default="")
+    officers = Column(JSON, nullable=True)  # [{name, role, appointed_on, ...}] -- fetched per-company, not during a bulk import
+    significant_control = Column(JSON, nullable=True)  # [{name, kind, notified_on, ...}] -- who actually owns/controls it
     sources = Column(JSON, nullable=True)  # [{source_id, source_type, confirmed_at}, ...]
     confidence_tier = Column(String, default="scraped")  # verified_registry | scraped | llm_fallback
-    raw_data = Column(JSON, nullable=True)  # per-source raw payloads, keyed by source_id
+    raw_data = Column(JSON, nullable=True)  # the FULL original record from each source, keyed by source_id --
+    # nothing a source publishes is ever thrown away, even fields with no column of their own yet
     embedding = Column(Vector(384), nullable=True)  # for later semantic ("indirect business") search
     needs_review = Column(Boolean, default=False)
     fetch_hash = Column(String, default="")  # hash of the last raw fetch; skips reprocessing unchanged content

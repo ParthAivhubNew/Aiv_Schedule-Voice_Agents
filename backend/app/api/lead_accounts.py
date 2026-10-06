@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.enrichment import _can_research, _charge_leads
 from app.database import get_db
-from app.models.models import LeadAccount
+from app.models.models import BusinessRecord, LeadAccount
 from app.services import business_lookup, business_records
 from app.services.enrichment_service import _host_of, enrich_prospect_intelligence
 
@@ -68,7 +68,20 @@ def _clean(value: Any, limit: int = 300) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
-def _out(a: LeadAccount) -> Dict[str, Any]:
+def _registry_out(biz: BusinessRecord) -> Dict[str, Any]:
+    """The shared, cross-organisation facts about this company (see BusinessRecord) -- registry
+    status/category/dates plus officers and who actually controls it, when a live lookup has
+    fetched that far. Kept under its own key so it's visually distinct from this organisation's
+    own notes/contact info above, which stays private to them."""
+    return {
+        "registration_number": biz.registration_number or "", "status": biz.status or "",
+        "company_category": biz.company_category or "", "incorporation_date": biz.incorporation_date or "",
+        "officers": biz.officers or [], "significant_control": biz.significant_control or [],
+        "confidence_tier": biz.confidence_tier or "", "source_count": len(biz.sources or []),
+    }
+
+
+def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]:
     return {
         "id": a.id, "name": a.name, "domain": a.domain or "", "website": a.website or "", "phone": a.phone or "",
         "email": a.email or "", "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
@@ -76,6 +89,7 @@ def _out(a: LeadAccount) -> Dict[str, Any]:
         "source_url": a.source_url or "", "research": a.research or None,
         "researched_at": a.researched_at.isoformat() + "Z" if a.researched_at else None,
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
+        "registry": _registry_out(biz) if biz else None,
     }
 
 
@@ -86,10 +100,30 @@ async def _account(db: AsyncSession, account_id: str) -> LeadAccount:
     return row
 
 
+async def _registry_for(db: AsyncSession, account_id: str) -> Optional[BusinessRecord]:
+    row = await _account(db, account_id)
+    if not row.business_record_id:
+        return None
+    return (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first()
+
+
 @router.get("/accounts")
 async def list_accounts(db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(LeadAccount).order_by(LeadAccount.created_at.desc()))).scalars().all()
-    return {"accounts": [_out(a) for a in rows]}
+    biz_ids = [r.business_record_id for r in rows if r.business_record_id]
+    registry_by_id: Dict[str, BusinessRecord] = {}
+    if biz_ids:
+        biz_rows = (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(biz_ids)))).scalars().all()
+        registry_by_id = {b.id: b for b in biz_rows}
+    return {"accounts": [_out(a, registry_by_id.get(a.business_record_id)) for a in rows]}
+
+
+@router.get("/accounts/{account_id}/registry")
+async def account_registry(account_id: str, db: AsyncSession = Depends(get_db)):
+    """Just the shared registry facts for one account -- for refreshing that section after a
+    Research call without re-fetching the whole list."""
+    biz = await _registry_for(db, account_id)
+    return {"registry": _registry_out(biz) if biz else None}
 
 
 @router.post("/accounts")
@@ -144,7 +178,8 @@ async def update_account(account_id: str, body: AccountPatch, db: AsyncSession =
         row.domain = _domain(row.website)
     row.updated_at = datetime.utcnow()
     await db.commit()
-    return _out(row)
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
+    return _out(row, biz)
 
 
 @router.delete("/accounts/{account_id}")
@@ -220,7 +255,8 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     if found:
         await _charge_leads(db, 1, f"Researched {row.name}")
-    return _out(row)
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
+    return _out(row, biz)
 
 
 class AskIn(BaseModel):

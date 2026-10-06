@@ -341,7 +341,18 @@ async def _seed_companies_house_source(conn: AsyncConnection) -> None:
                         "registered_office_address.postal_code"],
             "region": "registered_office_address.locality",
             "industry": "sic_codes",
+            "status": "company_status",
+            "company_category": "type",
+            "incorporation_date": "date_of_creation",
         },
+        # Officers and who actually controls the company -- one extra call each, only for a
+        # specific company someone looked up (see fetch_profile), never for a whole bulk import.
+        "officers_endpoint": "/company/{id}/officers",
+        "officers_items_path": "items",
+        "officers_field_map": {"name": "name", "role": "officer_role", "appointed_on": "appointed_on", "resigned_on": "resigned_on"},
+        "psc_endpoint": "/company/{id}/persons-with-significant-control",
+        "psc_items_path": "items",
+        "psc_field_map": {"name": "name", "kind": "kind", "notified_on": "notified_on", "ceased_on": "ceased_on"},
         # Bulk path: their own free monthly full-dataset download (see data_source_connector.py's
         # discover_bulk_files/stream_bulk_rows) -- no API key needed for this file, no company
         # name ever typed; "Start a run" on this source just imports the whole thing.
@@ -353,6 +364,9 @@ async def _seed_companies_house_source(conn: AsyncConnection) -> None:
             "industry": ["SICCode.SicText_1"],
             "region": ["RegAddress.PostTown"],
             "address": ["RegAddress.AddressLine1", "RegAddress.PostTown", "RegAddress.PostCode"],
+            "status": ["CompanyStatus"],
+            "company_category": ["CompanyCategory"],
+            "incorporation_date": ["IncorporationDate"],
         },
     }
     await conn.execute(text(
@@ -423,6 +437,45 @@ async def _business_record_search_indexes(conn: AsyncConnection) -> None:
         ))
 
 
+async def _companies_house_more_fields(conn: AsyncConnection) -> None:
+    """Adds status/category/incorporation-date mapping and officers/PSC endpoints to a row seeded
+    before they existed -- see _seed_companies_house_source for what each one does. Never touches
+    anything staff may have already changed on this row."""
+    import json
+
+    row = (await conn.execute(text("SELECT config FROM data_sources WHERE id = 'ds_companies_house'"))).first()
+    if not row:
+        return
+    config = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+    if config.get("officers_endpoint"):
+        return
+    config.setdefault("field_map", {}).update({
+        "status": "company_status", "company_category": "type", "incorporation_date": "date_of_creation",
+    })
+    config["officers_endpoint"] = "/company/{id}/officers"
+    config["officers_items_path"] = "items"
+    config["officers_field_map"] = {"name": "name", "role": "officer_role", "appointed_on": "appointed_on", "resigned_on": "resigned_on"}
+    config["psc_endpoint"] = "/company/{id}/persons-with-significant-control"
+    config["psc_items_path"] = "items"
+    config["psc_field_map"] = {"name": "name", "kind": "kind", "notified_on": "notified_on", "ceased_on": "ceased_on"}
+    config.setdefault("bulk_field_map", {}).update({
+        "status": ["CompanyStatus"], "company_category": ["CompanyCategory"], "incorporation_date": ["IncorporationDate"],
+    })
+    await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = 'ds_companies_house'"), {"c": json.dumps(config)})
+
+
+async def _business_record_more_fields(conn: AsyncConnection) -> None:
+    """More of what a registry source actually publishes about a company, not just the handful
+    of fields the first version mapped -- status/category/incorporation date (already sitting in
+    the same bulk file being downloaded, free to add), and officers/significant-control (fetched
+    per company on demand -- see data_source_connector.fetch_profile)."""
+    for col, typ in (
+        ("status", "VARCHAR DEFAULT ''"), ("company_category", "VARCHAR DEFAULT ''"),
+        ("incorporation_date", "VARCHAR DEFAULT ''"), ("officers", "JSON"), ("significant_control", "JSON"),
+    ):
+        await conn.execute(text(f"ALTER TABLE business_records ADD COLUMN IF NOT EXISTS {col} {typ}"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -447,6 +500,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_18_companies_house_test_query", _companies_house_test_query),
     ("2026_10_19_business_record_search_indexes", _business_record_search_indexes),
     ("2026_10_20_companies_house_bulk_config", _companies_house_bulk_config),
+    ("2026_10_21_business_record_more_fields", _business_record_more_fields),
+    ("2026_10_22_companies_house_more_fields", _companies_house_more_fields),
 ]
 
 

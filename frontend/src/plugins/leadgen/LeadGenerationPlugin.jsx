@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { AppSwitcher } from "../../hub/AppSwitcher";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
-import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER, initialsFromName, getActiveAiCredentials } from "../../tokens";
+import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER, initialsFromName } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
@@ -46,7 +46,6 @@ export default function LeadGenerationPlugin({
   onBackToHub,
   onLogout,
   profile,
-  commonAi,
 }) {
   const normalizeLeadgenView = (raw) => {
     if (!raw) return "copilot";
@@ -132,15 +131,10 @@ export default function LeadGenerationPlugin({
     setIsCopilotTyping(true);
 
     try {
-      const creds = getActiveAiCredentials(commonAi, "leadgen", "researchLlm");
       const res = await api.copilotChat({
         message: query,
         history: copilotChatMessages.map((m) => ({ role: m.role, content: m.text })),
-        plugin: "leadgen",
-        apiKey: creds.apiKey,
-        provider: creds.provider,
-        model: creds.model,
-        baseUrl: creds.baseUrl
+        plugin: "leadgen"
       });
 
       const aiMsg = {
@@ -149,7 +143,7 @@ export default function LeadGenerationPlugin({
         text: res?.reply || "I processed your request. How else can I help?",
         leads: res?.leads || [],
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        model: res?.model || creds.model
+        model: res?.model
       };
       setCopilotChatMessages((prev) => [...prev, aiMsg]);
     } catch (err) {

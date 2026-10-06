@@ -189,6 +189,8 @@ async def stream_bulk_rows(source) -> AsyncIterator[Dict[str, Any]]:
         "name": ["CompanyName"], "registration_number": ["CompanyNumber"],
         "industry": ["SICCode.SicText_1"], "region": ["RegAddress.PostTown"],
         "address": ["RegAddress.AddressLine1", "RegAddress.PostTown", "RegAddress.PostCode"],
+        "status": ["CompanyStatus"], "company_category": ["CompanyCategory"],
+        "incorporation_date": ["IncorporationDate"],
     }
     for url in await discover_bulk_files(source):
         logger.info(f"[data_source_connector] {source.name}: downloading {url}")
@@ -214,25 +216,55 @@ async def stream_bulk_rows(source) -> AsyncIterator[Dict[str, Any]]:
                                 if value:
                                     mapped[field] = value
                             if mapped.get("name") or mapped.get("registration_number"):
+                                # Keep the whole original row too -- every column this file
+                                # publishes, including anything not mapped to a field above.
+                                mapped["raw"] = dict(row)
                                 yield mapped
 
 
+async def _fetch_list(source, url_template: str, id_value: str, items_path: str, field_map: Dict[str, Any], limit: int = 25) -> List[Dict[str, Any]]:
+    try:
+        async with _client(source) as client:
+            resp = await client.get(url_template.format(id=id_value))
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as err:
+        logger.warning(f"[data_source_connector] {url_template}: {err}")
+        return []
+    items = _dig(data, items_path)
+    if not isinstance(items, list):
+        return []
+    return [map_fields(it, field_map) for it in items[:limit] if isinstance(it, dict)]
+
+
 async def fetch_profile(source, item: Dict[str, Any]) -> Dict[str, Any]:
-    """The mapped BusinessRecord fields for one search hit, plus the raw payload they came from."""
+    """The mapped BusinessRecord fields for one search hit, plus the raw payload they came from.
+    If the source config sets officers_endpoint/psc_endpoint, this is also where that per-company
+    detail gets pulled in -- one lookup at a time, for whichever company someone actually asked
+    about. Never done for every row of a bulk import (5.5 million companies x 2 extra calls each
+    would take forever and blow through any real API's rate limit), only here, on demand."""
     cfg = source.config or {}
     raw = item
     profile_endpoint = cfg.get("profile_endpoint")
-    if profile_endpoint:
-        id_value = _dig(item, cfg.get("id_field_from_search", "id"))
-        if id_value:
-            path = profile_endpoint.format(id=id_value)
-            try:
-                async with _client(source) as client:
-                    resp = await client.get(path)
-                    resp.raise_for_status()
-                    raw = resp.json()
-            except httpx.HTTPError as err:
-                logger.warning(f"[data_source_connector] profile fetch failed for {source.name} {id_value}: {err}")
-                raw = item
+    id_value = _dig(item, cfg.get("id_field_from_search", "id"))
+    if profile_endpoint and id_value:
+        path = profile_endpoint.format(id=id_value)
+        try:
+            async with _client(source) as client:
+                resp = await client.get(path)
+                resp.raise_for_status()
+                raw = resp.json()
+        except httpx.HTTPError as err:
+            logger.warning(f"[data_source_connector] profile fetch failed for {source.name} {id_value}: {err}")
+            raw = item
     mapped = map_fields(raw, cfg.get("field_map") or {})
+    if id_value:
+        officers_endpoint = cfg.get("officers_endpoint")
+        if officers_endpoint:
+            mapped["officers"] = await _fetch_list(source, officers_endpoint, id_value,
+                                                     cfg.get("officers_items_path", "items"), cfg.get("officers_field_map") or {})
+        psc_endpoint = cfg.get("psc_endpoint")
+        if psc_endpoint:
+            mapped["significant_control"] = await _fetch_list(source, psc_endpoint, id_value,
+                                                                cfg.get("psc_items_path", "items"), cfg.get("psc_field_map") or {})
     return {**mapped, "raw": raw}

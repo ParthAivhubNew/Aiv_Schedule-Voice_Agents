@@ -61,7 +61,7 @@ import { api } from "../../../api/apiClient";
 import { WebSocketClient } from "../../../api/wsClient";
 import { withToken } from "../../../api/authStore";
 import { AudioStreamPlayer } from "../../../api/audioStreamPlayer";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, getActiveAiCredentials, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../../../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../../../tokens";
 import { AnalyticsTab } from "./AnalyticsTab";
 import { ImportMapper } from "./ImportMapper";
 import { WorkingHoursTab } from "./WorkingHoursTab";
@@ -881,7 +881,6 @@ export function CallingWorkspace({
   onLogout,
   profile,
   setProfile,
-  commonAi,
   aiKeysPanel,
   onOpenCommonAi,
   companyPanel,
@@ -2137,16 +2136,11 @@ export function CallingWorkspace({
     }
     setBusy("chat");
     try {
-      const creds = getActiveAiCredentials(commonAi, "voice");
       const contactSnapshot = startedFresh ? [] : serializeForGaps(rows);
       const res = await api.copilotChat({
         message: text,
         history: [...historySource, userMsg].map((m) => ({ sender: m.who === "ai" ? "ai" : "user", text: m.text })),
         plugin: "voice",
-        apiKey: creds.apiKey,
-        provider: creds.provider,
-        model: creds.model,
-        baseUrl: creds.baseUrl,
         contacts: contactSnapshot,
       });
       if (res && res.fills && res.fills.length) mergeFills(res.fills);

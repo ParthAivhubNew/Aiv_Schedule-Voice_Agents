@@ -372,6 +372,7 @@ export function ContactsView({ store, onOpen, onToast, onGo }) {
 // ---------------------------------------------------------------- Account Dossiers
 function Dossier({ account, store }) {
   const r = account.research;
+  const reg = account.registry;
   if (!account.researched_at) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -380,7 +381,7 @@ function Dossier({ account, store }) {
       </div>
     );
   }
-  if (!hasFindings(account)) {
+  if (!hasFindings(account) && !reg) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span style={{ ...muted, flex: "1 1 220px" }}>The last research found nothing public about this company.</span>
@@ -391,8 +392,46 @@ function Dossier({ account, store }) {
   const label = { ...text, fontSize: 12, fontWeight: 500, color: C.slate, marginBottom: 4 };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {r.overview ? <div><div style={label}>Overview</div><div style={{ ...text, fontSize: 13.5, color: C.textInk, lineHeight: 1.55 }}>{r.overview}</div></div> : null}
-      {r.people?.length ? (
+      {reg ? (
+        <div>
+          <div style={label}>
+            Company registry{reg.confidence_tier === "verified_registry" ? " · verified" : ""}
+          </div>
+          <div style={{ ...text, fontSize: 13.5, color: C.textInk, display: "flex", gap: 14, flexWrap: "wrap" }}>
+            {reg.registration_number ? <span><span style={{ color: C.slate }}>Reg #</span> {reg.registration_number}</span> : null}
+            {reg.status ? <span><span style={{ color: C.slate }}>Status</span> {reg.status}</span> : null}
+            {reg.company_category ? <span><span style={{ color: C.slate }}>Type</span> {reg.company_category}</span> : null}
+            {reg.incorporation_date ? <span><span style={{ color: C.slate }}>Incorporated</span> {reg.incorporation_date}</span> : null}
+          </div>
+          {reg.officers?.length ? (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ ...text, fontSize: 12, color: C.slate, marginBottom: 2 }}>Officers</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {reg.officers.map((o, i) => (
+                  <div key={i} style={{ ...text, fontSize: 13.5, color: C.textInk }}>
+                    {o.name}{o.role ? <span style={{ color: C.slate }}> · {o.role}</span> : null}
+                    {o.resigned_on ? <span style={{ color: C.slate }}> (resigned {o.resigned_on})</span> : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {reg.significant_control?.length ? (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ ...text, fontSize: 12, color: C.slate, marginBottom: 2 }}>Significant control</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {reg.significant_control.map((p, i) => (
+                  <div key={i} style={{ ...text, fontSize: 13.5, color: C.textInk }}>
+                    {p.name}{p.kind ? <span style={{ color: C.slate }}> · {p.kind}</span> : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {r?.overview ? <div><div style={label}>Overview</div><div style={{ ...text, fontSize: 13.5, color: C.textInk, lineHeight: 1.55 }}>{r.overview}</div></div> : null}
+      {r?.people?.length ? (
         <div>
           <div style={label}>People found</div>
           {r.people.map((p, i) => (
@@ -402,7 +441,7 @@ function Dossier({ account, store }) {
           ))}
         </div>
       ) : null}
-      {(r.phones?.length || r.emails?.length) ? (
+      {(r?.phones?.length || r?.emails?.length) ? (
         <div>
           <div style={label}>Contact details found</div>
           <div style={{ ...text, fontSize: 13.5, color: C.textInk, display: "flex", gap: 14, flexWrap: "wrap", fontVariantNumeric: "tabular-nums" }}>
@@ -410,7 +449,7 @@ function Dossier({ account, store }) {
           </div>
         </div>
       ) : null}
-      {r.other_offices?.length ? (
+      {r?.other_offices?.length ? (
         <div>
           <div style={label}>Other offices</div>
           <div style={{ ...text, fontSize: 13.5, color: C.textInk, display: "flex", flexDirection: "column", gap: 2, fontVariantNumeric: "tabular-nums" }}>
@@ -418,7 +457,7 @@ function Dossier({ account, store }) {
           </div>
         </div>
       ) : null}
-      {r.sources?.length ? (
+      {r?.sources?.length ? (
         <div>
           <div style={label}>Sources</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
