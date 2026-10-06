@@ -69,7 +69,7 @@ async def _lookup_one(db: AsyncSession, intent: Dict[str, Any], *, scope: str) -
     from app.services.enrichment_service import enrich_prospect_intelligence
 
     try:
-        data = await enrich_prospect_intelligence(name=name or domain, company=name or None, domain=domain or None)
+        data = await enrich_prospect_intelligence(name=name or domain, company=name or None, domain=domain or None, db=db, scope=scope)
     except Exception as err:
         logger.warning(f"[business_lookup] fallback research failed for {name or domain}: {err}")
         return []

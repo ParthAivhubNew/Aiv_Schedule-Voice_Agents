@@ -534,6 +534,36 @@ def _is_real_phone(raw: str) -> bool:
     return True
 
 
+def _normalized_phone_digits(raw: str) -> str:
+    """The national significant number, so the same line scraped as "+441384221642",
+    "01384 221 642" and "1384 221 642" (three formats from three pages) all collapse to one
+    discovered_phones entry instead of showing up as three different numbers."""
+    digits = re.sub(r"\D", "", raw or "")
+    if digits.startswith("44") and len(digits) > 10:
+        digits = "0" + digits[2:]
+    elif not digits.startswith("0") and 9 <= len(digits) <= 10:
+        digits = "0" + digits
+    return digits
+
+
+# firstname.lastname@ / firstname_lastname@ -- a named person's own mailbox, not a shared/role
+# inbox. Lets the dossier show "Ellis Blackham" instead of a bare, unattributed email address.
+_NAME_LOCAL_PART = re.compile(r"^[a-z]{2,}[._-][a-z]{2,}$")
+_ROLE_MAILBOX_LOCAL_PARTS = {
+    "info", "sales", "hello", "contact", "enquiries", "enquiry", "support", "admin",
+    "office", "accounts", "hr", "careers", "marketing", "press", "media", "team", "mail",
+}
+
+
+def name_from_email(email: str) -> str:
+    """Best-effort person name from a named mailbox's local part, or "" for a role/shared inbox
+    (info@, sales@, etc.) that should be shown as the company's general contact, not a person."""
+    local = (email or "").split("@")[0].lower()
+    if local in _ROLE_MAILBOX_LOCAL_PARTS or not _NAME_LOCAL_PART.match(local):
+        return ""
+    return " ".join(p.capitalize() for p in re.split(r"[._-]+", local))
+
+
 async def _telnyx_confirmed_phone(raw: str) -> str:
     """Confirm a phone-shaped string found in a search snippet is a real, assigned number via
     Telnyx Number Lookup — the one master Telnyx key already used platform-wide, no account or
@@ -864,7 +894,9 @@ def _pick_follow_pages(extra: List[str], origin: str, netloc: str) -> List[str]:
         if any(skip in low for skip in ("linkedin.com", "facebook.com", "instagram.com", "twitter.com", "x.com")):
             continue
         score = 0
-        if "/contact" in low:
+        if any(w in low for w in ("/team", "/our-team", "/meet-the-team", "/staff", "/people")):
+            score = 5  # named individuals + their own contact details live here, when it exists
+        elif "/contact" in low:
             score = 4
         elif "/about-us" in low or "/aboutus" in low:
             score = 3
@@ -882,7 +914,7 @@ def _pick_follow_pages(extra: List[str], origin: str, netloc: str) -> List[str]:
             continue
         seen.add(url)
         out.append(url)
-        if len(out) >= 1:
+        if len(out) >= 2:  # a team-ish page AND a contact-ish page, when both exist
             break
     return out
 
@@ -900,7 +932,61 @@ async def _ingest_html(html: str, phones: set, emails: set, socials: dict) -> Li
     return extra, title, description
 
 
-async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
+_TEAM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "team": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "title": {"type": "string", "description": "Their job title/role, if shown."},
+                    "phone": {"type": "string", "description": "Their own direct number, only if shown right next to their name -- never a generic switchboard number."},
+                    "email": {"type": "string", "description": "Their own email, only if shown right next to their name -- never a generic info@/sales@ inbox."},
+                },
+                "required": ["name"],
+            },
+        }
+    },
+    "required": ["team"],
+}
+_TEAM_SYSTEM = (
+    "Find every named person on this page along with whatever is shown right next to their name -- "
+    "job title, their own phone, their own email. Only attach a phone/email to a person when it's "
+    "clearly theirs specifically (beside their name/title in the same block); never pair up a phone "
+    "or email found elsewhere on the page just because a name also appears somewhere on it, and never "
+    "use a shared company inbox (info@, sales@, enquiries@) or a general switchboard number as a "
+    "person's own. If nothing is genuinely tied to a specific named person, return an empty list."
+)
+
+
+async def _extract_team(page_text: str, *, db=None, scope: str = "leadgen") -> List[Dict[str, str]]:
+    """The actual fix for "whose phone/email is whose": an LLM read of one page's real layout,
+    told explicitly to only keep a contact detail that's genuinely next to a person's name -- not
+    the flat, unlinked phone/email sets _harvest_soup collects from the whole page for the
+    company's own general contact info (which still has its own separate, valid use)."""
+    if not page_text or not page_text.strip():
+        return []
+    from app.services import llm_gateway
+
+    try:
+        result = await llm_gateway.extract_structured(
+            system_prompt=_TEAM_SYSTEM, user_text=page_text[:6000], schema=_TEAM_SCHEMA,
+            tool_name="extract_team", db=db, scope=scope, max_tokens=800,
+        )
+    except Exception as err:
+        logger.debug(f"[enrichment] team extraction failed: {err}")
+        return []
+    out: List[Dict[str, str]] = []
+    for t in (result or {}).get("team") or []:
+        if isinstance(t, dict) and t.get("name"):
+            out.append({"name": str(t["name"])[:120], "title": str(t.get("title") or "")[:120],
+                        "phone": str(t.get("phone") or "")[:60], "email": str(t.get("email") or "")[:200].lower()})
+    return out[:10]
+
+
+async def crawl_homepage_contacts(domain_url: str, *, db=None, scope: str = "leadgen") -> Dict[str, Any]:
     clean_url = domain_url.strip()
     if not clean_url.startswith("http"):
         clean_url = "https://" + clean_url
@@ -910,6 +996,15 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
     socials = {}
     title = ""
     description = ""
+    team: List[Dict[str, str]] = []
+    seen_names = set()
+
+    def _merge_team(found: List[Dict[str, str]]) -> None:
+        for t in found:
+            key = t["name"].strip().lower()
+            if key and key not in seen_names:
+                seen_names.add(key)
+                team.append(t)
 
     try:
         limits = httpx.Limits(max_keepalive_connections=5, max_connections=8)
@@ -921,16 +1016,22 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
                 parsed = urllib.parse.urlparse(str(resp.url))
                 origin = f"{parsed.scheme}://{parsed.netloc}"
                 follow = _pick_follow_pages(extra, origin, parsed.netloc) if extra else []
-                guesses = [urllib.parse.urljoin(origin + "/", g) for g in ("contact", "contact-us", "about", "about-us")]
+                guesses = [urllib.parse.urljoin(origin + "/", g) for g in
+                           ("contact", "contact-us", "about", "about-us", "team", "our-team", "meet-the-team")]
                 seen = set()
                 for abs_url in follow + guesses:
-                    if abs_url in seen or len(seen) >= 3:
+                    if abs_url in seen or len(seen) >= 5:
                         continue
                     seen.add(abs_url)
                     try:
                         extra_resp = await client.get(abs_url)
                         if extra_resp.status_code == 200:
                             await _ingest_html(extra_resp.text, phones, emails, socials)
+                            if len(team) < 10:
+                                from app.services.crawler_service import extract_clean_text_from_html
+
+                                _, page_text = extract_clean_text_from_html(extra_resp.text)
+                                _merge_team(await _extract_team(page_text, db=db, scope=scope))
                     except Exception:
                         pass
     except Exception as e:
@@ -941,7 +1042,8 @@ async def crawl_homepage_contacts(domain_url: str) -> Dict[str, Any]:
         "description": description,
         "phones": list(phones)[:8],
         "emails": list(emails)[:8],
-        "socials": socials
+        "socials": socials,
+        "team": team,
     }
 
 # UK dialling codes of towns and cities. A firm's number in one town starts with that town's code,
@@ -1058,6 +1160,8 @@ async def enrich_prospect_intelligence(
     place: Optional[str] = None,
     person: Optional[str] = None,
     page_url: Optional[str] = None,
+    db=None,
+    scope: str = "leadgen",
 ) -> Dict[str, Any]:
     """page_url: the page the company was found on. When it is one office's page on the company's
     own site, that office's details come first and other offices' are kept apart."""
@@ -1074,7 +1178,7 @@ async def enrich_prospect_intelligence(
         else:
             home = _usable_website(domain)
             if home:
-                scraped_info = await crawl_homepage_contacts(home)
+                scraped_info = await crawl_homepage_contacts(home, db=db, scope=scope)
     office: Dict[str, Any] = {}
     if host and page_url and _host_of(page_url) == host and urllib.parse.urlparse(page_url).path.strip("/"):
         office = await _page_contacts(page_url)
@@ -1140,7 +1244,7 @@ async def enrich_prospect_intelligence(
             url = s.get("url") or ""
             home = _homepage_from_url(url)
             if home:
-                scraped_info = await crawl_homepage_contacts(home)
+                scraped_info = await crawl_homepage_contacts(home, db=db, scope=scope)
                 if scraped_info.get("emails") or scraped_info.get("phones") or scraped_info.get("socials"):
                     break
 
@@ -1157,9 +1261,19 @@ async def enrich_prospect_intelligence(
             reddit_mentions.append({"title": title, "url": url, "snippet": (s.get("snippet") or "")[:180]})
 
     discovered_phones: List[str] = []
+    seen_phone_digits: Dict[str, int] = {}  # normalized digits -> index in discovered_phones
     for p in (office.get("phones") or []) + (scraped_info.get("phones") or []) + snippet_phones:
-        if _is_real_phone(p) and p not in discovered_phones:
+        if not _is_real_phone(p):
+            continue
+        key = _normalized_phone_digits(p)
+        if not key:
+            continue
+        if key not in seen_phone_digits:
+            seen_phone_digits[key] = len(discovered_phones)
             discovered_phones.append(p)
+        elif p.strip().startswith("+") and not discovered_phones[seen_phone_digits[key]].strip().startswith("+"):
+            # Same line found again in a fuller (international) format -- prefer that one.
+            discovered_phones[seen_phone_digits[key]] = p
     host = ""
     if domain:
         host = _host_of(domain if domain.startswith("http") else "https://" + domain)
@@ -1236,18 +1350,24 @@ async def enrich_prospect_intelligence(
 
     confidence = 85 if (discovered_phones or discovered_emails) else 70 if socials else 60 if snippets else 35
 
+    # Split emails into named people (ellis.blackham@...) vs the company's general/role inboxes
+    # (info@, sales@...) so the dossier can label who's who instead of one unattributed list.
+    email_contacts = [{"email": e, "name": name_from_email(e)} for e in discovered_emails]
+
     summary_result = {
         "company": target_company,
         "domain": resolved_domain or "",
         "phones": discovered_phones,
         "primaryPhone": discovered_phones[0] if discovered_phones else "",
         "emails": discovered_emails,
+        "emailContacts": email_contacts,
         "primaryEmail": primary_email,
         "otherOffices": other_offices,
         "overview": company_pitch or next((s["snippet"] for s in snippets if place_bit and place_bit.lower() in (s.get("snippet") or "").lower()),
                                           snippets[0]["snippet"] if snippets else "No detailed summary found."),
         "openingHook": hook,
         "keyPeople": people[:3],
+        "team": scraped_info.get("team") or [],
         "socials": socials,
         "redditMentions": reddit_mentions[:3],
         "confidenceScore": confidence,

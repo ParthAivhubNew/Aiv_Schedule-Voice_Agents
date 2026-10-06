@@ -21,6 +21,16 @@ from app.services.llm_gateway import call_open_chat_llm
 
 router = APIRouter(prefix="/enrichment", tags=["AI Lead Radar & Enrichment"])
 
+# A model sometimes claims it has no live web access even when a search already ran this turn --
+# catches that so real results never get buried under a false disclaimer (see copilot_chat).
+_NO_LIVE_ACCESS_CLAIM = re.compile(
+    r"\bcan'?t (actually )?(browse|access|pull|fetch|hand you) .*(web|internet|live|current|real[- ]?time)|"
+    r"\bcannot (browse|access) .*(web|internet)|"
+    r"\bdon'?t have (live|real-time|direct) (web )?access|"
+    r"\bno (live|real-time) (internet|web) access\b",
+    re.I,
+)
+
 
 async def _can_research(db: AsyncSession) -> None:
     """Lead research uses Lead generation credits; refuse when they ran out (stop at zero)."""
@@ -147,7 +157,8 @@ async def enrich_prospect(req: EnrichRequest, db: AsyncSession = Depends(get_db)
         data = await enrich_prospect_intelligence(
             name=req.name,
             company=req.company,
-            domain=req.domain
+            domain=req.domain,
+            db=db,
         )
         if data:
             await _charge_leads(db, 1, f"Researched {req.name or req.company or 'a lead'}")
@@ -342,11 +353,18 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             )
 
         if discovered_leads:
+            lead_lines = "\n".join(
+                f"- {l.get('name') or '?'} ({l.get('website') or l.get('domain') or 'no site listed'})"
+                for l in discovered_leads
+            )
             system_prompt += (
-                f"\n\nNote: The user just searched for prospects. We retrieved {len(discovered_leads)} live candidates "
-                f"from the web (e.g. {', '.join([l.get('name', '') for l in discovered_leads[:3]])}). "
-                f"Acknowledge the findings, provide tactical advice on how to approach these accounts, "
-                f"and invite the user to refine criteria or ask any follow-up questions."
+                f"\n\nLIVE WEB SEARCH JUST RAN and found these {len(discovered_leads)} real companies "
+                f"(already fetched, already shown to the user as cards below your reply):\n{lead_lines}\n\n"
+                "You DO have live web access and just used it -- never say you can't browse the web or can't "
+                "pull live/current results, and never send the user off to search Google Maps, Companies House "
+                "or LinkedIn themselves instead of these. Open by naming the companies found, then give tactical "
+                "advice on approaching them, and invite the user to refine criteria (size, exact area, sub-sector) "
+                "if they want a different set."
             )
 
         llm_response = {}
@@ -366,6 +384,21 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             logger.warning(f"Voice copilot LLM unavailable: {llm_err}")
 
         reply_text = llm_response.get("reply", "") if isinstance(llm_response, dict) else ""
+
+        # Belt-and-braces: a model can ignore the instruction above and claim it has no live web
+        # access despite the search having already run -- never let that reach the user when real
+        # results are sitting right there. Replace with a plain, data-grounded summary instead.
+        if discovered_leads and (not reply_text or _NO_LIVE_ACCESS_CLAIM.search(reply_text)):
+            lead_lines = "\n".join(
+                f"- {l.get('name') or '?'} ({l.get('website') or l.get('domain') or 'no site listed'})"
+                for l in discovered_leads
+            )
+            reply_text = (
+                f"Found {len(discovered_leads)} companies from a live web search:\n\n{lead_lines}\n\n"
+                "Save any of these below, or tell me more about your target (size, exact area, sub-sector) "
+                "and I'll refine the search."
+            )
+
         if not reply_text:
             if fills:
                 proposed = [f for f in fills if f.get("status") == "proposed"]

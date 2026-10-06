@@ -213,19 +213,31 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
                                                   domain=row.domain or row.website or None, person=row.contact_name or None,
-                                                  place=row.region or None, page_url=row.source_url or None)
+                                                  place=row.region or None, page_url=row.source_url or None, db=db)
     except Exception:
         raise HTTPException(status_code=502, detail=f"Couldn't research {row.name} right now. Nothing was charged; try again in a minute.")
     people = [{"name": _clean(p.get("name"), 120), "role": _clean(p.get("roleHint"), 120), "source": p.get("source") or ""}
               for p in (data.get("keyPeople") or []) if p.get("name")]
-    found = bool(data.get("phones") or data.get("emails") or data.get("otherOffices") or people or data.get("socials")
+    # Each entry here is one real person with whatever was actually found right next to their name
+    # on the page (title/phone/email kept together) -- not three separate flattened lists with no
+    # link between them, which is what made the old phones/emails lists unusable for "whose is whose."
+    team = [{"name": _clean(t.get("name"), 120), "title": _clean(t.get("title"), 120),
+             "phone": _clean(t.get("phone"), 60), "email": _clean(t.get("email"), 200).lower()}
+            for t in (data.get("team") or []) if t.get("name")][:10]
+    found = bool(data.get("phones") or data.get("emails") or data.get("otherOffices") or people or team or data.get("socials")
                  or (data.get("overview") and data.get("overview") != "No detailed summary found."))
     overview = data.get("overview") or ""
+    # Named mailboxes (ellis.blackham@...) vs the company's general/role inboxes (info@, sales@...)
+    # -- so the dossier can label who's who instead of one flat, unattributed list of addresses.
+    email_contacts = [{"email": _clean(c.get("email"), 200).lower(), "name": _clean(c.get("name"), 120)}
+                       for c in (data.get("emailContacts") or []) if c.get("email")][:5]
     row.research = {
         "overview": "" if overview == "No detailed summary found." else _clean(overview, 2000),
         "people": people,
+        "team": team,
         "phones": [p for p in (data.get("phones") or [])][:5],
         "emails": [e for e in (data.get("emails") or [])][:5],
+        "email_contacts": email_contacts,
         "other_offices": (data.get("otherOffices") or [])[:8],
         "socials": data.get("socials") or {},
         "sources": [c for c in (data.get("citations") or [])][:8],
@@ -237,6 +249,12 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     row.email = row.email or _clean(data.get("primaryEmail"), 200).lower()
     if people and not row.contact_name:
         row.contact_name, row.contact_title = people[0]["name"], row.contact_title or people[0]["role"]
+    elif not row.contact_name:
+        # No titled exec found by name -- fall back to the first named mailbox (person, not a
+        # role inbox); leave the title blank rather than guessing one.
+        named = next((c for c in email_contacts if c["name"]), None)
+        if named:
+            row.contact_name = named["name"]
     row.researched_at = row.updated_at = datetime.utcnow()
     if found and (row.domain or row.name):
         # Save what the live search found back into the shared store too, tagged as the least

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, Copy, ExternalLink, FileSpreadsheet, Mail, Phone, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, Users, X } from "lucide-react";
+import { Building2, Check, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 
@@ -26,11 +26,7 @@ export function domainOf(url) {
 
 function hasFindings(a) {
   const r = a?.research;
-  return Boolean(r && (r.overview || r.people?.length || r.phones?.length || r.emails?.length || r.other_offices?.length || Object.keys(r.socials || {}).length));
-}
-
-function copy(value, onToast) {
-  navigator.clipboard?.writeText(value).then(() => onToast(`Copied ${value}`), () => onToast("Couldn't copy. Select the text instead."));
+  return Boolean(r && (r.overview || r.people?.length || r.team?.length || r.phones?.length || r.emails?.length || r.other_offices?.length || Object.keys(r.socials || {}).length));
 }
 
 // ---------------------------------------------------------------- the shared store
@@ -262,20 +258,29 @@ export function ScoutView({ store }) {
 }
 
 // ---------------------------------------------------------------- Saved Accounts
+const ACCOUNT_CHIPS = [
+  ["all", "All", () => true],
+  ["contact", "Has contact", (a) => a.contact_name || a.email],
+  ["researched", "Researched", (a) => a.researched_at],
+];
+
 export function AccountsView({ store, onOpen, onAdd, onGo }) {
   const [filter, setFilter] = useState("");
+  const [scope, setScope] = useState("all");
   if (store.loading || (store.error && !store.accounts.length)) return <Loading store={store} />;
   if (!store.accounts.length) {
     return (
       <EmptyState icon={Building2} title="No saved accounts yet" body="Find companies with AI Lead Scout, import a spreadsheet, or add one by hand.">
-        <button type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("scout")}><Search size={15} /> Find companies</button>
-        <button type="button" className="ui-btn ui-btn--secondary" onClick={() => onGo("import_export")}><Upload size={15} /> Import a spreadsheet</button>
+        <button type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("find_leads")}><Search size={15} /> Find companies</button>
         <button type="button" className="ui-btn ui-btn--ghost" onClick={onAdd}><Plus size={15} /> Add by hand</button>
       </EmptyState>
     );
   }
   const q = filter.trim().toLowerCase();
-  const shown = q ? store.accounts.filter((a) => [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q))) : store.accounts;
+  const scopePred = ACCOUNT_CHIPS.find(([id]) => id === scope)[2];
+  const shown = store.accounts
+    .filter(scopePred)
+    .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q)));
   const stats = [
     ["Saved accounts", store.accounts.length],
     ["With a phone", store.accounts.filter((a) => a.phone).length],
@@ -290,6 +295,14 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
             <div style={{ ...muted, fontSize: 12.5 }}>{label}</div>
             <div style={{ ...text, fontSize: 22, fontWeight: 600, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{n}</div>
           </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {ACCOUNT_CHIPS.map(([id, label]) => (
+          <button key={id} type="button" onClick={() => setScope(id)}
+            className={`ui-btn ui-btn--sm ${scope === id ? "ui-btn--primary" : "ui-btn--ghost"}`}>
+            {label}
+          </button>
         ))}
       </div>
       <div className="ui-card" style={{ overflow: "hidden" }}>
@@ -324,47 +337,6 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
           </table>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- Decision Makers
-export function ContactsView({ store, onOpen, onToast, onGo }) {
-  if (store.loading || (store.error && !store.accounts.length)) return <Loading store={store} />;
-  const people = store.accounts.filter((a) => a.contact_name || a.email);
-  if (!people.length) {
-    return (
-      <EmptyState icon={Users} title="No decision makers yet"
-        body={store.accounts.length ? "Research a saved account to look for the people who run it, or add a contact to an account by hand." : "Save some companies first. Research then looks for the people who run them."}>
-        <button type="button" className="ui-btn ui-btn--primary" onClick={() => onGo(store.accounts.length ? "accounts" : "scout")}>
-          {store.accounts.length ? <><Building2 size={15} /> Open saved accounts</> : <><Search size={15} /> Find companies</>}
-        </button>
-        <button type="button" className="ui-btn ui-btn--secondary" onClick={() => onGo("find_email")}><Mail size={15} /> Find a work email</button>
-      </EmptyState>
-    );
-  }
-  return (
-    <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))", gap: 12 }}>
-      {people.map((a) => (
-        <div key={a.id} className="ui-card" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div>
-            <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink }}>{a.contact_name || "Name not found"}</div>
-            <div style={{ ...muted, fontSize: 12.5 }}>
-              {a.contact_title ? `${a.contact_title} · ` : ""}
-              <button type="button" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", color: C.slate, textDecoration: "underline", textUnderlineOffset: 3 }}>{a.name}</button>
-            </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {[[Phone, a.phone, "phone"], [Mail, a.email, "email"]].map(([Icon, value, kind]) => (
-              <div key={kind} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: value ? C.textInk : C.slateLight, ...text }}>
-                <Icon size={14} color={C.slate} />
-                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" }}>{value || `No ${kind} found`}</span>
-                {value ? <button type="button" className="ui-icon-btn ui-icon-btn--sm" title={`Copy ${kind}`} onClick={() => copy(value, onToast)}><Copy size={14} /></button> : null}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -431,6 +403,26 @@ function Dossier({ account, store }) {
         </div>
       ) : null}
       {r?.overview ? <div><div style={label}>Overview</div><div style={{ ...text, fontSize: 13.5, color: C.textInk, lineHeight: 1.55 }}>{r.overview}</div></div> : null}
+      {r?.team?.length ? (
+        <div>
+          <div style={label}>People, with their own details</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {r.team.map((p, i) => (
+              <div key={i} style={{ ...text, fontSize: 13.5, color: C.textInk }}>
+                <span style={{ fontWeight: 600 }}>{p.name}</span>
+                {p.title ? <span style={{ color: C.slate }}> · {p.title}</span> : null}
+                {(p.phone || p.email) ? (
+                  <span style={{ color: C.slate, fontVariantNumeric: "tabular-nums" }}>
+                    {" "}— {[p.phone, p.email].filter(Boolean).join(" · ")}
+                  </span>
+                ) : (
+                  <span style={{ color: C.slateLight }}> — No direct number or email found</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {r?.people?.length ? (
         <div>
           <div style={label}>People found</div>
@@ -441,11 +433,33 @@ function Dossier({ account, store }) {
           ))}
         </div>
       ) : null}
-      {(r?.phones?.length || r?.emails?.length) ? (
+      {r?.phones?.length ? (
         <div>
-          <div style={label}>Contact details found</div>
-          <div style={{ ...text, fontSize: 13.5, color: C.textInk, display: "flex", gap: 14, flexWrap: "wrap", fontVariantNumeric: "tabular-nums" }}>
-            {[...(r.phones || []), ...(r.emails || [])].map((v) => <span key={v}>{v}</span>)}
+          <div style={label}>Phone numbers found</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {r.phones.map((v) => <span key={v} style={{ ...text, fontSize: 13.5, color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{v}</span>)}
+          </div>
+        </div>
+      ) : null}
+      {r?.email_contacts?.some((c) => c.name) ? (
+        <div>
+          <div style={label}>Named contacts found</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {r.email_contacts.filter((c) => c.name).map((c) => (
+              <div key={c.email} style={{ ...text, fontSize: 13.5, color: C.textInk }}>
+                {c.name}<span style={{ color: C.slate }}> · {c.email}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {(r?.email_contacts?.length ? r.email_contacts.filter((c) => !c.name).map((c) => c.email) : r?.emails || []).length ? (
+        <div>
+          <div style={label}>General email found</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {(r.email_contacts?.length ? r.email_contacts.filter((c) => !c.name).map((c) => c.email) : r.emails).map((v) => (
+              <span key={v} style={{ ...text, fontSize: 13.5, color: C.textInk }}>{v}</span>
+            ))}
           </div>
         </div>
       ) : null}
@@ -474,41 +488,32 @@ function Dossier({ account, store }) {
   );
 }
 
-export function DossiersView({ store, onOpen, onGo }) {
-  if (store.loading || (store.error && !store.accounts.length)) return <Loading store={store} />;
-  if (!store.accounts.length) {
-    return (
-      <EmptyState icon={FileSpreadsheet} title="No dossiers yet" body="Save companies first. Each one gets a dossier once you research it.">
-        <button type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("scout")}><Search size={15} /> Find companies</button>
-      </EmptyState>
-    );
-  }
+// ---------------------------------------------------------------- the account panel
+// One canonical field list for both the create form (AddAccountForm) and the edit form here, so
+// the two can never drift out of sync with each other (they used to be two hand-typed arrays).
+const ACCOUNT_FIELDS = [
+  ["name", "Company name"], ["website", "Website"], ["phone", "Phone"], ["email", "Email"],
+  ["contact_name", "Contact"], ["contact_title", "Contact's job title"], ["industry", "Industry"], ["region", "Town or region"],
+];
+
+function AccountFieldGrid({ fields, form, setForm, minWidth = 190, autoFocusFirst = false }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {store.accounts.map((a) => (
-        <div key={a.id} className="ui-card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontSize: 15, fontWeight: 600, color: C.ink }}>{a.name}</button>
-            <span style={{ fontSize: 12.5 }}><SiteLink account={a} /></span>
-          </div>
-          <Dossier account={a} store={store} />
-        </div>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${minWidth}px), 1fr))`, gap: 10 }}>
+      {fields.map(([k, label], i) => (
+        <label key={k} style={{ display: "flex", flexDirection: "column", gap: 4, ...text, fontSize: 12.5, color: C.slate }}>
+          {label}{k === "name" ? " (required)" : ""}
+          <input className="ui-input" value={form[k] || ""} autoFocus={autoFocusFirst && i === 0} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} />
+        </label>
       ))}
     </div>
   );
 }
 
-// ---------------------------------------------------------------- the account panel
-const EDIT_FIELDS = [
-  ["name", "Company name"], ["website", "Website"], ["phone", "Phone"], ["email", "Email"],
-  ["contact_name", "Contact"], ["contact_title", "Contact's job title"], ["industry", "Industry"], ["region", "Town or region"],
-];
-
 export function AccountPanel({ account, store, onClose }) {
   const live = store.accounts.find((a) => a.id === account.id) || account;
-  const [form, setForm] = useState(() => Object.fromEntries([...EDIT_FIELDS.map(([k]) => [k, live[k] || ""]), ["notes", live.notes || ""]]));
+  const [form, setForm] = useState(() => Object.fromEntries([...ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""]), ["notes", live.notes || ""]]));
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const changed = [...EDIT_FIELDS.map(([k]) => k), "notes"].some((k) => (form[k] || "") !== (live[k] || ""));
+  const changed = [...ACCOUNT_FIELDS.map(([k]) => k), "notes"].some((k) => (form[k] || "") !== (live[k] || ""));
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -545,14 +550,7 @@ export function AccountPanel({ account, store, onClose }) {
           </section>
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Details</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 200px), 1fr))", gap: 10 }}>
-              {EDIT_FIELDS.map(([k, label]) => (
-                <label key={k} style={{ display: "flex", flexDirection: "column", gap: 4, ...text, fontSize: 12.5, color: C.slate }}>
-                  {label}
-                  <input className="ui-input" value={form[k]} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} />
-                </label>
-              ))}
-            </div>
+            <AccountFieldGrid fields={ACCOUNT_FIELDS} form={form} setForm={setForm} minWidth={200} />
             <label style={{ display: "flex", flexDirection: "column", gap: 4, ...text, fontSize: 12.5, color: C.slate }}>
               Notes
               <textarea className="ui-input" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} style={{ height: "auto", padding: "8px 10px", resize: "vertical", lineHeight: 1.5 }} />
@@ -597,14 +595,7 @@ export function AddAccountForm({ store, onClose }) {
           <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Add an account</div>
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 190px), 1fr))", gap: 10 }}>
-          {[["name", "Company name"], ["website", "Website"], ["phone", "Phone"], ["email", "Email"], ["contact_name", "Contact"], ["contact_title", "Contact's job title"]].map(([k, label]) => (
-            <label key={k} style={{ display: "flex", flexDirection: "column", gap: 4, ...text, fontSize: 12.5, color: C.slate }}>
-              {label}{k === "name" ? " (required)" : ""}
-              <input className="ui-input" value={form[k]} autoFocus={k === "name"} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} />
-            </label>
-          ))}
-        </div>
+        <AccountFieldGrid fields={ACCOUNT_FIELDS.slice(0, 6)} form={form} setForm={setForm} autoFocusFirst />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
           <button type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="ui-btn ui-btn--primary" disabled={!form.name.trim() || busy}>{busy ? "Saving…" : "Add account"}</button>

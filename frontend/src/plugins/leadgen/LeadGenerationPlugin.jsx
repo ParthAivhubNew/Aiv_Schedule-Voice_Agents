@@ -1,13 +1,11 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   Sparkles,
   Building2,
-  Mail,
   ExternalLink,
   ChevronLeft,
   Filter,
-  Users,
   CheckCircle2,
   TrendingUp,
   LayoutGrid,
@@ -16,9 +14,7 @@ import {
   Plus,
   ArrowRight,
   SlidersHorizontal,
-  FileSpreadsheet,
   Check,
-  FileText,
   LogOut,
   Layers,
   Activity,
@@ -26,19 +22,17 @@ import {
   Tag,
   CreditCard,
   MessageSquare,
-  ShieldAlert,
-  Lock,
-  ArrowUp
+  Lock
 } from "lucide-react";
 import { AppSwitcher } from "../../hub/AppSwitcher";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
 import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER, initialsFromName } from "../../tokens";
-import { api } from "../../api/apiClient";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
-import { CampaignsView, DoNotEmailView, FindView, MailboxesView, RepliesView } from "./OutreachViews";
-import { AccountPanel, AccountsView, AddAccountForm, ContactsView, DossiersView, ImportView, ScoutView, useLeadAccounts } from "./AccountsViews";
+import { CampaignsView, MailboxesView, RepliesView, useOutreachData } from "./OutreachViews";
+import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
+import { FindLeadsView } from "./FindLeadsView";
 
 
 export default function LeadGenerationPlugin({
@@ -48,9 +42,12 @@ export default function LeadGenerationPlugin({
   profile,
 }) {
   const normalizeLeadgenView = (raw) => {
-    if (!raw) return "copilot";
-    if (raw === "campaigns" || raw === "email" || raw.startsWith("email/")) return "sequences";
+    if (!raw) return "find_leads";
+    if (raw === "campaigns" || raw === "email" || raw.startsWith("email/") || raw === "sequences" || raw === "find_email") return "outreach";
     if (raw === "warmup") return "mailboxes";
+    if (raw === "contacts" || raw === "dossiers") return "accounts";
+    if (raw === "suppression") return "replies";
+    if (raw === "copilot" || raw === "scout" || raw === "import_export") return "find_leads";
     return raw;
   };
 
@@ -62,13 +59,17 @@ export default function LeadGenerationPlugin({
       const hash = routeHash().replace(/^#\/?/, "");
       const parts = hash.split("/");
       if (parts[0] === "leadgen" && parts[1]) return normalizeLeadgenView(parts[1]);
-      if (parts[0] === "emailoutreach") return "sequences";
-      return localStorage.getItem("aivhub_leadgen_view") || "copilot";
+      if (parts[0] === "emailoutreach") return "outreach";
+      return normalizeLeadgenView(localStorage.getItem("aivhub_leadgen_view") || "find_leads");
     } catch (_) {
-      return "copilot";
+      return "find_leads";
     }
   });
   const nav = useMobileNav(view);
+
+  // Any navigation that might carry an old/legacy tab id (a child view's onGo/onOpen callback,
+  // or a saved deep link) must go through this, not the raw setter -- see normalizeLeadgenView.
+  const goTo = (raw) => setView(normalizeLeadgenView(raw));
 
   useEffect(() => {
     try {
@@ -89,7 +90,7 @@ export default function LeadGenerationPlugin({
           const norm = normalizeLeadgenView(parts[1]);
           if (norm !== view) setView(norm);
         } else if (parts[0] === "emailoutreach") {
-          setView("sequences");
+          setView("outreach");
         }
       } catch (_) {}
     };
@@ -97,80 +98,6 @@ export default function LeadGenerationPlugin({
   }, [view]);
   const [openAccount, setOpenAccount] = useState(null); // the saved account shown in the side panel
   const [toastMessage, setToastMessage] = useState(null);
-
-  // Open AI Lead Copilot Chat State
-  const [copilotChatMessages, setCopilotChatMessages] = useState([
-    {
-      id: "m_init",
-      role: "assistant",
-      text: "I can find target companies on the web, sharpen your ideal customer profile, research a market or draft outreach. What are you working on?",
-      time: "Just now",
-      leads: []
-    }
-  ]);
-  const [copilotInput, setCopilotInput] = useState("");
-  const [isCopilotTyping, setIsCopilotTyping] = useState(false);
-  const copilotScrollRef = React.useRef(null);
-  useEffect(() => {
-    if (copilotScrollRef.current) copilotScrollRef.current.scrollIntoView({ block: "nearest" });
-  }, [copilotChatMessages.length, isCopilotTyping]);
-
-  const handleSendCopilotChat = async (e, customText) => {
-    if (e) e.preventDefault();
-    const query = (customText || copilotInput).trim();
-    if (!query || isCopilotTyping) return;
-
-    setCopilotInput("");
-    const userMsg = {
-      id: "m_" + Date.now(),
-      role: "user",
-      text: query,
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    };
-    setCopilotChatMessages((prev) => [...prev, userMsg]);
-    setIsCopilotTyping(true);
-
-    try {
-      const res = await api.copilotChat({
-        message: query,
-        history: copilotChatMessages.map((m) => ({ role: m.role, content: m.text })),
-        plugin: "leadgen"
-      });
-
-      const aiMsg = {
-        id: "m_" + (Date.now() + 1),
-        role: "assistant",
-        text: res?.reply || "I processed your request. How else can I help?",
-        leads: res?.leads || [],
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        model: res?.model
-      };
-      setCopilotChatMessages((prev) => [...prev, aiMsg]);
-    } catch (err) {
-      setCopilotChatMessages((prev) => [
-        ...prev,
-        {
-          id: "m_" + (Date.now() + 1),
-          role: "assistant",
-          text: /credits/i.test(err.message || "") ? err.message : `Couldn't reach the AI: ${err.message || "no answer from the AI service."} Try again in a moment.`,
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        }
-      ]);
-    } finally {
-      setIsCopilotTyping(false);
-      setTimeout(() => {
-        if (copilotScrollRef.current) {
-          copilotScrollRef.current.scrollIntoView({ behavior: "smooth" });
-        }
-      }, 100);
-    }
-  };
-
-  // Saves a company the Copilot found, with only what the web search returned.
-  const handleAddCopilotLead = (lead) => {
-    store.save([{ name: lead.name || lead.companyName || "", website: lead.site || lead.website || "", phone: lead.phone || "",
-      notes: lead.snippet || "", source: "copilot", source_url: lead.sourceUrl || "" }]);
-  };
   const [showAddModal, setShowAddModal] = useState(false);
 
   const showToast = (msg) => {
@@ -178,36 +105,24 @@ export default function LeadGenerationPlugin({
     setTimeout(() => setToastMessage(null), 3000);
   };
   const store = useLeadAccounts(showToast);
-  const withContact = store.accounts.filter((a) => a.contact_name || a.email).length;
+  const outreach = useOutreachData();
 
   // Navigation Items on Left
   const navItems = [
-    { id: "copilot", label: "AI Lead Copilot", icon: Sparkles, section: "Find Leads" },
-    { id: "scout", label: "AI Lead Scout", icon: Search, section: "Find Leads" },
-    { id: "find_email", label: "Find Work Email", icon: Mail, section: "Find Leads" },
+    { id: "find_leads", label: "Find Leads", icon: Sparkles, section: "Find Leads" },
     { id: "accounts", label: "Saved Accounts", icon: Building2, count: store.accounts.length || null, section: "Enrichment" },
-    { id: "contacts", label: "Decision Makers", icon: Users, count: withContact || null, section: "Enrichment" },
-    { id: "dossiers", label: "Account Dossiers", icon: FileText, section: "Enrichment" },
-    { id: "import_export", label: "Import", icon: FileSpreadsheet, section: "Enrichment" },
-    { id: "sequences", label: "Email Sequences", icon: Send, section: "Email Outreach" },
+    { id: "outreach", label: "Email Sequences", icon: Send, section: "Email Outreach" },
     { id: "replies", label: "Inbox & Replies", icon: MessageSquare, section: "Email Outreach" },
     { id: "mailboxes", label: "Mailboxes & Warmup", icon: Layers, section: "Mailboxes" },
-    { id: "suppression", label: "Do Not Email", icon: ShieldAlert, section: "Mailboxes" },
     ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, section: "Billing" }] : []),
   ];
 
   const viewTitles = {
-    copilot: { title: "AI Lead Copilot (Open Assistant)", desc: "Interactive AI partner for lead engineering, strategy, market research, and prompt optimization." },
-    scout: { title: "AI Lead Scout", desc: "Find companies with a live web search, then save the ones you want." },
-    find_email: { title: "Find Work Email (Waterfall Finder)", desc: "Verify and research single work emails using 5-layer intelligence waterfall (1 credit on find)." },
+    find_leads: { title: "Find Leads", desc: "Ask the AI Copilot, search with AI Lead Scout, or import a spreadsheet -- three ways to get companies into your saved accounts." },
     accounts: { title: "Saved Accounts", desc: "The companies you saved. Research one to fill in its details." },
-    contacts: { title: "Decision Makers", desc: "The people at your saved accounts, with the contact details found for them." },
-    dossiers: { title: "Account Dossiers", desc: "What research found about each saved company, with its sources." },
-    import_export: { title: "Import", desc: "Add companies from an Excel or CSV file." },
-    sequences: { title: "Cold Email Sequences & Campaigns", desc: "Multi-step email cadences, automated follow-up schedules, and response analytics." },
-    replies: { title: "Inbox & Reply Categorization", desc: "Classified prospect replies with intent tagging and instant thread actions." },
+    outreach: { title: "Cold Email Sequences & Campaigns", desc: "Multi-step email cadences, automated follow-up schedules, response analytics, and work-email finding." },
+    replies: { title: "Inbox & Reply Categorization", desc: "Classified prospect replies with intent tagging, plus your do-not-email list." },
     mailboxes: { title: "Connected Mailboxes & Deliverability", desc: "SMTP/IMAP connections, automated warmup ramp, SPF/DKIM/DMARC DNS health." },
-    suppression: { title: "Do-Not-Email List", desc: "Suppression registry for unsubscribes, manual exclusions, and hard bounce protection." },
     subscription: { title: "Subscription & Credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
   };
 
@@ -439,106 +354,17 @@ export default function LeadGenerationPlugin({
             </div>
           ) : (
             <>
-          {/* AI LEAD COPILOT: open chat about targets, ideal customers, markets and outreach */}
-          {view === "copilot" && (
-            <div className="ui-card" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 150px)", minHeight: 440, overflow: "hidden" }}>
-              <div className="ui-scroll" style={{ flex: 1, overflowY: "auto", padding: "20px 20px 8px", display: "flex", flexDirection: "column", gap: 16 }}>
-                {copilotChatMessages.map((m) => (m.role === "user" ? (
-                  <div key={m.id} style={{ alignSelf: "flex-end", maxWidth: "80%", background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)", padding: "9px 13px", borderRadius: 8, fontFamily: FONT_BODY, fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-                    {m.text}
-                  </div>
-                ) : (
-                  <div key={m.id} style={{ display: "flex", gap: 10, maxWidth: "88%" }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 6, background: "#8B5CF614", color: "#8B5CF6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <Sparkles size={15} />
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, lineHeight: 1.6, color: C.textInk, whiteSpace: "pre-wrap", overflowWrap: "anywhere", paddingTop: 4 }}>{m.text}</div>
-                      {m.leads && m.leads.length ? (
-                        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                          {m.leads.map((l, i) => (
-                            <div key={l.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 6, background: "#fff" }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: C.ink }}>{l.name || l.companyName}</div>
-                                <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {[l.site || l.website || l.domain, l.phone].filter(Boolean).join(" · ") || "No website or phone found"}
-                                </div>
-                              </div>
-                              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => handleAddCopilotLead(l)}>
-                                <Plus size={14} /> Save
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                )))}
-                {copilotChatMessages.length <= 1 && !isCopilotTyping ? (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, paddingLeft: 38 }}>
-                    <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight }}>Try</span>
-                    {[
-                      [Search, "Find 20 logistics companies in Manchester"],
-                      [Users, "Who should I target with an AI phone receptionist?"],
-                      [Send, "Write a short cold email to a dental practice"],
-                    ].map(([Icon, text]) => (
-                      <button key={text} type="button" className="ui-chip" onClick={() => handleSendCopilotChat(null, text)}>
-                        <Icon size={14} color={C.slate} /> {text}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {isCopilotTyping ? <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, paddingLeft: 38 }}>Thinking…</div> : null}
-                <div ref={copilotScrollRef} />
-              </div>
-              <form onSubmit={handleSendCopilotChat} style={{ padding: 12, borderTop: `1px solid ${C.border}` }}>
-                <div className="ui-field" style={{ display: "flex", alignItems: "flex-end", gap: 8, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 6px 6px 12px", background: "#fff" }}>
-                  <textarea
-                    value={copilotInput}
-                    onChange={(e) => setCopilotInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendCopilotChat();
-                      }
-                    }}
-                    rows={2}
-                    placeholder="Ask about target companies, your ideal customer or outreach"
-                    aria-label="Message the Copilot"
-                    style={{ flex: 1, minWidth: 0, border: 0, outline: 0, resize: "none", fontFamily: FONT_BODY, fontSize: 13.5, lineHeight: 1.5, padding: "4px 0", background: "transparent", color: C.textInk }}
-                  />
-                  <button type="submit" className="ui-btn ui-btn--primary" title="Send" disabled={!copilotInput.trim() || isCopilotTyping} style={{ width: 34, height: 34, padding: 0 }}>
-                    <ArrowUp size={16} />
-                  </button>
-                </div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, marginTop: 8 }}>
-                  Enter to send, Shift + Enter for a new line. Company searches use public web results.
-                </div>
-              </form>
-            </div>
-          )}
+          {view === "find_leads" && <FindLeadsView store={store} onGo={goTo} />}
 
-          {view === "scout" && <ScoutView store={store} />}
+          {view === "accounts" && <AccountsView store={store} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} />}
 
-          {view === "accounts" && <AccountsView store={store} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={setView} />}
-
-          {view === "contacts" && <ContactsView store={store} onOpen={setOpenAccount} onToast={showToast} onGo={setView} />}
-
-          {view === "dossiers" && <DossiersView store={store} onOpen={setOpenAccount} onGo={setView} />}
-
-          {view === "find_email" && <FindView />}
-
-          {view === "sequences" && <CampaignsView />}
+          {view === "outreach" && <CampaignsView outreach={outreach} />}
 
           {view === "replies" && <RepliesView />}
 
-          {view === "mailboxes" && <MailboxesView />}
-
-          {view === "suppression" && <DoNotEmailView />}
+          {view === "mailboxes" && <MailboxesView outreach={outreach} />}
 
           {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}
-
-          {view === "import_export" && <ImportView store={store} onGo={setView} />}
             </>
           )}
         </div>

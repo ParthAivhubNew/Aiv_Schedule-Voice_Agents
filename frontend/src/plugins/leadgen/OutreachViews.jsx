@@ -16,13 +16,29 @@ function Check({ ok, children }) {
   return <span style={{ fontSize: 12, color: ok ? C.green : C.red, fontWeight: 600 }}>{ok ? "✓" : "✗"} {children}</span>;
 }
 
+// ── Shared outreach store ─────────────────────────────────────────────────
+// Mailboxes and campaigns are each fetched once here instead of separately in every view that
+// needs them (MailboxesView, CampaignsView and FindView all used to run their own duplicate
+// api.emailMailboxes/api.emailCampaigns calls). Instantiate once in the shell and pass down.
+export function useOutreachData() {
+  const [mailboxData, mailboxErr, reloadMailboxes] = useLoad(api.emailMailboxes);
+  const [campaignData, campaignErr, reloadCampaigns] = useLoad(api.emailCampaigns);
+  return {
+    mailboxes: mailboxData?.mailboxes || [],
+    campaigns: campaignData?.campaigns || [],
+    loading: mailboxData === null || campaignData === null,
+    error: mailboxErr || campaignErr,
+    reloadMailboxes,
+    reloadCampaigns,
+  };
+}
+
 // ── Mailboxes ───────────────────────────────────────────────────────────────
 const blankBox = { email: "", display_name: "", preset: "one.com", password: "", smtp_host: "", smtp_port: "", imap_host: "", imap_port: "", username: "", max_daily_target: 40, signature: "" };
 
-export function MailboxesView() {
-  const [data, err, reload] = useLoad(api.emailMailboxes);
+export function MailboxesView({ outreach }) {
   const [overview] = useLoad(api.emailOverview);
-  const [msg, run] = useAction(reload);
+  const [msg, run] = useAction(outreach.reloadMailboxes);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(blankBox);
   const [editing, setEditing] = useState("");
@@ -36,10 +52,10 @@ export function MailboxesView() {
     setForm(blankBox);
   }, "Mailbox connected. Start warmup when its DNS checks pass.");
 
-  const boxes = data?.mailboxes || [];
+  const boxes = outreach.mailboxes;
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <Note error>{err}</Note>
+      <Note error>{outreach.error}</Note>
       <Note error={msg.error}>{msg.text}</Note>
       {overview && !overview.warmupPartnerReady && (
         <Note>Warmup will use your own mailboxes only until the Outreach team adds the platform mailbox. Connect two or more mailboxes so they warm each other.</Note>
@@ -216,12 +232,13 @@ function CampaignEditor({ initial, mailboxes, onSaved, onCancel }) {
   );
 }
 
-function CampaignDetail({ id, mailboxes, onBack }) {
+function CampaignDetail({ id, mailboxes, outreach, onBack }) {
   const [data, err, reload] = useLoad(() => api.emailCampaign(id), [id]);
   const [msg, run] = useAction(reload);
   const [paste, setPaste] = useState("");
   const [added, setAdded] = useState("");
   const [editing, setEditing] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
   if (!data) return <Note error>{err}</Note>;
   const c = data.campaign;
   if (editing) {
@@ -231,6 +248,7 @@ function CampaignDetail({ id, mailboxes, onBack }) {
   const leads = parseLeads(paste);
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      {findOpen && <FindEmailDrawer outreach={outreach} defaultTarget={c.id} onClose={() => { setFindOpen(false); reload(); }} />}
       <div style={row}>
         <button type="button" style={btn(false)} onClick={onBack}>← All campaigns</button>
         <strong style={{ fontSize: 16 }}>{c.name}</strong>
@@ -238,6 +256,7 @@ function CampaignDetail({ id, mailboxes, onBack }) {
         <span style={{ marginLeft: "auto", ...row }}>
           {c.status !== "running" ? <button type="button" style={btn(true)} onClick={() => run(() => api.emailCampaignStatus(c.id, "running"), "Running. Emails go out during its sending hours.")}>Start</button>
             : <button type="button" style={btn(false)} onClick={() => run(() => api.emailCampaignStatus(c.id, "paused"), "Paused.")}>Pause</button>}
+          <button type="button" style={btn(false)} onClick={() => setFindOpen(true)}>Find a work email</button>
           <button type="button" style={btn(false)} onClick={() => setEditing(true)}>Edit</button>
           <button type="button" style={btn(false)} onClick={() => { if (window.confirm(`Delete ${c.name} and its leads?`)) run(() => api.emailDeleteCampaign(c.id).then(onBack)); }}>Delete</button>
         </span>
@@ -284,22 +303,25 @@ function CampaignDetail({ id, mailboxes, onBack }) {
   );
 }
 
-export function CampaignsView() {
-  const [data, err, reload] = useLoad(api.emailCampaigns);
-  const [boxes] = useLoad(api.emailMailboxes);
+export function CampaignsView({ outreach }) {
   const [open, setOpen] = useState("");
   const [creating, setCreating] = useState(false);
-  const mailboxes = boxes?.mailboxes || [];
-  if (open) return <CampaignDetail id={open} mailboxes={mailboxes} onBack={() => { setOpen(""); reload(); }} />;
+  const [findOpen, setFindOpen] = useState(false);
+  const mailboxes = outreach.mailboxes;
+  if (open) return <CampaignDetail id={open} mailboxes={mailboxes} outreach={outreach} onBack={() => { setOpen(""); outreach.reloadCampaigns(); }} />;
   if (creating) {
     return <CampaignEditor initial={{ ...blankCampaign, mailbox_ids: mailboxes.map((m) => m.id) }} mailboxes={mailboxes}
-      onSaved={(c) => { setCreating(false); setOpen(c.id); }} onCancel={() => setCreating(false)} />;
+      onSaved={(c) => { setCreating(false); setOpen(c.id); outreach.reloadCampaigns(); }} onCancel={() => setCreating(false)} />;
   }
-  const camps = data?.campaigns || [];
+  const camps = outreach.campaigns;
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <Note error>{err}</Note>
-      <div style={row}><button type="button" style={{ ...btn(true), marginLeft: "auto" }} onClick={() => setCreating(true)}>New campaign</button></div>
+      {findOpen && <FindEmailDrawer outreach={outreach} onClose={() => { setFindOpen(false); outreach.reloadCampaigns(); }} />}
+      <Note error>{outreach.error}</Note>
+      <div style={row}>
+        <button type="button" style={btn(false)} onClick={() => setFindOpen(true)}>Find a work email</button>
+        <button type="button" style={{ ...btn(true), marginLeft: "auto" }} onClick={() => setCreating(true)}>New campaign</button>
+      </div>
       {camps.length === 0 && <div style={{ ...card, ...small }}>No campaigns yet. Create one, add leads, then start it.</div>}
       {camps.map((c) => (
         <button type="button" key={c.id} onClick={() => setOpen(c.id)} style={{ ...card, textAlign: "left", cursor: "pointer", display: "grid", gap: 6 }}>
@@ -312,13 +334,31 @@ export function CampaignsView() {
   );
 }
 
+// ── Find emails (a drawer reachable from the campaign list and an open campaign, not its own
+// top-level tab -- finding a missing email is a step in running a sequence, not a destination) ──
+export function FindEmailDrawer({ outreach, onClose, defaultTarget }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", justifyContent: "flex-end" }}>
+      <div role="dialog" aria-label="Find a work email" onClick={(e) => e.stopPropagation()}
+        style={{ width: "min(100%, 480px)", height: "100%", background: "#fff", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 16px 12px 20px", borderBottom: `1px solid ${C.border}` }}>
+          <strong style={{ fontSize: 15, flex: 1 }}>Find a work email</strong>
+          <button type="button" style={btn(false)} onClick={onClose}>Close</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          <FindView outreach={outreach} defaultTarget={defaultTarget} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Find emails ─────────────────────────────────────────────────────────────
-export function FindView() {
+export function FindView({ outreach, defaultTarget = "" }) {
   const [q, setQ] = useState({ first_name: "", last_name: "", company_name: "", domain: "" });
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [campaigns] = useLoad(api.emailCampaigns);
-  const [target, setTarget] = useState("");
+  const [target, setTarget] = useState(defaultTarget);
   const [msg, run] = useAction();
   const set = (k) => (e) => setQ({ ...q, [k]: e.target.value });
   const find = async () => {
@@ -351,7 +391,7 @@ export function FindView() {
           <div style={row}>
             <select style={input} value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">Add to campaign…</option>
-              {(campaigns?.campaigns || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {outreach.campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <button type="button" style={btn(false, !target)} disabled={!target} onClick={() => run(() => api.emailAddLeads(target, [{
               email: result.email, first_name: result.first_name, last_name: result.last_name, company: result.company_name || "",
@@ -363,8 +403,21 @@ export function FindView() {
   );
 }
 
-// ── Replies ─────────────────────────────────────────────────────────────────
+// ── Inbox (Replies + Do Not Email, as inner tabs of one view) ───────────────
 export function RepliesView() {
+  const [sub, setSub] = useState("replies");
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={row}>
+        <button type="button" style={btn(sub === "replies")} onClick={() => setSub("replies")}>Replies</button>
+        <button type="button" style={btn(sub === "suppression")} onClick={() => setSub("suppression")}>Do Not Email</button>
+      </div>
+      {sub === "replies" ? <RepliesList /> : <DoNotEmailView />}
+    </div>
+  );
+}
+
+function RepliesList() {
   const [category, setCategory] = useState("");
   const [data, err, reload] = useLoad(() => api.emailReplies(category), [category]);
   const [msg, run] = useAction(reload);
