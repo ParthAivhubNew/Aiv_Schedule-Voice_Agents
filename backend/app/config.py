@@ -1,6 +1,16 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env from backend directory, then project root as fallback
+_backend_env = Path(__file__).resolve().parent.parent / ".env"
+if _backend_env.exists():
+    load_dotenv(_backend_env)
+_root_env = Path(__file__).resolve().parent.parent.parent / ".env"
+if _root_env.exists():
+    load_dotenv(_root_env, override=False)
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Outreach by Aivhub"

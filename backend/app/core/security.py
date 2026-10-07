@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import os
@@ -152,3 +153,25 @@ def decode_token(token: str, expected_type: str) -> Optional[Dict[str, Any]]:
     if claims.get("typ") != expected_type or not claims.get("sub"):
         return None
     return claims
+
+
+# ── Developer API Keys ─────────────────────────────────────────────────────
+
+def hash_api_key(raw_key: str) -> str:
+    """Computes a SHA-256 hex digest of the raw API key."""
+    return hashlib.sha256((raw_key or "").strip().encode("utf-8")).hexdigest()
+
+
+def generate_api_key(live: bool = True) -> Tuple[str, str, str]:
+    """Generates (raw_key, prefix, hashed_key).
+    raw_key: "sk_live_..." or "sk_test_..." (displayed to the user once)
+    prefix: "sk_live_3a8b..." (stored and displayed in UI)
+    hashed_key: SHA-256 hash (stored in DB for lookup)
+    """
+    token = secrets.token_hex(20)
+    prefix_str = "sk_live" if live else "sk_test"
+    raw_key = f"{prefix_str}_{token}"
+    prefix = raw_key[:16]
+    hashed_key = hash_api_key(raw_key)
+    return raw_key, prefix, hashed_key
+

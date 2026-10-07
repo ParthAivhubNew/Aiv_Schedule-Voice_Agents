@@ -49,8 +49,8 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"scheduler/media/[^/]+$",
     r"^/media/generated/",
 )]
-if os.getenv("EXPOSE_API_DOCS", "").lower() in ("1", "true", "yes"):
-    PUBLIC_HTTP += [re.compile(r"^/(docs|redoc)(/|$)"), re.compile(r"^/openapi\.json$")]
+if os.getenv("EXPOSE_API_DOCS", "true").lower() in ("1", "true", "yes"):
+    PUBLIC_HTTP += [re.compile(_OPT_API + r"(docs|redoc)(/|$)"), re.compile(_OPT_API + r"openapi\.json$")]
 
 PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]  # carrier audio stream
 
@@ -188,6 +188,9 @@ def _token_from(scope) -> str:
             v = value.decode("latin-1")
             if v.lower().startswith("bearer "):
                 return v[7:].strip()
+            return v.strip()
+        if name in (b"x-api-key", b"api-key"):
+            return value.decode("latin-1").strip()
     qs = parse_qs((scope.get("query_string") or b"").decode("latin-1"))
     return (qs.get("access_token") or [""])[0]
 
@@ -231,6 +234,18 @@ class AuthMiddleware:
         token = _token_from(scope)
         if not websocket and method != "GET" and not _has_bearer(scope):
             token = ""  # query-string tokens only for reads (links, audio, downloads)
+
+        # Developer API Key Authentication (sk_live_... or sk_test_...)
+        if token and (token.startswith("sk_live_") or token.startswith("sk_test_")):
+            key_ctx = await _api_key_ctx(token)
+            if not key_ctx:
+                return await _deny(scope, receive, send, 401, "Invalid, revoked, or expired API key.", code="invalid_api_key")
+            scope.setdefault("state", {})["auth"] = key_ctx
+            scope.setdefault("state", {})["api_key"] = key_ctx
+            from app.core.tenancy import org_scope
+            with org_scope(key_ctx["org_id"]):
+                return await self.app(scope, receive, send)
+
         claims = decode_token(token, "access") if token else None
         ctx = await load_context(claims["sub"], claims.get("sid", "")) if claims else None
         if not ctx:
@@ -288,8 +303,63 @@ async def _staff_ctx(token: str) -> Optional[Dict[str, Any]]:
     return {"staff_id": s.id, "email": s.email, "name": s.name, "role": s.role}
 
 
+_API_KEY_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+async def _api_key_ctx(raw_key: str) -> Optional[Dict[str, Any]]:
+    from datetime import datetime
+    from sqlalchemy.future import select
+    from app.core.security import hash_api_key
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import ApiKey
+
+    hashed = hash_api_key(raw_key)
+    now = time.time()
+    cached = _API_KEY_CACHE.get(hashed)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(ApiKey).where(ApiKey.hashed_key == hashed))).scalars().first()
+            if not row or not row.is_active:
+                return None
+            if row.expires_at and row.expires_at < datetime.utcnow():
+                return None
+
+            try:
+                row.last_used_at = datetime.utcnow()
+                await db.commit()
+            except Exception:
+                pass
+
+            ctx = {
+                "type": "api_key",
+                "key_id": row.id,
+                "org_id": row.org_id,
+                "name": row.name,
+                "scopes": row.scopes or ["full_access"],
+                "operator_id": row.created_by_id or "api_client",
+                "username": f"key:{row.prefix}",
+                "is_admin": "full_access" in (row.scopes or []),
+                "perms": {
+                    "team": "none",
+                    "calling": "full" if any(s in ("full_access", "voice:calls") for s in (row.scopes or [])) else "none",
+                    "scheduler": "full" if any(s in ("full_access", "social:publish") for s in (row.scopes or [])) else "none",
+                    "leadgen": "full" if any(s in ("full_access", "leads:search") for s in (row.scopes or [])) else "none",
+                },
+                "must_change_password": False,
+            }
+            _API_KEY_CACHE[hashed] = (now + 30.0, ctx)
+            return ctx
+
+
+def forget_api_keys() -> None:
+    _API_KEY_CACHE.clear()
+
+
 def _has_bearer(scope) -> bool:
-    return any(n == b"authorization" for n, _ in (scope.get("headers") or []))
+    return any(n in (b"authorization", b"x-api-key", b"api-key") for n, _ in (scope.get("headers") or []))
 
 
 def _ws_need(path: str) -> Optional[Tuple[str, str]]:

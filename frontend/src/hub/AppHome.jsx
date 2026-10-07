@@ -65,7 +65,7 @@ function AppCard({ app, state, unit, onOpen, onPlans }) {
 
 // Home: the apps of the suite side by side. The ones the organisation has a plan for come first;
 // the others can be opened to try and added at any time.
-export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin }) {
+export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys }) {
   // Plans and credits are for admins; everyone else simply sees the apps.
   const [billing, setBilling] = useState(null);
   useEffect(() => {
@@ -101,6 +101,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
           onOpenTeamUsers={onOpenTeamUsers}
           onOpenProfileSettings={onOpenProfileSettings}
           onOpenCalcomAdmin={onOpenCalcomAdmin}
+          onOpenDeveloperKeys={onOpenDeveloperKeys}
         />
       </header>
 

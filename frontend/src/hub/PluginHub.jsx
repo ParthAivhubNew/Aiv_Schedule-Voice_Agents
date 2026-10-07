@@ -1,6 +1,7 @@
 import {
   CalendarCheck,
   ChevronDown,
+  KeyRound,
   LogOut,
   Settings2,
   User,
@@ -11,7 +12,7 @@ import { C, FONT_BODY, FONT_MONO, initialsFromName } from "../app/constants";
 import { CallTimer } from "../app/ui";
 import { routeHash } from "../utils/route";
 
-export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin }) {
+export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -275,6 +276,47 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
                   Admin
                 </span>
               </button>
+
+              {/* Developer API Keys */}
+              {onOpenDeveloperKeys && (
+                <button
+                  onClick={() => { setOpen(false); onOpenDeveloperKeys(); }}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "9px 12px",
+                    borderRadius: 10,
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 7, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", color: C.cobalt }}>
+                      <KeyRound size={15} />
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Developer API Keys</div>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Voice, Leads & Social APIs</div>
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "2px 6px",
+                    borderRadius: 6,
+                    background: "#EEF2FF",
+                    color: C.cobalt,
+                  }}>
+                    API
+                  </span>
+                </button>
+              )}
 
               <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
             </>
