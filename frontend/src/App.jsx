@@ -17,6 +17,7 @@ import { SocialWorkspaceGate } from "./plugins/scheduler/SocialWorkspace";
 import { CompanyProfileView } from "./plugins/voice/CompanyProfileView";
 import { CallingWorkspace } from "./plugins/voice/calling/CallingWorkspace";
 import { CommonAiConfigModal } from "./settings/CommonAiConfigModal";
+import { DeveloperApiKeysModal } from "./settings/DeveloperApiKeysModal";
 import { ProviderConfigView } from "./settings/ProviderConfigView";
 import { TeamModal } from "./team/TeamModal";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "./utils/route";
@@ -517,6 +518,7 @@ function MainApp({ onSignedOut }) {
   const [showCalcomAdminModal, setShowCalcomAdminModal] = useState(false);
   const [calcomInitialTab, setCalcomInitialTab] = useState("accounts");
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showDeveloperKeysModal, setShowDeveloperKeysModal] = useState(false);
   const [commonAiTab, setCommonAiTab] = useState("leadgen");
   const [commonAiScope, setCommonAiScope] = useState(null);
 
@@ -658,6 +660,7 @@ function MainApp({ onSignedOut }) {
             onOpenTeamUsers={(tab) => { setTeamInitialTab(typeof tab === "string" ? tab : "users"); setShowTeamModal(true); }}
             onOpenProfileSettings={() => setShowProfileModal(true)}
             onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
+            onOpenDeveloperKeys={() => setShowDeveloperKeysModal(true)}
           />
         </SafeErrorBoundary>
       )}
@@ -797,6 +800,11 @@ function MainApp({ onSignedOut }) {
         onClose={() => setShowProfileModal(false)}
         operator={operator}
         setOperator={handleUpdateOperator}
+      />
+
+      <DeveloperApiKeysModal
+        open={showDeveloperKeysModal}
+        onClose={() => setShowDeveloperKeysModal(false)}
       />
     </OrgSettingsProvider>
   );

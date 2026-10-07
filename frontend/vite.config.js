@@ -34,6 +34,13 @@ export default defineConfig({
         timeout: 180000,
         proxyTimeout: 180000,
       },
+      '/v1': {
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+        timeout: 180000,
+        proxyTimeout: 180000,
+      },
       '/media': {
         target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
         changeOrigin: true,

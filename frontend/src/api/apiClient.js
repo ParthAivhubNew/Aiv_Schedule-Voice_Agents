@@ -474,5 +474,20 @@ export const api = {
   emailUpdateTemplate: (id, body) => apiRequest(`/email/templates/${id}`, { method: 'PUT', body }),
   emailDeleteTemplate: (id) => apiRequest(`/email/templates/${id}`, { method: 'DELETE' }),
   emailAiDraft: (body) => apiRequest('/email/ai/draft', { method: 'POST', body, timeoutMs: 45000 }),
+
+  // Developer API Keys
+  getDeveloperKeys: () => apiRequest('/developer/keys'),
+  createDeveloperKey: (body) => apiRequest('/developer/keys', { method: 'POST', body }),
+  updateDeveloperKey: (id, body) => apiRequest(`/developer/keys/${id}`, { method: 'PATCH', body }),
+  revokeDeveloperKey: (id) => apiRequest(`/developer/keys/${id}`, { method: 'DELETE' }),
+
+  // Developer Webhooks
+  getDeveloperWebhooks: () => apiRequest('/developer/webhooks'),
+  createDeveloperWebhook: (body) => apiRequest('/developer/webhooks', { method: 'POST', body }),
+  updateDeveloperWebhook: (id, body) => apiRequest(`/developer/webhooks/${id}`, { method: 'PATCH', body }),
+  deleteDeveloperWebhook: (id) => apiRequest(`/developer/webhooks/${id}`, { method: 'DELETE' }),
+  testDeveloperWebhook: (id) => apiRequest(`/developer/webhooks/${id}/test`, { method: 'POST' }),
+  getDeveloperWebhookLogs: (id) => apiRequest(`/developer/webhooks/${id}/logs`),
 };
+
 

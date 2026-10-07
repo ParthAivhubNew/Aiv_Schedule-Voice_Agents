@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, Date, ForeignKey, Float, UniqueConstraint, FetchedValue
 from sqlalchemy.orm import relationship
 from datetime import datetime
+import uuid
 from app.database import Base
 
 try:
@@ -97,6 +98,24 @@ class OperatorGrant(Base):
     level = Column(String, nullable=False, default="view")
     granted_by = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ApiKey(Base):
+    """A developer secret key (sk_live_...) for external server-to-server API access."""
+    __tablename__ = "api_keys"
+
+    id = Column(String, primary_key=True, default=lambda: f"key_{uuid.uuid4().hex[:12]}")
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_id = Column(String, ForeignKey("operators.id", ondelete="SET NULL"), nullable=True)
+    name = Column(String, nullable=False)
+    prefix = Column(String, nullable=False, index=True)  # e.g. "sk_live_3829f0a8"
+    hashed_key = Column(String, nullable=False, unique=True, index=True)  # SHA-256 hex digest
+    scopes = Column(JSON, default=lambda: ["full_access"])  # ["voice:calls", "leads:search", "social:publish"]
+    is_active = Column(Boolean, default=True, index=True)
+    last_used_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class CompanyProfile(Base):
     __tablename__ = "company_profile"
@@ -1503,3 +1522,38 @@ class EmailTemplate(Base):
     tags = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WebhookEndpoint(Base):
+    """An external destination URL registered by an organisation to receive real-time webhook events."""
+    __tablename__ = "webhook_endpoints"
+
+    id = Column(String, primary_key=True, default=lambda: f"wh_{uuid.uuid4().hex[:12]}")
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    url = Column(String, nullable=False)
+    secret = Column(String, nullable=False)  # whsec_... used for HMAC-SHA256 signature
+    description = Column(String, default="")
+    events = Column(JSON, default=lambda: ["call.completed", "call.failed"])  # subscribed event types
+    is_active = Column(Boolean, default=True, index=True)
+    last_delivery_at = Column(DateTime, nullable=True)
+    last_delivery_status = Column(Integer, nullable=True)  # HTTP status code e.g. 200, 500
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WebhookDeliveryLog(Base):
+    """Audit log of individual webhook attempts sent to external partner endpoints."""
+    __tablename__ = "webhook_delivery_logs"
+
+    id = Column(String, primary_key=True, default=lambda: f"whlog_{uuid.uuid4().hex[:12]}")
+    endpoint_id = Column(String, ForeignKey("webhook_endpoints.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String, nullable=False, index=True)  # e.g. "call.completed"
+    payload = Column(JSON, nullable=False)
+    status_code = Column(Integer, nullable=True)
+    response_body = Column(Text, nullable=True)
+    duration_ms = Column(Integer, default=0)
+    success = Column(Boolean, default=False)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+

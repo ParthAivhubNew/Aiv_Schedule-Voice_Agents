@@ -205,24 +205,41 @@ async def upsert_call_log_from_live(
             if force_outcome or _should_replace_outcome(existing.outcome, final_outcome):
                 existing.outcome = final_outcome
             apply_names_to_log(existing, names)
-            return existing
+            result_obj = existing
+        else:
+            entry = CallLog(
+                id=log_id,
+                canonical_name=names["canonical"] or call.prospect or "Unknown",
+                listed_as=names["listed"] or call.prospect or "Unknown",
+                person_canonical=names["person"] or "",
+                person_listed_as=names["person"] or "",
+                channel=call.channel or "voice",
+                mission=call.mission or "",
+                started_at=started,
+                ended_at=now_str,
+                duration=dur_disp,
+                outcome=final_outcome,
+                transcript=formatted,
+            )
+            result_obj = await db.merge(entry)
 
-        entry = CallLog(
-            id=log_id,
-            canonical_name=names["canonical"] or call.prospect or "Unknown",
-            listed_as=names["listed"] or call.prospect or "Unknown",
-            person_canonical=names["person"] or "",
-            person_listed_as=names["person"] or "",
-            channel=call.channel or "voice",
-            mission=call.mission or "",
-            started_at=started,
-            ended_at=now_str,
-            duration=dur_disp,
-            outcome=final_outcome,
-            transcript=formatted,
-        )
-        merged = await db.merge(entry)
-        return merged
+        try:
+            from app.services.webhook_dispatcher import dispatch_event
+            target_org = getattr(call, "org_id", None) or getattr(result_obj, "org_id", None) or "org_default"
+            ev_type = "call.failed" if final_outcome in ("failed", "busy", "rejected", "error") else "call.completed"
+            dispatch_event(target_org, ev_type, {
+                "call_id": getattr(call, "id", log_id),
+                "prospect": names.get("canonical") or getattr(call, "prospect", ""),
+                "person": names.get("person") or "",
+                "duration": dur_disp,
+                "outcome": final_outcome,
+                "transcript": formatted,
+                "ended_at": now_str,
+            })
+        except Exception as wh_err:
+            logger.debug(f"[webhook dispatch skipped] {wh_err}")
+
+        return result_obj
     except Exception as err:
         logger.warning(f"upsert_call_log_from_live failed for {getattr(call, 'id', '?')}: {err}")
         return None
