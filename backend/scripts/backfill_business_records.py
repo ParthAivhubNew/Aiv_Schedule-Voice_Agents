@@ -54,7 +54,7 @@ SELECT r.id, {_SIC_TEXT} AS sic_text, {_POSTCODE} AS postcode, {_BORN} AS born, 
 FROM business_records r WHERE r.id = ANY(CAST(:ids AS text[])) AND {_SIC_TEXT} IS NOT NULL LIMIT 5
 """
 
-_UPDATE = rf"""
+_UPDATE_TEMPLATE = rf"""
 UPDATE business_records r SET
     sic_text = COALESCE({_SIC_TEXT}, r.sic_text),
     sic_codes = COALESCE((SELECT '|' || string_agg(DISTINCT m[1], '|') || '|'
@@ -62,8 +62,21 @@ UPDATE business_records r SET
     postcode = COALESCE({_POSTCODE}, r.postcode),
     incorporated_on = COALESCE({_BORN}, r.incorporated_on),
     size_band = COALESCE(NULLIF({_BAND_CASE}, 'unknown'), r.size_band, 'unknown')
-WHERE r.id = ANY(CAST(:ids AS text[])) RETURNING r.id
+WHERE @@WHERE@@
 """
+
+# Rows are visited in the order they sit on disk (block ranges), not in id order. Ids are random, so
+# id order meant a different disk page -- plus the page holding its large raw_data -- for every single
+# row: about four random reads each, which a normal VPS disk does ~200 of per second. Block order reads
+# the table front to back.
+BLOCKS_PER_BATCH = 800
+_UPDATE_BLOCKS = _UPDATE_TEMPLATE.replace(
+    "@@WHERE@@", "r.ctid >= '({lo},0)'::tid AND r.ctid < '({hi},0)'::tid AND r.size_band IS NULL")
+
+
+def _blocks_sql() -> str:
+    return "SELECT pg_relation_size('business_records') / current_setting('block_size')::int"
+
 
 # The text-search indexes that already exist. Every UPDATE of a row has to add entries to each of them,
 # which turns a multi-million-row backfill into hours -- so they are dropped first and rebuilt after.
@@ -97,18 +110,25 @@ async def drop_slow_indexes() -> None:
 async def backfill() -> None:
     todo = await remaining()
     print(f"{todo:,} records still to fill.")
-    done, last, started = 0, "", time.time()
+    done, start, started = 0, 0, time.time()
     while True:
-        async with engine.begin() as conn:
-            await conn.execute(text("SET LOCAL enable_seqscan = off"))  # always reach rows through the primary key
-            picked = [r[0] for r in (await conn.execute(text(_PICK), {"last": last, "n": BATCH})).all()]
-            if not picked:
-                break
-            ids = [r[0] for r in (await conn.execute(text(_UPDATE), {"ids": picked})).all()]
-        last, done = max(picked), done + len(ids)
-        rate = done / max(time.time() - started, 1)
-        print(f"  {done:,}/{todo:,} filled  ({rate:,.0f} rows/s, ~{max(todo - done, 0) / max(rate, 1) / 60:.0f} min left)", flush=True)
-    print(f"Backfill finished: {done:,} records filled.")
+        async with engine.connect() as conn:
+            end = int((await conn.execute(text(_blocks_sql()))).scalar() or 0)
+        if end <= start:
+            break
+        # Rows added to the table while this runs sit past `end`; the next pass picks them up.
+        for lo in range(start, end, BLOCKS_PER_BATCH):
+            hi = min(lo + BLOCKS_PER_BATCH, end)
+            async with engine.begin() as conn:
+                await conn.execute(text("SET LOCAL enable_seqscan = off"))
+                n = (await conn.execute(text(_UPDATE_BLOCKS.replace("{lo}", str(lo)).replace("{hi}", str(hi))))).rowcount or 0
+            done += n
+            if n:
+                rate = done / max(time.time() - started, 1)
+                print(f"  {done:,}/{todo:,} filled  ({rate:,.0f} rows/s, ~{max(todo - done, 0) / max(rate, 1) / 60:.0f} min left)", flush=True)
+        start = end
+    left = await remaining()
+    print(f"Backfill finished: {done:,} records filled" + (f", {left:,} still empty (run it again)." if left else "."))
 
 
 async def build_indexes() -> None:
