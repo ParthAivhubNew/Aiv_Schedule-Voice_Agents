@@ -127,5 +127,24 @@ export const adminApi = {
   controlDataSource: (id, action) => request(`/data-sources/${q(id)}/${q(action)}`, { method: "POST" }),
   startDataSource: (id, queries) => request(`/data-sources/${q(id)}/start`, { method: "POST", body: { queries } }),
   dataSourceRuns: (id) => request(`/data-sources/${q(id)}/runs`),
+  dataSourceFiles: (id) => request(`/data-sources/${q(id)}/files`),
+  deleteDataSourceFile: (id, name) => request(`/data-sources/${q(id)}/files/${q(name)}`, { method: "DELETE" }),
+  previewDataSource: (id) => request(`/data-sources/${q(id)}/preview`, { method: "POST" }),
+  // Streams the file as the raw body (XHR, for upload progress): register files run to gigabytes.
+  uploadDataSourceFile: (id, file, onProgress) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", `/api/admin-api/data-sources/${q(id)}/files?name=${q(file.name)}`);
+    const token = read(TOKEN_KEY);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText || "{}"); } catch (_) { /* not JSON, e.g. a proxy error page */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(data.detail || (xhr.status === 413 ? "The server or a proxy in front of it refused a file that large. Put it in the server's imports folder instead." : `Upload failed (${xhr.status})`)));
+    };
+    xhr.onerror = () => reject(new Error("The upload was interrupted. For very large files, put them in the server's imports folder instead."));
+    xhr.send(file);
+  }),
   businessRecords: (search = "", limit = 100, offset = 0) => request(`/business-records?q=${q(search)}&limit=${limit}&offset=${offset}`),
 };

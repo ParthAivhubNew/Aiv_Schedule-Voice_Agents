@@ -152,111 +152,6 @@ function SiteLink({ account }) {
   );
 }
 
-// ---------------------------------------------------------------- AI Lead Scout
-const SCOUT_IDEAS = ["Dental practices in Leeds", "Logistics companies in Manchester", "Accountants in Birmingham", "Marketing agencies in Bristol"];
-
-export function ScoutView({ store }) {
-  const [query, setQuery] = useState("");
-  const [role, setRole] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [results, setResults] = useState(null); // null until the first search
-  const [searched, setSearched] = useState("");
-
-  const savedKeys = useMemo(() => new Set(store.accounts.flatMap((a) => [a.domain, a.name.toLowerCase()]).filter(Boolean)), [store.accounts]);
-  const isSaved = (r) => {
-    const d = domainOf(r.site);
-    return d ? savedKeys.has(d) : savedKeys.has(String(r.name || "").toLowerCase());
-  };
-  // The town searched for ("accountants in Birmingham"): Research looks for that office's details.
-  const town = (searched.match(/\b(?:in|near|around)\s+(.+)$/i) || [])[1]?.trim() || "";
-  const asAccount = (r) => ({ name: r.name, website: r.site || "", phone: r.phone || "", notes: r.snippet || "", region: town, source: "scout", source_url: r.sourceUrl || "" });
-
-  const run = async (e, preset) => {
-    if (e) e.preventDefault();
-    const q = (preset || query).trim();
-    if (!q || busy) return;
-    if (preset) setQuery(preset);
-    setBusy(true);
-    setError("");
-    try {
-      const r = await api.discoverAccounts({ query: q, ...(role.trim() ? { target_role: role.trim() } : {}) });
-      setResults(r.leads || []);
-      setSearched(q);
-    } catch (err) {
-      setResults(null); // never leave the last search's results under a new query
-      setError(err.message || "The search didn't finish. Try again.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const unsaved = (results || []).filter((r) => !isSaved(r));
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <form onSubmit={run} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <div className="ui-field" style={{ flex: "2 1 320px", minWidth: 0, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${C.border}`, borderRadius: 6, padding: "0 10px", background: "#fff", height: 40 }}>
-            <Search size={16} color={C.slate} />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A type of business and a place, like dental practices in Leeds" aria-label="What to search for"
-              style={{ ...text, flex: 1, minWidth: 0, border: 0, outline: 0, fontSize: 14, background: "transparent", color: C.textInk }} />
-          </div>
-          <input className="ui-input" value={role} onChange={(e) => setRole(e.target.value)} placeholder="Who to reach (optional), like practice manager" aria-label="Who to reach"
-            style={{ flex: "1 1 220px", height: 40 }} />
-          <button type="submit" className="ui-btn ui-btn--primary" disabled={busy || !query.trim()} style={{ height: 40 }}>
-            {busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {busy ? "Searching the web…" : "Find companies"}
-          </button>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ ...muted, fontSize: 12.5 }}>Try</span>
-          {SCOUT_IDEAS.map((idea) => (
-            <button key={idea} type="button" className="ui-chip" disabled={busy} onClick={() => run(null, idea)} style={{ padding: "5px 9px" }}>{idea}</button>
-          ))}
-        </div>
-        <div style={{ ...muted, fontSize: 12.5 }}>Searches the web live. Each company found uses 1 Leads credit.</div>
-      </form>
-
-      {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-
-      {results === null ? null : results.length === 0 ? (
-        <EmptyState icon={Search} title="No companies found" body={`The web search returned no companies for “${searched}”. Nothing was charged. Try again in a minute, or name a type of business and a town, like “dental practices in Leeds”.`} />
-      ) : (
-        <div className="ui-card" style={{ overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
-            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-              {results.length} {results.length === 1 ? "company" : "companies"} for “{searched}”
-            </div>
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!unsaved.length} onClick={() => store.save(unsaved.map(asAccount))}>
-              <Plus size={14} /> {unsaved.length ? `Save all ${unsaved.length}` : "All saved"}
-            </button>
-          </div>
-          {results.map((r, i) => {
-            const saved = isSaved(r);
-            const d = domainOf(r.site);
-            return (
-              <div key={r.id || i} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 16px", borderBottom: i < results.length - 1 ? `1px solid ${C.borderLight}` : "none" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink }}>{r.name}</div>
-                  <div style={{ ...muted, fontSize: 12.5, display: "flex", gap: 10, flexWrap: "wrap", marginTop: 2 }}>
-                    {d ? <a href={r.site} target="_blank" rel="noreferrer" style={{ color: C.slate, display: "inline-flex", alignItems: "center", gap: 3 }}>{d} <ExternalLink size={11} /></a> : <span>No website found</span>}
-                    {r.phone ? <span style={{ fontVariantNumeric: "tabular-nums" }}>{r.phone}</span> : <span>No phone found</span>}
-                  </div>
-                  {r.snippet ? <div style={{ ...muted, fontSize: 12.5, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{r.snippet}</div> : null}
-                </div>
-                {saved ? (
-                  <span style={{ ...text, fontSize: 12.5, color: C.green, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap", paddingTop: 4 }}><Check size={14} /> Saved</span>
-                ) : (
-                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => store.save([asAccount(r)])}><Plus size={14} /> Save</button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------- Saved Accounts
 const ACCOUNT_CHIPS = [
   ["all", "All", () => true],
@@ -633,19 +528,46 @@ function guessColumns(headers) {
   return map;
 }
 
-async function readRows(file) {
+// Same logic as the Voice plugin's file import (CallingWorkspace.jsx: parseSpreadsheetFile) --
+// every sheet of a workbook is read, not just the first, and .json is accepted alongside
+// .xlsx/.xls/.ods/.csv/.tsv/.txt, so people can bring in whatever file they already have.
+async function parseImportFile(file) {
   const name = file.name.toLowerCase();
   if (/\.(csv|tsv|txt)$/.test(name)) {
     const parsed = await new Promise((resolve, reject) => Papa.parse(file, { header: true, skipEmptyLines: "greedy", complete: resolve, error: reject }));
-    return parsed.data;
+    return { sheets: { CSV: parsed.data || [] }, sheetNames: ["CSV"] };
+  }
+  if (/\.json$/.test(name)) {
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch (_) {
+      throw new Error("Could not read that JSON file.");
+    }
+    const records = Array.isArray(data) ? data
+      : Array.isArray(data.rows) ? data.rows
+      : Array.isArray(data.contacts) ? data.contacts
+      : Array.isArray(data.companies) ? data.companies
+      : Array.isArray(data.accounts) ? data.accounts
+      : [];
+    const objs = records.filter((r) => r && typeof r === "object");
+    if (!objs.length) throw new Error("That JSON file has no list of companies.");
+    return { sheets: { JSON: objs }, sheetNames: ["JSON"] };
   }
   const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+  const sheetNames = wb.SheetNames || [];
+  if (!sheetNames.length) throw new Error("That spreadsheet has no sheets.");
+  const sheets = {};
+  for (const sName of sheetNames) sheets[sName] = XLSX.utils.sheet_to_json(wb.Sheets[sName], { defval: "" });
+  return { sheets, sheetNames };
 }
 
 export function ImportView({ store, onGo }) {
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
+  const [sheets, setSheets] = useState(null); // { sheetName: rawRecords[] }
+  const [sheetNames, setSheetNames] = useState([]); // sheets that actually have rows
+  const [activeSheet, setActiveSheet] = useState("");
   const [rows, setRows] = useState([]);
   const [map, setMap] = useState({});
   const [error, setError] = useState("");
@@ -653,20 +575,31 @@ export function ImportView({ store, onGo }) {
   const [done, setDone] = useState(null);
   const headers = rows.length ? Object.keys(rows[0]) : [];
 
+  const loadSheet = (allSheets, sName) => {
+    const data = (allSheets[sName] || []).filter((r) => Object.values(r).some((v) => String(v).trim()));
+    setActiveSheet(sName);
+    setRows(data);
+    setMap(data.length ? guessColumns(Object.keys(data[0])) : {});
+  };
+
   const pick = async (f) => {
     if (!f) return;
     setError("");
     setDone(null);
     try {
-      const data = (await readRows(f)).filter((r) => Object.values(r).some((v) => String(v).trim()));
-      if (!data.length) throw new Error("That file has no rows to import.");
+      const { sheets: allSheets, sheetNames: names } = await parseImportFile(f);
+      const withRows = names.filter((n) => (allSheets[n] || []).some((r) => Object.values(r).some((v) => String(v).trim())));
+      if (!withRows.length) throw new Error("That file has no rows to import.");
       setFile(f);
-      setRows(data);
-      setMap(guessColumns(Object.keys(data[0])));
+      setSheets(allSheets);
+      setSheetNames(withRows);
+      loadSheet(allSheets, withRows[0]);
     } catch (e) {
       setFile(null);
+      setSheets(null);
+      setSheetNames([]);
       setRows([]);
-      setError(e.message || "Couldn't read that file. Use .xlsx, .xls, .ods or .csv.");
+      setError(e.message || "Couldn't read that file. Use .xlsx, .xls, .ods, .csv, .tsv or .json.");
     }
   };
   const mapped = rows.map((r) => Object.fromEntries(IMPORT_FIELDS.map(([k]) => [k, map[k] ? String(r[map[k]] ?? "").trim() : ""])));
@@ -679,18 +612,20 @@ export function ImportView({ store, onGo }) {
       setDone(r);
       setFile(null);
       setRows([]);
+      setSheets(null);
+      setSheetNames([]);
     }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <input ref={fileRef} type="file" hidden accept=".xlsx,.xls,.ods,.csv,.tsv,.txt" onChange={(e) => { pick(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+      <input ref={fileRef} type="file" hidden accept=".xlsx,.xls,.ods,.csv,.tsv,.txt,.json" onChange={(e) => { pick(e.target.files && e.target.files[0]); e.target.value = ""; }} />
       {!rows.length ? (
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files && e.dataTransfer.files[0]); }}
           style={{ border: "1.5px dashed #CBD1D9", borderRadius: 8, background: "var(--ui-sunken)", padding: "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
           <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: "#8B5CF6" }}><FileSpreadsheet size={20} /></div>
-          <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Import companies from a spreadsheet</div>
-          <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel or CSV file here. You can check which column is which before anything is saved. Companies you already saved are skipped.</div>
+          <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Import companies from a file</div>
+          <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel, CSV or JSON file here. Every sheet in a workbook is read, not just the first, and you can check which column is which before anything is saved. Companies you already saved are skipped.</div>
           <button type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Choose a file</button>
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
           {done ? (
@@ -704,8 +639,17 @@ export function ImportView({ store, onGo }) {
         <div className="ui-card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{file?.name} · {rows.length} {rows.length === 1 ? "row" : "rows"}</div>
-            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { setRows([]); setFile(null); }}>Choose another file</button>
+            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { setRows([]); setFile(null); setSheets(null); setSheetNames([]); }}>Choose another file</button>
           </div>
+          {sheetNames.length > 1 ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ ...muted, fontSize: 12.5 }}>Sheet:</span>
+              {sheetNames.map((n) => (
+                <button key={n} type="button" onClick={() => loadSheet(sheets, n)}
+                  className={`ui-btn ui-btn--sm ${activeSheet === n ? "ui-btn--primary" : "ui-btn--ghost"}`}>{n}</button>
+              ))}
+            </div>
+          ) : null}
           <div style={{ ...muted }}>Check which column holds each detail. Rows without a company name or website are left out.</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 210px), 1fr))", gap: 10 }}>
             {IMPORT_FIELDS.map(([k, label]) => (

@@ -201,6 +201,7 @@ async def run_bulk(run_id: str) -> None:
                     saved = await business_records.bulk_upsert(db, source_id=source.id, rows=batch)
                     processed += len(batch)
                     live.records_found, live.records_new = processed, live.records_new + saved
+                    live.records_updated = (live.records_updated or 0) + (len(batch) - saved)
                     live.updated_at = datetime.utcnow()
                     await db.commit()
                 logger.info(f"[data_sources] {source.name} bulk run {run_id}: {processed} processed so far")
@@ -212,6 +213,7 @@ async def run_bulk(run_id: str) -> None:
                         saved = await business_records.bulk_upsert(db, source_id=source.id, rows=batch)
                         processed += len(batch)
                         live.records_found, live.records_new = processed, live.records_new + saved
+                        live.records_updated = (live.records_updated or 0) + (len(batch) - saved)
                         await db.commit()
         except Exception as err:
             logger.error(f"[data_sources] bulk import for {source.name} failed: {err}")

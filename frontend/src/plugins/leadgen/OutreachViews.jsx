@@ -388,15 +388,19 @@ export function FindView({ outreach, defaultTarget = "" }) {
             {result.verification_status === "verified" ? <Pill tone="green">Verified</Pill> : <Pill tone="amber">Catch-all domain: may bounce</Pill>}
             {result.entity_type === "individual" && <Pill tone="red">Personal mailbox: UK rules need consent</Pill>}
           </div>
-          <div style={row}>
-            <select style={input} value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">Add to campaign…</option>
-              {outreach.campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <button type="button" style={btn(false, !target)} disabled={!target} onClick={() => run(() => api.emailAddLeads(target, [{
-              email: result.email, first_name: result.first_name, last_name: result.last_name, company: result.company_name || "",
-            }]), "Added to the campaign.")}>Add</button>
-          </div>
+          {outreach.campaigns.length === 0 ? (
+            <div style={small}>No campaigns yet, so there's nowhere to add this email to. Create a campaign first, then come back and find emails for it.</div>
+          ) : (
+            <div style={row}>
+              <select style={input} value={target} onChange={(e) => setTarget(e.target.value)}>
+                <option value="">Add to campaign…</option>
+                {outreach.campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button type="button" style={btn(false, !target)} disabled={!target} onClick={() => run(() => api.emailAddLeads(target, [{
+                email: result.email, first_name: result.first_name, last_name: result.last_name, company: result.company_name || "",
+              }]), "Added to the campaign.")}>Add</button>
+            </div>
+          )}
         </div>
       )}
     </div>

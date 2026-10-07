@@ -3,6 +3,7 @@ import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useLoad } from "./ui";
 import { PlatformAi } from "./PlatformAi";
+import { DataSourceFiles } from "./DataSourceFiles";
 
 const NEEDS_PHONE = ["Telephony", "Messaging"];
 const blank = { key: "", model: "", baseUrl: "", phone: "" };
@@ -349,6 +350,7 @@ function DataSources({ canEdit }) {
   const [startQueries, setStartQueries] = useState("");
   const [runsOpen, setRunsOpen] = useState("");
   const [runsData, setRunsData] = useState({});
+  const [filesOpen, setFilesOpen] = useState("");
   const sources = data?.sources || [];
 
   // While a run is actually in progress, refresh its panel every couple of seconds so progress
@@ -381,7 +383,9 @@ function DataSources({ canEdit }) {
 
   if (!data) return <Note error={err}>{err}</Note>;
 
-  const isBulk = (s) => !!s.config?.bulk_index_url;
+  // A source that imports a whole dataset (index page, file links, a paged API, or uploaded files)
+  // rather than searching one term at a time.
+  const isBulk = (s) => !!(s.config?.bulk_index_url || s.config?.bulk_paged_url || (s.config?.bulk_file_urls || []).length || s.config?.bulk_mode);
 
   const startRun = (s) => run(async () => {
     let queries = [];
@@ -460,6 +464,11 @@ function DataSources({ canEdit }) {
     }, null, 2),
     scrape: JSON.stringify({ trust_tier: "scraped", url_template: "https://example.com/search?q={query}" }, null, 2),
   };
+  const BULK_EXAMPLE = JSON.stringify({
+    trust_tier: "verified_registry", bulk_mode: "folder",
+    bulk_field_map: { name: ["Name"], address: ["Address"], postcode: ["Postcode"], phone: ["Phone number"], industry: ["Service types"] },
+    bulk_defaults: { status: "Active" },
+  }, null, 2);
 
   const field = (label, hint, children) => (
     <div style={{ display: "grid", gap: 2 }}>
@@ -508,9 +517,11 @@ function DataSources({ canEdit }) {
       </div>
       {field(
         <>Config (JSON) <button type="button" style={{ ...btn(false), fontSize: 10.5, padding: "1px 6px", marginLeft: 8 }}
-          onClick={() => setDraft({ ...draft, config: EXAMPLE_CONFIG[draft.kind] })}>Insert an example for "{draft.kind}"</button></>,
+          onClick={() => setDraft({ ...draft, config: EXAMPLE_CONFIG[draft.kind] })}>Insert an example for "{draft.kind}"</button>
+          <button type="button" style={{ ...btn(false), fontSize: 10.5, padding: "1px 6px", marginLeft: 6 }}
+            onClick={() => setDraft({ ...draft, config: BULK_EXAMPLE })}>Insert a file-import example</button></>,
         draft.kind === "api"
-          ? "For an api source: search_endpoint + search_param (how to search), search_items_path (where the results list sits in the response), profile_endpoint (optional -- a details page per result), field_map (which field in the response becomes each saved fact), and test_query (a real term the Test button should actually find). If the provider instead publishes its whole dataset as a download (no per-company search needed), set bulk_index_url (the page listing the download links), bulk_link_pattern (a regex matching the file link(s) on that page) and bulk_field_map instead -- Start then imports everything with no search terms at all."
+          ? "For an api source: search_endpoint + search_param (how to search), search_items_path (where the results list sits in the response), profile_endpoint (optional -- a details page per result), field_map (which field in the response becomes each saved fact), and test_query (a real term the Test button should actually find). If the provider instead publishes its whole dataset as a download (no per-company search needed), set bulk_index_url (the page listing the download links), bulk_link_pattern (a regex matching the file link(s) on that page) and bulk_field_map instead -- Start then imports everything with no search terms at all. Other bulk modes (bulk_mode): \"folder\" imports files uploaded under Files & preview (or put on the server); bulk_file_urls is a list of direct file links; bulk_paged_url (with {page}, and optionally {key} + bulk_keys_url) reads a JSON API page by page. bulk_defaults sets a fixed value on every row (e.g. status Active). A no-key API sets auth type to none; fixed request headers go in config \"headers\"."
           : "For a scrape source: url_template with {query} where the search term goes -- e.g. https://example.com/search?q={query}. The page is read and an AI pulls out the facts, so no field_map is needed here.",
         <textarea aria-label="Config JSON" placeholder={EXAMPLE_CONFIG[draft.kind]} value={draft.config}
           onChange={(e) => setDraft({ ...draft, config: e.target.value })} rows={9} style={{ ...input, ...mono, fontSize: 11.5 }} />
@@ -537,7 +548,7 @@ function DataSources({ canEdit }) {
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <div style={{ fontWeight: 700 }}>{s.name}</div>
               <Pill>{s.kind}</Pill>
-              {s.hasKey ? <Pill tone="green">Key saved</Pill> : <Pill tone="amber">No key</Pill>}
+              {s.hasKey ? <Pill tone="green">Key saved</Pill> : s.authType === "none" ? <Pill>No key needed</Pill> : <Pill tone="amber">No key</Pill>}
               <Pill tone={runStateTone(s.runState)}>{s.runState}</Pill>
               {s.status !== "active" && <Pill>{s.status}</Pill>}
             </div>
@@ -576,6 +587,7 @@ function DataSources({ canEdit }) {
                     <button type="button" style={btn(true)} onClick={() => { setStartOpen(s.id); setStartQueries(""); }}>Start a run</button>
                   )
                 )}
+                <button type="button" style={btn(false)} onClick={() => setFilesOpen(filesOpen === s.id ? "" : s.id)}>{filesOpen === s.id ? "Hide files" : "Files & preview"}</button>
                 <button type="button" style={btn(false)} onClick={() => toggleRuns(s)}>{runsOpen === s.id ? "Hide runs" : "Runs"}</button>
                 <button type="button" style={btn(false)} disabled={s.runState === "running" || s.runState === "paused"}
                   title={s.runState === "running" || s.runState === "paused" ? "Stop the run before editing this source" : ""}
@@ -585,6 +597,7 @@ function DataSources({ canEdit }) {
                   onClick={() => remove(s)}>Remove</button>
               </div>
             )}
+            {filesOpen === s.id && <DataSourceFiles source={s} canEdit={canEdit} onChanged={reload} />}
             {startOpen === s.id && !isBulk(s) && (
               <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
                 <div style={{ fontSize: 11.5, color: C.slate }}>
@@ -604,7 +617,7 @@ function DataSources({ canEdit }) {
                 {(runsData[s.id] || []).map((r) => (
                   <div key={r.id} style={{ fontSize: 11.5, color: C.slate, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     <Pill tone={r.status === "done" ? "green" : r.status === "error" || r.status === "stuck" ? "red" : r.status === "running" ? "green" : undefined}>{r.status}</Pill>
-                    <span>{r.total ? `${r.recordsFound}/${r.total} processed, ${r.recordsNew} new` : `found ${r.recordsFound}, new ${r.recordsNew}`}</span>
+                    <span>{r.total ? `${r.recordsFound}/${r.total} processed, ${r.recordsNew} new` : `${r.recordsFound.toLocaleString()} read: ${r.recordsNew.toLocaleString()} new, ${(r.recordsUpdated || 0).toLocaleString()} already had`}</span>
                     {r.status === "running" && r.currentQuery && <span style={{ fontStyle: "italic" }}>now: "{r.currentQuery}"</span>}
                     <span>{r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}</span>
                     {r.errorMessage && <span style={{ color: C.red || "#c0392b" }}>{r.errorMessage}</span>}

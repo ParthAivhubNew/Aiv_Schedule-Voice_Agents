@@ -41,6 +41,7 @@ class AccountIn(BaseModel):
     notes: str = ""
     source: str = "manual"
     source_url: str = ""
+    business_record_id: str = ""  # set when saved from the company store, so the dossier shows its registry facts
 
 
 class AccountsIn(BaseModel):
@@ -86,7 +87,7 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]
         "id": a.id, "name": a.name, "domain": a.domain or "", "website": a.website or "", "phone": a.phone or "",
         "email": a.email or "", "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
         "industry": a.industry or "", "region": a.region or "", "notes": a.notes or "", "source": a.source or "manual",
-        "source_url": a.source_url or "", "research": a.research or None,
+        "source_url": a.source_url or "", "business_record_id": a.business_record_id or "", "research": a.research or None,
         "researched_at": a.researched_at.isoformat() + "Z" if a.researched_at else None,
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
@@ -105,6 +106,74 @@ async def _registry_for(db: AsyncSession, account_id: str) -> Optional[BusinessR
     if not row.business_record_id:
         return None
     return (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first()
+
+
+class SearchIn(BaseModel):
+    filters: Dict[str, Any] = {}
+    limit: int = 25
+    offset: int = 0
+    exclude_ids: List[str] = []
+
+
+@router.post("/search")
+async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
+    """The Apollo-style filter search over the shared company store (the same one the chat runs).
+    Free: it reads our own data and calls no paid service -- credits are only used when contacts
+    are looked up. Every row is a stored record with its trust tier; nothing here is generated."""
+    from app.services import lead_filters
+
+    try:
+        out = await business_records.search_filtered(db, body.filters, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            raise HTTPException(status_code=504, detail="That search is too broad to finish. Add a town or a narrower sector and try again.")
+        raise
+    return {"companies": [lead_filters.card(r) for r in out["rows"]], "total": out["total"],
+            "total_capped": out["total_capped"], "filters": out["filters"], "chips": lead_filters.describe(out["filters"])}
+
+
+class ContactsIn(BaseModel):
+    include_web: bool = False  # a live web lookup for website/phone (1 Leads credit when something is found)
+    refresh_web: bool = False
+
+
+@router.post("/companies/{company_id}/contacts")
+async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession = Depends(get_db)):
+    """Contacts on demand for one company from the store. Layers, each labelled by source:
+    registry officers (verified, free), what the record already holds (with its trust tier), and --
+    only when asked -- a web lookup, shown as web and never mixed into the registry fields.
+    Emails for a named officer are found one person at a time with the existing email finder."""
+    from app.services import company_contacts as CC, lead_filters
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    registry_checked = False
+    if not biz.officers:
+        registry_checked = await CC.refresh_from_registry(db, biz)
+    web: Optional[Dict[str, Any]] = None
+    if body.include_web:
+        await _can_research(db)
+        try:
+            web = await CC.web_contacts(db, biz, refresh=body.refresh_web)
+        except Exception:
+            raise HTTPException(status_code=502, detail="The web lookup didn't finish. Nothing was charged; try again in a minute.")
+    await db.commit()
+    if web and web.get("found") and not web.get("cached"):
+        await _charge_leads(db, 1, f"Contacts for {biz.name}")
+    officers = CC.active_officers(biz.officers)
+    return {
+        "company": lead_filters.card(biz),
+        "officers": officers,
+        "officers_note": "" if officers else (
+            "The registry lists no current officers for this company." if (biz.officers or registry_checked)
+            else "Couldn't reach the registry to read this company's officers just now."),
+        "stored": {"website": biz.website or biz.domain or "", "phone": biz.phone or "", "email": biz.email or "",
+                   "tier": biz.confidence_tier or "scraped"},
+        "web": web,
+    }
 
 
 @router.get("/accounts")
@@ -137,6 +206,8 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     names = {(n or "").strip().lower() for _, n in existing}
     added: List[LeadAccount] = []
     skipped = 0
+    claimed = {i.business_record_id for i in body.accounts if i.business_record_id}
+    known_biz = set((await db.execute(select(BusinessRecord.id).where(BusinessRecord.id.in_(claimed)))).scalars().all()) if claimed else set()
     for item in body.accounts:
         website = _clean(item.website)
         domain = _domain(website)
@@ -155,6 +226,7 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
             contact_title=_clean(item.contact_title, 120), industry=_clean(item.industry, 120), region=_clean(item.region, 120),
             notes=_clean(item.notes, 2000), source=item.source if item.source in _SOURCES else "manual",
             source_url=_clean(item.source_url, 500),
+            business_record_id=item.business_record_id if item.business_record_id in known_biz else None,
         )
         db.add(row)
         added.append(row)

@@ -1454,6 +1454,125 @@ async def delete_data_source(source_id: str, request: Request):
     return {"ok": True}
 
 
+MAX_IMPORT_BYTES = int(float(os.getenv("DATA_IMPORT_MAX_GB", "20")) * (1 << 30))
+
+
+def _import_file_name(name: str) -> str:
+    from pathlib import Path
+
+    from app.services.data_source_connector import FILE_EXTENSIONS
+
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name or "").name)[:120].lstrip(".")
+    if not safe or not safe.lower().endswith(FILE_EXTENSIONS):
+        raise HTTPException(status_code=400, detail=f"Upload one of: {', '.join(FILE_EXTENSIONS)}.")
+    return safe
+
+
+def _file_out(path) -> Dict[str, Any]:
+    stat = path.stat()
+    return {"name": path.name, "size": stat.st_size, "modifiedAt": datetime.utcfromtimestamp(stat.st_mtime).isoformat() + "Z"}
+
+
+@router.put("/data-sources/{source_id}/files")
+async def upload_data_source_file(source_id: str, request: Request, name: str):
+    """Receives one file as the raw request body (streamed straight to disk, never held in memory, so
+    a multi-gigabyte register file is fine) into this source's uploads folder. The first upload on a
+    source that has no bulk setup yet switches it to 'folder' mode, so Start imports what was uploaded."""
+    from app.services import data_source_connector as connector
+
+    _admin_only(request)
+    safe = _import_file_name(name)
+    async with AsyncSessionLocal() as db:
+        source = await _get_data_source(db, source_id)
+        if not connector.is_bulk(source):
+            source.config = {**(source.config or {}), "bulk_mode": "folder"}
+            await db.commit()
+    folder = connector.upload_dir(source_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    part, final, written = folder / f".{safe}.part", folder / safe, 0
+    try:
+        with open(part, "wb") as out:
+            async for chunk in request.stream():
+                written += len(chunk)
+                if written > MAX_IMPORT_BYTES:
+                    raise HTTPException(status_code=413, detail=f"That file is over the {MAX_IMPORT_BYTES >> 30} GB upload limit. Put it in the server's imports folder instead.")
+                out.write(chunk)
+        if not written:
+            raise HTTPException(status_code=400, detail="The upload was empty.")
+        part.replace(final)
+    finally:
+        if part.exists():
+            part.unlink()
+    return _file_out(final)
+
+
+@router.get("/data-sources/{source_id}/files")
+async def list_data_source_files(source_id: str, request: Request):
+    from app.services import data_source_connector as connector
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        source = await _get_data_source(db, source_id)
+    return {"files": [_file_out(f) for f in connector.local_files(source)], "uploadFolder": str(connector.upload_dir(source_id)),
+            "importRoot": str(connector.IMPORT_ROOT)}
+
+
+@router.delete("/data-sources/{source_id}/files/{file_name}")
+async def delete_data_source_file(source_id: str, file_name: str, request: Request):
+    from app.services import data_source_connector as connector
+
+    _admin_only(request)
+    target = connector.upload_dir(source_id) / _import_file_name(file_name)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="That file isn't uploaded.")
+    target.unlink()
+    return {"ok": True}
+
+
+@router.post("/data-sources/{source_id}/preview")
+async def preview_data_source(source_id: str, request: Request):
+    """Reads the first few rows the way an import would and shows what each would become -- the
+    columns the file really has, which mapped columns were NOT found, and each row's mapped fields
+    plus the derived search fields (SIC codes, postcode, size, date). Writes nothing."""
+    from app.services import business_records
+    from app.services import data_source_connector as connector
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        source = await _get_data_source(db, source_id)
+    if not connector.is_bulk(source):
+        raise HTTPException(status_code=400, detail="Preview is for bulk sources. Upload a file or set a file link, folder or paged API in the config first.")
+    cfg = source.config or {}
+    columns: List[str] = []
+    files = connector.local_files(source) if connector.bulk_mode(source) == "folder" else []
+    if files:
+        try:
+            columns = connector.file_columns(files[0])
+        except Exception:
+            columns = []
+    try:
+        rows = [row async for row in connector.stream_bulk_rows(source, preview_rows=5)]
+    except connector.ConnectorError as err:
+        return {"ok": False, "error": str(err), "columns": columns}
+    except Exception as err:
+        return {"ok": False, "error": f"Couldn't read it: {err}", "columns": columns}
+    alias_map = cfg.get("bulk_field_map") or connector.DEFAULT_ALIAS_MAP
+    have = {connector._normalize_header(c) for c in columns}
+    unmatched = {}
+    if columns:
+        for field, aliases in alias_map.items():
+            missing = [a for a in (aliases if isinstance(aliases, list) else [aliases]) if connector._normalize_header(a) not in have]
+            if missing:
+                unmatched[field] = missing
+    out_rows = []
+    for row in rows:
+        mapped = {k: v for k, v in row.items() if k != "raw"}
+        out_rows.append({"mapped": mapped, "derived": {k: str(v) for k, v in business_records.derive_search_fields(mapped).items()}})
+    note = "" if rows else "The file was read but no row had a company name. Check the mapping below against these columns."
+    return {"ok": True, "columns": columns, "unmatched": unmatched, "rows": out_rows, "note": note,
+            "mode": connector.bulk_mode(source)}
+
+
 class StartRunBody(BaseModel):
     queries: List[str] = []  # one search term per item -- empty/unused for a bulk-file source
 

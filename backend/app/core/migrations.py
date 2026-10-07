@@ -476,6 +476,113 @@ async def _business_record_more_fields(conn: AsyncConnection) -> None:
         await conn.execute(text(f"ALTER TABLE business_records ADD COLUMN IF NOT EXISTS {col} {typ}"))
 
 
+async def _business_record_search_columns(conn: AsyncConnection) -> None:
+    """The columns the Apollo-style filters search on (see BusinessRecord). Added empty and
+    instant -- nothing is rewritten here, and no existing column is touched. Filling them for the
+    rows already imported is a separate, resumable job (scripts/backfill_business_records.py), so
+    a multi-million-row update never blocks the app starting up."""
+    for col, typ in (
+        ("sic_text", "VARCHAR"), ("sic_codes", "VARCHAR"), ("postcode", "VARCHAR"),
+        ("incorporated_on", "DATE"), ("size_band", "VARCHAR"),
+    ):
+        await conn.execute(text(f"ALTER TABLE business_records ADD COLUMN IF NOT EXISTS {col} {typ}"))
+
+
+async def _companies_house_search_fields(conn: AsyncConnection) -> None:
+    """Teaches the Companies House bulk import to fill the search columns on every future run
+    (all four SIC descriptions, the postcode, and the filed-accounts category the size band comes
+    from). Only adds map entries; anything staff already set is left alone."""
+    import json
+
+    row = (await conn.execute(text("SELECT config FROM data_sources WHERE id = 'ds_companies_house'"))).first()
+    if not row:
+        return
+    config = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+    bulk_map = config.setdefault("bulk_field_map", {})
+    bulk_map.setdefault("sic_text", [f"SICCode.SicText_{i}" for i in range(1, 5)])
+    bulk_map.setdefault("postcode", ["RegAddress.PostCode"])
+    bulk_map.setdefault("accounts_category", ["Accounts.AccountCategory"])
+    await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = 'ds_companies_house'"), {"c": json.dumps(config)})
+
+
+async def _seed_open_data_sources(conn: AsyncConnection) -> None:
+    """Three free UK registers, ready to start from Platform Keys > Data Sources (nothing runs until
+    staff press Start). Each mapping was checked against the publisher's real file or API response:
+
+      * CQC directory (care homes, clinics, dentists, GPs): a CSV whose link changes every month,
+        found fresh from the publisher's page. Locations have no company number, so a row is matched
+        to other sources by name + postcode.
+      * Charity Commission register (England & Wales): one big JSON ZIP. A charity that is also a
+        company is stored under its company number, so it merges into its Companies House row and adds
+        the phone, email and website to it; other charities get their own CC- number.
+      * Food Standards Agency hygiene ratings (restaurants, cafes, takeaways, shops): a no-key JSON API
+        read one local authority at a time.
+
+    A source only fills gaps on a company another source already described (see bulk_upsert), so none
+    of them can overwrite Companies House's name, status or address. Skipped if a row already exists."""
+    import json
+
+    sources = {
+        "ds_cqc": ("CQC care directory (England)", "https://www.cqc.org.uk", "none", 500, {
+            "trust_tier": "verified_registry",
+            "bulk_index_url": "https://www.cqc.org.uk/about-us/transparency/using-cqc-data",
+            "bulk_link_pattern": r"https://www\.cqc\.org\.uk/system/files/[0-9-]+/[A-Za-z0-9_]*CQC_directory\.csv",
+            "bulk_field_map": {
+                "name": ["Name"], "address": ["Address", "Postcode"], "postcode": ["Postcode"], "phone": ["Phone number"],
+                "website": ["Service's website (if available)"], "industry": ["Service types"],
+                "region": ["Local authority"], "description": ["Specialisms/services"],
+            },
+            "bulk_defaults": {"status": "Active"},  # the directory lists active registered locations only
+            "bulk_uk_phone": True,
+        }),
+        "ds_charity_commission": ("Charity Commission register (England & Wales)", "https://register-of-charities.charitycommission.gov.uk", "none", 500, {
+            "trust_tier": "verified_registry",
+            "bulk_file_urls": ["https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity.zip"],
+            "bulk_field_map": {
+                "name": ["charity_name"], "company_number": ["charity_company_registration_number"],
+                "charity_number": ["registered_charity_number"], "linked_number": ["linked_charity_number"],
+                "status": ["charity_registration_status"], "incorporation_date": ["date_of_registration"],
+                "address": ["charity_contact_address1", "charity_contact_address2", "charity_contact_address3",
+                            "charity_contact_address4", "charity_contact_address5", "charity_contact_postcode"],
+                "postcode": ["charity_contact_postcode"], "phone": ["charity_contact_phone"], "email": ["charity_contact_email"],
+                "website": ["charity_contact_web"], "description": ["charity_activities"],
+            },
+            "bulk_registration": [
+                {"field": "company_number", "pad": 8},
+                {"fields": ["charity_number", "linked_number"], "prefix": "CC-", "joiner": "-"},
+                {"field": "charity_number", "prefix": "CC-"},
+            ],
+            "bulk_value_map": {"status": {"Registered": "Active"}},
+            "bulk_defaults": {"industry": "Charity", "company_category": "Registered charity"},
+        }),
+        "ds_food_hygiene": ("Food Hygiene Ratings (FSA)", "https://api.ratings.food.gov.uk", "none", 300, {
+            "trust_tier": "verified_registry",
+            "headers": {"x-api-version": "2", "accept": "application/json"},
+            "bulk_paged_url": "https://api.ratings.food.gov.uk/Establishments?localAuthorityId={key}&pageNumber={page}&pageSize=5000",
+            "bulk_page_size": 5000,
+            "bulk_keys_url": "https://api.ratings.food.gov.uk/Authorities/basic",
+            "bulk_keys_path": "authorities", "bulk_key_field": "LocalAuthorityId",
+            "bulk_items_path": "establishments",
+            "bulk_field_map": {
+                "name": ["BusinessName"], "industry": ["BusinessType"], "postcode": ["PostCode"], "phone": ["Phone"],
+                "region": ["LocalAuthorityName"],
+                "address": ["AddressLine1", "AddressLine2", "AddressLine3", "AddressLine4", "PostCode"],
+            },
+            "bulk_defaults": {"status": "Active"},  # the register lists food businesses currently registered
+        }),
+    }
+    for source_id, (name, base_url, auth, delay, config) in sources.items():
+        if (await conn.execute(text("SELECT 1 FROM data_sources WHERE id = :i"), {"i": source_id})).first():
+            continue
+        await conn.execute(text(
+            "INSERT INTO data_sources (id, name, kind, base_url, auth_type, api_key, config, provides_fields, "
+            "max_concurrent_requests, min_delay_ms, run_state, status, created_at, updated_at, updated_by) "
+            "VALUES (:id, :name, 'api', :base, :auth, '', CAST(:config AS JSON), CAST(:fields AS JSON), 1, :delay, "
+            "'idle', 'active', now(), now(), 'migration')"
+        ), {"id": source_id, "name": name, "base": base_url, "auth": auth, "delay": delay, "config": json.dumps(config),
+            "fields": json.dumps(["name", "address", "postcode", "phone", "website", "industry"])})
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -502,6 +609,9 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_20_companies_house_bulk_config", _companies_house_bulk_config),
     ("2026_10_21_business_record_more_fields", _business_record_more_fields),
     ("2026_10_22_companies_house_more_fields", _companies_house_more_fields),
+    ("2026_10_23_business_record_search_columns", _business_record_search_columns),
+    ("2026_10_23_companies_house_search_fields", _companies_house_search_fields),
+    ("2026_10_24_seed_open_data_sources", _seed_open_data_sources),
 ]
 
 

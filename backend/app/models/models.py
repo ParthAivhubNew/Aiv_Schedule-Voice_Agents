@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, ForeignKey, Float, UniqueConstraint, FetchedValue
+from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, Date, ForeignKey, Float, UniqueConstraint, FetchedValue
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -1466,6 +1466,15 @@ class BusinessRecord(Base):
     status = Column(String, default="")  # active, dissolved, liquidation, ... -- whatever the source calls it
     company_category = Column(String, default="")  # private limited, PLC, LLP, ...
     incorporation_date = Column(String, default="")
+    # Search columns, derived from the source's own data (never guessed): sic_text is every SIC
+    # description the registry lists, sic_codes the codes in them as "|56102|47110|", postcode is
+    # upper-cased, incorporated_on is incorporation_date as a real date, and size_band is how the
+    # company's FILED ACCOUNTS classify it (micro/small/medium_large/dormant) -- not headcount.
+    sic_text = Column(String, nullable=True)
+    sic_codes = Column(String, nullable=True)
+    postcode = Column(String, nullable=True)
+    incorporated_on = Column(Date, nullable=True)
+    size_band = Column(String, nullable=True)
     officers = Column(JSON, nullable=True)  # [{name, role, appointed_on, ...}] -- fetched per-company, not during a bulk import
     significant_control = Column(JSON, nullable=True)  # [{name, kind, notified_on, ...}] -- who actually owns/controls it
     sources = Column(JSON, nullable=True)  # [{source_id, source_type, confirmed_at}, ...]

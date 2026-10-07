@@ -1519,6 +1519,22 @@ def _is_listing_title(name: str, query: str) -> bool:
 # Encyclopedias and dictionaries: about a place or a word, never one business.
 _REFERENCE_PAGE = re.compile(r"wiki(pedia|media|data|tionary|wand)|britannica|\bdictionary\b", re.I)
 
+# Trade bodies and membership pages: about an industry, not one company to sell to.
+_TRADE_BODY = re.compile(
+    r"\b(association|federation|institute of|chamber of commerce|trade (body|association)|membership|"
+    r"professional (body|standards)|society of|council|directory|guild|ombudsman|regulator)\b", re.I)
+
+
+def _is_noise_result(name: str, title: str, url: str, snippet: str) -> bool:
+    """Results that are not one company: encyclopedias, trade-body pages, and a "name" that was
+    only guessed from the web address (like "Craneww") with nothing in the page text backing it."""
+    if _REFERENCE_PAGE.search(f"{title} {url}") or _TRADE_BODY.search(f"{name} {title}"):
+        return True
+    site = _squash(_site_name(url))
+    if len(site) >= 3 and _squash(name) == site and not _has_site_name(f"{title} {snippet}", site):
+        return True
+    return False
+
 
 async def discover_new_target_accounts(
     query_or_domain: str,
@@ -1528,7 +1544,9 @@ async def discover_new_target_accounts(
     # like "contact phone email CEO" pulled in data-broker pages and left engines with nothing.
     search_query = f"{query_or_domain} {target_role}".strip() if target_role else query_or_domain
     results = await search_open_web(search_query, max_results=8)
-    
+
+    # Web results only. Registry companies come from the filter search (business_records.search_filtered),
+    # never mixed into this list, so a row's origin is always clear.
     discovered_accounts = []
     seen = set()
     for idx, item in enumerate(results):
@@ -1541,7 +1559,7 @@ async def discover_new_target_accounts(
             continue  # no name, or a page listing businesses: not offered (and not charged)
         if _LISTS_MANY.search(title.lower()):
             continue
-        if _REFERENCE_PAGE.search(f"{title} {url}"):
+        if _is_noise_result(comp_name, title, url, snippet):
             continue
 
         phone_match = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', snippet)
@@ -1574,7 +1592,8 @@ async def discover_new_target_accounts(
             "snippet": snippet,
             "openingHook": "",
             "fit": min(fit_score, 100),
-            "sourceUrl": url
+            "sourceUrl": url,
+            "tier": "web",
         })
 
     return discovered_accounts

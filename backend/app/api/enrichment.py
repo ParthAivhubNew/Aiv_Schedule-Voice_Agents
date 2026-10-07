@@ -17,6 +17,7 @@ from app.services.enrichment_service import (
     fill_contact_gaps,
     _row_missing_fields,
 )
+from app.services import business_records, lead_filters
 from app.services.llm_gateway import call_open_chat_llm
 
 router = APIRouter(prefix="/enrichment", tags=["AI Lead Radar & Enrichment"])
@@ -140,6 +141,8 @@ class CopilotChatRequest(BaseModel):
     baseUrl: Optional[str] = None
     contacts: Optional[List[Dict[str, Any]]] = None
     channel: Optional[str] = "voice"
+    filters: Optional[Dict[str, Any]] = None  # Find Leads: the filters currently applied, so chat refines them
+    exclude_ids: Optional[List[str]] = None  # Find Leads: companies the user already removed
 
 
 class FillGapsRequest(BaseModel):
@@ -276,8 +279,25 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             except Exception:
                 fills = []
 
+        # Find Leads chat: the same structured filters as the filter panel, run against the company
+        # store -- so the chat and the panel can never disagree, and every company named in the
+        # reply is a stored record, not a model's recollection.
+        registry: Optional[Dict[str, Any]] = None
+        removed_names: List[str] = []
+        if plugin_type == "leadgen" and not fills:
+            plan = await lead_filters.interpret(db, user_text, req.filters)
+            if plan["action"] == "remove":
+                removed_names = plan["remove_names"]
+            elif plan["action"] == "search":
+                try:
+                    found = await business_records.search_filtered(db, plan["filters"], limit=25, exclude_ids=req.exclude_ids or [])
+                    registry = {"filters": found["filters"], "total": found["total"], "capped": found["total_capped"],
+                                "leads": [lead_filters.card(r) for r in found["rows"]]}
+                except ValueError as err:
+                    registry = {"filters": plan["filters"], "total": 0, "capped": False, "leads": [], "needs": str(err)}
+
         # Check if query requests lead discovery or company prospecting
-        is_lead_search = (not fills) and any(k in lower_t for k in [
+        is_lead_search = (plugin_type != "leadgen") and (not fills) and any(k in lower_t for k in [
             "find", "search", "discover", "get me", "look up", "locate", "companies", "leads", "prospects"
         ]) and any(k in lower_t for k in [
             "companies", "leads", "fleet", "logistics", "freight", "saas", "agency", "hospital",
@@ -367,6 +387,43 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 "if they want a different set."
             )
 
+        registry_summary = ""
+        if registry is not None:
+            chips = "; ".join(lead_filters.describe(registry["filters"]))
+            if registry.get("needs"):
+                registry_summary = f"No search ran: {registry['needs']}"
+            elif registry["leads"]:
+                lines = "\n".join(
+                    f"- {c['name']} ({c['region'] or 'location n/a'}; {c['industry'] or 'sector n/a'}; "
+                    f"{c['status'] or 'status n/a'}; {c['tier']})" for c in registry["leads"][:15]
+                )
+                more = f"{registry['total']:,}{'+' if registry['capped'] else ''}"
+                registry_summary = (
+                    f"Searched the company registry with filters [{chips}]: {more} matching companies, "
+                    f"showing {len(registry['leads'])} in the table below your reply.\n{lines}"
+                )
+                system_prompt += (
+                    f"\n\nA REGISTRY SEARCH JUST RAN with filters [{chips}]. {more} companies match; these are the "
+                    f"first {len(registry['leads'])} (already shown to the user as rows below your reply):\n{lines}\n\n"
+                    "Talk ONLY about companies in that list and the filters above. Every fact (town, sector, status) "
+                    "comes from the official registry record -- never add a phone, email, website, headcount, revenue "
+                    "or any detail not shown in the list, and never name a company that is not in it. Note that "
+                    "'size' comes from the company's filed accounts category, not headcount. Open with the match count "
+                    "and the filters used, then suggest ONE way to narrow or refine if the count is large."
+                )
+            else:
+                registry_summary = f"Searched the company registry with filters [{chips}]: no companies matched."
+                system_prompt += (
+                    f"\n\nA REGISTRY SEARCH JUST RAN with filters [{chips}] and NOTHING matched. Say so plainly, "
+                    "name the filters used, and suggest which one to loosen (a wider area, a broader sector word, "
+                    "or including smaller/newer companies). Do not invent or recall any companies."
+                )
+        elif removed_names:
+            system_prompt += (
+                f"\n\nThe user asked to drop these from the results: {', '.join(removed_names)}. They have been "
+                "removed from the table. Confirm briefly."
+            )
+
         llm_response = {}
         try:
             llm_response = await call_open_chat_llm(
@@ -399,6 +456,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 "and I'll refine the search."
             )
 
+        if not reply_text and registry_summary:
+            reply_text = registry_summary  # the model was unreachable: the plain, data-only answer
         if not reply_text:
             if fills:
                 proposed = [f for f in fills if f.get("status") == "proposed"]
@@ -419,6 +478,10 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             "reply": reply_text,
             "leads": discovered_leads,
             "fills": fills,
+            "registry": ({"companies": registry["leads"], "total": registry["total"], "total_capped": registry["capped"],
+                          "filters": registry["filters"], "chips": lead_filters.describe(registry["filters"])}
+                         if registry is not None and not registry.get("needs") else None),
+            "removed_names": removed_names,
             "incompleteCount": len(incomplete),
             "model": llm_response.get("model", mod) if isinstance(llm_response, dict) else mod,
             "provider": llm_response.get("provider", prov) if isinstance(llm_response, dict) else prov

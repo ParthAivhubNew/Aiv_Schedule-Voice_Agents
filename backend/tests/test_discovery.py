@@ -177,3 +177,13 @@ async def test_discovery_drops_listings_and_never_takes_a_directory_for_the_webs
     assert oakwood["site"] == "" and oakwood["sourceUrl"].startswith("https://contactout.com")  # broker page kept as the source only
     assert "headrowdental.co.uk" in headrow["site"]
     assert all(f["sector"] == "" and f["region"] == "" and f["openingHook"] == "" for f in found)  # nothing guessed
+
+
+@pytest.mark.parametrize("name, title, url, snippet, noise", [
+    ("Craneww", "Freight forwarding in Leicester", "https://craneww.com/uk", "Logistics services", True),  # name only guessed from the address
+    ("Leicester Freight Association", "Leicester Freight Association - members", "https://lfa.org.uk", "", True),
+    ("Smith & Co", "Smith & Co Accountants", "https://smithco.co.uk/", "", False),
+    ("Melioradental", "Meliora Dental | Leeds", "https://melioradental.co.uk/", "", False),
+])
+def test_noise_filter_drops_trade_bodies_and_guessed_names(name, title, url, snippet, noise):
+    assert E._is_noise_result(name, title, url, snippet) is noise

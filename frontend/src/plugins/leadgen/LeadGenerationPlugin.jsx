@@ -118,7 +118,7 @@ export default function LeadGenerationPlugin({
   ];
 
   const viewTitles = {
-    find_leads: { title: "Find Leads", desc: "Ask the AI Copilot, search with AI Lead Scout, or import a spreadsheet -- three ways to get companies into your saved accounts." },
+    find_leads: { title: "Find Leads", desc: "Search for companies, then refine with the AI in the same place -- or import a spreadsheet instead." },
     accounts: { title: "Saved Accounts", desc: "The companies you saved. Research one to fill in its details." },
     outreach: { title: "Cold Email Sequences & Campaigns", desc: "Multi-step email cadences, automated follow-up schedules, response analytics, and work-email finding." },
     replies: { title: "Inbox & Reply Categorization", desc: "Classified prospect replies with intent tagging, plus your do-not-email list." },
