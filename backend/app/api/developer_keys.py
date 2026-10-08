@@ -23,7 +23,6 @@ AVAILABLE_SCOPES = [
     {"id": "leads:search", "label": "Lead Generation", "desc": "Can search and enrich company and contact leads", "service": "leads"},
     {"id": "social:publish", "label": "Social Scheduler", "desc": "Can generate copy and schedule/publish social posts", "service": "social"},
     {"id": "wallets:read", "label": "Wallets & Usage", "desc": "Can check remaining balances and credit quotas", "service": "any"},
-    {"id": "full_access", "label": "Full Access", "desc": "Full access to all subscribed services", "service": "all"},
 ]
 
 

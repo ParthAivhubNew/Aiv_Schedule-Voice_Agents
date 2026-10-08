@@ -106,14 +106,13 @@ export function DeveloperApiKeysModal({ open, onClose }) {
   // Create Key Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [keyName, setKeyName] = useState("");
-  const [selectedScopes, setSelectedScopes] = useState(["full_access"]);
+  const [selectedScopes, setSelectedScopes] = useState([]);
   const [isLive, setIsLive] = useState(true);
   const [creating, setCreating] = useState(false);
 
   // Newly Created Secret Modal
   const [newlyCreatedSecret, setNewlyCreatedSecret] = useState(null);
   const [copiedSecret, setCopiedSecret] = useState(false);
-  const [copiedPrefix, setCopiedPrefix] = useState("");
 
   // --- Webhooks State ---
   const [webhooks, setWebhooks] = useState([]);
@@ -171,8 +170,11 @@ export function DeveloperApiKeysModal({ open, onClose }) {
     try {
       const res = await api.getDeveloperKeys();
       const loadedKeys = res.keys || [];
+      const loadedScopes = res.available_scopes || [];
       setKeys(loadedKeys);
-      setAvailableScopes(res.available_scopes || []);
+      setAvailableScopes(loadedScopes);
+      const unlocked = loadedScopes.filter((s) => s.unlocked !== false).map((s) => s.id);
+      setSelectedScopes(unlocked);
       setEntitlements(res.entitlements || { voice: false, leads: false, social: false });
       setHasAnySubscription(Boolean(res.has_any_subscription));
 
@@ -214,7 +216,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
       setPlaygroundKey(res.secret);
       setShowCreateModal(false);
       setKeyName("");
-      setSelectedScopes(["full_access"]);
+      const unlocked = availableScopes.filter((s) => s.unlocked !== false).map((s) => s.id);
+      setSelectedScopes(unlocked.length > 0 ? unlocked : (availableScopes[0] ? [availableScopes[0].id] : []));
       await loadKeys();
     } catch (err) {
       setError(err.message || "Failed to create API key.");
@@ -234,7 +237,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
 
   const handleRevokeKey = (keyId, name) => {
     setConfirmDialog({
-      title: "Revoke Developer API Key",
+      title: "Revoke Admin API Key",
       message: `Are you sure you want to permanently revoke "${name}"? External apps or scripts using this key will immediately fail with 401 Unauthorized.`,
       confirmLabel: "Revoke Key",
       isDanger: true,
@@ -430,9 +433,6 @@ export function DeveloperApiKeysModal({ open, onClose }) {
     } else if (type === "response_json") {
       setCopiedResponseJson(true);
       setTimeout(() => setCopiedResponseJson(false), 2000);
-    } else {
-      setCopiedPrefix(type);
-      setTimeout(() => setCopiedPrefix(""), 2000);
     }
   };
 
@@ -504,7 +504,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                   margin: 0,
                 }}
               >
-                Developer APIs & Webhook Platform
+                Admin APIs & Webhooks
               </h2>
               <p style={{ margin: "2px 0 0", fontSize: 12.5, color: C.slate }}>
                 Headless Voice AI, Lead Gen, and Social APIs for external CRMs & tender applications
@@ -667,7 +667,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                     </div>
                     <div style={{ flex: 1 }}>
                       <h4 style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 700, color: "#92400E" }}>
-                        Subscription Required to Use Developer APIs
+                        Subscription Required to Use Admin APIs
                       </h4>
                       <p style={{ margin: 0, fontSize: 12.5, color: "#B45309", lineHeight: 1.5 }}>
                         OutReach operates on a <strong>Pay-First</strong> model. To generate and use production API keys,
@@ -820,7 +820,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                     <KeyRound size={24} />
                   </div>
                   <h4 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 600, color: C.textInk }}>
-                    No Developer API Keys Yet
+                    No Admin API Keys Yet
                   </h4>
                   <p style={{ margin: "0 auto 16px", fontSize: 12.5, color: C.slate, maxWidth: 360 }}>
                     Generate an API key to connect your CRM, tender automation, or custom apps directly into OutReach.
@@ -893,33 +893,17 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div
                             style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 6,
                               fontFamily: FONT_MONO,
                               fontSize: 12,
                               color: C.slate,
                               backgroundColor: "#F1F5F9",
-                              padding: "4px 8px",
+                              padding: "4px 10px",
                               borderRadius: 6,
+                              letterSpacing: "0.02em",
                             }}
+                            title="Key identifier (prefix)"
                           >
                             <span>{k.prefix}...</span>
-                            <button
-                              onClick={() => copyToClipboard(k.prefix, k.id)}
-                              title="Copy key prefix"
-                              style={{
-                                background: "none",
-                                border: "none",
-                                cursor: "pointer",
-                                color: C.slate,
-                                padding: 2,
-                                display: "flex",
-                                alignItems: "center",
-                              }}
-                            >
-                              {copiedPrefix === k.id ? <Check size={12} color={C.teal} /> : <Copy size={12} />}
-                            </button>
                           </div>
 
                           <button
@@ -2501,7 +2485,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, margin: "0 0 12px" }}>
-              Generate Developer API Key
+              Generate Admin API Key
             </h3>
 
             <form onSubmit={handleCreateKey}>
@@ -2634,16 +2618,10 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                           type="checkbox"
                           checked={isSelected}
                           onChange={(e) => {
-                            if (scope.id === "full_access") {
-                              const allUnlocked = availableScopes.filter((s) => s.unlocked).map((s) => s.id);
-                              setSelectedScopes(e.target.checked ? allUnlocked : []);
+                            if (e.target.checked) {
+                              setSelectedScopes([...selectedScopes, scope.id]);
                             } else {
-                              const withoutFull = selectedScopes.filter((s) => s !== "full_access");
-                              if (e.target.checked) {
-                                setSelectedScopes([...withoutFull, scope.id]);
-                              } else {
-                                setSelectedScopes(withoutFull.filter((s) => s !== scope.id));
-                              }
+                              setSelectedScopes(selectedScopes.filter((s) => s !== scope.id));
                             }
                           }}
                         />
