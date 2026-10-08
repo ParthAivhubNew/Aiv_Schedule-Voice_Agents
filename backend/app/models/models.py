@@ -1520,6 +1520,18 @@ class BusinessRecord(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PostcodeGeo(Base):
+    """A UK postcode's centre point, looked up once (postcodes.io) and cached for everyone -- public
+    geography, like BusinessRecord, so no org_id. lat/lng are NULL for a postcode that could not be
+    found, so it is not asked for again on every search. Powers the Find Leads map and drawn-area search."""
+    __tablename__ = "postcode_geo"
+
+    postcode = Column(String, primary_key=True)  # upper-cased with the single space, e.g. "SW1A 1AA"
+    lat = Column(Float, nullable=True)
+    lng = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class EmailTemplate(Base):
     """Company-scoped email template stored in the database."""
     __tablename__ = "email_templates"
