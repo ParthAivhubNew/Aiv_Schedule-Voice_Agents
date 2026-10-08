@@ -790,6 +790,131 @@ func main() {
   };
 }
 
+export function getSocialPostSnippets(apiKey = "sk_live_YOUR_KEY") {
+  const token = apiKey || "sk_live_YOUR_KEY";
+  return {
+    curl: `curl -X POST "https://api.outreach.aivhub.com/v1/social/posts" \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "topic": "Awarded NHAI Smart Highway EPC Contract for FY2026",
+    "platforms": ["linkedin", "twitter"],
+    "tone": "professional"
+  }'`,
+
+    node: `const response = await fetch("https://api.outreach.aivhub.com/v1/social/posts", {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer ${token}",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    topic: "Awarded NHAI Smart Highway EPC Contract for FY2026",
+    platforms: ["linkedin", "twitter"],
+    tone: "professional"
+  })
+});
+
+const data = await response.json();
+console.log("Post Scheduled:", data);`,
+
+    python: `import requests
+
+url = "https://api.outreach.aivhub.com/v1/social/posts"
+headers = {
+    "Authorization": "Bearer ${token}",
+    "Content-Type": "application/json"
+}
+payload = {
+    "topic": "Awarded NHAI Smart Highway EPC Contract for FY2026",
+    "platforms": ["linkedin", "twitter"],
+    "tone": "professional"
+}
+
+response = requests.post(url, headers=headers, json=payload)
+print("Post Scheduled:", response.json())`,
+
+    react: `const scheduleSocialPost = async (postData) => {
+  const res = await fetch("https://api.outreach.aivhub.com/v1/social/posts", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer ${token}",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(postData)
+  });
+  return await res.json();
+};`,
+
+    java: `String json = """
+    {
+      "topic": "Awarded NHAI Smart Highway EPC Contract for FY2026",
+      "platforms": ["linkedin", "twitter"],
+      "tone": "professional"
+    }
+    """;
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.outreach.aivhub.com/v1/social/posts"))
+    .header("Authorization", "Bearer ${token}")
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(json))
+    .build();
+
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`,
+
+    php: `$ch = curl_init("https://api.outreach.aivhub.com/v1/social/posts");
+$payload = [
+    "topic" => "Awarded NHAI Smart Highway EPC Contract for FY2026",
+    "platforms" => ["linkedin", "twitter"],
+    "tone" => "professional"
+];
+
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST => true,
+    CURLOPT_POSTFIELDS => json_encode($payload),
+    CURLOPT_HTTPHEADER => [
+        "Authorization: Bearer ${token}",
+        "Content-Type: application/json"
+    ]
+]);
+
+$response = curl_exec($ch);
+curl_close($ch);
+echo $response;`,
+
+    go: `package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+)
+
+func main() {
+	payload := map[string]interface{}{
+		"topic":     "Awarded NHAI Smart Highway EPC Contract for FY2026",
+		"platforms": []string{"linkedin", "twitter"},
+		"tone":      "professional",
+	}
+	body, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest("POST", "https://api.outreach.aivhub.com/v1/social/posts", bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer ${token}")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, _ := (&http.Client{}).Do(req)
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Println(string(respBody))
+}`,
+  };
+}
+
 export function getWalletsSnippets(apiKey = "sk_live_YOUR_KEY") {
   const token = apiKey || "sk_live_YOUR_KEY";
   return {

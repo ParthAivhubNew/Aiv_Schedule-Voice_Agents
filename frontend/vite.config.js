@@ -41,6 +41,21 @@ export default defineConfig({
         timeout: 180000,
         proxyTimeout: 180000,
       },
+      '/docs': {
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/redoc': {
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/openapi.json': {
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+      },
       '/media': {
         target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
         changeOrigin: true,
