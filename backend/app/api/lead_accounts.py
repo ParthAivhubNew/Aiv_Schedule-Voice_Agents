@@ -114,6 +114,7 @@ class SearchIn(BaseModel):
     limit: int = 25
     offset: int = 0
     exclude_ids: List[str] = []
+    area: Optional[List[List[float]]] = None  # a drawn map area: [[lat, lng], ...] corners
 
 
 @router.post("/search")
@@ -124,15 +125,46 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     from app.services import lead_filters
 
     try:
-        out = await business_records.search_filtered(db, body.filters, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
+        if body.area:
+            out = await business_records.search_in_area(db, body.filters, body.area, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
+        else:
+            out = await business_records.search_filtered(db, body.filters, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
         if "statement timeout" in str(err).lower():
             raise HTTPException(status_code=504, detail="That search is too broad to finish. Add a town or a narrower sector and try again.")
         raise
+    chips = lead_filters.describe(out["filters"])
+    if body.area:
+        await db.commit()  # keeps the postcode points just looked up, so the next search is instant
+        chips.append("Inside the area drawn on the map")
     return {"companies": [lead_filters.card(r) for r in out["rows"]], "total": out["total"],
-            "total_capped": out["total_capped"], "filters": out["filters"], "chips": lead_filters.describe(out["filters"])}
+            "total_capped": out["total_capped"], "filters": out["filters"], "chips": chips, "points": out.get("points", {})}
+
+
+class GeocodeIn(BaseModel):
+    ids: List[str] = []
+
+
+@router.post("/geocode")
+async def geocode_companies(body: GeocodeIn, db: AsyncSession = Depends(get_db)):
+    """Map points for companies already on screen: {id: [lat, lng]} from each one's postcode.
+    Free (postcode centres are public and cached); a company with no usable postcode is just left out."""
+    from app.services import geocoding
+
+    ids = list(dict.fromkeys(body.ids))[:200]
+    if not ids:
+        return {"points": {}}
+    rows = (await db.execute(select(BusinessRecord.id, BusinessRecord.postcode).where(BusinessRecord.id.in_(ids)))).all()
+    coords = await geocoding.geocode(db, [pc for _, pc in rows])
+    points = {}
+    for rid, pc in rows:
+        pt = coords.get(geocoding.norm_postcode(pc))
+        if pt:
+            points[rid] = [pt[0], pt[1]]
+    await db.commit()
+    return {"points": points}
 
 
 class ContactsIn(BaseModel):

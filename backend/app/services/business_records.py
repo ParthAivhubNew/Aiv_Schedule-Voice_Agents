@@ -485,6 +485,48 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     return {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f}
 
 
+AREA_CANDIDATES = 1500  # most companies read from the postcode districts an area touches, before the shape is applied
+
+
+async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *, limit: int = 100, offset: int = 0,
+                         exclude_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """The same filters as search_filtered, but only companies whose postcode centre lies inside the
+    drawn area (a list of [lat, lng] corners). The area narrows the search by itself, so no
+    sector/town is required. Works from the postcode districts the shape touches, geocodes those
+    companies' postcodes (cached, see geocoding.py), then keeps the ones inside the shape.
+    Returns the page of rows, the total inside, and each row's point."""
+    from app.services import geocoding
+
+    poly = geocoding.clean_polygon(area)
+    f = normalize_filters(filters)
+    outcodes = await geocoding.outcodes_for_area(poly)
+    if not outcodes:
+        return {"rows": [], "points": {}, "total": 0, "total_capped": False, "filters": f}
+    conds = _filter_conditions(f)
+    conds.append(or_(*[BusinessRecord.postcode.like(f"{oc} %") for oc in outcodes]))
+    if exclude_ids:
+        conds.append(BusinessRecord.id.notin_(list(exclude_ids)))
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    rows = (await db.execute(
+        select(BusinessRecord).where(and_(*conds))
+        .order_by(BusinessRecord.incorporated_on.desc().nullslast(), BusinessRecord.id).limit(AREA_CANDIDATES + 1)
+    )).scalars().all()
+    capped = len(rows) > AREA_CANDIDATES
+    rows = rows[:AREA_CANDIDATES]
+    coords = await geocoding.geocode(db, [r.postcode for r in rows])
+    inside, points = [], {}
+    for r in rows:
+        pt = coords.get(geocoding.norm_postcode(r.postcode))
+        if pt and geocoding.point_in_polygon(pt[0], pt[1], poly):
+            inside.append(r)
+            points[r.id] = [pt[0], pt[1]]
+    limit = max(1, min(int(limit or 100), 200))
+    page = inside[max(0, int(offset or 0)):][:limit]
+    return {"rows": page, "points": {r.id: points[r.id] for r in page}, "total": len(inside),
+            "total_capped": capped, "filters": f}
+
+
 def _admin_search_filter(q: str):
     term = q.strip()
     if not term:
