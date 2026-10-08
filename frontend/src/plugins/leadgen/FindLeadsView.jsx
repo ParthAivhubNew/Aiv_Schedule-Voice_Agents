@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, Plus, RefreshCw, Search, Sparkles, Users } from "lucide-react";
+import { ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, Search, Sparkles, Users } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
+import { LeadsMap } from "./LeadsMap";
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -204,6 +205,11 @@ function FindLeadsSearch({ store }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [view, setView] = useState("list");
+  const [area, setArea] = useState(null); // a polygon drawn on the map: [[lat, lng], ...]
+  const [points, setPoints] = useState({}); // company id -> [lat, lng]
+  const asked = useRef(new Set());
+
   const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
   const [chat, setChat] = useState([
@@ -224,14 +230,32 @@ function FindLeadsSearch({ store }) {
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const toggleSize = (s) => setForm((f) => ({ ...f, sizes: f.sizes.includes(s) ? f.sizes.filter((x) => x !== s) : [...f.sizes, s] }));
 
-  const search = async (e, overrideForm, offset = 0) => {
+  // Map pins: look up the points for whatever is on screen, once per company.
+  useEffect(() => {
+    if (view !== "map") return;
+    const need = companies.map((c) => c.id).filter((id) => !asked.current.has(id));
+    if (!need.length) return;
+    need.forEach((id) => asked.current.add(id));
+    (async () => {
+      for (let i = 0; i < need.length; i += 200) {
+        try {
+          const r = await api.geocodeCompanies(need.slice(i, i + 200));
+          setPoints((p) => ({ ...p, ...(r.points || {}) }));
+        } catch { need.slice(i, i + 200).forEach((id) => asked.current.delete(id)); }
+      }
+    })();
+  }, [view, companies]);
+
+  const search = async (e, overrideForm, offset = 0, areaOverride) => {
     if (e) e.preventDefault();
     const f = overrideForm || form;
+    const shape = areaOverride !== undefined ? areaOverride : area;
     if (busy) return;
     setBusy(true);
     setError("");
     try {
-      const r = await api.searchCompanies({ filters: formToFilters(f), limit: 25, offset, exclude_ids: excluded });
+      const r = await api.searchCompanies({ filters: formToFilters(f), limit: shape ? 100 : 25, offset, exclude_ids: excluded, ...(shape ? { area: shape } : {}) });
+      if (r.points) setPoints((p) => ({ ...p, ...r.points }));
       setCompanies((prev) => (offset ? [...prev, ...r.companies] : r.companies));
       setTotal(r.total);
       setCapped(r.total_capped);
@@ -249,7 +273,20 @@ function FindLeadsSearch({ store }) {
     const f = { ...EMPTY_FORM, ...patch };
     setForm(f);
     setExcluded([]);
-    search(null, f);
+    setArea(null);
+    search(null, f, 0, null);
+  };
+
+  const drawArea = (shape) => {
+    setArea(shape);
+    setExcluded([]);
+    search(null, form, 0, shape);
+  };
+  const clearArea = () => {
+    setArea(null);
+    setExcluded([]);
+    if (Object.keys(formToFilters(form)).some((k) => ["keyword", "towns", "postcode_prefixes"].includes(k))) search(null, form, 0, null);
+    else { setCompanies([]); setTotal(0); setChips([]); }
   };
 
   const removeCompany = (c) => {
@@ -274,6 +311,7 @@ function FindLeadsSearch({ store }) {
         filters: applied, exclude_ids: excluded,
       });
       if (res?.registry) {
+        setArea(null); // the chat runs its own search, so a drawn area no longer applies
         setCompanies(res.registry.companies);
         setTotal(res.registry.total);
         setCapped(res.registry.total_capped);
@@ -352,7 +390,10 @@ function FindLeadsSearch({ store }) {
         </div>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
           {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}{check("includeClosed", "Include closed / dissolved")}
-          <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ height: 40, marginLeft: "auto" }}>
+          <button type="button" className="ui-btn ui-btn--secondary" style={{ height: 40, marginLeft: "auto" }} onClick={() => setView("map")}>
+            <MapIcon size={15} /> Search on map
+          </button>
+          <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ height: 40 }}>
             {busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {busy ? "Searching…" : "Find companies"}
           </button>
         </div>
@@ -362,17 +403,23 @@ function FindLeadsSearch({ store }) {
             <button key={name} type="button" className="ui-chip" disabled={busy} onClick={() => runIdea(patch)} style={{ padding: "5px 9px" }}>{name}</button>
           ))}
         </div>
-        <div style={{ ...muted, fontSize: 12.5 }}>Searches the official company registry we hold. Free, and only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
+        <div style={{ ...muted, fontSize: 12.5 }}>Searches the official company registry we hold. You can also draw an area on the map to see the companies inside it. Free, and only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
       </form>
 
       {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
 
-      {searched ? (
+      {searched || view === "map" ? (
         <div className="ui-card" style={{ overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
               {total.toLocaleString()}{capped ? "+" : ""} {total === 1 ? "company matches" : "companies match"}
               <span style={{ fontWeight: 400, color: C.slate }}> · showing {companies.length}</span>
+            </div>
+            <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
+              {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
+                <button key={id} type="button" aria-pressed={view === id} onClick={() => setView(id)}
+                  className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--ghost"}`}><Icon size={14} /> {name}</button>
+              ))}
             </div>
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!unsaved.length} onClick={() => store.save(unsaved.map(asAccount))}>
               <Plus size={14} /> {unsaved.length ? `Save all ${unsaved.length}` : "All saved"}
@@ -383,11 +430,20 @@ function FindLeadsSearch({ store }) {
               {chips.map((c) => <span key={c} className="ui-chip" style={{ cursor: "default" }}>{c}</span>)}
             </div>
           ) : null}
+          {view === "map" ? (
+            <div style={{ padding: 12 }}>
+              <LeadsMap companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} />
+              <div style={{ ...muted, fontSize: 12.5, marginTop: 8 }}>
+                {companies.some((c) => !points[c.id]) && busy === false && asked.current.size
+                  ? "Companies without a usable postcode aren't on the map; they're still in the List view." : "Pins are placed at each company's registered postcode."}
+              </div>
+            </div>
+          ) : null}
           {companies.length ? companies.map((c, i) => (
             <CompanyRow key={c.id} c={c} saved={isSaved(c)} onSave={saveOne} onRemove={removeCompany} last={i === companies.length - 1} />
-          )) : (
+          )) : searched ? (
             <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
-          )}
+          ) : null}
           {companies.length < total ? (
             <div style={{ padding: 12, textAlign: "center" }}>
               <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} onClick={() => search(null, form, companies.length)}>Show more</button>
