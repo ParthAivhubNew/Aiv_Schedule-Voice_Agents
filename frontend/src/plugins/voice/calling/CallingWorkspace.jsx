@@ -2254,7 +2254,7 @@ export function CallingWorkspace({
       assistantQueueRef.current = queue;
       setAssistantQueued(queue.length);
       goPage("live");
-      showToast(`Telnyx Assistant: calling ${prospects.length} contact${prospects.length === 1 ? "" : "s"}, ${cap} at a time.`);
+      showToast(`AI Assistant: calling ${prospects.length} contact${prospects.length === 1 ? "" : "s"}, ${cap} at a time.`);
       await pumpAssistantQueue(liveCalls);
       await refreshLive();
       return;
@@ -2972,7 +2972,7 @@ export function CallingWorkspace({
                           className="ui-input" style={{ height: 30, padding: "0 8px", fontSize: 12.5, cursor: "pointer" }}
                         >
                           <option value="engine">Our AI Engine</option>
-                          <option value="assistant">Telnyx Assistant</option>
+                          <option value="assistant">AI Assistant</option>
                         </select>
                       </div>
                     )}
@@ -3462,7 +3462,7 @@ export function CallingWorkspace({
               <style>{LIVE_CARD_KEYFRAMES}</style>
               {assistantQueued > 0 ? (
                 <div style={{ ...card(), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
-                  <span style={{ flex: 1 }}><b>{assistantQueued}</b> more contact{assistantQueued === 1 ? "" : "s"} queued for the Telnyx Assistant — the next one dials as soon as a line frees up.</span>
+                  <span style={{ flex: 1 }}><b>{assistantQueued}</b> more contact{assistantQueued === 1 ? "" : "s"} queued for the AI Assistant — the next one dials as soon as a line frees up.</span>
                   <button type="button" onClick={() => { assistantQueueRef.current = []; setAssistantQueued(0); showToast("Queue stopped."); }} style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", fontWeight: 700 }}>Stop queue</button>
                 </div>
               ) : null}
@@ -3894,6 +3894,7 @@ export function CallingWorkspace({
                 notifications={notifications}
                 setNotifications={setNotifications}
                 onDirtyChange={setTemplatesDirty}
+                onOpenPage={goPage}
               />
             </div>
           )}
@@ -3906,7 +3907,7 @@ export function CallingWorkspace({
 
           {page === "numbers" && operator?.is_admin && <NumbersPage />}
           {page === "subscription" && operator?.is_admin && <SubscriptionPage wallet="voice" back="/voice/subscription" />}
-          {page === "studio" && <AgentStudio onOpenPage={goPage} />}
+          {page === "studio" && <AgentStudio onOpenPage={goPage} staff={Boolean(operator?.is_platform_org)} />}
           {page === "whatsapp" && canSee(operator, "calling") && <WhatsappInbox />}
 
           {page === "hours" && canSee(operator, "company") && (

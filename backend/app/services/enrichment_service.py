@@ -252,6 +252,74 @@ async def tavily_key() -> str:
     return getattr(settings, "TAVILY_API_KEY", None) or os.getenv("TAVILY_API_KEY", "")
 
 
+async def google_places_key() -> str:
+    """The Google Places key staff saved under Platform Keys -> Leads -> Business Discovery
+    (same screen, same group as Tavily -- add a key there named "Google Places"), falling back
+    to the GOOGLE_PLACES_API_KEY environment variable."""
+    from sqlalchemy.future import select
+
+    from app.core.platform import platform_org_id
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import Connection
+    from app.services.secret_box import config_get_secret, open_config
+
+    try:
+        with org_scope(platform_org_id()):
+            async with AsyncSessionLocal() as s:
+                rows = (await s.execute(
+                    select(Connection).where(Connection.group_name == "Business Discovery")
+                )).scalars().all()
+        for c in rows:
+            if "google" in (c.name or "").lower():
+                key = config_get_secret(open_config(c.config if isinstance(c.config, dict) else {}), "api_key", "auth_token")
+                if key:
+                    return key.strip()
+    except Exception as err:
+        logger.debug(f"[google_places] saved key not read: {err}")
+    return getattr(settings, "GOOGLE_PLACES_API_KEY", None) or os.getenv("GOOGLE_PLACES_API_KEY", "")
+
+
+async def search_google_places(query: str) -> Optional[Dict[str, Any]]:
+    """The platform's "Deep web search": one Google Places lookup (Text Search then Place
+    Details) for the best-matching business. Never shown to the user as "Google" -- callers
+    label this action "Deep web search" so no API/vendor name reaches the output. None when no
+    key is configured or nothing matches; never raises."""
+    key = await google_places_key()
+    if not key or not query.strip():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://maps.googleapis.com/maps/api/place/textsearch/json",
+                params={"query": query, "region": "uk", "key": key},
+            )
+            await _bump_vendor_call("google_places")
+            data = resp.json() if resp.status_code == 200 else {}
+            candidates = data.get("results") or []
+            if not candidates:
+                return None
+            place_id = candidates[0].get("place_id")
+            if not place_id:
+                return None
+            fields = "name,formatted_address,international_phone_number,website,rating,url"
+            details = await client.get(
+                "https://maps.googleapis.com/maps/api/place/details/json",
+                params={"place_id": place_id, "fields": fields, "key": key},
+            )
+            result = (details.json() if details.status_code == 200 else {}).get("result") or {}
+    except Exception as err:
+        logger.debug(f"[google_places] search failed for '{query}': {err}")
+        return None
+    if not result.get("name"):
+        return None
+    return {
+        "name": result.get("name") or "", "address": result.get("formatted_address") or "",
+        "phone": result.get("international_phone_number") or "", "website": result.get("website") or "",
+        "rating": result.get("rating"), "place_id": place_id,
+    }
+
+
 async def search_tavily(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     """Tavily: AI-agent search API, platform-wide key (billed to orgs via the lead_lookup credit)."""
     key = await tavily_key()
@@ -1538,17 +1606,42 @@ def _is_noise_result(name: str, title: str, url: str, snippet: str) -> bool:
 
 async def discover_new_target_accounts(
     query_or_domain: str,
-    target_role: Optional[str] = None
+    target_role: Optional[str] = None,
+    db: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     # The searcher's own words (and a role only if they gave one): padding them with words
     # like "contact phone email CEO" pulled in data-broker pages and left engines with nothing.
     search_query = f"{query_or_domain} {target_role}".strip() if target_role else query_or_domain
+
+    discovered_accounts: List[Dict[str, Any]] = []
+    seen = set()
+
+    # Anyone's earlier search for this same thing may already be in our shared store -- free,
+    # no API call, and marked "tier": "stored" so the caller never charges a credit for it.
+    if db is not None:
+        try:
+            from app.services import business_records
+
+            keywords = [w for w in re.split(r"\s+", query_or_domain.strip()) if len(w) > 2]
+            for row in await business_records.search(db, keywords=keywords, limit=8):
+                site = _usable_website(row.website or row.domain or "")
+                key = site or row.name.lower()
+                if key in seen or not (row.phone or site):
+                    continue
+                seen.add(key)
+                discovered_accounts.append({
+                    "id": f"stored_{row.id}", "name": row.name, "sector": row.industry or "",
+                    "region": row.region or "", "phone": row.phone or "", "site": site,
+                    "contactPerson": "", "snippet": row.description or "", "openingHook": "",
+                    "fit": 90, "sourceUrl": "", "tier": "stored",
+                })
+        except Exception as err:
+            logger.debug(f"[discover] shared-store check skipped: {err}")
+
     results = await search_open_web(search_query, max_results=8)
 
     # Web results only. Registry companies come from the filter search (business_records.search_filtered),
     # never mixed into this list, so a row's origin is always clear.
-    discovered_accounts = []
-    seen = set()
     for idx, item in enumerate(results):
         title = item.get("title", "")
         snippet = item.get("snippet", "")
@@ -1595,8 +1688,21 @@ async def discover_new_target_accounts(
             "sourceUrl": url,
             "tier": "web",
         })
+        if db is not None and (usable_site or phone):
+            # Save it for next time -- the next person (this org or another) who searches for
+            # something similar gets this one free, straight from our own store.
+            try:
+                from app.services import business_records
 
-    return discovered_accounts
+                await business_records.upsert(
+                    db, source_id=f"web_search:{usable_site or url}"[:120], source_type="llm_fallback",
+                    confidence_tier="llm_fallback",
+                    data={"name": comp_name, "website": usable_site, "phone": phone, "description": snippet},
+                )
+            except Exception as err:
+                logger.debug(f"[discover] couldn't save {comp_name} for next time: {err}")
+
+    return discovered_accounts[:8]
 
 
 def _row_missing_fields(row: Dict[str, Any]) -> List[str]:

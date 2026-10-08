@@ -1185,11 +1185,28 @@ async def _claim_for_publish(db: AsyncSession, post_id: str, from_statuses: Opti
     return (res.rowcount or 0) == 1
 
 
+async def _renew_expiring_logins(db: AsyncSession, post: SocialPost, accounts: List[SocialAccount]) -> None:
+    """Renew a channel's login just before posting if it is about to end. A failed renewal is not
+    fatal here: the post is tried anyway and the normal failure/retry path reports the real error."""
+    from app.services import social_tokens
+
+    channels = {normalize_platform(c) for c in ([post.channels] if isinstance(post.channels, str) else post.channels or [])}
+    for acc in accounts:
+        if normalize_platform(acc.platform) not in channels:
+            continue
+        try:
+            await social_tokens.ensure_fresh_token(db, acc)
+        except Exception:
+            logger.exception("Renewing the %s login before publishing failed", acc.platform)
+            await db.rollback()
+
+
 async def _publish_claimed(db: AsyncSession, post: SocialPost, request: Optional[Request]) -> Dict[str, Any]:
     """Publish a post already claimed via _claim_for_publish. Always leaves it published or failed."""
     try:
         acc_res = await db.execute(select(SocialAccount))
         accounts = acc_res.scalars().all()
+        await _renew_expiring_logins(db, post, accounts)
         bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
     except Exception as e:
         logger.exception("Publishing %s crashed", post.id)

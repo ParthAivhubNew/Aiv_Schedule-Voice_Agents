@@ -4,6 +4,8 @@ import * as XLSX from "xlsx";
 import { Building2, Check, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
+import { ImportMapper } from "./ImportMapper";
+import { applyMapping } from "./importMapping";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -109,6 +111,48 @@ export function useLeadAccounts(onToast) {
         });
       }
     },
+    // Deep web search: one structured lookup (Google Places under the hood -- never named to the
+    // user), 2 Leads credits when it finds something.
+    deepSearch: async (id) => {
+      setResearching((b) => ({ ...b, [id]: true }));
+      try {
+        const before = accounts.find((x) => x.id === id);
+        const a = await api.deepSearchLeadAccount(id);
+        replace(a);
+        const changed = before && (a.phone !== before.phone || a.website !== before.website || a.region !== before.region);
+        onToast(changed ? `Deep web search found more on ${a.name}.` : `Nothing new found for ${a.name}. No credit used.`);
+        return a;
+      } catch (e) {
+        onToast(e.message || "Deep web search failed. Try again.");
+        return null;
+      } finally {
+        setResearching((b) => {
+          const next = { ...b };
+          delete next[id];
+          return next;
+        });
+      }
+    },
+    // Free: only checks our own shared company store, no live web search, no credit.
+    quickCheck: async (id) => {
+      setResearching((b) => ({ ...b, [id]: true }));
+      try {
+        const a = await api.quickCheckLeadAccount(id);
+        replace(a);
+        onToast(a.researched_at ? `Found a full research dossier for ${a.name} in our records -- already paid for by an earlier search.`
+          : a.registry ? `Found ${a.name} in our records.` : `Nothing of ours on ${a.name} yet. No credit used.`);
+        return a;
+      } catch (e) {
+        onToast(e.message || "Couldn't check right now.");
+        return null;
+      } finally {
+        setResearching((b) => {
+          const next = { ...b };
+          delete next[id];
+          return next;
+        });
+      }
+    },
   };
 }
 
@@ -120,6 +164,31 @@ function ResearchButton({ store, account, size = "sm" }) {
       onClick={() => store.research(account.id)} title="Search the web for this company's details. 1 Leads credit if anything is found.">
       {busy ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />}
       {busy ? "Researching…" : account.researched_at ? "Research again" : "Research"}
+    </button>
+  );
+}
+
+// Free: looks only at our own shared company store, no live web search -- never costs a credit.
+function QuickCheckButton({ store, account, size = "sm" }) {
+  const busy = Boolean(store.researching[account.id]);
+  return (
+    <button type="button" className={`ui-btn ui-btn--ghost${size === "sm" ? " ui-btn--sm" : ""}`} disabled={busy}
+      onClick={() => store.quickCheck(account.id)} title="Check our own company records for this account. Always free.">
+      {busy ? <RefreshCw size={14} className="ui-spin" /> : <Search size={14} />}
+      Check our records (free)
+    </button>
+  );
+}
+
+// One structured lookup beyond our own records -- shown to the user only as "Deep web search",
+// never by the vendor behind it.
+function DeepSearchButton({ store, account, size = "sm" }) {
+  const busy = Boolean(store.researching[account.id]);
+  return (
+    <button type="button" className={`ui-btn ui-btn--secondary${size === "sm" ? " ui-btn--sm" : ""}`} disabled={busy}
+      onClick={() => store.deepSearch(account.id)} title="A deeper structured lookup for this company's phone, address and website. 2 Leads credits if anything new is found.">
+      {busy ? <RefreshCw size={14} className="ui-spin" /> : <Search size={14} />}
+      Deep web search
     </button>
   );
 }
@@ -236,6 +305,44 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
   );
 }
 
+// A past research run, shown collapsed to its date -- expand to see what that run found, so
+// re-researching never quietly throws away an earlier result the user might still want.
+function HistorySnapshot({ entry }) {
+  const [open, setOpen] = useState(false);
+  const r = entry.research || {};
+  const when = new Date(entry.researched_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return (
+    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+      <button type="button" onClick={() => setOpen((v) => !v)}
+        style={{ ...text, fontSize: 12.5, color: C.slate, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}>
+        {open ? "Hide" : "Show"} research from {when}
+      </button>
+      {open ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+          {r.overview ? <div style={{ ...text, fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>{r.overview}</div> : null}
+          {r.team?.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {r.team.map((p, i) => (
+                <div key={i} style={{ ...text, fontSize: 13, color: C.textInk }}>
+                  <span style={{ fontWeight: 600 }}>{p.name}</span>{p.title ? <span style={{ color: C.slate }}> · {p.title}</span> : null}
+                  {(p.phone || p.email) ? <span style={{ color: C.slate }}> — {[p.phone, p.email].filter(Boolean).join(" · ")}</span> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {r.phones?.length ? <div style={{ ...text, fontSize: 13, color: C.textInk }}>Phones: {r.phones.join(", ")}</div> : null}
+          {(r.email_contacts?.length ? r.email_contacts.map((c) => c.email) : r.emails || []).length ? (
+            <div style={{ ...text, fontSize: 13, color: C.textInk }}>Emails: {(r.email_contacts?.length ? r.email_contacts.map((c) => c.email) : r.emails).join(", ")}</div>
+          ) : null}
+          {!r.overview && !r.team?.length && !r.phones?.length && !r.emails?.length && !r.email_contacts?.length ? (
+            <div style={{ ...muted }}>Nothing public was found in this run.</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- Account Dossiers
 function Dossier({ account, store }) {
   const r = account.research;
@@ -244,6 +351,8 @@ function Dossier({ account, store }) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span style={{ ...muted, flex: "1 1 220px" }}>Not researched yet. Research searches the web for its details, people and sources.</span>
+        <QuickCheckButton store={store} account={account} />
+        <DeepSearchButton store={store} account={account} />
         <ResearchButton store={store} account={account} />
       </div>
     );
@@ -252,6 +361,8 @@ function Dossier({ account, store }) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span style={{ ...muted, flex: "1 1 220px" }}>The last research found nothing public about this company.</span>
+        <QuickCheckButton store={store} account={account} />
+        <DeepSearchButton store={store} account={account} />
         <ResearchButton store={store} account={account} />
       </div>
     );
@@ -379,6 +490,12 @@ function Dossier({ account, store }) {
         </div>
       ) : null}
       <div style={{ ...muted, fontSize: 12 }}>Researched {new Date(account.researched_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</div>
+      {account.research_history?.length ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={label}>Previous research ({account.research_history.length})</div>
+          {account.research_history.map((entry, i) => <HistorySnapshot key={entry.researched_at || i} entry={entry} />)}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -439,6 +556,7 @@ export function AccountPanel({ account, store, onClose }) {
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Research</div>
+              {live.researched_at ? <DeepSearchButton store={store} account={live} /> : null}
               {live.researched_at ? <ResearchButton store={store} account={live} /> : null}
             </div>
             <Dossier account={live} store={store} />
@@ -451,7 +569,8 @@ export function AccountPanel({ account, store, onClose }) {
               <textarea className="ui-input" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} style={{ height: "auto", padding: "8px 10px", resize: "vertical", lineHeight: 1.5 }} />
             </label>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button type="button" className="ui-btn ui-btn--primary" disabled={!changed || !form.name.trim()} onClick={() => store.update(live.id, form)}>Save changes</button>
+              <button type="button" className="ui-btn ui-btn--primary" disabled={!changed || !form.name.trim()}
+                onClick={async () => { if (await store.update(live.id, form)) onClose(); }}>Save changes</button>
               <span style={{ flex: 1 }} />
               {confirmRemove ? (
                 <>
@@ -501,33 +620,6 @@ export function AddAccountForm({ store, onClose }) {
 }
 
 // ---------------------------------------------------------------- Import
-const IMPORT_FIELDS = [
-  ["name", "Company name", ["company", "company name", "business", "business name", "organisation", "organization", "account", "account name", "name"]],
-  ["website", "Website", ["website", "web site", "url", "site", "domain", "homepage", "web"]],
-  ["phone", "Phone", ["phone", "phone number", "telephone", "tel", "mobile", "contact number", "number"]],
-  ["email", "Email", ["email", "e-mail", "email address", "mail"]],
-  ["contact_name", "Contact", ["contact", "contact name", "full name", "person", "decision maker", "owner"]],
-  ["contact_title", "Contact's job title", ["title", "job title", "role", "position"]],
-  ["industry", "Industry", ["industry", "sector", "category", "type"]],
-  ["region", "Town or region", ["town", "city", "region", "location", "county", "area", "country", "address"]],
-  ["notes", "Notes", ["notes", "note", "description", "comments", "comment"]],
-];
-
-function guessColumns(headers) {
-  const norm = (h) => String(h || "").trim().toLowerCase().replace(/[_-]+/g, " ");
-  const taken = new Set();
-  const map = {};
-  for (const [key, , names] of IMPORT_FIELDS) {
-    const hit = names.map((n) => headers.find((h) => norm(h) === n && !taken.has(h))).find(Boolean)
-      || names.map((n) => headers.find((h) => norm(h).includes(n) && !taken.has(h))).find(Boolean);
-    if (hit) {
-      map[key] = hit;
-      taken.add(hit);
-    }
-  }
-  return map;
-}
-
 // Same logic as the Voice plugin's file import (CallingWorkspace.jsx: parseSpreadsheetFile) --
 // every sheet of a workbook is read, not just the first, and .json is accepted alongside
 // .xlsx/.xls/.ods/.csv/.tsv/.txt, so people can bring in whatever file they already have.
@@ -562,24 +654,24 @@ async function parseImportFile(file) {
   return { sheets, sheetNames };
 }
 
-export function ImportView({ store, onGo }) {
+export function ImportView({ store, onGo, onAskAi }) {
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
   const [sheets, setSheets] = useState(null); // { sheetName: rawRecords[] }
   const [sheetNames, setSheetNames] = useState([]); // sheets that actually have rows
+  const [showMapper, setShowMapper] = useState(false); // "Match your columns" popup, same as Voice's file import
   const [activeSheet, setActiveSheet] = useState("");
-  const [rows, setRows] = useState([]);
-  const [map, setMap] = useState({});
+  const [fields, setFields] = useState([]); // account-shaped rows, after column matching
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
-  const headers = rows.length ? Object.keys(rows[0]) : [];
 
-  const loadSheet = (allSheets, sName) => {
-    const data = (allSheets[sName] || []).filter((r) => Object.values(r).some((v) => String(v).trim()));
-    setActiveSheet(sName);
-    setRows(data);
-    setMap(data.length ? guessColumns(Object.keys(data[0])) : {});
+  const resetFile = () => {
+    setFile(null);
+    setSheets(null);
+    setSheetNames([]);
+    setFields([]);
+    setShowMapper(false);
   };
 
   const pick = async (f) => {
@@ -593,40 +685,57 @@ export function ImportView({ store, onGo }) {
       setFile(f);
       setSheets(allSheets);
       setSheetNames(withRows);
-      loadSheet(allSheets, withRows[0]);
+      setShowMapper(true);
     } catch (e) {
-      setFile(null);
-      setSheets(null);
-      setSheetNames([]);
-      setRows([]);
+      resetFile();
       setError(e.message || "Couldn't read that file. Use .xlsx, .xls, .ods, .csv, .tsv or .json.");
     }
   };
-  const mapped = rows.map((r) => Object.fromEntries(IMPORT_FIELDS.map(([k]) => [k, map[k] ? String(r[map[k]] ?? "").trim() : ""])));
-  const usable = mapped.filter((r) => r.name || r.website);
+
+  const onMapped = ({ sheet, map }) => {
+    const data = (sheets[sheet] || []).filter((r) => Object.values(r).some((v) => String(v).trim()));
+    const headers = data.length ? Object.keys(data[0]) : [];
+    setActiveSheet(sheet);
+    setFields(applyMapping(headers, data, map));
+    setShowMapper(false);
+  };
+
+  const usable = fields.filter((r) => r.name || r.website);
   const importNow = async () => {
     setBusy(true);
     const r = await store.save(usable.map((x) => ({ ...x, source: "import" })));
     setBusy(false);
     if (r) {
       setDone(r);
-      setFile(null);
-      setRows([]);
-      setSheets(null);
-      setSheetNames([]);
+      resetFile();
     }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <input ref={fileRef} type="file" hidden accept=".xlsx,.xls,.ods,.csv,.tsv,.txt,.json" onChange={(e) => { pick(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-      {!rows.length ? (
+      {showMapper ? (
+        <ImportMapper
+          fileName={file?.name}
+          sheets={sheets}
+          sheetNames={sheetNames}
+          initialSheet={activeSheet}
+          onCancel={resetFile}
+          onImport={onMapped}
+        />
+      ) : null}
+      {!fields.length ? (
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files && e.dataTransfer.files[0]); }}
           style={{ border: "1.5px dashed #CBD1D9", borderRadius: 8, background: "var(--ui-sunken)", padding: "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
           <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: "#8B5CF6" }}><FileSpreadsheet size={20} /></div>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Import companies from a file</div>
           <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel, CSV or JSON file here. Every sheet in a workbook is read, not just the first, and you can check which column is which before anything is saved. Companies you already saved are skipped.</div>
-          <button type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Choose a file</button>
+          <button type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Upload CSV / Excel</button>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+            {[".xlsx", ".xls", ".csv", ".tsv", ".ods", ".json"].map((ext) => (
+              <span key={ext} style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 500, color: C.slate, padding: "2px 6px", border: `1px solid ${C.border}`, background: "#fff", borderRadius: 4 }}>{ext}</span>
+            ))}
+          </div>
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
           {done ? (
             <div style={{ ...muted, color: C.textInk }}>
@@ -634,40 +743,31 @@ export function ImportView({ store, onGo }) {
               <button type="button" className="ui-link" onClick={() => onGo("accounts")}>Open saved accounts</button>
             </div>
           ) : null}
+          {onAskAi ? (
+            <div style={{ fontSize: 12.5, color: C.slate, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
+              Or
+              <button type="button" className="ui-link" onClick={onAskAi}>ask the AI to find companies instead</button>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="ui-card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{file?.name} · {rows.length} {rows.length === 1 ? "row" : "rows"}</div>
-            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { setRows([]); setFile(null); setSheets(null); setSheetNames([]); }}>Choose another file</button>
-          </div>
-          {sheetNames.length > 1 ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <span style={{ ...muted, fontSize: 12.5 }}>Sheet:</span>
-              {sheetNames.map((n) => (
-                <button key={n} type="button" onClick={() => loadSheet(sheets, n)}
-                  className={`ui-btn ui-btn--sm ${activeSheet === n ? "ui-btn--primary" : "ui-btn--ghost"}`}>{n}</button>
-              ))}
-            </div>
-          ) : null}
-          <div style={{ ...muted }}>Check which column holds each detail. Rows without a company name or website are left out.</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 210px), 1fr))", gap: 10 }}>
-            {IMPORT_FIELDS.map(([k, label]) => (
-              <label key={k} style={{ display: "flex", flexDirection: "column", gap: 4, ...text, fontSize: 12.5, color: C.slate }}>
-                {label}
-                <select className="ui-input" value={map[k] || ""} onChange={(e) => setMap((m) => ({ ...m, [k]: e.target.value || undefined }))}>
-                  <option value="">Not in this file</option>
-                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
-                </select>
-              </label>
-            ))}
+            <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{file?.name} · {fields.length} {fields.length === 1 ? "row" : "rows"}</div>
+            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => setShowMapper(true)}>Edit column matches</button>
+            <button type="button" className="ui-btn ui-btn--ghost" onClick={resetFile}>Choose another file</button>
           </div>
           <div className="ui-scroll" style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 6 }}>
             <table className="ui-table" style={{ minWidth: 640 }}>
-              <thead><tr>{IMPORT_FIELDS.filter(([k]) => map[k]).map(([k, label]) => <th key={k}>{label}</th>)}</tr></thead>
+              <thead><tr><th>Company</th><th>Website</th><th>Phone</th><th>Contact</th></tr></thead>
               <tbody>
-                {mapped.slice(0, 5).map((r, i) => (
-                  <tr key={i}>{IMPORT_FIELDS.filter(([k]) => map[k]).map(([k]) => <td key={k} style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{r[k]}</td>)}</tr>
+                {fields.slice(0, 5).map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</td>
+                    <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{r.website}</td>
+                    <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{r.phone}</td>
+                    <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{r.contact_name}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -676,7 +776,7 @@ export function ImportView({ store, onGo }) {
             <button type="button" className="ui-btn ui-btn--primary" disabled={!usable.length || busy} onClick={importNow}>
               {busy ? "Importing…" : `Import ${usable.length} ${usable.length === 1 ? "company" : "companies"}`}
             </button>
-            {rows.length > usable.length ? <span style={{ ...muted, fontSize: 12.5 }}>{rows.length - usable.length} without a name or website will be left out.</span> : null}
+            {fields.length > usable.length ? <span style={{ ...muted, fontSize: 12.5 }}>{fields.length - usable.length} without a name or website will be left out.</span> : null}
           </div>
         </div>
       )}

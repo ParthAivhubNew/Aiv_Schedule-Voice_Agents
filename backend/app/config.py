@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     
     # Open Web Search & Enrichment (Tavily: AI-agent search API, platform-wide key)
     TAVILY_API_KEY: Optional[str] = os.getenv("TAVILY_API_KEY", None)
+    GOOGLE_PLACES_API_KEY: Optional[str] = os.getenv("GOOGLE_PLACES_API_KEY", None)
     
     # Calendar & Cal.com Cloud API v2 (v1 decommissioned; self-hosted URL can be set per-tenant from the admin UI)
     CALCOM_BASE_URL: str = os.getenv("CALCOM_BASE_URL", "https://api.cal.com/v2")

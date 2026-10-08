@@ -16,11 +16,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.enrichment import _can_research, _charge_leads
+from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_search, _charge_leads
 from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
 from app.services import business_lookup, business_records
-from app.services.enrichment_service import _host_of, enrich_prospect_intelligence
+from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, search_google_places
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
@@ -89,6 +89,7 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]
         "industry": a.industry or "", "region": a.region or "", "notes": a.notes or "", "source": a.source or "manual",
         "source_url": a.source_url or "", "business_record_id": a.business_record_id or "", "research": a.research or None,
         "researched_at": a.researched_at.isoformat() + "Z" if a.researched_at else None,
+        "research_history": a.research_history or [],
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
     }
@@ -262,6 +263,79 @@ async def delete_account(account_id: str, db: AsyncSession = Depends(get_db)):
     return {"ok": True}
 
 
+async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[BusinessRecord]:
+    """Fill empty fields from the shared, cross-organisation BusinessRecord store -- someone else
+    may already have looked this company up via Companies House or an earlier search. Free: it's
+    our own stored data and calls no paid API, so this never charges a credit.
+
+    If another organisation's Research run already found a full dossier for this company
+    (shared.shared_research -- team, named contacts, sources), that dossier is public fact about
+    the business, not that organisation's private data, so it's copied here too: this account
+    looks fully researched without this organisation ever paying for its own research run.
+    Never overwrites research this organisation already paid for or entered itself."""
+    shared = await business_records.lookup(db, name=row.name, domain=row.domain)
+    if shared:
+        row.business_record_id = shared.id
+        row.industry = row.industry or _clean(shared.industry, 120)
+        row.region = row.region or _clean(shared.region, 120)
+        row.phone = row.phone or _clean(shared.phone, 60)
+        row.email = row.email or _clean(shared.email, 200).lower()
+        if shared.shared_research and not row.research:
+            row.research = shared.shared_research
+            row.researched_at = row.updated_at = shared.updated_at or datetime.utcnow()
+            team = shared.shared_research.get("team") or []
+            if team and not row.contact_name:
+                row.contact_name = team[0].get("name") or row.contact_name
+                row.contact_title = row.contact_title or team[0].get("title") or ""
+        await db.commit()
+    return shared
+
+
+@router.post("/accounts/{account_id}/quick-check")
+async def quick_check_account(account_id: str, db: AsyncSession = Depends(get_db)):
+    """Fill what we can from our own shared company store only -- no live web search, no AI
+    call, no credit charged. Use /research below for a live web search (which does cost a
+    credit when it finds something) -- this is the free step before reaching for that."""
+    row = await _account(db, account_id)
+    shared = await _apply_shared_record(db, row)
+    biz = shared or await _registry_for(db, account_id)
+    return _out(row, biz)
+
+
+@router.post("/accounts/{account_id}/deep-search")
+async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db)):
+    """"Deep web search": one structured lookup against Google's places data (2 Leads credits
+    when it finds something -- shown to the user only as "Deep web search", never by vendor
+    name). Checks our own shared store first, same as /research; whatever it finds is saved
+    back to that store so the next lookup for this company is free."""
+    row = await _account(db, account_id)
+    await _apply_shared_record(db, row)
+    await _can_deep_search(db)
+    place = await search_google_places(f"{row.name} {row.region}".strip())
+    if not place:
+        biz = await _registry_for(db, account_id)
+        return _out(row, biz)
+    row.phone = row.phone or _clean(place.get("phone"), 60)
+    row.website = row.website or _clean(place.get("website"), 300)
+    row.region = row.region or _clean(place.get("address"), 120)
+    if not row.domain and row.website:
+        row.domain = _domain(row.website)
+    try:
+        shared_row = await business_records.upsert(
+            db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
+            data={"name": row.name, "domain": row.domain, "website": row.website, "phone": row.phone,
+                  "region": row.region, "description": f"Rating {place['rating']}/5 on Google." if place.get("rating") else ""},
+        )
+        row.business_record_id = row.business_record_id or shared_row.id
+    except ValueError:
+        pass
+    row.updated_at = datetime.utcnow()
+    await db.commit()
+    await _charge_deep_search(db, f"Deep web search: {row.name}")
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
+    return _out(row, biz)
+
+
 @router.post("/accounts/{account_id}/research")
 async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     """Research one company on the web (1 Leads credit when anything is found). Fills only the
@@ -271,17 +345,11 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     else may have already looked this company up via Companies House or an earlier search); the
     live web search below still runs regardless, since it finds things (people, phones, socials)
     no registry API covers, and whatever it finds is saved back to the shared store afterwards
-    for the next organisation that asks about this same company."""
+    for the next organisation that asks about this same company. Only the live search below is
+    ever charged -- see _charge_leads below, called only when it actually finds something."""
     row = await _account(db, account_id)
     await _can_research(db)
-    shared = await business_records.lookup(db, name=row.name, domain=row.domain)
-    if shared:
-        row.business_record_id = shared.id
-        row.industry = row.industry or _clean(shared.industry, 120)
-        row.region = row.region or _clean(shared.region, 120)
-        row.phone = row.phone or _clean(shared.phone, 60)
-        row.email = row.email or _clean(shared.email, 200).lower()
-        await db.commit()
+    await _apply_shared_record(db, row)
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
                                                   domain=row.domain or row.website or None, person=row.contact_name or None,
@@ -303,6 +371,12 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     # -- so the dossier can label who's who instead of one flat, unattributed list of addresses.
     email_contacts = [{"email": _clean(c.get("email"), 200).lower(), "name": _clean(c.get("name"), 120)}
                        for c in (data.get("emailContacts") or []) if c.get("email")][:5]
+    if row.research and row.researched_at:
+        # Keep the run this is about to replace -- re-researching used to throw it away, so an
+        # earlier run's findings (maybe about a person who's since left) were gone for good.
+        history = list(row.research_history or [])
+        history.insert(0, {"research": row.research, "researched_at": row.researched_at.isoformat() + "Z"})
+        row.research_history = history[:10]
     row.research = {
         "overview": "" if overview == "No detailed summary found." else _clean(overview, 2000),
         "people": people,
@@ -340,6 +414,11 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
                       "email": row.email, "region": row.region, "description": overview},
             )
             row.business_record_id = row.business_record_id or shared_row.id
+            # The full dossier (team, named contacts, sources) is public fact about the business,
+            # not this organisation's private data -- every other organisation's saved account for
+            # the same company gets it too, for free, via _apply_shared_record above.
+            shared_row.shared_research = row.research
+            await db.flush()
         except ValueError:
             pass  # nothing identifiable enough to be worth caching for anyone else
     await db.commit()

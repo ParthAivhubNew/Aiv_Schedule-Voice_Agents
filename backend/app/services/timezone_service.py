@@ -246,3 +246,33 @@ def stamp_from_host(
         "prospect_time": p_time,
         "starts_at_utc": utc.replace(tzinfo=None),
     }
+
+
+# What a caller might say about their own timezone -> IANA name. Used only for a zone the
+# caller states on a call; a number's own zone still comes from timezone_from_phone().
+_STATED_TZ = {
+    "utc": "UTC", "gmt": "Europe/London", "bst": "Europe/London", "uk": "Europe/London", "london": "Europe/London",
+    "cet": "Europe/Paris", "cest": "Europe/Paris", "paris": "Europe/Paris", "berlin": "Europe/Berlin",
+    "eet": "Europe/Athens", "ist": "Asia/Kolkata", "india": "Asia/Kolkata", "indian": "Asia/Kolkata",
+    "est": "America/New_York", "edt": "America/New_York", "et": "America/New_York", "eastern": "America/New_York", "new york": "America/New_York",
+    "cst": "America/Chicago", "cdt": "America/Chicago", "ct": "America/Chicago", "central": "America/Chicago", "chicago": "America/Chicago",
+    "mst": "America/Denver", "mdt": "America/Denver", "mt": "America/Denver", "mountain": "America/Denver", "denver": "America/Denver",
+    "pst": "America/Los_Angeles", "pdt": "America/Los_Angeles", "pt": "America/Los_Angeles", "pacific": "America/Los_Angeles", "los angeles": "America/Los_Angeles",
+    "gst": "Asia/Dubai", "dubai": "Asia/Dubai", "sgt": "Asia/Singapore", "singapore": "Asia/Singapore",
+    "jst": "Asia/Tokyo", "tokyo": "Asia/Tokyo", "aest": "Australia/Sydney", "aedt": "Australia/Sydney", "sydney": "Australia/Sydney",
+    "sast": "Africa/Johannesburg",
+}
+
+
+def normalize_stated_timezone(raw: Optional[str]) -> Optional[str]:
+    """IANA name for a timezone a caller named ('Eastern', 'IST', 'America/New_York'), else None."""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    try:
+        zoneinfo.ZoneInfo(s)
+        return s
+    except Exception:
+        pass
+    key = re.sub(r"\s+(time|standard time|daylight time)$", "", s.lower().replace("_", " ")).strip()
+    return _STATED_TZ.get(key)

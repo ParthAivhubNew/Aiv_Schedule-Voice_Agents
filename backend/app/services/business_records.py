@@ -366,10 +366,10 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
     return await lookup_scrape(db, query=query, scope=scope)
 
 
-FILTER_KEYS = ("sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
+FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone")
 COUNT_CAP = 10_000
-_NEEDS_ONE_OF = ("sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
+_NEEDS_ONE_OF = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
 
 
 def _like(term: str, *, prefix_only: bool = False, exact: bool = False) -> str:
@@ -388,7 +388,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     """Keeps only the filter keys we know, in a predictable shape, so a model-written filter dict
     can never inject anything else into the query."""
     out: Dict[str, Any] = {}
-    for key in ("sector", "sic_codes", "towns", "postcode_prefixes", "size_bands"):
+    for key in ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "size_bands"):
         values = _as_list((filters or {}).get(key))
         if key == "sic_codes":
             values = [re.sub(r"\D", "", v) for v in values if re.sub(r"\D", "", v)]
@@ -420,6 +420,9 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
     conds = []
     if f["status"].lower() != "any":
         conds.append(func.lower(B.status) == f["status"].lower())
+    if f.get("keyword"):  # the panel's single box: a word may be part of the name or of the sector
+        conds.append(or_(*[or_(B.name.ilike(_like(t), escape="\\"), B.sic_text.ilike(_like(t), escape="\\"),
+                               B.industry.ilike(_like(t), escape="\\")) for t in f["keyword"]]))
     if f.get("sector"):
         conds.append(or_(*[or_(B.sic_text.ilike(_like(t), escape="\\"), B.industry.ilike(_like(t), escape="\\"))
                            for t in f["sector"]]))

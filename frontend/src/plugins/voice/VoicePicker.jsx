@@ -326,7 +326,7 @@ export function VoicePicker({ variant = "full" }) {
               ) : null}
             </div>
           ) : canPlugin ? (
-            <div style={{ fontSize: 12.5, color: C.slate }}>Connect a text-to-speech provider (Cartesia, ElevenLabs, Telnyx, Deepgram…) in Connections to add your own voices.</div>
+            <div style={{ fontSize: 12.5, color: C.slate }}>Your own voices are not switched on for this account yet. Contact support to add them.</div>
           ) : null}
         </>
       )}

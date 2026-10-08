@@ -27,7 +27,7 @@ logger = logging.getLogger("voice_assistants")
 
 # Bump when the shell (instructions, greeting, tools) changes: every assistant is updated on
 # its next use.
-SHELL_VERSION = 3
+SHELL_VERSION = 4
 RESYNC_AFTER = timedelta(hours=24)  # also puts back anything edited by hand in Telnyx
 MANAGED_MARK = "Managed by OutReach: changes made in Telnyx are overwritten."
 
@@ -40,7 +40,7 @@ SHELL_INSTRUCTIONS = """You are a phone agent for a business that uses OutReach.
 Rules that always apply:
 - If {{script_continues}} is "yes", call get_script once before you say more than the greeting, and follow the full script it returns.
 - When you are not sure about a fact about the business (prices, services, policies), call lookup_knowledge. Never invent prices, facts or promises.
-- To book a meeting, call check_availability first, then book_appointment with an exact time it returned.
+- To book a meeting, call check_availability first, then book_appointment with an exact time it returned. Say the times in spoken_slots, and pass the matching available_slots entry unchanged as start_time. If the person says they are in a different timezone, pass it as caller_timezone to both tools.
 - If the person asks for a human, is upset, or the script says to hand over, call request_human and tell them someone will take over.
 - If they ask not to be called again, apologise, say they will not be called again, and call save_outcome with outcome "do_not_call".
 - Before the call ends, call save_outcome with the outcome and anything useful you learned.
@@ -128,11 +128,13 @@ def shell_tools(base: str) -> List[Dict[str, Any]]:
         _tool(base, "lookup_knowledge", "Look up facts about the business: services, prices, policies, FAQs.",
               {"question": text("What you need to know, in a short sentence.")}, ["question"]),
         _tool(base, "check_availability", "Find free meeting times between two dates (YYYY-MM-DD).",
-              {"start_date": text("First day, YYYY-MM-DD."), "end_date": text("Last day, YYYY-MM-DD.")}, ["start_date"]),
+              {"start_date": text("First day, YYYY-MM-DD."), "end_date": text("Last day, YYYY-MM-DD."),
+               "caller_timezone": text("Only if the person says they are in another timezone, e.g. America/New_York.")}, ["start_date"]),
         _tool(base, "book_appointment", "Book a meeting at an exact time returned by check_availability.",
               {"start_time": text("The exact ISO-8601 time from check_availability."),
                "email": text("The person's email, spelled back and confirmed."),
-               "name": text("The person's name.")}, ["start_time"]),
+               "name": text("The person's name."),
+               "caller_timezone": text("Only if the person says they are in another timezone, e.g. America/New_York.")}, ["start_time"]),
         _tool(base, "request_human", "Ask a person from the business to take over this call.",
               {"reason": text("Why a person is needed.")}, ["reason"]),
         _tool(base, "save_outcome", "Record how the call went before it ends.",

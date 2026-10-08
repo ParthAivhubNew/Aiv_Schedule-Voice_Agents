@@ -16,7 +16,11 @@ const RULE_KEYS = [
   ["confirm_existing_bookings", "Confirm if they already have a booking"],
   ["offer_notify_after_book", "Offer notify channel after booking"],
   ["ask_before_hangup", "Ask before hanging up (confirm then goodbye)"],
+  ["confirm_timezone", "Ask the caller's timezone, and say it once when confirming the meeting"],
 ];
+
+// Rules that start switched off (every other rule starts on).
+const OFF_BY_DEFAULT = new Set(["confirm_timezone"]);
 
 /**
  * Call-rules editor (default): hard toggles + free-text for the voice agent.
@@ -164,7 +168,7 @@ export function BookingPolicyEditor({ bookingPolicy, onChange, style, showCatalo
           >
             <input
               type="checkbox"
-              checked={bp[key] !== false}
+              checked={OFF_BY_DEFAULT.has(key) ? bp[key] === true : bp[key] !== false}
               onChange={(e) => patch({ [key]: e.target.checked })}
               style={{ marginTop: 2, flexShrink: 0, cursor: "pointer" }}
               aria-label={label}

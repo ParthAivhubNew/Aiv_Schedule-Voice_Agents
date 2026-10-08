@@ -24,7 +24,8 @@ const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? undefined
 // and a chat reply's filters are written back into the panel -- so neither can drift from the other.
 function formToFilters(f) {
   const out = {};
-  if (splitList(f.sector).length) out.sector = splitList(f.sector);
+  // One box for industry words and company names: each word is matched against both.
+  if (splitList(f.sector).length) out.keyword = splitList(f.sector);
   if (splitList(f.town).length) out.towns = splitList(f.town);
   if (splitList(f.postcode).length) out.postcode_prefixes = splitList(f.postcode);
   if (f.sizes.length) out.size_bands = f.sizes;
@@ -40,7 +41,7 @@ function formToFilters(f) {
 
 function filtersToForm(fl) {
   return {
-    sector: (fl.sector || []).join(", "), town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
+    sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
     postcode: (fl.postcode_prefixes || []).join(", "), sizes: fl.size_bands || [],
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
@@ -325,8 +326,8 @@ function FindLeadsSearch({ store }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <form onSubmit={(e) => { setExcluded([]); search(e); }} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <label style={field}><span style={label}>Industry (words from the official sector)</span>
-            <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="cafe, restaurant" /></label>
+          <label style={field}><span style={label}>Industry or company name</span>
+            <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="cafe, restaurant, or a company name" /></label>
           <label style={field}><span style={label}>Town / city</span>
             <input className="ui-input" value={form.town} onChange={(e) => setField("town", e.target.value)} placeholder="London, Leeds" /></label>
           <label style={{ ...field, flex: "0 1 150px" }}><span style={label}>Postcode starts with</span>
@@ -476,7 +477,7 @@ export function FindLeadsView({ store, onGo }) {
         ))}
       </div>
       {sub === "search" && <FindLeadsSearch store={store} />}
-      {sub === "import" && <ImportView store={store} onGo={onGo} />}
+      {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );
 }

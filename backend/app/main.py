@@ -154,6 +154,26 @@ async def _platform_balance_check_loop():
             logger.warning(f"[Balances] Check cycle failed: {loop_err}")
 
 
+async def _social_token_refresh_loop():
+    """Once a day: renew social logins that end within a week and email staff (never customers)
+    about any that need a reconnect. First pass shortly after start so a restart never skips a day."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.services.social_tokens import run_daily_pass
+    delay = 300
+    while True:
+        try:
+            await asyncio.sleep(delay)
+            delay = 86400
+            with system_scope():
+                async with AsyncSessionLocal() as db:
+                    await run_daily_pass(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Social Tokens] Daily pass failed: {loop_err}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database tables...")
@@ -630,6 +650,7 @@ async def lifespan(app: FastAPI):
     email_task = asyncio.create_task(email_loop())
     number_health_task = asyncio.create_task(_telnyx_number_health_loop())
     balance_check_task = asyncio.create_task(_platform_balance_check_loop())
+    social_token_task = asyncio.create_task(_social_token_refresh_loop())
 
     yield
 
@@ -639,6 +660,7 @@ async def lifespan(app: FastAPI):
     credits_task.cancel()
     number_health_task.cancel()
     balance_check_task.cancel()
+    social_token_task.cancel()
     logger.info("Shutting down Outreach by Aivhub Voice Agent API...")
 
 app = FastAPI(

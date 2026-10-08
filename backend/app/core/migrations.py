@@ -311,6 +311,31 @@ async def _lead_account_business_record_column(conn: AsyncConnection) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lead_accounts_business_record_id ON lead_accounts (business_record_id)"))
 
 
+async def _business_record_shared_research_column(conn: AsyncConnection) -> None:
+    """Carries one organisation's full Research dossier (team, named contacts, sources) into the
+    shared, cross-organisation store -- public fact about the business, not that organisation's
+    private data, so the next organisation that looks up the same company gets it too, free."""
+    await conn.execute(text("ALTER TABLE business_records ADD COLUMN IF NOT EXISTS shared_research JSON"))
+
+
+async def _seed_google_places_vendor_price(conn: AsyncConnection) -> None:
+    """Google Places' real per-lookup cost (Text Search + Place Details, combined), for the
+    admin portal's vendor-spend estimate -- same editable row as every other vendor price."""
+    import uuid
+
+    await conn.execute(text(
+        "INSERT INTO provider_prices (id, provider, model, kind, price_in_usd, price_out_usd, confirmed, created_at, updated_at, updated_by) "
+        "VALUES (:id, 'google_places', '', 'lookup', 0.035, 0, TRUE, now(), now(), 'migration') "
+        "ON CONFLICT (provider, model, kind) DO NOTHING"
+    ), {"id": f"pp_{uuid.uuid4().hex[:12]}"})
+
+
+async def _lead_account_research_history_column(conn: AsyncConnection) -> None:
+    """Re-researching a saved account used to throw away what the last run found; this column
+    keeps earlier runs so users can look back at more than just the latest one (see models.py)."""
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS research_history JSON"))
+
+
 async def _seed_companies_house_source(conn: AsyncConnection) -> None:
     """The first api-type DataSource -- a config row, not special-cased code (see
     data_source_connector.py). Picks up COMPANIES_HOUSE_API_KEY once, as a one-time convenience
@@ -583,6 +608,10 @@ async def _seed_open_data_sources(conn: AsyncConnection) -> None:
             "fields": json.dumps(["name", "address", "postcode", "phone", "website", "industry"])})
 
 
+async def _social_account_expiry(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -612,6 +641,10 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_23_business_record_search_columns", _business_record_search_columns),
     ("2026_10_23_companies_house_search_fields", _companies_house_search_fields),
     ("2026_10_24_seed_open_data_sources", _seed_open_data_sources),
+    ("2026_10_25_lead_account_research_history_column", _lead_account_research_history_column),
+    ("2026_10_26_seed_google_places_vendor_price", _seed_google_places_vendor_price),
+    ("2026_10_27_business_record_shared_research_column", _business_record_shared_research_column),
+    ("2026_10_28_social_account_expiry", _social_account_expiry),
 ]
 
 

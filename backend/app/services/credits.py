@@ -51,7 +51,8 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "whatsapp_message": {"label": "WhatsApp message sent", "unit": "message", "credits": 1, "wallet": "voice", "charged": True},
     "ai_post": {"label": "AI-written social post", "unit": "post", "credits": 2, "wallet": "scheduler", "charged": True},
     "ai_image": {"label": "AI image redraw", "unit": "image", "credits": 1, "wallet": "scheduler", "charged": True},
-    "lead_lookup": {"label": "Lead researched", "unit": "lead", "credits": 1, "wallet": "leadgen", "charged": True},
+    "lead_lookup": {"label": "Lead researched", "unit": "lead", "credits": 5, "wallet": "leadgen", "charged": True},
+    "google_deep_search": {"label": "Deep web search", "unit": "search", "credits": 2, "wallet": "leadgen", "charged": True},
     "email_send": {"label": "Email sent", "unit": "email", "credits": 1, "wallet": "leadgen", "charged": True},
     # Telnyx charges us a monthly rental per number; 0 until staff set our price in the rate card.
     "phone_number_month": {"label": "Phone number, per month", "unit": "number a month", "credits": 1, "wallet": "voice", "charged": True},
@@ -78,6 +79,7 @@ DEFAULT_UNIT_COSTS_USD_CENTS: Dict[str, float] = {
                                      # pay-as-you-go) that finds/enriches the lead; the LLM step
                                      # riding alongside it costs whatever provider the org
                                      # configured, left out above
+    "google_deep_search": 3.5,      # Google Places Text Search + Place Details, combined ($0.035)
 }
 
 

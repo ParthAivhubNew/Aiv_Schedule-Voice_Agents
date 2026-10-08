@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from app.core.brand import scrub
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -117,7 +118,7 @@ async def set_allowed_countries(body: CountriesBody, request: Request, db: Async
         try:
             await client.update_outbound_voice_profile(setup.outbound_voice_profile_id, countries)
         except TelnyxError as err:
-            raise HTTPException(status_code=502, detail=str(err))
+            raise HTTPException(status_code=502, detail=scrub(err))
     await db.commit()
     return {"countries": countries}
 
@@ -130,7 +131,7 @@ async def requirements(request: Request, country: str = "GB", number_type: str =
         return {"country": country, "numberType": number_type,
                 "fields": TP.normalise_requirements(await client.requirements(country.upper(), number_type))}
     except TelnyxError as err:
-        raise HTTPException(status_code=502, detail=str(err))
+        raise HTTPException(status_code=502, detail=scrub(err))
 
 
 @router.post("/verification")
@@ -194,7 +195,7 @@ async def search(request: Request, country: str = "GB", number_type: str = "loca
     try:
         found = await client.search_numbers(country.upper(), number_type, locality.strip(), area_code.strip(), contains.strip(), limit=20)
     except TelnyxError as err:
-        raise HTTPException(status_code=502, detail=str(err))
+        raise HTTPException(status_code=502, detail=scrub(err))
     price, staff = await _our_price(db), _staff(ctx)
     out = []
     for n in found:
@@ -272,7 +273,7 @@ async def release(number_id: str, request: Request, db: AsyncSession = Depends(g
     try:
         await _release_number(db, n)
     except TelnyxError as err:
-        raise HTTPException(status_code=502, detail=f"This number could not be released: {err}")
+        raise HTTPException(status_code=502, detail=f"This number could not be released: {scrub(err)}")
     await db.commit()
     return {"ok": True}
 

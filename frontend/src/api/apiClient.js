@@ -337,6 +337,8 @@ export const api = {
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),
   companyContacts: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/contacts`, { method: 'POST', body, timeoutMs: 120000 }),
   researchLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/research`, { method: 'POST', timeoutMs: 120000 }),
+  quickCheckLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/quick-check`, { method: 'POST' }),
+  deepSearchLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/deep-search`, { method: 'POST', timeoutMs: 30000 }),
   fillContactGaps: (payload, extra = {}) => apiRequest('/enrichment/fill-gaps', { method: 'POST', body: payload, signal: extra.signal }),
   copilotChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
   openChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),

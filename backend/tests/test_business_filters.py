@@ -210,3 +210,12 @@ async def test_a_second_source_fills_gaps_but_never_overwrites_the_first_and_ref
     await BR.bulk_upsert(db, source_id="ds_ch", rows=[{**solo, "status": "Dissolved"}])
     await db.commit()
     assert (await BR.search_filtered(db, {"name_contains": "Solo", "status": "any"}))["rows"][0].status == "Dissolved"
+
+
+async def test_one_keyword_box_matches_a_company_name_or_a_sector_word(db):
+    await _seed(db)
+    by_name = await BR.search_filtered(db, {"keyword": ["smith & co"]})
+    assert [r.name for r in by_name["rows"]] == ["Smith & Co Accountants"]
+    by_sector = await BR.search_filtered(db, {"keyword": ["accounting"]})
+    assert [r.name for r in by_sector["rows"]] == ["Smith & Co Accountants"]
+    assert {r.name for r in (await BR.search_filtered(db, {"keyword": ["cafe"], "towns": ["London"]}))["rows"]} == {"Corner Cafe Ltd"}
