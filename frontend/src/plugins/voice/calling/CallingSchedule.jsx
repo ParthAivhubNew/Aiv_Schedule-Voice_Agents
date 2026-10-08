@@ -141,6 +141,9 @@ function enrich(s) {
   return { ...s, kind, videoLink, phone, whatsappTo: s.whatsappTo || s.whatsapp_to || phone, status };
 }
 
+// Meeting platforms shown to clients: our own room is "Outreach Meet", whatever is stored.
+const shownPlatform = (p) => (/jitsi/i.test(p || "") ? "Outreach Meet" : p);
+
 function kindMeta(kind, kinds) {
   const list = kinds && kinds.length ? kinds : FALLBACK_KINDS;
   return list.find((k) => k.id === kind) || list[0];
@@ -496,7 +499,7 @@ export function CallingSchedule({
       return;
     }
     if (plan.kind === "video" && !plan.videoLink.trim() && /zoom|teams|google/i.test(plan.platform)) {
-      onToast("Paste the video meeting link, or switch platform to Jitsi for an auto room.");
+      onToast("Paste the video meeting link, or switch platform to Outreach Meet for an auto room.");
       return;
     }
     setSaving(true);
@@ -682,19 +685,19 @@ export function CallingSchedule({
               <option>Google Meet</option>
               <option>Zoom</option>
               <option>Microsoft Teams</option>
-              <option>Jitsi (auto room)</option>
+              <option value="Jitsi (auto room)">Outreach Meet (auto room)</option>
               <option>Cal.com</option>
             </select>
             <Label>Meeting join URL</Label>
             <input
               value={plan.videoLink}
               onChange={(e) => patch("videoLink", e.target.value)}
-              placeholder={/jitsi/i.test(plan.platform) ? "Leave blank to auto-create a Jitsi room" : "https://meet.google.com/…"}
+              placeholder={/jitsi/i.test(plan.platform) ? "Leave blank to auto-create a meeting room" : "https://meet.google.com/…"}
               style={fieldStyle()}
             />
             <div style={{ fontSize: 11, color: C.slate, marginTop: 6 }}>
               {/jitsi/i.test(plan.platform)
-                ? "Empty link → we mint a unique Jitsi room when you save."
+                ? "Empty link → we create a unique meeting room when you save."
                 : "Paste the Meet / Zoom / Teams / Cal.com link. Required for those platforms."}
             </div>
           </div>
@@ -816,7 +819,7 @@ export function CallingSchedule({
                   </div>
                   <div style={{ marginTop: 10, fontSize: 13, color: C.textInk, display: "grid", gap: 6 }}>
                     <div><Calendar size={13} style={{ verticalAlign: "middle" }} /> {when || "—"}</div>
-                    <div><Icon size={13} style={{ verticalAlign: "middle" }} /> {meta.label}{m.platform ? ` · ${m.platform}` : ""}</div>
+                    <div><Icon size={13} style={{ verticalAlign: "middle" }} /> {meta.label}{m.platform ? ` · ${shownPlatform(m.platform)}` : ""}</div>
                     {m.channel ? <div style={{ color: C.slate }}>Channel: {m.channel}</div> : null}
                   </div>
                   {open && (
@@ -1176,7 +1179,7 @@ export function CallingSchedule({
                           )}
                         </div>
                         <div style={{ fontSize: 13, color: C.slate, display: "flex", gap: 8, alignItems: "center" }}>
-                          <Icon size={14} /> {meta.label}{ev.platform ? ` · ${ev.platform}` : ""}
+                          <Icon size={14} /> {meta.label}{ev.platform ? ` · ${shownPlatform(ev.platform)}` : ""}
                         </div>
                         {cancelled && ev.cancellationReason ? (
                           <div style={{ fontSize: 12, color: "#B91C1C" }}>{ev.cancellationReason}</div>
@@ -1229,7 +1232,7 @@ export function CallingSchedule({
                     {open.prospect || "Meeting"}
                   </div>
                   <div style={{ fontSize: 13, color: C.slate, marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
-                    <Icon size={14} color={meta.color || C.slate} /> {meta.label}{open.platform ? ` · ${open.platform}` : ""}
+                    <Icon size={14} color={meta.color || C.slate} /> {meta.label}{open.platform ? ` · ${shownPlatform(open.platform)}` : ""}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>

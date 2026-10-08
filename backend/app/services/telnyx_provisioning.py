@@ -345,7 +345,7 @@ def _group_reason(group: Dict[str, Any]) -> str:
     return "; ".join(reasons)[:500]
 
 
-async def _notify_both(event: str, subject: str, lines: List[str]) -> None:
+async def _notify_both(event: str, subject: str, lines: List[str], staff_lines: Optional[List[str]] = None) -> None:
     """The same message to the affected organisation's own users, and again to Aivhub's platform
     organisation, so staff learn about a problem the same day the customer does, not only when
     they happen to check System logs. Used for anything that was fine and then went bad — a
@@ -358,7 +358,7 @@ async def _notify_both(event: str, subject: str, lines: List[str]) -> None:
     await notify(event, subject, lines)
     try:
         with org_scope(platform_org()):
-            await notify(event, f"[{org}] {subject}", lines)
+            await notify(event, f"[{org}] {subject}", list(lines) + list(staff_lines or []))
     except Exception:
         pass
 
@@ -423,12 +423,13 @@ async def refresh_number(db, n, client: TelnyxClient) -> Any:
     if healthy and not was_active:
         n.status = "active"
         await notify("numbers", f"{n.e164} is working again",
-                     [f"Telnyx now reports {n.e164} as active again."])
+                     [f"{n.e164} is active again."])
     elif not healthy and was_active:
         n.status = "held"
-        await _notify_both("numbers", f"{n.e164} was suspended or held by Telnyx",
-                           [f"Telnyx now reports this number's status as '{telnyx_status or 'unknown'}', not active.",
-                            "Outbound calls from it may fail until this is resolved. Contact the OutReach team."])
+        await _notify_both("numbers", f"{n.e164} was suspended or put on hold",
+                           ["This number is not active on the phone network.",
+                            "Outbound calls from it may fail until this is resolved. Contact the OutReach team."],
+                           staff_lines=[f"The carrier reports this number's status as '{telnyx_status or 'unknown'}', not active."])
     return n
 
 

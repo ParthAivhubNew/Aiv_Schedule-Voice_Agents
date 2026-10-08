@@ -51,6 +51,9 @@ DEFAULT_BOOKING_POLICY: Dict[str, Any] = {
     "confirm_existing_bookings": True,
     "recheck_slot_before_book": False,
     "offer_notify_after_book": True,
+    # Off: the caller's zone comes from their number and no zone is spoken. On: ask which timezone
+    # they are in while booking and say it once when confirming the meeting.
+    "confirm_timezone": False,
     "booking_order": ["meeting_type", "slot", "email", "book"],
     "duration_minutes": 15,
     # Hang-up behaviour — per business, editable in Call Script & Rules.
@@ -87,7 +90,7 @@ def normalize_booking_policy(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
                 out[key] = max(2, min(int(val), 15))
             except (TypeError, ValueError):
                 out[key] = base["hangup_delay_seconds"]
-        elif key == "ask_before_hangup":
+        elif key in ("ask_before_hangup", "confirm_timezone"):
             out[key] = bool(val)
         elif key in out:
             out[key] = val
@@ -232,6 +235,18 @@ def voice_booking_instructions(policy: Optional[Dict[str, Any]]) -> str:
         "Then call book with email_confirmed=true. No need to read the email back for a separate yes."
     )
     n += 1
+    if p.get("confirm_timezone"):
+        steps.append(
+            f"{n}. TIMEZONE: Before offering times, ask which timezone they are in. Use what they say for every time you "
+            "offer, and say the timezone once, when you confirm the final booking. Do not mention timezones at any other point."
+        )
+        n += 1
+    else:
+        steps.append(
+            f"{n}. TIMEZONE: Do not mention timezones. If they tell you they are in a different timezone, offer and confirm "
+            "times in theirs, passing their timezone to the tool when it accepts one."
+        )
+        n += 1
     if p.get("confirm_existing_bookings", True):
         steps.append(
             f"{n}. EXISTING BOOKING: If tool returns needs=confirm_existing, speak the old day/time. "

@@ -22,6 +22,8 @@ _SCHEMA = {
                    "description": "'search' = find companies, or change/narrow the current search. 'remove' = drop "
                                   "named companies from the current results. 'chat' = anything else (advice, a "
                                   "question, small talk) -- no search should run."},
+        "keyword": {"type": "array", "items": {"type": "string"},
+                    "description": "Only carry over the current 'keyword' filter unchanged; never set it yourself."},
         "sector": {"type": "array", "items": {"type": "string"},
                    "description": "Words that appear in an official industry (SIC) description: the sector AND its "
                                   "close synonyms, e.g. accountants -> ['accounting', 'bookkeeping', 'tax']; "
@@ -105,6 +107,8 @@ def card(biz) -> Dict[str, Any]:
 def describe(filters: Dict[str, Any]) -> List[str]:
     """Plain-English chips for the filters actually applied, shown to the user so nothing is hidden."""
     chips: List[str] = []
+    if filters.get("keyword"):
+        chips.append("Name or sector: " + ", ".join(filters["keyword"]))
     if filters.get("sector"):
         chips.append("Sector: " + ", ".join(filters["sector"]))
     if filters.get("sic_codes"):

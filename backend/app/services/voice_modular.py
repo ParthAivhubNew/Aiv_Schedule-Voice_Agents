@@ -848,9 +848,10 @@ def _is_backchannel(text: str) -> bool:
 
 
 _BOOKING_INTENT_RE = re.compile(
-    r"\b(book|schedule|meeting|appointment|available|availability|calendar|slot|reschedul\w*|"
-    r"tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
-    r"morning|afternoon|evening|\d{1,2}\s?(am|pm)|\d{1,2}:\d{2})\b",
+    r"\b(book|schedule|meeting|appointment|available|availability|calendar|slots?|reschedul\w*|"
+    r"tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend|"
+    r"morning|afternoon|evening|noon|lunch\w*|times?|free|open|busy|diary|week|next|later|earlier|when|"
+    r"call me|speak|talk|catch up|\d{1,2}\s?(am|pm)|\d{1,2}:\d{2}|o'?clock|time ?zone|eastern|pacific|central|gmt|est|pst|ist)\b",
     re.IGNORECASE,
 )
 

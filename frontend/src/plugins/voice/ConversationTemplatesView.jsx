@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   FileText,
   PhoneCall,
@@ -60,10 +60,10 @@ const SAMPLE_PREVIEW_DATA = {
   prospect_timezone: "Europe/London",
 };
 
-export function ConversationTemplatesView({ notifications, setNotifications, embedded = false, onDirtyChange }) {
+export function ConversationTemplatesView({ notifications, setNotifications, embedded = false, onDirtyChange, onOpenPage }) {
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
-  const [activeTab, setActiveTab] = useState("editor"); // 'editor' | 'preview' | 'variables'
+  const [activeTab, setActiveTab] = useState("editor"); // 'editor' | 'preview' | 'booking'
   const [filterDirection, setFilterDirection] = useState("all"); // 'all' | 'outbound' | 'inbound'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -309,6 +309,26 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
     }
   }, [activeTab, selectedTemplateId, previewScenario, runPreview]);
 
+  // "Insert variable": drops a {{tag}} into the text box that was last clicked, at the cursor.
+  const lastBox = useRef(null);
+  const rememberBox = (e) => { if (e.target && e.target.tagName === "TEXTAREA") lastBox.current = e.target; };
+  const insertVariable = (tag) => {
+    const el = lastBox.current;
+    if (!tag) return;
+    if (!el || !el.isConnected) {
+      setStatusMsg({ type: "error", text: "Click inside a text box first, then pick a variable." });
+      setTimeout(() => setStatusMsg(null), 2500);
+      return;
+    }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? start;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+    setter.call(el, el.value.slice(0, start) + tag + el.value.slice(end));
+    el.dispatchEvent(new Event("input", { bubbles: true })); // lets the form state see the change
+    el.focus();
+    el.setSelectionRange(start + tag.length, start + tag.length);
+  };
+
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     setCopiedTag(text);
@@ -519,23 +539,6 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   Live Prompt Preview
                 </button>
                 <button
-                  onClick={() => setActiveTab("variables")}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 6,
-                    border: "none",
-                    background: activeTab === "variables" ? "#fff" : "transparent",
-                    color: activeTab === "variables" ? C.ink : C.slate,
-                    fontFamily: FONT_BODY,
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    boxShadow: activeTab === "variables" ? "0 1px 3px rgba(0,0,0,0.06)" : "none"
-                  }}
-                >
-                  Tags
-                </button>
-                <button
                   onClick={() => setActiveTab("booking")}
                   style={{
                     padding: "6px 14px",
@@ -614,8 +617,20 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
 
           {/* Tab 1: Editor */}
           {activeTab === "editor" && (
-            <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }} onFocusCapture={rememberBox}>
               <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5, color: C.slate }}>
+                  <select
+                    aria-label="Insert variable"
+                    value=""
+                    onChange={(e) => insertVariable(e.target.value)}
+                    style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, background: "#fff", cursor: "pointer" }}
+                  >
+                    <option value="">Insert variable…</option>
+                    {VARIABLE_TAGS.map((v) => <option key={v.tag} value={v.tag}>{v.desc} — {v.tag}</option>)}
+                  </select>
+                  <span>Click inside any text box below, then pick a variable. It is filled in on every call.</span>
+                </div>
                 {/* Meta Configuration Card */}
                 <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 14 }}>
@@ -869,11 +884,33 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   </div>
                 </div>
 
+                {/* Where each part of the prompt comes from, with a way to change it at its source */}
+                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Where each part comes from</div>
+                  <div style={{ fontSize: 12, color: C.slate, margin: "2px 0 12px" }}>This text is put together from several places. Change a part where it lives and it updates here and on every call.</div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {[
+                      ["Company name, agent name, tone", "Company profile", () => onOpenPage && onOpenPage("company")],
+                      ["Greeting, pitch, objections, closing, rules", "This template", () => setActiveTab("editor")],
+                      ["Booking steps, meeting types, timezone and hang-up wording", "Booking & Call Rules", () => setActiveTab("booking")],
+                      ["Meeting hours and lunch", "Working Hours", () => onOpenPage && onOpenPage("hours")],
+                      ["Services, FAQs and website facts (looked up during the call)", "Company profile → Knowledge", () => onOpenPage && onOpenPage("company")],
+                      ["Lead details and today's date", "Filled in live on each call", null],
+                    ].map(([what, where, go]) => (
+                      <div key={what} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 9, background: C.paperSoft, border: `1px solid ${C.border}`, fontSize: 12.5 }}>
+                        <span style={{ flex: 1, color: C.ink }}>{what}</span>
+                        <span style={{ color: C.slate }}>{where}</span>
+                        {go && <button type="button" onClick={go} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Edit</button>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Rendered Prompt Box */}
                 <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
-                      Resolved LLM System Prompt
+                      What the AI is told on every call
                     </div>
                     <button
                       onClick={() => copyToClipboard(renderedPreview || "")}
@@ -885,51 +922,6 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   <pre style={{ margin: 0, padding: 16, borderRadius: 8, background: "#0F172A", color: "#E2E8F0", fontFamily: FONT_MONO, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 500, overflowY: "auto" }}>
                     {previewLoading ? "Resolving context and rendering template..." : renderedPreview || "No preview available."}
                   </pre>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Tab 3: Variables & Tags */}
-          {activeTab === "variables" && (
-            <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
-              <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
-                {/* Standard Tags List */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>
-                    Standard Conversation Tags
-                  </div>
-                  <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 16 }}>
-                    Click any variable tag to copy it to your clipboard for pasting into any prompt section.
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
-                    {VARIABLE_TAGS.map((v) => (
-                      <div
-                        key={v.tag}
-                        onClick={() => copyToClipboard(v.tag)}
-                        style={{
-                          padding: "10px 14px",
-                          borderRadius: 8,
-                          border: `1px solid ${C.border}`,
-                          background: C.paperSoft,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          transition: "all 0.15s ease"
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700, color: C.cobalt }}>{v.tag}</div>
-                          <div style={{ fontSize: 11, color: C.slate, marginTop: 2 }}>{v.desc}</div>
-                        </div>
-                        <span style={{ fontSize: 10, color: copiedTag === v.tag ? "#16A34A" : C.slate }}>
-                          {copiedTag === v.tag ? <Check size={14} /> : <Copy size={13} />}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
             </div>

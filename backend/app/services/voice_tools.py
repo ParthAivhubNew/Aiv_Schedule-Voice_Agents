@@ -72,6 +72,14 @@ async def _context(db, brief) -> Dict[str, Any]:
     else:
         ctx = await context_resolver.resolve_inbound(db, brief.phone or "unknown")
     ctx["direction"] = brief.direction
+    try:  # the business's booking rules (meeting length, types, timezone wording) apply to the tools too
+        from app.services.booking_policy import normalize_booking_policy
+        from app.services.calendar_service import calendar_service
+
+        setting = await calendar_service.get_or_create_settings(db)
+        ctx["booking_policy"] = normalize_booking_policy(getattr(setting, "booking_policy", None))
+    except Exception as err:
+        logger.debug(f"[voice-tools] booking policy skipped: {err}")
     return ctx
 
 

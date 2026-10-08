@@ -34,9 +34,9 @@ function HowToGetANumber({ price }) {
   const credits = (n) => `${n.toLocaleString()} Voice credit${n === 1 ? "" : "s"}`;
   const cost = [setup > 0 && `Setup: ${credits(setup)}`, monthly > 0 && `then ${credits(monthly)} a month`].filter(Boolean).join(", ");
   const steps = [
-    [BadgeCheck, "Verify your business", "UK rules require the phone network to know who uses each number. Upload your documents here; they are checked, usually within about 72 hours."],
-    [Search, "Choose your number", `Search by town or area code and buy it.${cost ? ` ${cost}.` : ""}`],
-    [Phone, "Start calling", "It becomes your caller ID straight away, and you can turn on WhatsApp for it."],
+    [Search, "Choose your number", `Type the town or area code you want and pick a number.${cost ? ` ${cost}.` : ""}`],
+    [BadgeCheck, "Tell us about your business", "UK rules say we must know who uses each number. Choose company or sole trader, then upload your documents. We check them, usually within 3 days."],
+    [Phone, "Start calling", "Your number switches on and becomes your caller ID. You can also turn on WhatsApp for it."],
   ];
   return (
     <div style={card}>
@@ -54,7 +54,7 @@ function HowToGetANumber({ price }) {
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>What you need for step 1</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>What you need for step 2</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
         {[[Building2, "Registered company", "Certificate of incorporation, plus a utility bill under 3 months old showing the business name and address."],
           [User, "Sole trader", "Passport or photo ID, plus a utility bill under 3 months old showing your name and address."]].map(([Icon, title, text]) => (
@@ -65,7 +65,7 @@ function HowToGetANumber({ price }) {
         ))}
       </div>
       <div style={{ fontSize: 12, color: C.slate, marginTop: 10 }}>
-        Files as PDF, JPG or PNG, up to 10 MB each. The form lists exactly what is needed when you start.
+        Files as PDF, JPG or PNG, up to 10 MB each. The next screen lists exactly what is needed.
       </div>
     </div>
   );
@@ -160,10 +160,10 @@ function VerificationWizard({ onDone, onCancel }) {
   return (
     <div style={card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <div style={h2}>Verify your business</div>
+        <div style={h2}>Tell us about your business</div>
         <span style={{ fontSize: 12, color: C.slate }}>Step {step} of 2</span>
       </div>
-      <p style={sub}>UK regulators need to know who uses each number. Your documents are checked, usually within about 72 hours.</p>
+      <p style={sub}>To switch your number on, we check who will use it. This usually takes up to 3 days.</p>
 
       {step === 1 && (
         <>
@@ -225,7 +225,7 @@ function VerificationWizard({ onDone, onCancel }) {
   );
 }
 
-function BuyNumber({ verified, onOrdered }) {
+function BuyNumber({ verified, hasVerification, onOrdered }) {
   const [q, setQ] = useState({ locality: "", area: "" });
   const [results, setResults] = useState(null);
   const [busy, setBusy] = useState("");
@@ -263,7 +263,7 @@ function BuyNumber({ verified, onOrdered }) {
   return (
     <div style={card}>
       <div style={h2}>Get a UK number</div>
-      <p style={sub}>{verified ? "Search by town or area code." : "You can search now; buying needs your business verified first."}</p>
+      <p style={sub}>{verified ? "Search by town or area code." : "Type the town or area code you want. You will tell us about your business next, then your number is set up."}</p>
       <form onSubmit={search} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: "2 1 180px" }}>
           <MapPin size={14} color={C.slateLight} style={{ position: "absolute", left: 11, top: 11 }} />
@@ -287,10 +287,17 @@ function BuyNumber({ verified, onOrdered }) {
               <div style={{ fontSize: 12.5, color: C.slate, textAlign: "right" }}>{numberPrice(n)}
                 {n.telnyxMonthlyCost != null && <><br /><span title="What Telnyx charges us (only Outreach staff see this)">Telnyx: {n.telnyxMonthlyCost} {n.telnyxCurrency}/mo</span></>}
               </div>
-              <button type="button" style={btn(true, !verified || busy)} disabled={!verified || Boolean(busy)} onClick={() => buy(n)}
-                title={verified ? "Buy this number" : "Verify your business first"}>
-                {busy === n.phoneNumber ? <Loader2 size={14} className="nx-spin" /> : <ShoppingCart size={14} />} Buy
-              </button>
+              {verified ? (
+                <button type="button" style={btn(true, Boolean(busy))} disabled={Boolean(busy)} onClick={() => buy(n)} title="Buy this number">
+                  {busy === n.phoneNumber ? <Loader2 size={14} className="nx-spin" /> : <ShoppingCart size={14} />} Buy
+                </button>
+              ) : (
+                <button type="button" style={btn(true, hasVerification)} disabled={hasVerification}
+                  title={hasVerification ? "You can buy a number as soon as your business details are approved" : "Next: tell us about your business"}
+                  onClick={() => document.getElementById("business-details")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+                  {hasVerification ? "Awaiting approval" : "Continue"}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -413,8 +420,8 @@ export function NumbersPage() {
       if (r.signup?.url && win) win.location.href = r.signup.url;
       else if (win) win.close();
       setNote(r.live ? `WhatsApp is on for ${n.e164}.`
-        : r.signup ? "Finish the WhatsApp signup in the new tab: log in with Facebook, enter your business name and pick this number. WhatsApp switches on here by itself once Meta approves."
-          : `WhatsApp asked for ${n.e164}. We will contact you to finish Meta's business check, then it switches on.`);
+        : r.signup ? "Finish the WhatsApp signup in the new tab: log in with Facebook, enter your business name and pick this number. WhatsApp switches on here by itself once it is approved."
+          : `WhatsApp asked for ${n.e164}. We will contact you to finish the business check, then it switches on.`);
       load();
     } catch (err) {
       if (win) win.close();
@@ -442,15 +449,17 @@ export function NumbersPage() {
         <div style={{ ...card, background: C.redSoft, borderColor: "#F0C4B8", fontSize: 13, color: C.red }}>{data.account.error}</div>
       )}
 
-      {data.platformReady && (wizard || !v) ? (
-        <VerificationWizard onCancel={() => setWizard(false)} onDone={() => { setWizard(false); load(); }} />
-      ) : v ? (
-        <Tracker v={v} onRedo={() => setWizard(true)} />
-      ) : null}
+      {data.platformReady && <BuyNumber verified={verified} hasVerification={Boolean(v)} onOrdered={load} />}
+
+      <div id="business-details">
+        {data.platformReady && (wizard || !v) ? (
+          <VerificationWizard onCancel={() => setWizard(false)} onDone={() => { setWizard(false); load(); }} />
+        ) : v ? (
+          <Tracker v={v} onRedo={() => setWizard(true)} />
+        ) : null}
+      </div>
 
       {data.platformReady && <AllowedCountriesCard initialCountries={data.allowedCountries} onSaved={load} />}
-
-      {data.platformReady && <BuyNumber verified={verified} onOrdered={load} />}
 
       {(pendingOrders.length > 0 || failedOrders.length > 0) && (
         <div style={card}>
@@ -479,7 +488,7 @@ export function NumbersPage() {
               <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14 }}>{n.e164}</span>
               {n.isDefault && <span style={{ fontSize: 11, fontWeight: 700, color: C.cobalt, background: C.cobaltSoft, padding: "2px 8px", borderRadius: 99 }}>Default caller ID</span>}
               {n.capabilities.includes("whatsapp") && <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 99 }}>WhatsApp</span>}
-              {n.capabilities.includes("whatsapp_requested") && <span title={signups[n.id] ? "Waiting for the WhatsApp signup to finish with Meta." : "The Outreach team will contact you to finish Meta's WhatsApp business check for this number."} style={{ fontSize: 11, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "2px 8px", borderRadius: 99 }}>WhatsApp being set up</span>}
+              {n.capabilities.includes("whatsapp_requested") && <span title={signups[n.id] ? "Waiting for the WhatsApp signup to finish." : "The Outreach team will contact you to finish the WhatsApp business check for this number."} style={{ fontSize: 11, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "2px 8px", borderRadius: 99 }}>WhatsApp being set up</span>}
               {signups[n.id]?.status === "failed" && <span title={signups[n.id].error} style={{ fontSize: 11, fontWeight: 700, color: C.red, background: C.redSoft, padding: "2px 8px", borderRadius: 99 }}>WhatsApp signup failed</span>}
               <span style={{ flex: 1 }} />
               {!n.capabilities.includes("whatsapp") && !n.capabilities.includes("whatsapp_requested") && (
@@ -505,12 +514,12 @@ export function NumbersPage() {
                   {signups[n.id].url
                     ? <a href={signups[n.id].url} target="_blank" rel="noopener noreferrer" style={{ color: C.cobalt, fontWeight: 600 }}>Continue WhatsApp signup</a>
                     : signups[n.id].expired ? <span>The signup link ran out. Cancel and turn WhatsApp on again for a new one.</span>
-                      : <span>Signup sent to Meta{signups[n.id].telnyxStatus ? ` (${signups[n.id].telnyxStatus})` : ""}. We check every few minutes.</span>}
+                      : <span>Signup sent to WhatsApp. We check every few minutes.</span>}
                   {signups[n.id].code && <span>WhatsApp code sent to this number: <b style={{ fontFamily: FONT_MONO, color: C.ink }}>{signups[n.id].code}</b></span>}
                   <button type="button" style={btn(false)} onClick={async () => {
                     try {
                       const r = await api.checkWhatsapp(n.id);
-                      setNote(r.live ? `WhatsApp is on for ${n.e164}.` : "Not live yet. Meta is still checking; this page updates by itself.");
+                      setNote(r.live ? `WhatsApp is on for ${n.e164}.` : "Not live yet. WhatsApp is still checking; this page updates by itself.");
                       load();
                     } catch (err) { setError(err.message); }
                   }}>Check now</button>
@@ -521,7 +530,7 @@ export function NumbersPage() {
                   the row gives no explanation at all once the one-time toast has gone. */}
               {n.capabilities.includes("whatsapp_requested") && !signups[n.id] && (
                 <div style={{ flexBasis: "100%", fontSize: 12.5, color: C.slate, paddingLeft: 27 }}>
-                  The OutReach team completes Meta's WhatsApp business check for this number by hand — there is nothing more to do here. We will contact you once it is live.
+                  The OutReach team completes the WhatsApp business check for this number by hand — there is nothing more to do here. We will contact you once it is live.
                 </div>
               )}
             </div>

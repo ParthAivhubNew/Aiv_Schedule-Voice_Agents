@@ -42,6 +42,15 @@ async def _can_research(db: AsyncSession) -> None:
         raise HTTPException(status_code=402, detail=why)
 
 
+async def _can_deep_search(db: AsyncSession) -> None:
+    """Deep web search (Google Places) uses its own Leads credit price; refuse when out."""
+    from app.services.credits import can_start
+
+    ok, why = await can_start(db, "google_deep_search")
+    if not ok:
+        raise HTTPException(status_code=402, detail=why)
+
+
 async def _charge_leads(db: AsyncSession, count: int, what: str) -> None:
     """Charge leads researched, once each. Never fails the request."""
     import uuid
@@ -55,6 +64,21 @@ async def _charge_leads(db: AsyncSession, count: int, what: str) -> None:
         await db.commit()
     except Exception as err:
         logging.getLogger(__name__).warning(f"[credits] lead charge skipped: {err}")
+        await db.rollback()
+
+
+async def _charge_deep_search(db: AsyncSession, what: str) -> None:
+    """Charge one Google Places lookup ("Deep web search" -- never named Google to the user).
+    Never fails the request."""
+    import uuid
+
+    from app.services.credits import charge
+
+    try:
+        await charge(db, "google_deep_search", 1, f"deepsearch:{uuid.uuid4().hex[:16]}", what)
+        await db.commit()
+    except Exception as err:
+        logging.getLogger(__name__).warning(f"[credits] deep search charge skipped: {err}")
         await db.rollback()
 
 # Explicit gap-fill phrases only. Bare words like "research" / "missing" / "ok"
@@ -189,9 +213,12 @@ async def discover_accounts(req: DiscoverAccountsRequest, db: AsyncSession = Dep
     try:
         leads = await discover_new_target_accounts(
             query_or_domain=req.query,
-            target_role=req.target_role
+            target_role=req.target_role,
+            db=db,
         )
-        await _charge_leads(db, len(leads or []), f"Found {len(leads or [])} accounts for \"{(req.query or '')[:60]}\"")
+        # Results already in our own store ("tier": "stored") are free -- only newly-found ones are charged.
+        new_count = sum(1 for l in (leads or []) if l.get("tier") != "stored")
+        await _charge_leads(db, new_count, f"Found {new_count} accounts for \"{(req.query or '')[:60]}\"")
         return {
             "success": True,
             "query": req.query,
@@ -311,7 +338,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             try:
                 discovered_leads = await discover_new_target_accounts(
                     query_or_domain=user_text,
-                    target_role=req.target_role
+                    target_role=req.target_role,
+                    db=db,
                 )
             except Exception:
                 pass
@@ -472,7 +500,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 reply_text = "I received your message. How can I further assist your outreach or strategy?"
 
         if plugin_type == "leadgen" and discovered_leads:
-            await _charge_leads(db, len(discovered_leads), f"Found {len(discovered_leads)} leads")
+            new_count = sum(1 for l in discovered_leads if l.get("tier") != "stored")
+            await _charge_leads(db, new_count, f"Found {new_count} leads")
         return {
             "success": True,
             "reply": reply_text,

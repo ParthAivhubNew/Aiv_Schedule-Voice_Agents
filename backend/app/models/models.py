@@ -804,6 +804,9 @@ class SocialAccount(Base):
     status = Column(String, default="disconnected")  # connected, error, disconnected
     last_error = Column(Text, default="")
     last_tested_at = Column(String, nullable=True)
+    # When the access token stops working (UTC); None = no known expiry (Facebook/Instagram page
+    # tokens, hand-pasted tokens). Kept fresh by social_oauth.ensure_fresh_token.
+    expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -1395,6 +1398,7 @@ class LeadAccount(Base):
     source_url = Column(String, default="")
     research = Column(JSON, nullable=True)  # last research run: overview, people, phones, emails, socials, sources
     researched_at = Column(DateTime, nullable=True)
+    research_history = Column(JSON, nullable=True)  # earlier research runs, newest first, each {research, researched_at} -- so re-researching never throws away what an earlier run found
     # Points at the shared, cross-organisation fact about this company (see BusinessRecord below).
     # This org's own notes/status never leave this row; only the shared, public half is pointed to.
     business_record_id = Column(String, ForeignKey("business_records.id"), nullable=True, index=True)
@@ -1497,6 +1501,13 @@ class BusinessRecord(Base):
     officers = Column(JSON, nullable=True)  # [{name, role, appointed_on, ...}] -- fetched per-company, not during a bulk import
     significant_control = Column(JSON, nullable=True)  # [{name, kind, notified_on, ...}] -- who actually owns/controls it
     sources = Column(JSON, nullable=True)  # [{source_id, source_type, confirmed_at}, ...]
+    # The full dossier (team, named contacts, phones, emails, sources, overview) from whichever
+    # organisation's own Research run found the most recently -- this is public fact about the
+    # business, not that organisation's private data, so every other organisation's saved account
+    # for the same company gets it too, for free (see lead_accounts.py's research_account and
+    # _apply_shared_record). Distinct from `sources` above (that's source-attribution bookkeeping;
+    # this holds the research citations as the dossier itself shows them).
+    shared_research = Column(JSON, nullable=True)
     confidence_tier = Column(String, default="scraped")  # verified_registry | scraped | llm_fallback
     raw_data = Column(JSON, nullable=True)  # the FULL original record from each source, keyed by source_id --
     # nothing a source publishes is ever thrown away, even fields with no column of their own yet

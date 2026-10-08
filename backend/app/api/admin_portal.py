@@ -886,6 +886,20 @@ async def put_social_oauth_app(platform: str, body: SocialOAuthAppBody, request:
     return {"app": public_app_dict(app_row)}
 
 
+@router.get("/social-connections")
+async def social_connections(request: Request):
+    """Every organisation's connected social accounts and how long each login lasts, worst first --
+    staff only. Accounts that cannot renew themselves (state expiring/expired) need the customer to
+    reconnect; staff are emailed about those once the daily pass finds them. No tokens are returned."""
+    from app.core.tenancy import system_scope
+    from app.services.social_tokens import connection_report
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            return {"connections": await connection_report(db)}
+
+
 @router.get("/platform-keys")
 async def platform_keys(request: Request):
     """Provider groups with masked keys (never the keys themselves) and the Telnyx assistant."""

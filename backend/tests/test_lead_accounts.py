@@ -59,7 +59,7 @@ async def test_each_company_sees_only_its_own_accounts(db):
         assert (await b.post("/api/leads/accounts", json={"accounts": [{"name": "Acme Only Ltd"}]})).json()["added"] == 1
 
 
-async def test_research_fills_only_empty_fields_and_pays_one_credit_per_find(db, monkeypatch):
+async def test_research_fills_only_empty_fields_and_pays_per_find(db, monkeypatch):
     calls = []
 
     async def fake_research(name, company=None, domain=None, person=None, place=None, page_url=None, **_):
@@ -76,7 +76,7 @@ async def test_research_fills_only_empty_fields_and_pays_one_credit_per_find(db,
     monkeypatch.setattr("app.api.lead_accounts.enrich_prospect_intelligence", fake_research)
     _, token = await make_user(db, "lr", "Admin", org_id="org_acme")
     with org_scope("org_acme"):
-        await K.add_credits(db, "leadgen", 1, source="grant", note="Trial")
+        await K.add_credits(db, "leadgen", 5, source="grant", note="Trial")
         await K.set_org_settings(db, {"enforce": True})
         await db.commit()
     async with _client(token) as c:
@@ -90,7 +90,7 @@ async def test_research_fills_only_empty_fields_and_pays_one_credit_per_find(db,
         r = await c.post(f"/api/leads/accounts/{none['id']}/research")
         assert r.status_code == 200 and r.json()["research"]["overview"] == "" and r.json()["phone"] == ""
         with org_scope("org_acme"):
-            assert await K.wallet_balance(db, "leadgen") == 1
+            assert await K.wallet_balance(db, "leadgen") == 5
 
         r = await c.post(f"/api/leads/accounts/{brig['id']}/research")
         assert r.status_code == 200, r.text
