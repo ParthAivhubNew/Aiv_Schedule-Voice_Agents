@@ -178,8 +178,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
       setEntitlements(res.entitlements || { voice: false, leads: false, social: false });
       setHasAnySubscription(Boolean(res.has_any_subscription));
 
-      if (loadedKeys.length > 0 && !playgroundKey) {
-        setPlaygroundKey(loadedKeys[0].prefix ? `${loadedKeys[0].prefix}...` : "");
+      if (!playgroundKey && newlyCreatedSecret) {
+        setPlaygroundKey(newlyCreatedSecret);
       }
     } catch (err) {
       setError(err.message || "Failed to load API keys.");
@@ -345,6 +345,18 @@ export function DeveloperApiKeysModal({ open, onClose }) {
   };
 
   const handleSendPlaygroundRequest = async () => {
+    if (!playgroundKey.trim() || playgroundKey.includes("...")) {
+      setPlaygroundResponse({
+        status: 401,
+        statusText: "Full Secret Required",
+        durationMs: 0,
+        data: {
+          error: "Please paste your full secret API key (e.g. sk_live_...). Stored keys only show the prefix (sk_live_...) for security, which cannot be used for authentication.",
+        },
+        ok: false,
+      });
+      return;
+    }
     setPlaygroundSending(true);
     setPlaygroundResponse(null);
     const startTime = performance.now();
@@ -1487,34 +1499,37 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                 }}
               >
                 <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, marginBottom: 4 }}>
-                    Active API Key (Bearer Token)
-                  </label>
-                  <select
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.textInk }}>
+                      Active API Key (Bearer Token)
+                    </label>
+                    {playgroundKey && playgroundKey.includes("...") && (
+                      <span style={{ fontSize: 11, color: "#D97706", fontWeight: 600 }}>
+                        ⚠️ Paste full secret
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
                     value={playgroundKey}
                     onChange={(e) => setPlaygroundKey(e.target.value)}
+                    placeholder="Paste full secret key (sk_live_...)"
                     style={{
                       width: "100%",
                       height: 38,
                       borderRadius: 8,
-                      border: `1px solid ${C.border}`,
+                      border: `1px solid ${playgroundKey && playgroundKey.includes("...") ? "#F59E0B" : C.border}`,
                       backgroundColor: "#fff",
                       padding: "0 10px",
-                      fontSize: 12.5,
+                      fontSize: 12,
                       fontFamily: FONT_MONO,
                       outline: "none",
+                      boxSizing: "border-box",
                     }}
-                  >
-                    {keys.length === 0 ? (
-                      <option value="">No keys found (Generate in Active Keys tab)</option>
-                    ) : (
-                      keys.map((k) => (
-                        <option key={k.id} value={k.prefix ? `${k.prefix}...` : ""}>
-                          {k.name} ({k.prefix}...)
-                        </option>
-                      ))
-                    )}
-                  </select>
+                  />
+                  <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>
+                    Paste your full secret key (<code style={{ color: C.cobalt }}>sk_live_...</code>) to authenticate live calls.
+                  </div>
                 </div>
 
                 <div>
