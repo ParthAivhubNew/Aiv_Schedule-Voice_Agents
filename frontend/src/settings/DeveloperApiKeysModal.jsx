@@ -33,69 +33,13 @@ import {
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { navigateHash } from "../utils/route";
-import {
-  MultiLangCodeBlock,
-  SUPPORTED_LANGS,
-  WEBHOOK_LANGS,
-  getVoiceCallSnippets,
-  getCallStatusSnippets,
-  getLeadsSnippets,
-  getSocialPostSnippets,
-  getWalletsSnippets,
-  getWebhookVerificationSnippets,
-  generatePlaygroundSnippet,
-} from "./DeveloperCodeSnippets";
-
-const DEFAULT_PLAYGROUND_PAYLOADS = {
-  "POST /v1/voice/calls": JSON.stringify(
-    {
-      to: "+919876543210",
-      lead_name: "Ramesh Patel",
-      variables: {
-        tender_name: "NHAI Bridge Construction",
-        rfp_number: "RFP-2026-NHAI-402",
-        budget: "$2.4M",
-      },
-    },
-    null,
-    2
-  ),
-  "GET /v1/voice/calls/{call_id}": "",
-  "POST /v1/leads": JSON.stringify(
-    {
-      name: "Apex Infrastructure Ltd",
-      phone: "+919876543210",
-      email: "bids@apexinfra.com",
-      company: "Apex Group",
-      notes: "Commercial tender prospective bidder",
-    },
-    null,
-    2
-  ),
-  "POST /v1/social/posts": JSON.stringify(
-    {
-      topic: "Awarded NHAI Smart Highway EPC Contract for FY2026",
-      platforms: ["linkedin", "twitter"],
-      tone: "professional",
-    },
-    null,
-    2
-  ),
-  "GET /v1/wallets": "",
-};
-
-const DOCS_CATEGORIES = [
-  { id: "all", label: "All APIs", icon: Layers, count: 5 },
-  { id: "voice", label: "Voice AI", icon: Phone, count: 2, color: "#2563EB", bg: "#EFF6FF", border: "#BFDBFE" },
-  { id: "leads", label: "Lead Gen", icon: Users, count: 1, color: "#059669", bg: "#ECFDF5", border: "#A7F3D0" },
-  { id: "social", label: "Social Media", icon: Share2, count: 1, color: "#7C3AED", bg: "#F5F3FF", border: "#DDD6FE" },
-  { id: "wallets", label: "Wallets & Usage", icon: Wallet, count: 1, color: "#D97706", bg: "#FFFBEB", border: "#FDE68A" },
-  { id: "webhooks", label: "Webhooks", icon: Radio, count: 1, color: "#0284C7", bg: "#F0F9FF", border: "#BAE6FD" },
-];
+import { MultiLangCodeBlock, SUPPORTED_LANGS } from "./DeveloperCodeSnippets";
+import { DeveloperDocs } from "./DeveloperDocs";
+import { ENDPOINTS, defaultBody, endpointKey } from "./developerCatalog";
+import { buildSnippet } from "./developerSnippets";
 
 export function DeveloperApiKeysModal({ open, onClose }) {
   const [activeTab, setActiveTab] = useState("keys"); // "keys" | "webhooks" | "playground" | "docs"
-  const [docsCategory, setDocsCategory] = useState("all"); // "all" | "voice" | "leads" | "social" | "wallets" | "webhooks"
   const [keys, setKeys] = useState([]);
   const [availableScopes, setAvailableScopes] = useState([]);
   const [entitlements, setEntitlements] = useState({ voice: false, leads: false, social: false });
@@ -142,8 +86,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
   // --- API Playground State ---
   const [playgroundKey, setPlaygroundKey] = useState("");
   const [playgroundEndpoint, setPlaygroundEndpoint] = useState("POST /v1/voice/calls");
-  const [playgroundCallId, setPlaygroundCallId] = useState("call_sample_9841");
-  const [playgroundRequestBody, setPlaygroundRequestBody] = useState(DEFAULT_PLAYGROUND_PAYLOADS["POST /v1/voice/calls"]);
+  const [playgroundPathId, setPlaygroundPathId] = useState("");
+  const [playgroundRequestBody, setPlaygroundRequestBody] = useState(defaultBody(ENDPOINTS[0]));
   const [playgroundSending, setPlaygroundSending] = useState(false);
   const [playgroundResponse, setPlaygroundResponse] = useState(null);
   const [playgroundSnippetLang, setPlaygroundSnippetLang] = useState("curl");
@@ -338,10 +282,19 @@ export function DeveloperApiKeysModal({ open, onClose }) {
   };
 
   // --- API Playground Handlers ---
-  const handleEndpointSelect = (ep) => {
-    setPlaygroundEndpoint(ep);
+  const handleEndpointSelect = (key) => {
+    const ep = ENDPOINTS.find((e) => endpointKey(e) === key) || ENDPOINTS[0];
+    setPlaygroundEndpoint(key);
     setPlaygroundResponse(null);
-    setPlaygroundRequestBody(DEFAULT_PLAYGROUND_PAYLOADS[ep] || "");
+    setPlaygroundRequestBody(defaultBody(ep));
+    setPlaygroundPathId(ep.pathParam ? ep.pathParam.example : "");
+  };
+
+  // The request the playground will send: method, full path (with the id filled in) and whether it carries a body.
+  const playgroundRequest = () => {
+    const ep = ENDPOINTS.find((e) => endpointKey(e) === playgroundEndpoint) || ENDPOINTS[0];
+    const path = ep.pathParam ? ep.path.replace(`{${ep.pathParam.name}}`, (playgroundPathId || ep.pathParam.example).trim()) : ep.path;
+    return { ep, method: ep.method, path, hasBody: ep.method !== "GET" && ep.method !== "DELETE" };
   };
 
   const handleSendPlaygroundRequest = async () => {
@@ -361,11 +314,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
     setPlaygroundResponse(null);
     const startTime = performance.now();
     try {
-      const [method, routeTemplate] = playgroundEndpoint.split(" ");
-      let targetPath = routeTemplate;
-      if (targetPath.includes("{call_id}")) {
-        targetPath = targetPath.replace("{call_id}", playgroundCallId.trim() || "call_sample_9841");
-      }
+      const { method, path: targetPath, hasBody } = playgroundRequest();
 
       const headers = {
         "Content-Type": "application/json",
@@ -378,7 +327,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
         method,
         headers,
       };
-      if (method === "POST" && playgroundRequestBody.trim()) {
+      if (hasBody && playgroundRequestBody.trim()) {
         fetchOpts.body = playgroundRequestBody;
       }
 
@@ -414,18 +363,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
 
   // Generate dynamic client code for the current playground request
   const getGeneratedCodeSnippet = () => {
-    const [method, routeTemplate] = playgroundEndpoint.split(" ");
-    let path = routeTemplate;
-    if (path.includes("{call_id}")) {
-      path = path.replace("{call_id}", playgroundCallId.trim() || "call_sample_9841");
-    }
-    return generatePlaygroundSnippet(
-      playgroundSnippetLang,
-      method,
-      path,
-      playgroundKey,
-      playgroundRequestBody
-    );
+    const { method, path, hasBody } = playgroundRequest();
+    return buildSnippet(playgroundSnippetLang, method, path, playgroundKey, hasBody ? playgroundRequestBody : "");
   };
 
   const copyToClipboard = (text, type = "secret", id = "") => {
@@ -1552,26 +1491,24 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                       outline: "none",
                     }}
                   >
-                    <option value="POST /v1/voice/calls">POST /v1/voice/calls (Outbound Voice AI)</option>
-                    <option value="GET /v1/voice/calls/{call_id}">GET /v1/voice/calls/{'{call_id}'} (Call Status & Transcript)</option>
-                    <option value="POST /v1/leads">POST /v1/leads (Create & Enrich Lead)</option>
-                    <option value="POST /v1/social/posts">POST /v1/social/posts (Schedule Post)</option>
-                    <option value="GET /v1/wallets">GET /v1/wallets (Live Balances & Quotas)</option>
+                    {ENDPOINTS.map((e) => (
+                      <option key={endpointKey(e)} value={endpointKey(e)}>{`${e.method} ${e.path.split("?")[0]} (${e.title})`}</option>
+                    ))}
                   </select>
                 </div>
               </div>
 
-              {/* Path parameter input if endpoint contains {call_id} */}
-              {playgroundEndpoint.includes("{call_id}") && (
+              {/* Path parameter input when the endpoint has an {id} */}
+              {playgroundRequest().ep.pathParam && (
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, marginBottom: 4 }}>
-                    Path Parameter: <code>call_id</code>
+                    Path Parameter: <code>{playgroundRequest().ep.pathParam.name}</code>
                   </label>
                   <input
                     type="text"
-                    value={playgroundCallId}
-                    onChange={(e) => setPlaygroundCallId(e.target.value)}
-                    placeholder="e.g. call_sample_9841"
+                    value={playgroundPathId || playgroundRequest().ep.pathParam.example}
+                    onChange={(e) => setPlaygroundPathId(e.target.value)}
+                    placeholder={playgroundRequest().ep.pathParam.example}
                     style={{
                       width: "100%",
                       height: 36,
@@ -1593,7 +1530,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: C.textInk }}>Request JSON Body</span>
-                    {playgroundEndpoint.startsWith("GET") && (
+                    {!playgroundRequest().hasBody && (
                       <span style={{ fontSize: 11, color: C.slate }}>GET endpoints do not use a body</span>
                     )}
                   </div>
@@ -1601,14 +1538,14 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                     rows={11}
                     value={playgroundRequestBody}
                     onChange={(e) => setPlaygroundRequestBody(e.target.value)}
-                    disabled={playgroundEndpoint.startsWith("GET")}
-                    placeholder={playgroundEndpoint.startsWith("GET") ? "No body required for GET" : "{ ... }"}
+                    disabled={!playgroundRequest().hasBody}
+                    placeholder={!playgroundRequest().hasBody ? "No body required for GET" : "{ ... }"}
                     style={{
                       width: "100%",
                       borderRadius: 10,
                       border: `1px solid ${C.border}`,
-                      backgroundColor: playgroundEndpoint.startsWith("GET") ? "#F8FAFC" : "#0F172A",
-                      color: playgroundEndpoint.startsWith("GET") ? C.slate : "#38BDF8",
+                      backgroundColor: !playgroundRequest().hasBody ? "#F8FAFC" : "#0F172A",
+                      color: !playgroundRequest().hasBody ? C.slate : "#38BDF8",
                       fontFamily: FONT_MONO,
                       fontSize: 12,
                       padding: 12,
@@ -1829,613 +1766,13 @@ export function DeveloperApiKeysModal({ open, onClose }) {
             </div>
           )}
 
-          {/* TAB 4: DOCUMENTATION & SDKs */}
+          {/* TAB 4: DOCUMENTATION */}
           {activeTab === "docs" && (
-            <div>
-              {/* Architecture Blueprint: Tender App Case Study */}
-              <div
-                style={{
-                  backgroundColor: "#F0FDF4",
-                  border: "1px solid #BBF7D0",
-                  borderRadius: 14,
-                  padding: "16px 20px",
-                  marginBottom: 24,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                  <div
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 10,
-                      background: "#DCFCE7",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "#16A34A",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Sparkles size={18} />
-                  </div>
-                  <div>
-                    <h4 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700, color: "#14532D" }}>
-                      Integration Blueprint: External Tender Application
-                    </h4>
-                    <p style={{ margin: 0, fontSize: 12.5, color: "#166534", lineHeight: 1.5 }}>
-                      Here is the complete production workflow for how an external system (such as a Tender Management CRM) leverages OutReach:
-                    </p>
-                    <ol style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12, color: "#14532D", lineHeight: 1.6 }}>
-                      <li>
-                        <strong>Account & Subscription:</strong> The partner signs up on OutReach and subscribes to the Voice AI plan (enabling the Pay-First gate).
-                      </li>
-                      <li>
-                        <strong>API Key Generation:</strong> Partner generates a production API key with <code>voice:calls</code> scope.
-                      </li>
-                      <li>
-                        <strong>Outbound Call Dispatch:</strong> When a new tender lead is generated in the partner's app, their backend triggers <code>POST /v1/voice/calls</code> with the customer's phone and custom variables (tender title, submission deadline, budget).
-                      </li>
-                      <li>
-                        <strong>AI Dialogue Execution:</strong> OutReach's AI voice engine answers immediately, speaks fluently in natural tone, and inquires if they wish to submit a bid.
-                      </li>
-                      <li>
-                        <strong>Real-time Webhook Notification:</strong> When the call finishes, OutReach dispatches a signed <code>call.completed</code> webhook containing call duration, customer sentiment, AI summary, and full audio transcript.
-                      </li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-
-              {/* API Authentication & Headers */}
-              <div style={{ marginBottom: 24 }}>
-                <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 16, margin: "0 0 6px", color: C.textInk, fontWeight: 700 }}>
-                  API Authentication
-                </h3>
-                <p style={{ fontSize: 13, color: C.slate, margin: 0, lineHeight: 1.5 }}>
-                  Provide your secret API key in the <code>Authorization</code> header using the standard Bearer scheme:
-                </p>
-                <div
-                  style={{
-                    backgroundColor: "#0F172A",
-                    borderRadius: 10,
-                    padding: "10px 14px",
-                    marginTop: 8,
-                    border: "1px solid #1E293B",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 12.5, color: "#38BDF8", whiteSpace: "pre" }}>
-                    {`Authorization: Bearer ${(keys && keys[0] && keys[0].prefix) ? `${keys[0].prefix}...` : "sk_live_your_api_key_here"}`}
-                  </pre>
-                </div>
-              </div>
-
-              {/* Endpoint Catalog Header & Category Switcher */}
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
-                  <div>
-                    <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 16, margin: "0 0 4px", color: C.textInk, fontWeight: 700 }}>
-                      Endpoint Reference
-                    </h3>
-                    <p style={{ fontSize: 12.5, color: C.slate, margin: 0 }}>
-                      Filter by service module to inspect endpoints, parameter schemas, and multi-language client snippets.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Category Filter Pills */}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-                  {DOCS_CATEGORIES.map((cat) => {
-                    const Icon = cat.icon;
-                    const isSel = docsCategory === cat.id;
-                    return (
-                      <button
-                        key={cat.id}
-                        onClick={() => setDocsCategory(cat.id)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "6px 12px",
-                          borderRadius: 8,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          border: isSel ? `1.5px solid ${cat.color || C.cobalt}` : `1px solid ${C.borderLight}`,
-                          backgroundColor: isSel ? (cat.bg || C.cobaltSoft) : "#fff",
-                          color: isSel ? (cat.color || C.cobalt) : C.slate,
-                          transition: "all 0.15s ease",
-                        }}
-                      >
-                        <Icon size={14} color={isSel ? (cat.color || C.cobalt) : C.slate} />
-                        <span>{cat.label}</span>
-                        <span
-                          style={{
-                            fontSize: 10,
-                            padding: "1px 6px",
-                            borderRadius: 10,
-                            backgroundColor: isSel ? "#fff" : "#F1F5F9",
-                            color: isSel ? (cat.color || C.cobalt) : C.slate,
-                            fontWeight: 700,
-                          }}
-                        >
-                          {cat.count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* ── CATEGORY 1: VOICE AI ── */}
-                {(docsCategory === "all" || docsCategory === "voice") && (
-                  <div style={{ marginBottom: 24 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "10px 14px",
-                        backgroundColor: "#EFF6FF",
-                        border: "1px solid #BFDBFE",
-                        borderRadius: 10,
-                        marginBottom: 14,
-                      }}
-                    >
-                      <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: "#DBEAFE", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563EB" }}>
-                        <Phone size={15} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1E40AF" }}>Voice AI APIs</div>
-                        <div style={{ fontSize: 11.5, color: "#3B82F6" }}>
-                          Automated outbound calling, conversational AI agent execution, recordings, transcripts, and status polling.
-                        </div>
-                      </div>
-                      <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 600, padding: "2px 8px", borderRadius: 6, backgroundColor: "#DBEAFE", color: "#1E40AF" }}>
-                        Scope: voice:calls
-                      </span>
-                    </div>
-
-                    {/* Endpoint 1: Outbound Voice AI Call */}
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14, backgroundColor: "#fff" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                        <span style={{ background: "#ECFDF5", color: "#059669", fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>
-                          POST
-                        </span>
-                        <code style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: C.textInk }}>
-                          /v1/voice/calls
-                        </code>
-                        <span style={{ fontSize: 11, color: C.slate, marginLeft: "auto" }}>Trigger Outbound AI Call</span>
-                      </div>
-                      <p style={{ fontSize: 12.5, color: C.slate, margin: "0 0 12px" }}>
-                        Places an automated conversational outbound call with dynamic variables (e.g. tender title, product inquiries, schedule dates).
-                      </p>
-
-                      <MultiLangCodeBlock
-                        snippets={getVoiceCallSnippets((keys && keys[0] && keys[0].prefix) ? `${keys[0].prefix}...` : "sk_live_your_api_key_here")}
-                        title="Client Code"
-                      />
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>Request Payload</div>
-                          <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 12, overflowX: "auto" }}>
-                            <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#38BDF8", whiteSpace: "pre" }}>
-{`{
-  "to": "+919876543210",
-  "lead_name": "Ramesh Patel",
-  "variables": {
-    "tender_name": "NHAI Bridge Construction",
-    "budget": "$2.4M"
-  }
-}`}
-                            </pre>
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>200 OK Response</div>
-                          <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 12, overflowX: "auto" }}>
-                            <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#34D399", whiteSpace: "pre" }}>
-{`{
-  "status": "queued",
-  "call_id": "call_tender_49102",
-  "to": "+919876543210",
-  "created_at": "2026-10-07T14:30:00Z"
-}`}
-                            </pre>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Endpoint 2: Get Call Status & Transcript */}
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14, backgroundColor: "#fff" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                        <span style={{ background: "#EFF6FF", color: "#2563EB", fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>
-                          GET
-                        </span>
-                        <code style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: C.textInk }}>
-                          /v1/voice/calls/{'{call_id}'}
-                        </code>
-                        <span style={{ fontSize: 11, color: C.slate, marginLeft: "auto" }}>Get Call Status & Audio</span>
-                      </div>
-                      <p style={{ fontSize: 12.5, color: C.slate, margin: "0 0 12px" }}>
-                        Polls real-time state, audio duration, recording URL, sentiment, and complete conversational transcript.
-                      </p>
-
-                      <MultiLangCodeBlock
-                        snippets={getCallStatusSnippets((keys && keys[0] && keys[0].prefix) ? `${keys[0].prefix}...` : "sk_live_your_api_key_here", "call_tender_49102")}
-                        title="Client Code"
-                      />
-
-                      <div style={{ marginTop: 10 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>200 OK Response Payload</div>
-                        <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 12, overflowX: "auto" }}>
-                          <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#34D399", whiteSpace: "pre" }}>
-{`{
-  "call_id": "call_tender_49102",
-  "status": "completed",
-  "duration_seconds": 142,
-  "sentiment": "Interested",
-  "summary": "Customer confirmed bid readiness for NHAI bridge tender and requested fee schedule.",
-  "recording_url": "https://storage.outreach.aivhub.com/recordings/call_tender_49102.mp3",
-  "transcript": "AI: Good afternoon Mr. Ramesh Patel... Lead: Yes, send the quotation documents."
-}`}
-                          </pre>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── CATEGORY 2: LEAD GENERATION ── */}
-                {(docsCategory === "all" || docsCategory === "leads") && (
-                  <div style={{ marginBottom: 24 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "10px 14px",
-                        backgroundColor: "#ECFDF5",
-                        border: "1px solid #A7F3D0",
-                        borderRadius: 10,
-                        marginBottom: 14,
-                      }}
-                    >
-                      <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: "#D1FAE5", display: "flex", alignItems: "center", justifyContent: "center", color: "#059669" }}>
-                        <Users size={15} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#065F46" }}>Lead Generation APIs</div>
-                        <div style={{ fontSize: 11.5, color: "#059669" }}>
-                          Ingest prospects and contacts into OutReach for automated enrichment, validation, and calling pipelines.
-                        </div>
-                      </div>
-                      <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 600, padding: "2px 8px", borderRadius: 6, backgroundColor: "#D1FAE5", color: "#065F46" }}>
-                        Scope: leads:search
-                      </span>
-                    </div>
-
-                    {/* Endpoint: Create / Ingest Lead */}
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14, backgroundColor: "#fff" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                        <span style={{ background: "#ECFDF5", color: "#059669", fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>
-                          POST
-                        </span>
-                        <code style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: C.textInk }}>
-                          /v1/leads
-                        </code>
-                        <span style={{ fontSize: 11, color: C.slate, marginLeft: "auto" }}>Ingest & Enrich Lead</span>
-                      </div>
-                      <p style={{ fontSize: 12.5, color: C.slate, margin: "0 0 12px" }}>
-                        Adds a new lead to OutReach for contact enrichment, qualification, and scheduling outbound campaigns.
-                      </p>
-
-                      <MultiLangCodeBlock
-                        snippets={getLeadsSnippets((keys && keys[0] && keys[0].prefix) ? `${keys[0].prefix}...` : "sk_live_your_api_key_here")}
-                        title="Client Code"
-                      />
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>Request Payload</div>
-                          <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 12, overflowX: "auto" }}>
-                            <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#38BDF8", whiteSpace: "pre" }}>
-{`{
-  "name": "Sarah Jenkins",
-  "email": "sarah.j@contractingltd.com",
-  "phone": "+14155552671",
-  "company": "Jenkins Infrastructure Corp",
-  "notes": "Interested in highway construction tenders"
-}`}
-                            </pre>
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>200 OK Response</div>
-                          <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 12, overflowX: "auto" }}>
-                            <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#34D399", whiteSpace: "pre" }}>
-{`{
-  "lead_id": "p_89410294ab",
-  "name": "Sarah Jenkins",
-  "phone": "+14155552671",
-  "company": "Jenkins Infrastructure Corp",
-  "status": "new",
-  "created_at": "2026-10-07T14:35:00Z"
-}`}
-                            </pre>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── CATEGORY 3: SOCIAL MEDIA AUTOMATION ── */}
-                {(docsCategory === "all" || docsCategory === "social") && (
-                  <div style={{ marginBottom: 24 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "10px 14px",
-                        backgroundColor: "#F5F3FF",
-                        border: "1px solid #DDD6FE",
-                        borderRadius: 10,
-                        marginBottom: 14,
-                      }}
-                    >
-                      <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: "#EDE9FE", display: "flex", alignItems: "center", justifyContent: "center", color: "#7C3AED" }}>
-                        <Share2 size={15} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#5B21B6" }}>Social Media Automation APIs</div>
-                        <div style={{ fontSize: 11.5, color: "#7C3AED" }}>
-                          AI-generated posts and scheduled multi-platform publishing across LinkedIn, Twitter/X, and Facebook.
-                        </div>
-                      </div>
-                      <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 600, padding: "2px 8px", borderRadius: 6, backgroundColor: "#EDE9FE", color: "#5B21B6" }}>
-                        Scope: social:publish
-                      </span>
-                    </div>
-
-                    {/* Endpoint: Schedule Social Post */}
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14, backgroundColor: "#fff" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                        <span style={{ background: "#ECFDF5", color: "#059669", fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>
-                          POST
-                        </span>
-                        <code style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: C.textInk }}>
-                          /v1/social/posts
-                        </code>
-                        <span style={{ fontSize: 11, color: C.slate, marginLeft: "auto" }}>Generate & Schedule Post</span>
-                      </div>
-                      <p style={{ fontSize: 12.5, color: C.slate, margin: "0 0 12px" }}>
-                        Generates high-converting social media copy from a topic and schedules it across connected social profiles.
-                      </p>
-
-                      <MultiLangCodeBlock
-                        snippets={getSocialPostSnippets((keys && keys[0] && keys[0].prefix) ? `${keys[0].prefix}...` : "sk_live_your_api_key_here")}
-                        title="Client Code"
-                      />
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>Request Payload</div>
-                          <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 12, overflowX: "auto" }}>
-                            <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#38BDF8", whiteSpace: "pre" }}>
-{`{
-  "topic": "Awarded NHAI Smart Highway EPC Contract for FY2026",
-  "platforms": ["linkedin", "twitter"],
-  "tone": "professional",
-  "publish_at": "2026-10-15T09:00:00Z"
-}`}
-                            </pre>
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>200 OK Response</div>
-                          <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 12, overflowX: "auto" }}>
-                            <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#34D399", whiteSpace: "pre" }}>
-{`{
-  "status": "scheduled",
-  "topic": "Awarded NHAI Smart Highway EPC Contract for FY2026",
-  "platforms": ["linkedin", "twitter"],
-  "publish_at": "2026-10-15T09:00:00Z",
-  "message": "Social media post queued for processing."
-}`}
-                            </pre>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── CATEGORY 4: WALLETS & USAGE ── */}
-                {(docsCategory === "all" || docsCategory === "wallets") && (
-                  <div style={{ marginBottom: 24 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "10px 14px",
-                        backgroundColor: "#FFFBEB",
-                        border: "1px solid #FDE68A",
-                        borderRadius: 10,
-                        marginBottom: 14,
-                      }}
-                    >
-                      <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: "#FEF3C7", display: "flex", alignItems: "center", justifyContent: "center", color: "#D97706" }}>
-                        <Wallet size={15} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>Wallets & Usage APIs</div>
-                        <div style={{ fontSize: 11.5, color: "#B45309" }}>
-                          Check live balances, remaining call minutes, and subscription active status across wallets.
-                        </div>
-                      </div>
-                      <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 600, padding: "2px 8px", borderRadius: 6, backgroundColor: "#FEF3C7", color: "#92400E" }}>
-                        Scope: full_access
-                      </span>
-                    </div>
-
-                    {/* Endpoint: Check Wallets */}
-                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14, backgroundColor: "#fff" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                        <span style={{ background: "#EFF6FF", color: "#2563EB", fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>
-                          GET
-                        </span>
-                        <code style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: C.textInk }}>
-                          /v1/wallets
-                        </code>
-                        <span style={{ fontSize: 11, color: C.slate, marginLeft: "auto" }}>Live Balance Check</span>
-                      </div>
-                      <p style={{ fontSize: 12.5, color: C.slate, margin: "0 0 12px" }}>
-                        Returns live wallet balances and entitlement status to prevent service disruptions.
-                      </p>
-
-                      <MultiLangCodeBlock
-                        snippets={getWalletsSnippets((keys && keys[0] && keys[0].prefix) ? `${keys[0].prefix}...` : "sk_live_your_api_key_here")}
-                        title="Client Code"
-                      />
-
-                      <div style={{ marginTop: 10 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>200 OK Response Payload</div>
-                        <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 12, overflowX: "auto" }}>
-                          <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#34D399", whiteSpace: "pre" }}>
-{`{
-  "org_id": "org_default",
-  "wallets": {
-    "voice": { "credits": 450, "currency": "min", "active": true },
-    "leads": { "credits": 1200, "currency": "lead", "active": true },
-    "social": { "credits": 25, "currency": "post", "active": true }
-  }
-}`}
-                          </pre>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ── CATEGORY 5: WEBHOOKS & REAL-TIME EVENTS ── */}
-              {(docsCategory === "all" || docsCategory === "webhooks") && (
-                <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${C.borderLight}` }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "10px 14px",
-                      backgroundColor: "#F0F9FF",
-                      border: "1px solid #BAE6FD",
-                      borderRadius: 10,
-                      marginBottom: 14,
-                    }}
-                  >
-                    <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: "#E0F2FE", display: "flex", alignItems: "center", justifyContent: "center", color: "#0284C7" }}>
-                      <Radio size={15} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#0369A1" }}>Webhooks & Event Subscriptions</div>
-                      <div style={{ fontSize: 11.5, color: "#0284C7" }}>
-                        Receive real-time push events when calls complete or change state, signed with HMAC-SHA256.
-                      </div>
-                    </div>
-                    <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 600, padding: "2px 8px", borderRadius: 6, backgroundColor: "#E0F2FE", color: "#0369A1" }}>
-                      HMAC Signature Security
-                    </span>
-                  </div>
-
-                  <p style={{ fontSize: 12.5, color: C.slate, margin: "0 0 14px", lineHeight: 1.5 }}>
-                    Every webhook request includes an <code>X-Outreach-Signature</code> header formatted as <code>t=timestamp,v1=signature</code>.
-                    Compute HMAC-SHA256 over <code>t={'{timestamp}'}.{'{raw_request_body}'}</code> using your endpoint secret (<code>whsec_...</code>) to prevent tampering.
-                  </p>
-
-                  <MultiLangCodeBlock
-                    snippets={getWebhookVerificationSnippets((webhooks && webhooks[0] && webhooks[0].secret) ? webhooks[0].secret : "whsec_live_your_endpoint_secret_here")}
-                    availableLangs={WEBHOOK_LANGS}
-                    defaultLang="node"
-                    title="Verify Signature"
-                  />
-
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: "uppercase" }}>
-                      Sample Incoming Webhook Payload (call.completed)
-                    </div>
-                    <div style={{ backgroundColor: "#0F172A", borderRadius: 8, padding: 14, overflowX: "auto" }}>
-                      <pre style={{ margin: 0, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, color: "#F8FAFC", whiteSpace: "pre" }}>
-{`{
-  "event": "call.completed",
-  "created_at": "2026-10-07T14:32:10Z",
-  "data": {
-    "call_id": "call_tender_49102",
-    "lead_name": "Ramesh Patel",
-    "phone": "+919876543210",
-    "sentiment": "Interested",
-    "duration_seconds": 142,
-    "summary": "Customer confirmed bid readiness for NHAI bridge tender and requested fee schedule.",
-    "recording_url": "https://storage.outreach.aivhub.com/recordings/call_tender_49102.mp3",
-    "transcript": "AI: Good afternoon Mr. Ramesh Patel... Lead: Yes, send the quotation documents."
-  }
-}`}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Direct Link to Swagger UI (Hidden for now; preserved for future use) */}
-              {false && (
-                <div
-                  style={{
-                    marginTop: 24,
-                    padding: "16px 20px",
-                    borderRadius: 12,
-                    backgroundColor: "#F8FAFC",
-                    border: `1px solid ${C.border}`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <div>
-                    <h4 style={{ margin: "0 0 2px", fontSize: 14, fontWeight: 700, color: C.textInk }}>
-                      Interactive OpenAPI / Swagger Docs
-                    </h4>
-                    <p style={{ margin: 0, fontSize: 12, color: C.slate }}>
-                      Access the complete auto-generated REST specification, schemas, and error responses.
-                    </p>
-                  </div>
-                  <a
-                    href="/docs"
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      backgroundColor: "#fff",
-                      border: `1px solid ${C.border}`,
-                      color: C.cobalt,
-                      padding: "8px 14px",
-                      borderRadius: 8,
-                      fontWeight: 600,
-                      fontSize: 12.5,
-                      textDecoration: "none",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    Open /docs <ExternalLink size={13} />
-                  </a>
-                </div>
-              )}
-            </div>
+            <DeveloperDocs
+              apiKey={playgroundKey && !playgroundKey.includes("...") ? playgroundKey : "sk_test_YOUR_KEY"}
+              events={supportedEvents}
+              webhookSecret={webhooks && webhooks[0] ? webhooks[0].secret : ""}
+            />
           )}
         </div>
 

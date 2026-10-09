@@ -22,6 +22,9 @@ const CLIENT_FILES = [
   "plugins/voice/calling/numberCheck.js",
   "team/NumbersTab.jsx",
   "plugins/leadgen/CheckCompanies.jsx",
+  "settings/developerCatalog.js",
+  "settings/developerSnippets.js",
+  "settings/DeveloperDocs.jsx",
 ];
 
 // Words a person can read: string literals that contain a space, and text between JSX tags.
