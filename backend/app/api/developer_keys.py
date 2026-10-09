@@ -19,11 +19,21 @@ from app.services.entitlement import get_org_entitlements, SCOPE_TO_SERVICE
 router = APIRouter(prefix="/developer/keys", tags=["Developer API"])
 
 AVAILABLE_SCOPES = [
-    {"id": "voice:calls", "label": "Voice Assistant", "desc": "Can trigger outbound calls, fetch recordings and transcripts", "service": "voice"},
-    {"id": "leads:search", "label": "Lead Generation", "desc": "Can search and enrich company and contact leads", "service": "leads"},
-    {"id": "social:publish", "label": "Social Scheduler", "desc": "Can generate copy and schedule/publish social posts", "service": "social"},
-    {"id": "wallets:read", "label": "Wallets & Usage", "desc": "Can check remaining balances and credit quotas", "service": "any"},
+    {"id": "voice:calls", "label": "Phone calls", "desc": "Make AI phone calls, steer them, take over, and read the results", "service": "voice"},
+    {"id": "leads:search", "label": "Find leads", "desc": "Search companies by area, find contacts, check emails, phones and companies", "service": "leads"},
+    {"id": "email:write", "label": "Email campaigns (create)", "desc": "Draft email campaigns for approval and read their results", "service": "leads"},
+    {"id": "email:approve", "label": "Email campaigns (approve)", "desc": "Approve or reject email campaigns so they send", "service": "leads"},
+    {"id": "social:write", "label": "Social posts (create)", "desc": "Create, preview and edit social posts", "service": "social"},
+    {"id": "social:approve", "label": "Social posts (approve)", "desc": "Approve or reject social posts so they publish", "service": "social"},
+    {"id": "calendar:book", "label": "Meetings", "desc": "See open times and book, move or cancel meetings", "service": "any"},
+    {"id": "wallets:read", "label": "Balance and prices", "desc": "Check remaining credits and what each action costs", "service": "any"},
 ]
+FREE_SCOPES = ("wallets:read", "calendar:book")  # no plan needed
+SERVICE_SCOPES = {
+    "voice": ["voice:calls"],
+    "leads": ["leads:search", "email:write", "email:approve"],
+    "social": ["social:write", "social:approve"],
+}
 
 
 def admin_ctx(request: Request) -> Dict[str, Any]:
@@ -100,28 +110,24 @@ async def create_api_key(
     entitlements = await get_org_entitlements(db, ctx["org_id"])
     has_any = any(entitlements.values())
 
-    if not has_any:
+    # A test key (sk_test_) is free and simulated, so it needs no plan. A live key needs one.
+    if body.live and not has_any:
         raise HTTPException(
             status_code=402,
             detail="Subscription required. You must subscribe to at least one service (Voice, Leads, or Social) before generating API keys."
         )
 
-    # Validate that every requested scope belongs to an active subscribed service
+    known = {a["id"] for a in AVAILABLE_SCOPES}
     clean_scopes = []
     for s in body.scopes:
         if s == "full_access":
-            if not all(entitlements.values()):
-                # Auto-downgrade to only the scopes for services they actually own
-                for svc, is_on in entitlements.items():
-                    if is_on:
-                        if svc == "voice": clean_scopes.append("voice:calls")
-                        elif svc == "leads": clean_scopes.append("leads:search")
-                        elif svc == "social": clean_scopes.append("social:publish")
-                continue
-            clean_scopes.append("full_access")
-        elif s == "wallets:read":
+            for svc, is_on in entitlements.items():
+                if is_on or not body.live:
+                    clean_scopes += SERVICE_SCOPES.get(svc, [])
+            clean_scopes += list(FREE_SCOPES)
+        elif s in FREE_SCOPES or (s in known and not body.live):
             clean_scopes.append(s)
-        elif s in SCOPE_TO_SERVICE:
+        elif s in SCOPE_TO_SERVICE and s in known:
             svc_needed = SCOPE_TO_SERVICE[s]
             if not entitlements.get(svc_needed):
                 label = svc_needed.capitalize()
@@ -133,11 +139,7 @@ async def create_api_key(
 
     clean_scopes = list(dict.fromkeys(clean_scopes))  # remove duplicates preserving order
     if not clean_scopes:
-        # Default to first active service
-        if entitlements.get("voice"): clean_scopes = ["voice:calls"]
-        elif entitlements.get("leads"): clean_scopes = ["leads:search"]
-        elif entitlements.get("social"): clean_scopes = ["social:publish"]
-        else: clean_scopes = ["wallets:read"]
+        clean_scopes = ["wallets:read"]
 
     raw_key, prefix, hashed_key = generate_api_key(live=body.live)
     key_id = f"key_{uuid.uuid4().hex[:12]}"

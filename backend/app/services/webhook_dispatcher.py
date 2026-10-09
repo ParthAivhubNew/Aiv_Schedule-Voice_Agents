@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import secrets
 import time
 import uuid
@@ -24,37 +25,59 @@ from app.models.models import WebhookDeliveryLog, WebhookEndpoint
 logger = logging.getLogger("webhook_dispatcher")
 
 SUPPORTED_EVENTS = [
-    {
-        "id": "call.completed",
-        "label": "Call Completed",
-        "desc": "Triggered when an AI phone call concludes, providing transcript, duration, sentiment, and summary",
-        "service": "voice",
-    },
-    {
-        "id": "call.started",
-        "label": "Call Started",
-        "desc": "Triggered when an outbound call is answered by a customer",
-        "service": "voice",
-    },
-    {
-        "id": "call.failed",
-        "label": "Call Failed",
-        "desc": "Triggered when a call could not be completed (busy, unanswered, rejected, carrier error)",
-        "service": "voice",
-    },
-    {
-        "id": "lead.created",
-        "label": "Lead Created",
-        "desc": "Triggered when a new prospective lead is added or imported",
-        "service": "leads",
-    },
-    {
-        "id": "social.published",
-        "label": "Social Post Published",
-        "desc": "Triggered when a scheduled social media post is successfully published",
-        "service": "social",
-    },
+    {"id": "call.completed", "label": "Call completed", "service": "voice",
+     "desc": "An AI phone call finished. Includes the outcome, answers, transcript and any booked meeting."},
+    {"id": "call.failed", "label": "Call failed", "service": "voice",
+     "desc": "A call could not be completed (busy, unanswered, rejected, carrier error)."},
+    {"id": "call.needs_human", "label": "Call needs a person", "service": "voice",
+     "desc": "The AI asked for a person to step in, or the caller asked for one. Take over from the live call page."},
+    {"id": "social.post.ready", "label": "Post ready to approve", "service": "social",
+     "desc": "A post was written and is waiting for approval. Includes the preview link."},
+    {"id": "social.post.approved", "label": "Post approved", "service": "social",
+     "desc": "A post was approved (by link, email, the app or the API) and is scheduled."},
+    {"id": "social.post.published", "label": "Post published", "service": "social",
+     "desc": "A post went live on its channels."},
+    {"id": "social.post.failed", "label": "Post failed", "service": "social",
+     "desc": "A post could not be published. Includes the reason."},
+    {"id": "leads.search.completed", "label": "Lead search finished", "service": "leads",
+     "desc": "A lead search (and any checks you asked for) is done."},
+    {"id": "email.campaign.ready", "label": "Campaign ready to approve", "service": "leads",
+     "desc": "An email campaign was drafted and is waiting for approval. Includes the preview link."},
+    {"id": "email.campaign.approved", "label": "Campaign approved", "service": "leads",
+     "desc": "An email campaign was approved and started sending."},
+    {"id": "email.campaign.completed", "label": "Campaign finished", "service": "leads",
+     "desc": "Every email in the campaign has been sent."},
 ]
+API_VERSION = "2026-10"
+# A failed delivery is tried again after each of these waits (seconds). Kept in memory:
+# a restart drops retries that are still waiting.
+RETRY_DELAYS = (10, 60)
+
+
+def url_problem(url: str) -> Optional[str]:
+    """Why a webhook address is not allowed, or None. Only the customer's own servers: never our network."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    u = urlparse((url or "").strip())
+    host = (u.hostname or "").lower()
+    if u.scheme not in ("https", "http") or not host:
+        return "Webhook URLs must start with https://."
+    if host in ("localhost", "127.0.0.1", "::1"):
+        allowed = os.getenv("ALLOW_LOCAL_WEBHOOKS", "true").lower() in ("1", "true", "yes")
+        return None if allowed else "That address is not allowed."
+    if u.scheme != "https":
+        return "Webhook URLs must use HTTPS."
+    try:
+        infos = socket.getaddrinfo(host, u.port or 443, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return "We could not find that address. Check the URL."
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            return "That address points inside a private network, which is not allowed."
+    return None
 
 
 def generate_webhook_secret() -> str:
@@ -76,13 +99,16 @@ async def deliver_to_endpoint(
     event_id: str,
     event_type: str,
     data: Dict[str, Any],
+    test: bool = False,
 ) -> Dict[str, Any]:
     """Delivers an event to a single webhook endpoint and logs the result."""
     now_ts = int(time.time())
     envelope = {
         "id": event_id,
         "event": event_type,
-        "created_at": datetime.utcnow().isoformat(),
+        "api_version": API_VERSION,
+        "livemode": not test,
+        "created_at": datetime.utcnow().isoformat() + "Z",
         "org_id": endpoint.org_id,
         "data": data,
     }
@@ -102,13 +128,20 @@ async def deliver_to_endpoint(
     response_body = ""
     error_msg: Optional[str] = None
     success = False
+    blocked = False
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        problem = await asyncio.get_running_loop().run_in_executor(None, url_problem, endpoint.url)
+        if problem:
+            blocked = True
+            raise PermissionError(problem)
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             resp = await client.post(endpoint.url, content=payload_bytes, headers=headers)
             status_code = resp.status_code
             response_body = resp.text[:1000]
             success = 200 <= resp.status_code < 300
+    except PermissionError as refused:
+        error_msg = str(refused)
     except httpx.TimeoutException:
         error_msg = "Delivery timed out after 10.0 seconds."
     except httpx.RequestError as re:
@@ -150,10 +183,21 @@ async def deliver_to_endpoint(
         "status_code": status_code,
         "duration_ms": duration_ms,
         "error": error_msg,
+        "blocked": blocked,
     }
 
 
-async def _async_dispatch(org_id: str, event_type: str, data: Dict[str, Any]):
+async def _deliver_with_retries(ep: WebhookEndpoint, event_id: str, event_type: str, data: Dict[str, Any], test: bool) -> None:
+    for wait in (0, *RETRY_DELAYS):
+        if wait:
+            await asyncio.sleep(wait)
+        result = await deliver_to_endpoint(ep, event_id, event_type, data, test)
+        # A refused address or a "no" from their server will not change by asking again.
+        if result["success"] or result["blocked"] or (result.get("status_code") or 0) in (400, 401, 403, 404, 410):
+            return
+
+
+async def _async_dispatch(org_id: str, event_type: str, data: Dict[str, Any], test: bool = False):
     """Internal background task to query endpoints and dispatch."""
     event_id = f"evt_{uuid.uuid4().hex[:14]}"
     try:
@@ -173,19 +217,24 @@ async def _async_dispatch(org_id: str, event_type: str, data: Dict[str, Any]):
         if not matching:
             return
 
-        tasks = [deliver_to_endpoint(ep, event_id, event_type, data) for ep in matching]
+        tasks = [_deliver_with_retries(ep, event_id, event_type, data, test) for ep in matching]
         await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as err:
         logger.warning(f"[Webhook Dispatch Error] {event_type} for {org_id}: {err}")
 
 
-def dispatch_event(org_id: str, event_type: str, data: Dict[str, Any]) -> None:
+_PENDING: set = set()
+
+
+def dispatch_event(org_id: str, event_type: str, data: Dict[str, Any], test: bool = False) -> None:
     """Non-blocking fire-and-forget dispatch of a webhook event."""
     if not org_id:
         return
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_async_dispatch(org_id, event_type, data))
+        task = loop.create_task(_async_dispatch(org_id, event_type, data, test))
+        _PENDING.add(task)  # keep a reference so the task is not dropped before it finishes
+        task.add_done_callback(_PENDING.discard)
     except RuntimeError:
         # Running outside active event loop
-        asyncio.run(_async_dispatch(org_id, event_type, data))
+        asyncio.run(_async_dispatch(org_id, event_type, data, test))

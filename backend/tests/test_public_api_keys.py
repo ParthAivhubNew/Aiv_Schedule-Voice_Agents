@@ -71,7 +71,7 @@ async def test_staff_see_and_switch_off_customer_keys_and_webhooks(db, admin_tok
 
     secret, key_id = await _new_key(admin_token)
     async with _http(admin_token) as c:
-        r = await c.post("/api/developer/webhooks", json={"url": "https://example.com/hook", "events": ["call.completed"]})
+        r = await c.post("/api/developer/webhooks", json={"url": "http://localhost:9/hook", "events": ["call.completed"]})
     hook_id = r.json()["endpoint"]["id"]
 
     with system_scope():

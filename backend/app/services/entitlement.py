@@ -33,7 +33,11 @@ WALLET_TO_LABEL: Dict[str, str] = {
 SCOPE_TO_SERVICE: Dict[str, str] = {
     "voice:calls": "voice",
     "leads:search": "leads",
-    "social:publish": "social",
+    "social:publish": "social",  # older keys; the two finer scopes below replace it
+    "social:write": "social",
+    "social:approve": "social",
+    "email:write": "leads",  # email sends are paid from the Leads wallet
+    "email:approve": "leads",
 }
 
 

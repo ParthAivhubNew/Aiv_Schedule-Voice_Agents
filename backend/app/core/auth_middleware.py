@@ -353,6 +353,7 @@ async def _api_key_ctx(raw_key: str) -> Optional[Dict[str, Any]]:
                 "org_id": row.org_id,
                 "name": row.name,
                 "scopes": row.scopes or ["full_access"],
+                "test": raw_key.startswith("sk_test_"),
                 "operator_id": row.created_by_id or "api_client",
                 "username": f"key:{row.prefix}",
                 "is_admin": "full_access" in (row.scopes or []),

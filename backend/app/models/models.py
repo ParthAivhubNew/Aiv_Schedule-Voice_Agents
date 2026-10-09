@@ -1601,3 +1601,46 @@ class WebhookDeliveryLog(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
+
+
+# ── Public /v1 API support tables ─────────────────────────────────────────────
+class PublicApiIdempotency(Base):
+    """A POST sent with an Idempotency-Key: the answer is kept so a retry gets the same answer, not a second action."""
+    __tablename__ = "public_api_idempotency"
+
+    id = Column(String, primary_key=True)  # "<org>:<key>"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    key = Column(String, nullable=False)
+    fingerprint = Column(String, nullable=False)  # method + path + body: the same key must mean the same request
+    state = Column(String, default="running")  # running | done
+    status_code = Column(Integer, nullable=True)
+    body = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PublicApiAudit(Base):
+    """One row per API request: who (which key), what, and how it went. Never holds request bodies or secrets."""
+    __tablename__ = "public_api_audit"
+
+    id = Column(String, primary_key=True, default=lambda: f"aud_{uuid.uuid4().hex[:14]}")
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    key_id = Column(String, index=True)
+    request_id = Column(String, index=True)
+    method = Column(String)
+    path = Column(String)
+    status = Column(Integer)
+    ms = Column(Integer, default=0)
+    ip = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PublicObject(Base):
+    """Small records the public API owns: test-mode (sandbox) objects and email-campaign approvals."""
+    __tablename__ = "public_objects"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    kind = Column(String, index=True)  # sandbox_call | sandbox_post | sandbox_search | sandbox_campaign | email_approval
+    data = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.auth_middleware import current
+from app.public_api.core import V1Route, authorize
 from app.database import get_db
 from app.models.models import CallLog, LiveCall, Prospect, SocialPost
 from app.services import credits as K
@@ -25,7 +26,7 @@ from app.services.outbound_dial import place_outbound_call
 from app.services.telephony_provider import normalize_phone_number
 
 logger = logging.getLogger("v1_public_api")
-router = APIRouter(prefix="/v1", tags=["Public API v1"])
+router = APIRouter(prefix="/v1", tags=["Public API v1"], route_class=V1Route)
 
 
 # ── Pydantic Request Models ──────────────────────────────────────────────────
@@ -137,27 +138,17 @@ async def create_or_search_lead(
     db: AsyncSession = Depends(get_db),
 ):
     """Add a new lead to OutReach for enrichment and prospective outreach."""
-    ctx = current(request)
-    org_id = ctx["org_id"]
-
-    await require_service_entitlement(db, org_id, "leads")
-
-    scopes = ctx.get("scopes", ["full_access"])
-    if not any(s in ("full_access", "leads:search") for s in scopes):
-        raise HTTPException(
-            status_code=403,
-            detail="Your API key does not have the 'leads:search' permission.",
-        )
+    await authorize(request, db, "leads:search", "leads")
 
     prospect_id = f"p_{uuid.uuid4().hex[:10]}"
+    note = "\n".join(x for x in ((f"Company: {body.company.strip()}" if body.company else ""), (body.notes or "").strip()) if x)
     prospect = Prospect(
         id=prospect_id,
         name=body.name.strip(),
         phone=body.phone or "",
         email=body.email or "",
-        company=body.company or "",
-        notes=body.notes or "",
-        status="new",
+        note=note,
+        status="queued",
         created_at=datetime.utcnow(),
     )
     db.add(prospect)
@@ -168,7 +159,7 @@ async def create_or_search_lead(
         "lead_id": prospect.id,
         "name": prospect.name,
         "phone": prospect.phone,
-        "company": prospect.company,
+        "company": body.company or "",
         "status": prospect.status,
         "created_at": prospect.created_at.isoformat(),
     }
@@ -241,10 +232,18 @@ async def get_wallet_balances(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Check live wallet balances and credit quotas for the authenticated organisation."""
+    """Credits left, what each action costs, and what this key is allowed to do."""
     ctx = current(request)
     wallets = await K.wallets(db)
+    card = await K.rates(db)
     return {
         "org_id": ctx["org_id"],
         "wallets": wallets,
+        "prices": [
+            {"item": item, "label": r.get("label", item), "unit": r.get("unit", ""), "credits": r.get("credits", 0),
+             "wallet": r.get("wallet", ""), "charged": bool(r.get("charged", True))}
+            for item, r in card.items()
+        ],
+        "key": {"id": ctx.get("key_id"), "name": ctx.get("name"), "scopes": ctx.get("scopes") or ["full_access"],
+                "test_mode": bool(ctx.get("test"))},
     }

@@ -4,6 +4,7 @@ obtain signing secrets, and trigger test ping deliveries.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -21,6 +22,7 @@ from app.services.webhook_dispatcher import (
     SUPPORTED_EVENTS,
     deliver_to_endpoint,
     generate_webhook_secret,
+    url_problem,
 )
 
 logger = logging.getLogger("developer_webhooks")
@@ -57,6 +59,13 @@ def _format_endpoint(ep: WebhookEndpoint) -> Dict[str, Any]:
     }
 
 
+async def _check_url(url: str) -> None:
+    """Only the customer's own servers: https, and never an address inside a private network."""
+    problem = await asyncio.get_running_loop().run_in_executor(None, url_problem, url)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+
+
 @router.get("")
 async def list_webhooks(request: Request, db: AsyncSession = Depends(get_db)):
     """List all webhook endpoints configured for the authenticated organisation."""
@@ -83,11 +92,7 @@ async def create_webhook(
     ctx = admin_ctx(request)
     url = body.url.strip()
 
-    if not url.startswith("https://") and not (url.startswith("http://localhost") or url.startswith("http://127.0.0.1")):
-        raise HTTPException(
-            status_code=400,
-            detail="Webhook URLs must use HTTPS (or localhost for development).",
-        )
+    await _check_url(url)
 
     # Filter events to known supported events
     clean_events = [e for e in body.events if any(se["id"] == e for se in SUPPORTED_EVENTS)]
@@ -132,8 +137,7 @@ async def update_webhook(
 
     if body.url is not None:
         url = body.url.strip()
-        if not url.startswith("https://") and not (url.startswith("http://localhost") or url.startswith("http://127.0.0.1")):
-            raise HTTPException(status_code=400, detail="Webhook URLs must use HTTPS.")
+        await _check_url(url)
         ep.url = url
     if body.description is not None:
         ep.description = body.description.strip()
