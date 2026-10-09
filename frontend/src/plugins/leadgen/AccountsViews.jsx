@@ -224,7 +224,28 @@ function SiteLink({ account }) {
 
 // ---------------------------------------------------------------- Saved Accounts
 // Columns a person can hide from their own view of the table (kept in their browser; nothing is deleted).
-const BUILT_IN_COLUMNS = [["phone", "Phone"], ["contact", "Contact"], ["check", "Check"], ["source", "Found by"]];
+const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["check", "Check"], ["source", "Found by"]];
+const ROLE_INBOXES = new Set(["info", "sales", "admin", "contact", "hello", "office", "enquiries", "enquiry", "support", "accounts", "mail", "team", "hr", "jobs", "careers", "marketing", "service", "bookings", "orders", "reception", "help", "general"]);
+
+// What a row can honestly show for "Contact" and "Email": what is saved on the company first, then what its
+// research found, so a researched company is never shown as empty while its dossier holds the details.
+export function contactFor(a) {
+  if (a.contact_name) return { text: a.contact_name, title: a.contact_title || "", fromResearch: false };
+  const r = a.research || {};
+  const person = (r.team || []).find((t) => t.name) || (r.people || []).find((t) => t.name);
+  if (person) return { text: person.name, title: person.title || person.role || "", fromResearch: true };
+  const named = (r.email_contacts || []).find((c) => c.name);
+  if (named) return { text: named.name, title: "", fromResearch: true };
+  const mailbox = [...(r.team || []).map((t) => t.email), ...(r.emails || [])].find((e) => /^[a-z]{2,}[._-][a-z]{2,}@/i.test(e || "") && !ROLE_INBOXES.has(String(e).split(/[._-]|@/)[0].toLowerCase()));
+  if (mailbox) return { text: mailbox, title: "", fromResearch: true };
+  return null;
+}
+export function emailFor(a) {
+  if (a.email) return { text: a.email, fromResearch: false };
+  const r = a.research || {};
+  const found = (r.emails || [])[0] || (r.team || []).map((t) => t.email).find(Boolean);
+  return found ? { text: found, fromResearch: true } : null;
+}
 const HIDDEN_KEY = "aivhub_accounts_hidden_columns";
 const readHidden = () => {
   try { const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; }
@@ -271,7 +292,7 @@ function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
 
 const ACCOUNT_CHIPS = [
   ["all", "All", () => true],
-  ["contact", "Has contact", (a) => a.contact_name || a.email],
+  ["contact", "Has contact", (a) => contactFor(a) || emailFor(a)],
   ["researched", "Researched", (a) => a.researched_at],
 ];
 
@@ -300,7 +321,7 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
   const toggleColumn = (id) => saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
   const showing = (id) => !hidden.includes(id);
   const shownOwn = own.filter((n) => showing(`c:${n}`));
-  const columnCount = 2 + ["phone", "contact", "check", "source"].filter(showing).length + shownOwn.length + 1;
+  const columnCount = 2 + ["phone", "email", "contact", "check", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
   // Verdict filters appear once some companies have been checked.
   const verdictChips = VERDICT_ORDER
@@ -320,7 +341,7 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
   const stats = [
     ["Saved accounts", store.accounts.length],
     ["With a phone", store.accounts.filter((a) => a.phone).length],
-    ["With a contact", store.accounts.filter((a) => a.contact_name || a.email).length],
+    ["With a contact", store.accounts.filter((a) => contactFor(a) || emailFor(a)).length],
     ["Researched", store.accounts.filter((a) => a.researched_at).length],
   ];
   return (
@@ -372,6 +393,7 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
                 </th>
                 <th>Company</th>
                 {showing("phone") ? <th>Phone</th> : null}
+                {showing("email") ? <th>Email</th> : null}
                 {showing("contact") ? <th>Contact</th> : null}
                 {showing("check") ? <th>Check</th> : null}
                 {showing("source") ? <th>Found by</th> : null}
@@ -388,7 +410,16 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
                     <div style={{ fontSize: 12, marginTop: 1 }}><SiteLink account={a} /></div>
                   </td>
                   {showing("phone") ? <td style={{ fontVariantNumeric: "tabular-nums" }}>{a.phone || <span style={{ color: C.slateLight }}>Not found</span>}</td> : null}
-                  {showing("contact") ? <td>{a.contact_name ? <>{a.contact_name}{a.contact_title ? <span style={{ color: C.slate }}> · {a.contact_title}</span> : null}</> : <span style={{ color: C.slateLight }}>Not found</span>}</td> : null}
+                  {showing("email") ? <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={emailFor(a)?.text || ""}>
+                    {emailFor(a) ? emailFor(a).text : <span style={{ color: C.slateLight }}>Not found</span>}</td> : null}
+                  {showing("contact") ? (
+                    <td>
+                      {contactFor(a)
+                        ? <>{contactFor(a).text}{contactFor(a).title ? <span style={{ color: C.slate }}> · {contactFor(a).title}</span> : null}
+                          {contactFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}</>
+                        : <span style={{ color: C.slateLight }}>Not found</span>}
+                    </td>
+                  ) : null}
                   {showing("check") ? <td><VerdictBadge verification={a.verification} /></td> : null}
                   {showing("source") ? <td style={{ color: C.slate }}>{SOURCE_LABEL[a.source] || "Added by hand"}</td> : null}
                   {shownOwn.map((n) => (
