@@ -20,6 +20,7 @@ from app.core.auth_middleware import current
 from app.public_api.core import V1Route, authorize
 from app.public_api.social import router as social_router
 from app.public_api.voice import router as voice_router
+from app.public_api.leads import router as leads_router
 from app.database import get_db
 from app.models.models import CallLog, LiveCall, Prospect, SocialPost
 from app.services import credits as K
@@ -33,57 +34,6 @@ router = APIRouter(prefix="/v1", tags=["Public API v1"], route_class=V1Route)
 
 # ── Pydantic Request Models ──────────────────────────────────────────────────
 
-class V1CreateLeadRequest(BaseModel):
-    name: str = Field(..., description="Prospect or business contact name")
-    phone: Optional[str] = Field(None, description="Contact phone number")
-    email: Optional[str] = Field(None, description="Contact email address")
-    company: Optional[str] = Field(None, description="Company or organisation name")
-    notes: Optional[str] = Field(None, description="Lead notes or qualification criteria")
-
-
-class V1ScheduleSocialPostRequest(BaseModel):
-    topic: str = Field(..., description="Theme or topic of the social post")
-    platforms: List[str] = Field(default_factory=lambda: ["linkedin"], description="Target platforms (linkedin, twitter, facebook)")
-    tone: Optional[str] = Field("professional", description="Tone of voice")
-    publish_at: Optional[str] = Field(None, description="ISO timestamp for future scheduling, or null to publish now")
-
-
-# ── Lead Generation Endpoints ────────────────────────────────────────────────
-
-@router.post("/leads")
-async def create_or_search_lead(
-    body: V1CreateLeadRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """Add a new lead to OutReach for enrichment and prospective outreach."""
-    await authorize(request, db, "leads:search", "leads")
-
-    prospect_id = f"p_{uuid.uuid4().hex[:10]}"
-    note = "\n".join(x for x in ((f"Company: {body.company.strip()}" if body.company else ""), (body.notes or "").strip()) if x)
-    prospect = Prospect(
-        id=prospect_id,
-        name=body.name.strip(),
-        phone=body.phone or "",
-        email=body.email or "",
-        note=note,
-        status="queued",
-        created_at=datetime.utcnow(),
-    )
-    db.add(prospect)
-    await db.commit()
-    await db.refresh(prospect)
-
-    return {
-        "lead_id": prospect.id,
-        "name": prospect.name,
-        "phone": prospect.phone,
-        "company": body.company or "",
-        "status": prospect.status,
-        "created_at": prospect.created_at.isoformat(),
-    }
-
-
 # ── Account Wallets & Quotas ─────────────────────────────────────────────────
 
 @router.get("/wallets")
@@ -91,10 +41,27 @@ async def get_wallet_balances(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Credits left, what each action costs, and what this key is allowed to do."""
+    """Credits left, what each action costs, what is connected and what this key is allowed to do."""
+    from app.models.models import EmailMailbox, OrgPhoneNumber, SocialAccount
+    from app.public_api import links
+    from app.services import billing as B
+
     ctx = current(request)
     wallets = await K.wallets(db)
     card = await K.rates(db)
+    channels = [{"channel": a.platform, "status": a.status, "name": a.label or a.handle or ""}
+                for a in (await db.execute(select(SocialAccount))).scalars().all()]
+    mailboxes = [{"email": m.email, "status": m.status, "daily_limit": m.daily_cap}
+                 for m in (await db.execute(select(EmailMailbox))).scalars().all()]
+    numbers = [n.e164 for n in (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.status == "active"))).scalars().all()]
+    sub = await B.subscription_row(db)
+    setup = [
+        {"item": "social_channels", "ok": any(c["status"] == "connected" for c in channels), "needed_for": "social posts",
+         "fix_url": links.fix_url("social_accounts")},
+        {"item": "mailbox", "ok": any(m["status"] in ("active", "graduated", "warming", "connected") for m in mailboxes),
+         "needed_for": "email campaigns", "fix_url": links.fix_url("mailboxes")},
+        {"item": "phone_number", "ok": bool(numbers), "needed_for": "phone calls", "fix_url": links.fix_url("numbers")},
+    ]
     return {
         "org_id": ctx["org_id"],
         "wallets": wallets,
@@ -103,6 +70,9 @@ async def get_wallet_balances(
              "wallet": r.get("wallet", ""), "charged": bool(r.get("charged", True))}
             for item, r in card.items()
         ],
+        "plan": {"status": getattr(sub, "status", None) or "none", "services": sorted((getattr(sub, "plans", None) or {}).keys())},
+        "connected": {"social_channels": channels, "mailboxes": mailboxes, "phone_numbers": numbers},
+        "setup": setup,
         "key": {"id": ctx.get("key_id"), "name": ctx.get("name"), "scopes": ctx.get("scopes") or ["full_access"],
                 "test_mode": bool(ctx.get("test"))},
     }
@@ -110,3 +80,4 @@ async def get_wallet_balances(
 
 router.include_router(social_router)
 router.include_router(voice_router)
+router.include_router(leads_router)
