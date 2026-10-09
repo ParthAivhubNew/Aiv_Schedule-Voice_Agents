@@ -290,6 +290,7 @@ function FindLeadsSearch({ store }) {
     try { const n = Number(localStorage.getItem("aivhub_find_page_size")); return PAGE_SIZES.includes(n) ? n : 25; } catch { return 25; }
   });
   const pageRef = useRef(pageSize);
+  const AREA_FIRST = 50; // a drawn area first shows this many straight away; the user can ask for more
   const widenRef = useRef(false); // the drawn area's count found nothing for the typed words, so nearby words are used
   // How the typed words were read ("dentist" also looks for "dental"), and the words the user took out.
   const [understood, setUnderstood] = useState([]);
@@ -403,7 +404,11 @@ function FindLeadsSearch({ store }) {
       const r = await api.areaCount({ filters: formToFilters(f), area: shape, drop_terms: drop });
       widenRef.current = Boolean(r.widened);
       setUnderstood(r.understood || []);
-      setAreaStep({ phase: "choose", candidates: r.candidates, capped: r.capped });
+      if (r.candidates) {
+        showFromArea(shape, Math.min(AREA_FIRST, r.candidates), r.candidates, f, drop); // show a few at once, then offer more
+      } else {
+        setAreaStep({ phase: "choose", candidates: 0, capped: r.capped });
+      }
     } catch (err) {
       setAreaStep(null);
       setError(err.message || "The area couldn't be counted. Try again.");
@@ -411,7 +416,7 @@ function FindLeadsSearch({ store }) {
   };
 
   // Step 2: read the area in steps until there are as many as the user asked for (or none are left).
-  const showFromArea = async (shape, target, candidates) => {
+  const showFromArea = async (shape, target, candidates, f = form, drop = dropTerms) => {
     stopArea.current = false;
     const got = [];
     let scan = 0;
@@ -424,7 +429,7 @@ function FindLeadsSearch({ store }) {
     try {
       while (more && !stopArea.current && got.length < target) {
         setAreaStep({ phase: "running", found: got.length, scanned: scan, candidates });
-        const r = await api.searchCompanies({ filters: formToFilters(form), area: shape, scan, exclude_ids: excluded, drop_terms: dropTerms, widen: widenRef.current });
+        const r = await api.searchCompanies({ filters: formToFilters(f), area: shape, scan, exclude_ids: excluded, drop_terms: drop, widen: widenRef.current });
         if (stopArea.current) break;
         if (r.points) setPoints((p) => ({ ...p, ...r.points }));
         got.push(...r.companies);
@@ -692,7 +697,12 @@ function FindLeadsSearch({ store }) {
                           ? `Showing ${areaStep.shown.toLocaleString()}${areaStep.candidates ? ` of up to ${areaStep.candidates.toLocaleString()}` : ""} companies in this area · ${pinCount.toLocaleString()} on the map.`
                           : "No companies from our data are inside this exact shape."}
                       </span>
-                      {areaStep.candidates ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setAreaStep({ phase: "choose", candidates: areaStep.candidates })}>Change how many</button> : null}
+                      {areaStep.candidates ? amountChoices(areaStep.candidates).filter((o) => o.value > (areaStep.shown || 0)).slice(0, 3).map((o) => (
+                        <button key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => pickAmount(o.value)}>
+                          Show {o.label}
+                        </button>
+                      )) : null}
+                      {areaStep.candidates ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setAreaStep({ phase: "choose", candidates: areaStep.candidates })}>Choose a number…</button> : null}
                     </>
                   ) : null}
                 </div>
