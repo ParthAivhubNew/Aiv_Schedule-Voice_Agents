@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.core.auth_middleware import current
+from app.api.developer_keys import admin_ctx
 from app.database import get_db
 from app.models.models import WebhookDeliveryLog, WebhookEndpoint
 from app.services.webhook_dispatcher import (
@@ -60,7 +60,7 @@ def _format_endpoint(ep: WebhookEndpoint) -> Dict[str, Any]:
 @router.get("")
 async def list_webhooks(request: Request, db: AsyncSession = Depends(get_db)):
     """List all webhook endpoints configured for the authenticated organisation."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     stmt = (
         select(WebhookEndpoint)
         .where(WebhookEndpoint.org_id == ctx["org_id"])
@@ -80,7 +80,7 @@ async def create_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """Register a new webhook endpoint URL with a generated signing secret."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     url = body.url.strip()
 
     if not url.startswith("https://") and not (url.startswith("http://localhost") or url.startswith("http://127.0.0.1")):
@@ -125,7 +125,7 @@ async def update_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """Update URL, description, events, or active status of a webhook."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     ep = await db.get(WebhookEndpoint, endpoint_id)
     if not ep or ep.org_id != ctx["org_id"]:
         raise HTTPException(status_code=404, detail="Webhook endpoint not found.")
@@ -154,7 +154,7 @@ async def delete_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a webhook endpoint."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     ep = await db.get(WebhookEndpoint, endpoint_id)
     if not ep or ep.org_id != ctx["org_id"]:
         raise HTTPException(status_code=404, detail="Webhook endpoint not found.")
@@ -171,7 +171,7 @@ async def send_test_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """Send a real-time synthetic test event to verify the endpoint is reachable."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     ep = await db.get(WebhookEndpoint, endpoint_id)
     if not ep or ep.org_id != ctx["org_id"]:
         raise HTTPException(status_code=404, detail="Webhook endpoint not found.")
@@ -209,7 +209,7 @@ async def get_webhook_logs(
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch recent delivery attempts for an endpoint."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     ep = await db.get(WebhookEndpoint, endpoint_id)
     if not ep or ep.org_id != ctx["org_id"]:
         raise HTTPException(status_code=404, detail="Webhook endpoint not found.")

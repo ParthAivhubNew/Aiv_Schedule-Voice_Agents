@@ -114,46 +114,18 @@ async def get_call_status(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch real-time state, transcript, recording, and outcome of an AI voice call."""
+    """Fetch the state, transcript and outcome of an AI voice call."""
+    from app.public_api.calls_view import load_call
+
     ctx = current(request)
-    org_id = ctx["org_id"]
-
-    await require_service_entitlement(db, org_id, "voice")
-
-    # Check active live calls first
-    r_live = await db.execute(select(LiveCall).where(LiveCall.id == call_id))
-    live = r_live.scalars().first()
-    if live:
-        return {
-            "call_id": live.id,
-            "status": live.state or "in-progress",
-            "prospect": live.prospect,
-            "started_at": live.created_at.isoformat() if live.created_at else None,
-            "ended": bool(live.ended),
-            "transcript": live.transcript or [],
-            "outcome": live.outcome or "",
-        }
-
-    # Check finished call logs
-    r_log = await db.execute(select(CallLog).where(CallLog.id == call_id))
-    log = r_log.scalars().first()
-    if log:
-        return {
-            "call_id": log.id,
-            "status": "completed",
-            "prospect": log.prospect_name,
-            "phone_number": log.phone_number,
-            "started_at": log.created_at.isoformat() if log.created_at else None,
-            "ended": True,
-            "duration_seconds": log.duration_seconds or 0,
-            "summary": log.summary or "",
-            "sentiment": log.sentiment or "",
-            "recording_url": log.recording_url or "",
-            "transcript": log.transcript or [],
-            "action_items": log.action_items or [],
-        }
-
-    raise HTTPException(status_code=404, detail=f"Call '{call_id}' not found.")
+    await require_service_entitlement(db, ctx["org_id"], "voice")
+    scopes = ctx.get("scopes", ["full_access"])
+    if not any(s in ("full_access", "voice:calls") for s in scopes):
+        raise HTTPException(status_code=403, detail="Your API key does not have the 'voice:calls' permission.")
+    call = await load_call(db, call_id)
+    if not call:
+        raise HTTPException(status_code=404, detail=f"Call '{call_id}' not found.")
+    return {"call_id": call["id"], **call}
 
 
 # ── Lead Generation Endpoints ────────────────────────────────────────────────

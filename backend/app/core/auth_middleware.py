@@ -54,6 +54,18 @@ if os.getenv("EXPOSE_API_DOCS", "true").lower() in ("1", "true", "yes"):
 
 PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]  # carrier audio stream
 
+# Developer API keys reach the public /v1 API only, never the app's own endpoints (team,
+# billing, key management ...). Set API_KEY_V1_ONLY=false to lift this while investigating.
+API_KEY_V1_ONLY = os.getenv("API_KEY_V1_ONLY", "true").lower() in ("1", "true", "yes")
+_V1_PATH = re.compile(r"^/v1(/|$)")
+
+
+def key_may_use(rel_path: str, websocket: bool = False) -> bool:
+    """Whether a developer API key may call this path."""
+    if not API_KEY_V1_ONLY:
+        return True
+    return not websocket and bool(_V1_PATH.match(rel_path))
+
 STAFF_API = re.compile(_OPT_API + r"admin-api(/|$)")
 
 
@@ -240,6 +252,8 @@ class AuthMiddleware:
             key_ctx = await _api_key_ctx(token)
             if not key_ctx:
                 return await _deny(scope, receive, send, 401, "Invalid, revoked, or expired API key.", code="invalid_api_key")
+            if not key_may_use(api_path(path), websocket):
+                return await _deny(scope, receive, send, 403, "API keys can only be used with the /v1 API.", code="key_not_allowed")
             scope.setdefault("state", {})["auth"] = key_ctx
             scope.setdefault("state", {})["api_key"] = key_ctx
             from app.core.tenancy import org_scope

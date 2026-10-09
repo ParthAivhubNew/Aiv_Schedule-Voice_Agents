@@ -26,6 +26,14 @@ AVAILABLE_SCOPES = [
 ]
 
 
+def admin_ctx(request: Request) -> Dict[str, Any]:
+    """Keys and webhooks are managed by an account admin, never by a key and never by a regular user."""
+    ctx = current(request)
+    if ctx.get("type") == "api_key" or not ctx.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Only an account admin can manage API keys and webhooks.")
+    return ctx
+
+
 class CreateApiKeyRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100, description="Friendly label for the API key")
     scopes: List[str] = Field(default_factory=lambda: ["voice:calls"], description="Allowed API capabilities")
@@ -54,7 +62,7 @@ def _format_key(key: ApiKey) -> Dict[str, Any]:
 @router.get("")
 async def list_api_keys(request: Request, db: AsyncSession = Depends(get_db)):
     """List all developer API keys for the current organization along with entitlement status."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     entitlements = await get_org_entitlements(db, ctx["org_id"])
     has_any = any(entitlements.values())
 
@@ -88,7 +96,7 @@ async def create_api_key(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a new developer API key. Rejects if the organization has no active subscription or credits."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     entitlements = await get_org_entitlements(db, ctx["org_id"])
     has_any = any(entitlements.values())
 
@@ -165,7 +173,7 @@ async def update_api_key(
     db: AsyncSession = Depends(get_db),
 ):
     """Enable/disable a key, or change its name or scopes."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     stmt = select(ApiKey).where(ApiKey.id == key_id, ApiKey.org_id == ctx["org_id"])
     row = (await db.execute(stmt)).scalars().first()
     if not row:
@@ -192,7 +200,7 @@ async def revoke_api_key(
     db: AsyncSession = Depends(get_db),
 ):
     """Permanently delete / revoke an API key."""
-    ctx = current(request)
+    ctx = admin_ctx(request)
     stmt = select(ApiKey).where(ApiKey.id == key_id, ApiKey.org_id == ctx["org_id"])
     row = (await db.execute(stmt)).scalars().first()
     if not row:

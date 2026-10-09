@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { ClipboardList, Coins, KeyRound, LayoutDashboard, LogOut, Mail, PoundSterling, ScrollText, ShieldCheck, Users, UserCog, Wallet } from "lucide-react";
+import { ClipboardList, Coins, KeyRound, Plug, LayoutDashboard, LogOut, Mail, PoundSterling, ScrollText, ShieldCheck, Users, UserCog, Wallet } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
 import { AlertsBanner } from "./Alerts";
 import { Balances } from "./Balances";
+import { ApiAccess } from "./ApiAccess";
 import { Billing } from "./Billing";
 import { Clients } from "./Clients";
 import { Dashboard } from "./Dashboard";
@@ -25,6 +26,7 @@ const PAGES = [
   { id: "balances", label: "Balances", icon: Wallet },
   { id: "keys", label: "Platform keys", icon: KeyRound },
   { id: "mailbox", label: "Mailbox", icon: Mail },
+  { id: "api", label: "API access", icon: Plug },
   { id: "logs", label: "Logs", icon: ScrollText },
   { id: "staff", label: "Staff", icon: UserCog },
 ];
@@ -121,6 +123,7 @@ export function AdminApp() {
             <PlatformMailbox canEdit={canEdit} />
           </>
         )}
+        {page === "api" && <ApiAccess canEdit={canEdit} />}
         {page === "logs" && <Logs />}
         {page === "staff" && <Staff me={staff} canEdit={canEdit} />}
       </main>

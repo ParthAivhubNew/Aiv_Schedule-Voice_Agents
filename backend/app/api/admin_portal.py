@@ -1822,3 +1822,55 @@ async def update_balance_checklist(body: ChecklistBody, request: Request):
     async with AsyncSessionLocal() as db:
         return await save_checklist_state(db, [item.model_dump() for item in body.checklist])
 
+
+
+# ── Customers' API keys and webhooks (staff can look and switch off; secrets are never shown) ──
+@router.get("/developer-access")
+async def developer_access(request: Request, org_id: str = ""):
+    """Every customer API key and webhook, or one customer's. Never includes a secret."""
+    _who(request)
+    where = "WHERE k.org_id = :o" if org_id else ""
+    params = {"o": org_id} if org_id else {}
+    async with AsyncSessionLocal() as db:
+        keys = (await db.execute(text(
+            "SELECT k.id, k.org_id, o.name, k.name, k.prefix, k.scopes, k.is_active, k.last_used_at, k.created_at, k.expires_at "
+            f"FROM api_keys k LEFT JOIN organizations o ON o.id = k.org_id {where} ORDER BY k.created_at DESC NULLS LAST LIMIT 500"), params)).all()
+        hooks = (await db.execute(text(
+            "SELECT w.id, w.org_id, o.name, w.url, w.description, w.events, w.is_active, w.last_delivery_at, w.last_delivery_status "
+            f"FROM webhook_endpoints w LEFT JOIN organizations o ON o.id = w.org_id {where.replace('k.', 'w.')} "
+            "ORDER BY w.created_at DESC NULLS LAST LIMIT 500"), params)).all()
+    iso = lambda d: d.isoformat() if d else None  # noqa: E731
+    return {
+        "keys": [{"id": r[0], "orgId": r[1], "orgName": r[2], "name": r[3], "prefix": r[4], "scopes": r[5] or [],
+                  "active": bool(r[6]), "lastUsedAt": iso(r[7]), "createdAt": iso(r[8]), "expiresAt": iso(r[9])} for r in keys],
+        "webhooks": [{"id": r[0], "orgId": r[1], "orgName": r[2], "url": r[3], "description": r[4] or "", "events": r[5] or [],
+                      "active": bool(r[6]), "lastDeliveryAt": iso(r[7]), "lastDeliveryStatus": r[8]} for r in hooks],
+    }
+
+
+@router.post("/developer-access/keys/{key_id}/revoke")
+async def revoke_customer_key(key_id: str, request: Request):
+    """Switch a customer's API key off at once (the customer can see it is off; the record stays)."""
+    from app.core.auth_middleware import forget_api_keys
+
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        res = await db.execute(text("UPDATE api_keys SET is_active = FALSE WHERE id = :i"), {"i": key_id})
+        await db.commit()
+    if not res.rowcount:
+        raise HTTPException(status_code=404, detail="Key not found.")
+    forget_api_keys()
+    logger.info(f"[admin] staff {staff.get('email')} revoked api key {key_id}")
+    return {"id": key_id, "active": False}
+
+
+@router.post("/developer-access/webhooks/{webhook_id}/disable")
+async def disable_customer_webhook(webhook_id: str, request: Request):
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        res = await db.execute(text("UPDATE webhook_endpoints SET is_active = FALSE WHERE id = :i"), {"i": webhook_id})
+        await db.commit()
+    if not res.rowcount:
+        raise HTTPException(status_code=404, detail="Webhook not found.")
+    logger.info(f"[admin] staff {staff.get('email')} disabled webhook {webhook_id}")
+    return {"id": webhook_id, "active": False}
