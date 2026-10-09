@@ -411,6 +411,12 @@ async def set_campaign_status(campaign_id: str, body: StatusBody, request: Reque
         if not has_leads:
             raise HTTPException(status_code=400, detail="Add leads first.")
         camp.status = "running"
+        try:  # pressing Start in the app is an approval too (for campaigns made through the API)
+            from app.public_api.email import note_started_in_app
+
+            note_started_in_app(camp.id)
+        except Exception:
+            pass
     elif body.status == "paused":
         camp.status = "paused"
     else:

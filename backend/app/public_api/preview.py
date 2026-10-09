@@ -131,6 +131,9 @@ async def _handle(request: Request, token: str, form: Optional[Dict[str, str]]) 
     call_data = links.read_token(token, "call")
     if call_data:
         return await _handle_call(call_data["o"], call_data["i"], form)
+    camp_data = links.read_token(token, "campaign")
+    if camp_data:
+        return await _handle_campaign(camp_data["o"], camp_data["i"], form)
     data = links.read_token(token, "post")
     if not data:
         return HTMLResponse(_GONE, status_code=404)
@@ -153,6 +156,31 @@ async def _handle(request: Request, token: str, form: Optional[Dict[str, str]]) 
             company = await _company_name(db)
             tz = await org_timezone(db)
     return HTMLResponse(render(v, token, company, tz, notice))
+
+
+async def _handle_campaign(org: str, campaign_id: str, form: Optional[Dict[str, str]]) -> HTMLResponse:
+    from app.public_api import campaign_page
+    from app.public_api import email as E
+    from app.services.approval_mail import _company_name
+
+    notice = ""
+    with org_scope(org):
+        async with AsyncSessionLocal() as db:
+            try:
+                if form:
+                    notice = await campaign_page.act(db, org, campaign_id, form)
+                if campaign_id.startswith(E.SANDBOX):
+                    o = await db.get(E.PublicObject, campaign_id)
+                    if not o:
+                        return HTMLResponse(_GONE, status_code=404)
+                    v = E._sandbox_view(o, org)
+                else:
+                    v = await E.view(db, await E._campaign(db, campaign_id), org)
+            except ApiError as err:
+                return HTMLResponse(_GONE if err.status == 404 else _page("Campaign", f"<h1>Campaign</h1><div class='card'>{_esc(err.message)}</div>"),
+                                    status_code=err.status)
+            company = await _company_name(db)
+    return HTMLResponse(campaign_page.render(v, company, notice))
 
 
 async def _handle_call(org: str, call_id: str, form: Optional[Dict[str, str]]) -> HTMLResponse:

@@ -1445,9 +1445,9 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     except Exception:
         logger.exception("Sending results email failed")
         await db.rollback()
-    from app.public_api import social_events
+    from app.public_api import events
 
-    await social_events.tick(db, now_ms, due_of)  # tell the customer's webhooks; remind approvers (API posts only)
+    await events.tick(db, now_ms, due_of)  # tell the customer's webhooks; remind approvers (API posts and campaigns only)
     return {"status": "ok", "published": published, "failed": failed, "skipped": skipped,
             "missed": [p.id for p in missed_posts], "retrying": retrying}
 
