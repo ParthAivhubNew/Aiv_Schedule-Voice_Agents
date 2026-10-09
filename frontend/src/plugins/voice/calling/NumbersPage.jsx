@@ -115,6 +115,27 @@ function Tracker({ v, onRedo }) {
 }
 
 // Fields come from Telnyx (they differ per country and number type), so the form is built from them.
+// The carrier's own wording is long legal text. Show a short title, one plain sentence and a
+// short example for the fields we know; anything else gets its first sentence.
+const PLAIN_FIELDS = [
+  [/website|url/, () => ({ title: "Your business website", help: "A live website that shows your business name.", example: "https://www.yourcompany.com" })],
+  [/proof of address|bill|invoice/, () => ({ title: "Proof of address", help: "A recent utility or phone bill (under 3 months old) showing your name or business name and address. Mobile bills and screenshots are not accepted.", example: "" })],
+  [/passport|registration cert|identity|\bid\b/, (e) => e === "sole_trader"
+    ? ({ title: "Photo ID", help: "A clear copy of your passport or driving licence. Your name and photo must be readable.", example: "" })
+    : ({ title: "Company registration certificate", help: "Your certificate of incorporation. It must show the company name, number and registered address.", example: "" })],
+  [/contact/, () => ({ title: "Contact person", help: "Who we can reach about this number: full name, business name and a phone number.", example: "Jane Smith, Acme Ltd, +44 7700 900123" })],
+  [/use case|description/, () => ({ title: "How will you use this number?", help: "Say in a sentence or two what you will use it for. Say whether anyone else will use it.", example: "Outbound sales calls to UK businesses. Only our own team uses this number." })],
+  [/address/, () => ({ title: "Business address", help: "Your real street address. P.O. boxes and virtual offices are not accepted.", example: "" })],
+];
+
+function plainField(f, entity) {
+  const name = String(f.name || "").toLowerCase();
+  const hit = PLAIN_FIELDS.find(([re]) => re.test(name));
+  if (hit) return hit[1](entity);
+  const first = String(f.description || "").split(/(?<=[.!?])\s/)[0];
+  return { title: f.name, help: first.length > 160 ? first.slice(0, 157) + "…" : first, example: "" };
+}
+
 function VerificationWizard({ onDone, onCancel }) {
   const [step, setStep] = useState(1);
   const [entity, setEntity] = useState("company");
@@ -190,8 +211,8 @@ function VerificationWizard({ onDone, onCancel }) {
           <div style={{ display: "grid", gap: 14 }}>
             {(fields || []).map((f) => (
               <div key={f.id}>
-                <label style={label} htmlFor={`req-${f.id}`}>{f.name}</label>
-                {f.description && <div style={{ fontSize: 12, color: C.slate, margin: "-2px 0 6px" }}>{f.description}</div>}
+                <label style={label} htmlFor={`req-${f.id}`}>{plainField(f, entity).title}</label>
+                {plainField(f, entity).help && <div style={{ fontSize: 12, color: C.slate, margin: "-2px 0 6px" }}>{plainField(f, entity).help}</div>}
                 {f.type === "document" ? (
                   <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, border: `1.5px dashed ${files[f.id] ? C.teal : C.border}`, cursor: "pointer", background: files[f.id] ? C.tealSoft : "#FAFAF8" }}>
                     <FileUp size={16} color={files[f.id] ? C.teal : C.slate} />
@@ -206,7 +227,7 @@ function VerificationWizard({ onDone, onCancel }) {
                     <input aria-label={`${f.name} business name`} placeholder="Business name on the bill" style={{ ...input, gridColumn: "1 / -1" }} value={addresses[f.id]?.business_name || ""} onChange={(e) => setAddr(f.id, "business_name", e.target.value)} />
                   </div>
                 ) : (
-                  <input id={`req-${f.id}`} type={f.type === "date" ? "date" : "text"} placeholder={f.example || ""} style={input}
+                  <input id={`req-${f.id}`} type={f.type === "date" ? "date" : "text"} placeholder={plainField(f, entity).example} style={input}
                     value={texts[f.id] || ""} onChange={(e) => setTexts({ ...texts, [f.id]: e.target.value })} />
                 )}
               </div>
