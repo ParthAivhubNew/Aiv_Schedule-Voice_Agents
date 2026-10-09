@@ -353,6 +353,24 @@ async def _lead_account_verification_column(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS verification JSON"))
 
 
+async def _business_record_sic_text_trigram_index(conn: AsyncConnection) -> None:
+    """The Find Leads box looks for a word in the name, the industry AND the official sector text
+    (sic_text). The first two have trigram indexes (see _business_record_search_indexes); this one had
+    none, so one unindexed part made a word like "cafe" scan the whole table in a big town and time out.
+
+    On a big live table build it first without blocking anything, then restart the app (this step then
+    finds it done): docker compose exec postgres psql -U <user> -d <db> -c "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_business_records_sic_text_trgm ON business_records USING GIN (sic_text gin_trgm_ops);"
+    """
+    if conn.dialect.name != "postgresql":
+        return
+    try:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+    except Exception as err:
+        logger.warning(f"Could not enable pg_trgm (sector search will fall back to a plain scan): {err}")
+        return
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_business_records_sic_text_trgm ON business_records USING GIN (sic_text gin_trgm_ops)"))
+
+
 async def _lead_account_custom_column(conn: AsyncConnection) -> None:
     """Saved Accounts keeps the extra columns a user chose to keep from an imported file."""
     await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS custom JSON"))
@@ -702,6 +720,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_29_live_registry_check_config", _live_registry_check_config),
     ("2026_10_30_business_record_postcode_index", _business_record_postcode_index),
     ("2026_10_31_lead_account_custom_column", _lead_account_custom_column),
+    ("2026_11_01_business_record_sic_text_trigram_index", _business_record_sic_text_trigram_index),
 ]
 
 

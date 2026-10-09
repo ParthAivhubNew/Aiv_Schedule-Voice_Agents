@@ -90,7 +90,7 @@ async def test_the_api_counts_then_steps_through_the_area(db, reading):
     _, token = await make_user(db, "mapper", "Admin")
     async with _client(token) as c:
         r = await c.post("/api/leads/search/area-count", json={"filters": {}, "area": SQUARE})
-        assert r.status_code == 200 and r.json() == {"candidates": 5, "capped": False}
+        assert r.status_code == 200 and r.json() == {"candidates": 5, "capped": False, "widened": False, "understood": []}
         assert (await c.post("/api/leads/search/area-count", json={"filters": {}})).status_code == 422
         assert (await c.post("/api/leads/search/area-count", json={"area": [[1, 1], [2, 2]]})).status_code == 422
         r = await c.post("/api/leads/search", json={"filters": {}, "area": SQUARE, "scan": 0})

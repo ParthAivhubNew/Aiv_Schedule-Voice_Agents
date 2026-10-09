@@ -485,6 +485,44 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     return {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f}
 
 
+_DISTRICTS: Dict[str, Any] = {}  # town -> (when, rows); the shared store changes slowly, so a town is counted once in a while
+_DISTRICTS_TTL = 600.0
+_OUTCODE = "^[A-Za-z]{1,2}[0-9][0-9A-Za-z]?"
+
+
+def _natural(code: str):
+    """LS2 before LS10: letters, then the number, then any trailing letter."""
+    m = re.match(r"^([A-Z]+)(\d+)([A-Z]?)$", code)
+    return (m.group(1), int(m.group(2)), m.group(3)) if m else (code, 0, "")
+
+
+async def districts_for_town(db: AsyncSession, town: str, include_closed: bool = False) -> List[Dict[str, Any]]:
+    """The postcode districts (LS1, LS6...) of the companies in one town and how many each has, for the
+    picker next to the Town box. Counts only -- never the companies. Same town match as the search."""
+    import time
+
+    name = re.sub(r"\s+", " ", str(town or "")).strip()[:60]
+    if len(name) < 2:
+        raise ValueError("Type a town first.")
+    key = f"{name.lower()}|{int(bool(include_closed))}"
+    hit = _DISTRICTS.get(key)
+    if hit and time.monotonic() - hit[0] < _DISTRICTS_TTL:
+        return hit[1]
+    B = BusinessRecord
+    code = func.upper(func.substring(B.postcode, _OUTCODE))
+    where = [B.region.ilike(_like(name, exact=True), escape="\\"), code.isnot(None)]
+    if not include_closed:
+        where.append(func.lower(B.status) == "active")
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '15s'"))
+    rows = (await db.execute(select(code, func.count()).where(*where).group_by(code))).all()
+    out = [{"district": d, "count": int(n)} for d, n in sorted(rows, key=lambda r: _natural(r[0])) if d]
+    if len(_DISTRICTS) > 500:
+        _DISTRICTS.clear()
+    _DISTRICTS[key] = (time.monotonic(), out)
+    return out
+
+
 AREA_CHUNK = 1500  # companies read per step from the postcode districts an area touches, before the shape is applied
 AREA_COUNT_CAP = 100_000
 

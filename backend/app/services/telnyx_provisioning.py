@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.future import select
 
+from app.core.brand import scrub
 from app.services.telnyx_client import TelnyxClient, TelnyxError, platform_key
 
 logger = logging.getLogger("telnyx_provisioning")
@@ -200,7 +201,7 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             setup.messaging_profile_id = setup.messaging_profile_id or os.getenv("TELNYX_MESSAGING_PROFILE_ID", "").strip()
         setup.status, setup.last_error = "ready", ""
     except TelnyxError as err:
-        setup.last_error = str(err)[:500]
+        setup.last_error = scrub(err)[:500]
         if not was_ready:  # what already worked (e.g. buying numbers) keeps working
             setup.status = "error"
     return setup
@@ -327,7 +328,7 @@ async def submit_verification(db, client: TelnyxClient, *, country: str, number_
         submitted = await client.submit_requirement_group(sub.requirement_group_id)
         sub.status = str(submitted.get("status") or group.get("status") or "pending-approval")
     except TelnyxError as err:
-        sub.status, sub.reason = "error", str(err)[:500]
+        sub.status, sub.reason = "error", scrub(err)[:500]
     return sub
 
 

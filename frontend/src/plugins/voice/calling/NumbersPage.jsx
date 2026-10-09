@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Building2, CheckCircle2, Clock, FileUp, Loader2, MapPin, Phone, Search, ShieldAlert, ShoppingCart, User, XCircle } from "lucide-react";
+import { BadgeCheck, Building2, CheckCircle2, Clock, FileUp, Info, Loader2, MapPin, Phone, Search, ShieldAlert, ShoppingCart, User, XCircle } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 
@@ -115,25 +115,50 @@ function Tracker({ v, onRedo }) {
 }
 
 // Fields come from Telnyx (they differ per country and number type), so the form is built from them.
-// The carrier's own wording is long legal text. Show a short title, one plain sentence and a
-// short example for the fields we know; anything else gets its first sentence.
+// The carrier's own wording is long legal text. Each field gets a short title, one short line, and
+// the full detail behind an (i) button, so the form stays readable. Unknown fields fall back to the
+// first sentence of the carrier's text, with the rest behind the (i).
 const PLAIN_FIELDS = [
-  [/website|url/, () => ({ title: "Your business website", help: "A live website that shows your business name.", example: "https://www.yourcompany.com" })],
-  [/proof of address|bill|invoice/, () => ({ title: "Proof of address", help: "A recent utility or phone bill (under 3 months old) showing your name or business name and address. Mobile bills and screenshots are not accepted.", example: "" })],
+  [/website|url/, () => ({ title: "Your business website", help: "Your live company website.", more: "It must be a working website that shows your business name. Social media pages, parked or 'coming soon' pages are not accepted.", example: "https://www.yourcompany.com" })],
+  [/proof of address|bill|invoice/, () => ({ title: "Proof of address", help: "A bill from the last 3 months.", more: "A utility, landline or internet bill, or an insurance letter, showing your name or business name and full address. Mobile phone bills, screenshots and handwritten documents are not accepted.", example: "" })],
   [/passport|registration cert|identity|\bid\b/, (e) => e === "sole_trader"
-    ? ({ title: "Photo ID", help: "A clear copy of your passport or driving licence. Your name and photo must be readable.", example: "" })
-    : ({ title: "Company registration certificate", help: "Your certificate of incorporation. It must show the company name, number and registered address.", example: "" })],
-  [/contact/, () => ({ title: "Contact person", help: "Who we can reach about this number: full name, business name and a phone number.", example: "Jane Smith, Acme Ltd, +44 7700 900123" })],
-  [/use case|description/, () => ({ title: "How will you use this number?", help: "Say in a sentence or two what you will use it for. Say whether anyone else will use it.", example: "Outbound sales calls to UK businesses. Only our own team uses this number." })],
-  [/address/, () => ({ title: "Business address", help: "Your real street address. P.O. boxes and virtual offices are not accepted.", example: "" })],
+    ? ({ title: "Photo ID", help: "Passport or driving licence.", more: "A clear, readable copy that shows your full name, photo, document number and a valid expiry date.", example: "" })
+    : ({ title: "Company registration certificate", help: "Your certificate of incorporation.", more: "A clear copy that shows the company name, registration number and registered address.", example: "" })],
+  [/contact/, () => ({ title: "Contact person", help: "Name, business name and a phone number.", more: "Who we can reach about this number: the contact's full name, your business name, and at least one phone number in international format (like +44 7700 900123).", example: "Jane Smith, Acme Ltd, +44 7700 900123" })],
+  [/use case|description/, () => ({ title: "How will you use this number?", help: "One or two sentences.", more: "Say what the number is for (for example sales calls or customer support), and whether anyone outside your business will use it. Vague answers like 'business use' are rejected.", example: "Outbound sales calls to UK businesses. Only our own team uses this number." })],
+  [/address/, () => ({ title: "Business address", help: "A real street address.", more: "Include street, postcode and town. P.O. boxes, virtual offices and mailbox-only addresses may not be accepted.", example: "" })],
 ];
 
 function plainField(f, entity) {
   const name = String(f.name || "").toLowerCase();
   const hit = PLAIN_FIELDS.find(([re]) => re.test(name));
   if (hit) return hit[1](entity);
-  const first = String(f.description || "").split(/(?<=[.!?])\s/)[0];
-  return { title: f.name, help: first.length > 160 ? first.slice(0, 157) + "…" : first, example: "" };
+  const text = String(f.description || "");
+  const first = text.split(/(?<=[.!?])\s/)[0] || "";
+  const short = first.length > 90 ? first.slice(0, 87) + "..." : first;
+  return { title: f.name, help: short, more: text.length > short.length ? text : "", example: "" };
+}
+
+// A small (i) that shows the full detail on hover, keyboard focus or tap.
+function InfoTip({ text }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  return (
+    <span style={{ position: "relative", display: "inline-flex", marginLeft: 6, verticalAlign: "middle" }}
+      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button type="button" aria-label="More details" aria-expanded={open}
+        onClick={() => setOpen((v) => !v)} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+        style={{ display: "inline-flex", border: "none", background: "none", padding: 0, cursor: "pointer", color: C.cobalt }}>
+        <Info size={15} />
+      </button>
+      {open && (
+        <span role="tooltip" style={{ position: "absolute", left: 22, top: -6, zIndex: 20, width: 300, padding: "10px 12px", borderRadius: 10,
+          background: C.ink, color: "#fff", fontSize: 12, fontWeight: 400, lineHeight: 1.5, boxShadow: "0 8px 24px rgba(0,0,0,.18)" }}>
+          {text}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function VerificationWizard({ onDone, onCancel }) {
@@ -211,7 +236,7 @@ function VerificationWizard({ onDone, onCancel }) {
           <div style={{ display: "grid", gap: 14 }}>
             {(fields || []).map((f) => (
               <div key={f.id}>
-                <label style={label} htmlFor={`req-${f.id}`}>{plainField(f, entity).title}</label>
+                <label style={label} htmlFor={`req-${f.id}`}>{plainField(f, entity).title}<InfoTip text={plainField(f, entity).more} /></label>
                 {plainField(f, entity).help && <div style={{ fontSize: 12, color: C.slate, margin: "-2px 0 6px" }}>{plainField(f, entity).help}</div>}
                 {f.type === "document" ? (
                   <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, border: `1.5px dashed ${files[f.id] ? C.teal : C.border}`, cursor: "pointer", background: files[f.id] ? C.tealSoft : "#FAFAF8" }}>

@@ -199,6 +199,72 @@ function CompanyRow({ c, saved, onSave, onRemove, last }) {
   );
 }
 
+// Under the Town box: once one town is typed, a dropdown of its postcode districts with how many companies
+// each has. Ticking one adds it to "Postcode starts with". Only counts are shown here, never companies.
+function DistrictPicker({ town, includeClosed, postcode, onChange }) {
+  const [state, setState] = useState({ town: "", rows: [], busy: false, error: "" });
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  const names = splitList(town);
+  const one = names.length === 1 && names[0].length >= 3 ? names[0] : "";
+
+  useEffect(() => {
+    if (!one) { setState({ town: "", rows: [], busy: false, error: "" }); setOpen(false); return undefined; }
+    let live = true;
+    const timer = setTimeout(async () => {
+      setState((s) => ({ ...s, busy: true, error: "" }));
+      try {
+        const r = await api.townDistricts(one, includeClosed);
+        if (live) setState({ town: one, rows: r.districts || [], busy: false, error: "" });
+      } catch (err) {
+        if (live) setState({ town: one, rows: [], busy: false, error: err.message || "Couldn't list this town's areas." });
+      }
+    }, 600); // wait until the person has stopped typing
+    return () => { live = false; clearTimeout(timer); };
+  }, [one, includeClosed]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    window.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); window.removeEventListener("keydown", esc); };
+  }, [open]);
+
+  if (!one) return null;
+  const ticked = splitList(postcode).map((p) => p.toUpperCase());
+  const set = (next) => onChange(next.join(", "));
+  const toggle = (d) => set(ticked.includes(d) ? ticked.filter((x) => x !== d) : [...ticked, d]);
+  if (state.busy || state.town !== one) return <span style={{ ...muted, fontSize: 12 }}>Looking up {one}'s postcode areas…</span>;
+  if (state.error) return <span style={{ ...muted, fontSize: 12 }}>{state.error}</span>;
+  if (!state.rows.length) return <span style={{ ...muted, fontSize: 12 }}>No postcode areas found for {one}. Check the spelling, or type a postcode.</span>;
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <ChevronDown size={13} style={{ transform: open ? "rotate(180deg)" : "none" }} />
+        {ticked.length ? `${ticked.length} postcode area${ticked.length === 1 ? "" : "s"} chosen` : `Choose postcode areas in ${one} (${state.rows.length})`}
+      </button>
+      {open ? (
+        <div role="listbox" aria-label={`Postcode areas in ${one}`} className="ui-card"
+          style={{ position: "absolute", left: 0, top: "calc(100% + 4px)", zIndex: 30, width: 280, maxHeight: 320, overflowY: "auto", padding: 8, boxShadow: "0 8px 24px rgba(0,0,0,.14)" }}>
+          <div style={{ display: "flex", gap: 6, padding: "2px 4px 6px" }}>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => set(state.rows.map((r) => r.district))}>Select all</button>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!ticked.length} onClick={() => set([])}>Clear</button>
+          </div>
+          {state.rows.map((r) => (
+            <label key={r.district} style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", cursor: "pointer" }}>
+              <input type="checkbox" checked={ticked.includes(r.district)} onChange={() => toggle(r.district)} />
+              <span style={{ fontWeight: 600 }}>{r.district}</span>
+              <span style={{ marginLeft: "auto", color: C.slate, fontVariantNumeric: "tabular-nums" }}>{r.count.toLocaleString()} {r.count === 1 ? "company" : "companies"}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FindLeadsSearch({ store }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
@@ -224,6 +290,7 @@ function FindLeadsSearch({ store }) {
     try { const n = Number(localStorage.getItem("aivhub_find_page_size")); return PAGE_SIZES.includes(n) ? n : 25; } catch { return 25; }
   });
   const pageRef = useRef(pageSize);
+  const widenRef = useRef(false); // the drawn area's count found nothing for the typed words, so nearby words are used
   // How the typed words were read ("dentist" also looks for "dental"), and the words the user took out.
   const [understood, setUnderstood] = useState([]);
   const [dropTerms, setDropTerms] = useState([]);
@@ -280,6 +347,15 @@ function FindLeadsSearch({ store }) {
     if (shape) { countArea(shape, f, drop); return; }
     setBusy(true);
     setError("");
+    if (!offset) {
+      // A new search never leaves the last one's companies, filters and words on screen: if it fails,
+      // only the error shows, not results that belong to something else.
+      setCompanies([]);
+      setTotal(0);
+      setCapped(false);
+      setChips([]);
+      setUnderstood([]);
+    }
     try {
       const r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop });
       if (r.points) setPoints((p) => ({ ...p, ...r.points }));
@@ -325,6 +401,8 @@ function FindLeadsSearch({ store }) {
     setAreaStep({ phase: "counting" });
     try {
       const r = await api.areaCount({ filters: formToFilters(f), area: shape, drop_terms: drop });
+      widenRef.current = Boolean(r.widened);
+      setUnderstood(r.understood || []);
       setAreaStep({ phase: "choose", candidates: r.candidates, capped: r.capped });
     } catch (err) {
       setAreaStep(null);
@@ -346,7 +424,7 @@ function FindLeadsSearch({ store }) {
     try {
       while (more && !stopArea.current && got.length < target) {
         setAreaStep({ phase: "running", found: got.length, scanned: scan, candidates });
-        const r = await api.searchCompanies({ filters: formToFilters(form), area: shape, scan, exclude_ids: excluded, drop_terms: dropTerms });
+        const r = await api.searchCompanies({ filters: formToFilters(form), area: shape, scan, exclude_ids: excluded, drop_terms: dropTerms, widen: widenRef.current });
         if (stopArea.current) break;
         if (r.points) setPoints((p) => ({ ...p, ...r.points }));
         got.push(...r.companies);
@@ -474,8 +552,11 @@ function FindLeadsSearch({ store }) {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <label style={field}><span style={label}>Industry or company name</span>
             <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="cafe, restaurant, or a company name" /></label>
-          <label style={field}><span style={label}>Town / city</span>
-            <input className="ui-input" value={form.town} onChange={(e) => setField("town", e.target.value)} placeholder="London, Leeds" /></label>
+          <div style={field}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}><span style={label}>Town / city</span>
+              <input className="ui-input" value={form.town} onChange={(e) => setField("town", e.target.value)} placeholder="London, Leeds" /></label>
+            <DistrictPicker town={form.town} includeClosed={form.includeClosed} postcode={form.postcode} onChange={(v) => setField("postcode", v)} />
+          </div>
           <label style={{ ...field, flex: "0 1 150px" }}><span style={label}>Postcode starts with</span>
             <input className="ui-input" value={form.postcode} onChange={(e) => setField("postcode", e.target.value)} placeholder="EC1, M1" /></label>
         </div>

@@ -1,14 +1,15 @@
 """Find Leads: understand what a user typed, so "dentists" also finds dental practices.
 
-The panel's box matches the words as typed. Here the typed words are turned (by the AI, once per
-phrase) into the nearest words that appear in the official business descriptions we hold, and the
-search then runs on those too. The AI only suggests search words: it never sees company data and
+The panel's box matches the words as typed, and that comes first: only when the typed words find
+nothing are they turned (by the AI, once per phrase) into the nearest words that appear in the
+official business descriptions we hold, and the search run again on those too (see widen_if_empty). The AI only suggests search words: it never sees company data and
 never writes any. Every answer is cleaned, kept for the next time the same phrase is typed (so the
 same words always give the same results), and can be corrected by staff. If the AI can't be
 reached the search simply uses the typed words, as before.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -24,6 +25,7 @@ logger = logging.getLogger("phrase_understanding")
 MAX_TERMS = 8
 MAX_PHRASES = 6  # typed items understood per search
 MAX_TOTAL = 40  # words in the final search
+ASK_SECONDS = 8.0  # the most a whole search will wait on the AI for its suggestions; after that the typed words are used
 _KEY = "phrase_terms:"
 # Words so general that searching for them would return half the register.
 _TOO_GENERAL = {"business", "businesses", "service", "services", "company", "companies", "activity", "activities", "other",
@@ -86,18 +88,36 @@ async def _remember(db: AsyncSession, phrase: str, terms: List[str]) -> None:
         await db.rollback()
 
 
-async def terms_for(db: AsyncSession, phrase: str, *, scope: str = "leadgen") -> List[str]:
-    """The nearest words for one typed phrase: remembered if seen before, else asked of the AI once."""
+async def _ask(phrase: str, scope: str, seconds: float) -> Optional[Dict[str, Any]]:
+    """The AI's suggestions, within `seconds`. It runs on its own database session so that giving up
+    on a slow answer never leaves the search's own session half-used."""
+    from app.database import AsyncSessionLocal
+
+    async def go():
+        async with AsyncSessionLocal() as own:
+            return await llm_gateway.extract_structured(
+                system_prompt=_SYSTEM, user_text=f"Phrase: {phrase}", schema=_SCHEMA, tool_name="suggest_search_words",
+                db=own, scope=scope, max_tokens=200)
+
+    return await asyncio.wait_for(go(), timeout=seconds)
+
+
+async def terms_for(db: AsyncSession, phrase: str, *, scope: str = "leadgen", seconds: float = ASK_SECONDS) -> List[str]:
+    """The nearest words for one typed phrase: remembered if seen before, else asked of the AI once
+    (for at most `seconds`; a slow or silent AI means the typed word alone is used this time)."""
     phrase = normalise_phrase(phrase)
     if len(phrase) < 3:
         return []
     saved = await _stored(db, phrase)
     if saved is not None:
         return clean_terms(saved.get("terms"), phrase)
+    if seconds < 0.5:  # this search has already waited long enough on the AI
+        return []
     try:
-        data = await llm_gateway.extract_structured(
-            system_prompt=_SYSTEM, user_text=f"Phrase: {phrase}", schema=_SCHEMA, tool_name="suggest_search_words",
-            db=db, scope=scope, max_tokens=200)
+        data = await _ask(phrase, scope, seconds)
+    except asyncio.TimeoutError:
+        logger.warning(f"[phrase] the AI took longer than {seconds:.0f}s on '{phrase}'; searching the typed words")
+        return []
     except Exception as err:
         logger.warning(f"[phrase] couldn't understand '{phrase}': {err}")
         return []
@@ -120,15 +140,33 @@ async def apply(db: AsyncSession, filters: Dict[str, Any], drop_terms: Optional[
     dropped = {normalise_phrase(t) for t in (drop_terms or [])}
     reading: List[Dict[str, Any]] = []
     words: List[str] = []
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ASK_SECONDS  # one allowance for the whole search, not one per typed word
     for item in typed[:MAX_PHRASES]:
         phrase = normalise_phrase(item)
         if not phrase:
             continue
         words.append(item)
-        terms = [t for t in await terms_for(db, phrase, scope=scope) if t not in dropped]
+        terms = [t for t in await terms_for(db, phrase, scope=scope, seconds=deadline - loop.time()) if t not in dropped]
         if terms:
             reading.append({"phrase": phrase, "terms": terms})
             words.extend(t for t in terms if t not in words)
     wide = dict(f)
     wide["keyword"] = words[:MAX_TOTAL] if words else typed
     return business_records.normalize_filters(wide), reading
+
+
+async def widen_if_empty(db: AsyncSession, filters: Dict[str, Any], drop_terms: Optional[List[str]], run, *,
+                         scope: str = "leadgen") -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Runs the search on the words exactly as typed. Only if that finds nothing is the AI asked for
+    nearby words and the search run once more on those. `run(filters)` is the search itself and
+    returns a dict with "total". Returns (result, reading): reading is empty when the typed words
+    were enough, which is the usual case and costs no AI call at all."""
+    typed = business_records.normalize_filters(filters or {})
+    out = await run(typed)
+    if out.get("total") or not typed.get("keyword"):
+        return out, []
+    wide, reading = await apply(db, filters, drop_terms, scope=scope)
+    if not reading:
+        return out, []
+    return await run(wide), reading

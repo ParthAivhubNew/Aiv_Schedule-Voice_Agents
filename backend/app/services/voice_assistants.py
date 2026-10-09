@@ -230,7 +230,17 @@ async def assistant_for(db, operator_id: str = "") -> Any:
         if row.telnyx_assistant_id:
             await client.update_assistant(row.telnyx_assistant_id, payload)
         else:
-            made = await client.create_assistant(payload)
+            try:
+                made = await client.create_assistant(payload)
+            except TelnyxError as err:
+                # Assistant names are unique on the account. Two organisations with the same name (or
+                # one set up from another copy of the app) collide, so retry once with the org id.
+                if not any(w in str(err).lower() for w in ("already in use", "already been taken", "already exists", "duplicate")):
+                    raise
+                from app.core.tenancy import current_org
+
+                payload["name"] = f"{name} · {current_org()}"[:100]
+                made = await client.create_assistant(payload)
             row.telnyx_assistant_id = str(made.get("id") or "")
             if not row.telnyx_assistant_id:
                 raise TelnyxError("Telnyx did not return an assistant id.")

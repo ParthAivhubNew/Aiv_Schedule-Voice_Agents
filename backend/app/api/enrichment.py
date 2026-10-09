@@ -317,8 +317,10 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 removed_names = plan["remove_names"]
             elif plan["action"] == "search":
                 try:
-                    wide, _ = await phrase_understanding.apply(db, plan["filters"])  # the panel's box widens its words the same way
-                    found = await business_records.search_filtered(db, wide, limit=25, exclude_ids=req.exclude_ids or [])
+                    # The typed words first; nearby words only when they find nothing (the panel's box works the same way).
+                    found, _ = await phrase_understanding.widen_if_empty(
+                        db, plan["filters"], None,
+                        lambda f: business_records.search_filtered(db, f, limit=25, exclude_ids=req.exclude_ids or []))
                     found["filters"] = business_records.normalize_filters(plan["filters"])  # show what was asked, not the widened words
                     registry = {"filters": found["filters"], "total": found["total"], "capped": found["total_capped"],
                                 "leads": [lead_filters.card(r) for r in found["rows"]]}

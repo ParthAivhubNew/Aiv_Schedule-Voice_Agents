@@ -139,6 +139,7 @@ class SearchIn(BaseModel):
     area: Optional[List[List[float]]] = None  # a drawn map area: [[lat, lng], ...] corners
     scan: int = 0  # with an area: where this step starts reading the districts it touches (see search_in_area)
     drop_terms: List[str] = []  # words the user removed from "how your words were read" (see phrase_understanding)
+    widen: bool = False  # with an area: the typed words found nothing when counted, so the nearby words are used (see /search/area-count)
 
 
 @router.post("/search")
@@ -149,12 +150,19 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     from app.services import lead_filters, phrase_understanding
 
     shown_filters = business_records.normalize_filters(body.filters)  # what the user typed: this is what comes back
-    wide, understood = await phrase_understanding.apply(db, body.filters, body.drop_terms)
+    understood: List[Dict[str, Any]] = []
     try:
         if body.area:
+            # An area is read in steps, so the decision to use nearby words was made once, when it was counted.
+            if body.widen:
+                wide, understood = await phrase_understanding.apply(db, body.filters, body.drop_terms)
+            else:
+                wide = shown_filters
             out = await business_records.search_in_area(db, wide, body.area, scan=body.scan, exclude_ids=body.exclude_ids)
         else:
-            out = await business_records.search_filtered(db, wide, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
+            out, understood = await phrase_understanding.widen_if_empty(
+                db, body.filters, body.drop_terms,
+                lambda f: business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids))
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
@@ -171,6 +179,11 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
             "next_scan": out.get("next_scan"), "understood": understood}
 
 
+async def _candidates_as_total(pending) -> Dict[str, Any]:
+    out = await pending
+    return {**out, "total": out["candidates"]}
+
+
 @router.post("/search/area-count")
 async def area_count(body: SearchIn, db: AsyncSession = Depends(get_db)):
     """How many companies a drawn area could hold, so the user picks how many to see before the
@@ -179,16 +192,32 @@ async def area_count(body: SearchIn, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=422, detail="Draw an area on the map first.")
     from app.services import phrase_understanding
 
-    wide, _ = await phrase_understanding.apply(db, body.filters, body.drop_terms)
     try:
-        out = await business_records.area_candidates(db, wide, body.area)
+        out, understood = await phrase_understanding.widen_if_empty(
+            db, body.filters, body.drop_terms,
+            lambda f: _candidates_as_total(business_records.area_candidates(db, f, body.area)))
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
         if "statement timeout" in str(err).lower():
             raise HTTPException(status_code=504, detail="That area is too busy to count. Draw a smaller one.")
         raise
-    return {"candidates": out["candidates"], "capped": out["capped"]}
+    return {"candidates": out["candidates"], "capped": out["capped"], "widened": bool(understood), "understood": understood}
+
+
+@router.get("/districts")
+async def town_districts(town: str = "", include_closed: bool = False, db: AsyncSession = Depends(get_db)):
+    """The postcode districts of one town with how many companies each holds -- counts only, no companies.
+    Free. Feeds the picker next to the Town box on Find Leads."""
+    try:
+        rows = await business_records.districts_for_town(db, town, include_closed)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            raise HTTPException(status_code=504, detail="Too many companies in that town to list its areas. Type a postcode instead.")
+        raise
+    return {"town": town.strip(), "districts": rows, "total": sum(r["count"] for r in rows)}
 
 
 class GeocodeIn(BaseModel):

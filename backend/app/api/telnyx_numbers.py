@@ -57,14 +57,21 @@ async def _ready_client(db: AsyncSession, ctx: Dict[str, Any]):
     setup = await TP.ensure_setup(db, await _org_name(db, ctx["org_id"]), ctx.get("email") or "")
     await db.commit()
     if setup.status != "ready":
-        raise HTTPException(status_code=503, detail=setup.last_error or "Your phone line is still being set up. Try again in a minute.")
+        raise HTTPException(status_code=503, detail=_clean(setup.last_error) or "Your phone line is still being set up. Try again in a minute.")
     return setup, TP.client_for(setup)
+
+
+def _clean(text: Optional[str]) -> str:
+    """A saved error as the customer may read it: no supplier name, no "Telnyx:" prefix."""
+    import re
+
+    return scrub(re.sub(r"^\s*telnyx:\s*", "", text or "", flags=re.I))
 
 
 def _sub_json(s) -> Optional[Dict[str, Any]]:
     if not s:
         return None
-    return {"id": s.id, "status": s.status, "reason": s.reason, "entityType": s.entity_type, "country": s.country,
+    return {"id": s.id, "status": s.status, "reason": _clean(s.reason), "entityType": s.entity_type, "country": s.country,
             "numberType": s.number_type, "documents": [d.get("filename") for d in s.documents or []],
             "submittedAt": s.created_at.isoformat() if s.created_at else None,
             "updatedAt": s.updated_at.isoformat() if s.updated_at else None}
@@ -91,7 +98,7 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     return {
         "platformReady": TP.platform_ready(),
         "mode": setup.mode if setup else TP.account_mode(),
-        "account": {"status": setup.status if setup else "new", "error": setup.last_error if setup else ""},
+        "account": {"status": setup.status if setup else "new", "error": _clean(setup.last_error) if setup else ""},
         "verification": _sub_json(await TP.latest_verification(db)),
         "orders": [{"id": o.id, "phoneNumber": o.phone_number, "status": o.status, "error": o.error,
                     "at": o.created_at.isoformat() if o.created_at else None,

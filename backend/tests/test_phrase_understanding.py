@@ -114,3 +114,40 @@ async def test_the_search_still_works_when_the_ai_is_down(db, ai):
     async with _client(token) as c:
         r = await c.post("/api/leads/search", json={"filters": {"keyword": ["dental"]}})
         assert r.status_code == 200 and [x["name"] for x in r.json()["companies"]] == ["Smile Co"] and r.json()["understood"] == []
+
+
+@pytest.mark.db
+async def test_a_slow_ai_never_holds_the_search_up(db, ai, monkeypatch):
+    import asyncio
+    import time
+
+    async def slow(**kw):
+        await asyncio.sleep(30)
+        return {"terms": ["never"]}
+
+    monkeypatch.setattr(llm_gateway, "extract_structured", slow)
+    monkeypatch.setattr(PU, "ASK_SECONDS", 1.0)
+    started = time.monotonic()
+    wide, reading = await PU.apply(db, {"keyword": ["cafe", "restaurant"]})
+    assert time.monotonic() - started < 3  # two slow words together waited about a second, not 2 x 45
+    assert wide["keyword"] == ["cafe", "restaurant"] and reading == []  # the typed words are searched as they are
+    assert await PU._stored(db, "cafe") is None  # nothing is remembered from a non-answer
+
+
+@pytest.mark.db
+async def test_the_ai_is_only_asked_when_the_typed_words_find_nothing(db, ai):
+    await _seed(db)
+    _, token = await make_user(db, "finder3", "Admin")
+    async with _client(token) as c:
+        # "cafe" is found as typed: no AI question at all, and nothing is shown as "also looking for"
+        r = await c.post("/api/leads/search", json={"filters": {"keyword": ["cafe"]}})
+        assert [x["name"] for x in r.json()["companies"]] == ["Corner Cafe"] and r.json()["understood"] == []
+        assert ai["asked"] == []
+        # "dentist" is not in the data as typed: now the AI is asked, once
+        r = await c.post("/api/leads/search", json={"filters": {"keyword": ["dentist"]}})
+        assert [x["name"] for x in r.json()["companies"]] == ["Smile Co"] and ai["asked"] == ["dentist"]
+        # an area count follows the same rule: the seeded companies have no postcodes, so nothing is counted for
+        # "cafe" as typed and only then is the AI asked (it knows no nearby words for it, so nothing is widened)
+        area = [[53.78, -1.58], [53.78, -1.52], [53.82, -1.52], [53.82, -1.58]]
+        r = await c.post("/api/leads/search/area-count", json={"filters": {"keyword": ["cafe"]}, "area": area})
+        assert r.status_code == 200 and r.json()["widened"] is False and ai["asked"] == ["dentist", "cafe"]

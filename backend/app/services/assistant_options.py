@@ -360,7 +360,9 @@ def _clone_voice_id(made: Dict[str, Any]) -> str:
 async def _upload(client, item: Dict[str, Any], content: bytes) -> Dict[str, Any]:
     ext = os.path.splitext(item["file"])[1].lower()
     files = {"audio_file": (f"sample{ext}", content, CLONE_TYPES.get(ext, "application/octet-stream"))}
-    fields = {"name": item["name"], "language": item["language"], "gender": item["gender"], "provider": "telnyx"}
+    # Every company shares one carrier account, so two companies naming a voice "Sarah" must not
+    # collide there; the name the user typed stays on our side.
+    fields = {"name": f"{item['name'][:60]} · {item['id']}", "language": item["language"], "gender": item["gender"], "provider": "telnyx"}
     if item.get("refText"):
         fields["ref_text"] = item["refText"]
     body = await client._req("POST", "/voice_clones/from_upload", files=files, data=fields)
