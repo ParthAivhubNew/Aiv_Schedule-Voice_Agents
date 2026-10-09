@@ -96,6 +96,7 @@ async def dial_via_telnyx_assistant(
     from_number_override: Optional[str] = None,
     operator_id: str = "",
     template_id: str = "",
+    extra_instructions: str = "",
 ) -> dict:
     """
     Places a real outbound call that connects the callee to our configured Telnyx
@@ -203,7 +204,7 @@ async def dial_via_telnyx_assistant(
         brief_vars = await VA.build_brief(db, call_id=call_id, direction="outbound", operator_id=operator_id,
                              assistant_row_id=managed.id, phone=to_clean, our_number=from_clean,
                              prospect_id=prospect_id or "", mission_id=mission_id or "", prospect_name=label,
-                             template_id=template_id)
+                             template_id=template_id, extra=extra_instructions)
         org_ref = current_org()
         if "recorded" in brief_vars:
             record = brief_vars.get("recorded") == "yes"

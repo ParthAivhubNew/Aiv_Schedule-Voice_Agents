@@ -285,7 +285,7 @@ def _real(name: str) -> str:
 
 async def build_brief(db, *, call_id: str, direction: str, operator_id: str, assistant_row_id: str, phone: str,
                       our_number: str = "", prospect_id: str = "", mission_id: str = "", prospect_name: str = "",
-                      template_id: str = "") -> Dict[str, str]:
+                      template_id: str = "", extra: str = "") -> Dict[str, str]:
     """Render this call's script and save it as the call's brief. Returns the dynamic variables
     to give Telnyx. Caller commits."""
     from app.core.tenancy import current_org
@@ -304,7 +304,10 @@ async def build_brief(db, *, call_id: str, direction: str, operator_id: str, ass
     tpl = await template_engine.get_active_template(db, direction=direction, template_id=chosen or None)
     studio = await agent_studio.settings(db)
     company_row = await agent_studio.profile(db)
-    script = template_engine.render_system_prompt(tpl, ctx) + "\n\n" + agent_studio.rules_block(studio, company_row)
+    script = template_engine.render_system_prompt(tpl, ctx)
+    if extra.strip():  # this call's own goal, questions and instructions (public API), read before the standing rules
+        script += "\n\n" + extra.strip()
+    script += "\n\n" + agent_studio.rules_block(studio, company_row)
     greeting = template_engine.render_initial_greeting(tpl, ctx)
     if studio.get("recordCalls") and greeting:
         greeting = f"{greeting} {agent_studio.disclosure(company_row)}"

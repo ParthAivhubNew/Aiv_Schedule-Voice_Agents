@@ -19,6 +19,7 @@ from sqlalchemy.future import select
 from app.core.auth_middleware import current
 from app.public_api.core import V1Route, authorize
 from app.public_api.social import router as social_router
+from app.public_api.voice import router as voice_router
 from app.database import get_db
 from app.models.models import CallLog, LiveCall, Prospect, SocialPost
 from app.services import credits as K
@@ -31,14 +32,6 @@ router = APIRouter(prefix="/v1", tags=["Public API v1"], route_class=V1Route)
 
 
 # ── Pydantic Request Models ──────────────────────────────────────────────────
-
-class V1TriggerCallRequest(BaseModel):
-    to: str = Field(..., description="Destination phone number in international or local format (e.g. +447911123456)")
-    lead_name: Optional[str] = Field(None, description="Name of the person/contact being called")
-    variables: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Custom prompt variables injected into the call script")
-    from_number: Optional[str] = Field(None, description="Optional outbound Caller ID number registered in OutReach")
-    callback_url: Optional[str] = Field(None, description="Webhook URL to receive status when call completes")
-
 
 class V1CreateLeadRequest(BaseModel):
     name: str = Field(..., description="Prospect or business contact name")
@@ -53,81 +46,6 @@ class V1ScheduleSocialPostRequest(BaseModel):
     platforms: List[str] = Field(default_factory=lambda: ["linkedin"], description="Target platforms (linkedin, twitter, facebook)")
     tone: Optional[str] = Field("professional", description="Tone of voice")
     publish_at: Optional[str] = Field(None, description="ISO timestamp for future scheduling, or null to publish now")
-
-
-# ── Voice AI Endpoints ────────────────────────────────────────────────────────
-
-@router.post("/voice/calls")
-async def trigger_outbound_call(
-    body: V1TriggerCallRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """Initiates an outbound AI Voice call to a client/lead.
-    Strictly verifies that the organisation has an active Voice subscription and positive credit balance.
-    """
-    ctx = current(request)
-    org_id = ctx["org_id"]
-
-    # 1. Two-way payment & entitlement security check
-    await require_service_entitlement(db, org_id, "voice")
-
-    # 2. Check scope
-    scopes = ctx.get("scopes", ["full_access"])
-    if not any(s in ("full_access", "voice:calls") for s in scopes):
-        raise HTTPException(
-            status_code=403,
-            detail="Your API key does not have the 'voice:calls' permission.",
-        )
-
-    # 3. Clean and normalize phone number
-    try:
-        clean_phone = normalize_phone_number(body.to)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid phone number: {e}")
-
-    # 4. Dispatch call through the outbound dialer
-    try:
-        res = await place_outbound_call(
-            db,
-            to_number=clean_phone,
-            from_number=body.from_number,
-            prospect_name=body.lead_name or "API Lead",
-            mission_title="External API Outbound",
-        )
-        return {
-            "status": "queued",
-            "call_id": res.get("call_id") or res.get("id"),
-            "to": clean_phone,
-            "created_at": datetime.utcnow().isoformat(),
-            "message": "Outbound AI voice call initiated successfully.",
-        }
-    except ValueError as ve:
-        # e.g. compliance gate or insufficient reserved minutes
-        raise HTTPException(status_code=402 if "credit" in str(ve).lower() or "minute" in str(ve).lower() else 400, detail=str(ve))
-    except Exception as ex:
-        logger.error(f"[V1 Call Failed] {ex}")
-        raise HTTPException(status_code=500, detail=f"Could not initiate call: {ex}")
-
-
-@router.get("/voice/calls/{call_id}")
-async def get_call_status(
-    call_id: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """Fetch the state, transcript and outcome of an AI voice call."""
-    from app.public_api.calls_view import load_call
-
-    ctx = current(request)
-    await require_service_entitlement(db, ctx["org_id"], "voice")
-    scopes = ctx.get("scopes", ["full_access"])
-    if not any(s in ("full_access", "voice:calls") for s in scopes):
-        raise HTTPException(status_code=403, detail="Your API key does not have the 'voice:calls' permission.")
-    call = await load_call(db, call_id)
-    if not call:
-        raise HTTPException(status_code=404, detail=f"Call '{call_id}' not found.")
-    return {"call_id": call["id"], **call}
 
 
 # ── Lead Generation Endpoints ────────────────────────────────────────────────
@@ -191,3 +109,4 @@ async def get_wallet_balances(
 
 
 router.include_router(social_router)
+router.include_router(voice_router)

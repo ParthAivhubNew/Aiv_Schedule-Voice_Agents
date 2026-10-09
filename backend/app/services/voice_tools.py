@@ -132,6 +132,13 @@ async def _request_human(db, brief, args) -> Dict[str, Any]:
                      only_user_ids=[brief.operator_id] if brief.operator_id else None)
     except Exception as err:
         logger.debug(f"[voice-tools] notify skipped: {err}")
+    try:  # customers' software hears about it too (webhook call.needs_human)
+        from app.core.tenancy import current_org
+        from app.public_api import voice_events
+
+        voice_events.needs_human(current_org(), brief.id, brief.phone, reason, rec.prospect if rec else "")
+    except Exception as err:
+        logger.debug(f"[voice-tools] needs_human event skipped: {err}")
     return {"success": True, "message": "The team has been alerted. Tell the person someone will be with them shortly."}
 
 

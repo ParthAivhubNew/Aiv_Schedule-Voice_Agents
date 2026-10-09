@@ -83,4 +83,12 @@ async def load_call(db: AsyncSession, call_id: str) -> Optional[Dict[str, Any]]:
     }
     if brief and brief.phone:
         out["to"] = brief.phone
+    # What can be done to this call right now (only calls run by the managed assistant can be steered).
+    steerable = bool(live and brief and (live.carrier or "") == "telnyx_assistant" and not ended and live.state != "calling")
+    out["capabilities"] = {
+        "guide": steerable and not live.taken,
+        "take_over": steerable and not live.taken,
+        "hand_back": steerable and bool(live.taken),
+        "end": bool(live) and not ended,
+    }
     return out

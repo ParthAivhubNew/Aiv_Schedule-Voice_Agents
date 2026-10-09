@@ -224,10 +224,10 @@ async def upsert_call_log_from_live(
             result_obj = await db.merge(entry)
 
         try:
-            from app.services.webhook_dispatcher import dispatch_event
+            from app.public_api import voice_events
             target_org = getattr(call, "org_id", None) or getattr(result_obj, "org_id", None) or "org_default"
             ev_type = "call.failed" if final_outcome in ("failed", "busy", "rejected", "error") else "call.completed"
-            dispatch_event(target_org, ev_type, {
+            await voice_events.dispatch_finished(db, target_org, ev_type, call, {
                 "call_id": getattr(call, "id", log_id),
                 "prospect": names.get("canonical") or getattr(call, "prospect", ""),
                 "person": names.get("person") or "",

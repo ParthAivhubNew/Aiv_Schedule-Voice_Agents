@@ -128,6 +128,9 @@ async def _handle(request: Request, token: str, form: Optional[Dict[str, str]]) 
     from app.services.approval_mail import _company_name
     from app.services.org_settings import org_timezone
 
+    call_data = links.read_token(token, "call")
+    if call_data:
+        return await _handle_call(call_data["o"], call_data["i"], form)
     data = links.read_token(token, "post")
     if not data:
         return HTMLResponse(_GONE, status_code=404)
@@ -150,6 +153,25 @@ async def _handle(request: Request, token: str, form: Optional[Dict[str, str]]) 
             company = await _company_name(db)
             tz = await org_timezone(db)
     return HTMLResponse(render(v, token, company, tz, notice))
+
+
+async def _handle_call(org: str, call_id: str, form: Optional[Dict[str, str]]) -> HTMLResponse:
+    from app.public_api import call_page
+    from app.public_api import voice as V
+    from app.services.approval_mail import _company_name
+
+    notice = ""
+    with org_scope(org):
+        async with AsyncSessionLocal() as db:
+            try:
+                if form:
+                    notice = await call_page.act(db, org, call_id, form)
+                v = await V.full_view(db, call_id, org)
+            except ApiError as err:
+                return HTMLResponse(_GONE if err.status == 404 else _page("Call", f"<h1>Call</h1><div class='card'>{_esc(err.message)}</div>"),
+                                    status_code=err.status)
+            company = await _company_name(db)
+    return HTMLResponse(call_page.render(v, company, notice))
 
 
 async def _act(db, request: Request, org: str, post_id: str, form: Dict[str, str]) -> str:

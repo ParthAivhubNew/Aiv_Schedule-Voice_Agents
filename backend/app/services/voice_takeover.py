@@ -141,16 +141,17 @@ async def leg_event(event_type: str, payload: Dict[str, Any], call_id: str) -> D
     return {"status": "ok"}
 
 
-async def _restart(db, rec, brief, key: str, note: str) -> None:
+async def _restart(db, rec, brief, key: str, note: str, lead: Optional[str] = None, greeting: Optional[str] = None) -> None:
     from app.services.telnyx_assistant_calls import _post_assistant_start
     from app.models.models import VoiceAssistant
 
     variables = dict(brief.variables or {})
-    lead = ("A colleague from the team just spoke with this person and has handed the call back to you. "
-            + (f"Their note: {note}. " if note else "")
-            + "Carry on from here. Do not introduce yourself again.\n\n")
+    if lead is None:
+        lead = ("A colleague from the team just spoke with this person and has handed the call back to you. "
+                + (f"Their note: {note}. " if note else "")
+                + "Carry on from here. Do not introduce yourself again.\n\n")
     variables["script"] = lead + (variables.get("script") or "")
-    variables["greeting"] = BACK_GREETING
+    variables["greeting"] = BACK_GREETING if greeting is None else greeting
     assistant = (await db.execute(select(VoiceAssistant).where(VoiceAssistant.id == brief.assistant_id))).scalars().first()
     if assistant is None:
         raise ValueError("The call's assistant is missing.")
@@ -184,6 +185,43 @@ async def hand_back(db, rec, note: str, already_hung_up: bool = False) -> Dict[s
     await _restart(db, rec, brief, key, note)
     await _note(db, rec, "Handed back to the assistant" + (f" with a note: {note}" if note else "."), taken=False, state="pitching")
     return {"status": "handed_back", "taken": False}
+
+
+GUIDE_GREETING = "Of course."
+
+
+async def guide(db, rec, instruction: str) -> Dict[str, Any]:
+    """Give the assistant a new instruction in the middle of a call. It pauses for a moment,
+    restarts with the instruction (and never introduces itself again), and carries on."""
+    from app.services import voice_assistants as VA
+
+    if rec.ended:
+        raise ValueError("This call has ended.")
+    if rec.taken:
+        raise ValueError("A person has taken over this call. Hand it back first.")
+    instruction = (instruction or "").strip()[:1000]
+    if not instruction:
+        raise ValueError("Say what the assistant should do.")
+    brief = await VA.brief(db, rec.id)
+    if brief is None or not rec.carrier_sid:
+        raise ValueError("This call cannot be guided.")
+    key = (await VA._client(db)).api_key
+    await _action(key, rec.carrier_sid, "ai_assistant_stop")
+    lead = ("New instruction from the team for the rest of this call: " + instruction
+            + ". Follow it from your next sentence. Do not introduce yourself again.\n\n")
+    try:
+        await _restart(db, rec, brief, key, "", lead=lead, greeting=GUIDE_GREETING)
+    except ValueError:
+        # The person must never be left with nobody: put the assistant back as it was.
+        try:
+            await _restart(db, rec, brief, key, "", lead="Carry on from where you were. Do not introduce yourself again.\n\n",
+                           greeting=GUIDE_GREETING)
+        except ValueError:
+            pass
+        raise
+    brief.notes = ((brief.notes or "") + f"\nGuidance during the call: {instruction}").strip()
+    await _note(db, rec, f"New instruction given to the assistant: {instruction}")
+    return {"status": "guided"}
 
 
 async def end_user_leg(db, call_id: str) -> None:
