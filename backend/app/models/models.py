@@ -583,6 +583,8 @@ class SocialPost(Base):
     # Automatic publish retries used, and when the next one is due (epoch ms).
     publish_attempts = Column(Integer, default=0)
     retry_at_ms = Column(Float, nullable=True)
+    # Where the post came from: None = the app, "api" = created through the public API.
+    source = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

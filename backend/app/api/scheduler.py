@@ -76,6 +76,7 @@ _SOCIAL_POST_EXTRA_COLS = [
     ("asap", "BOOLEAN"),
     ("publish_attempts", "INTEGER"),
     ("retry_at_ms", "FLOAT"),
+    ("source", "VARCHAR"),
 ]
 
 # social_schedules predates the Schedule window (weekday/time/theme/focus/channels only).
@@ -1444,6 +1445,9 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     except Exception:
         logger.exception("Sending results email failed")
         await db.rollback()
+    from app.public_api import social_events
+
+    await social_events.tick(db, now_ms, due_of)  # tell the customer's webhooks; remind approvers (API posts only)
     return {"status": "ok", "published": published, "failed": failed, "skipped": skipped,
             "missed": [p.id for p in missed_posts], "retrying": retrying}
 

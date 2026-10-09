@@ -18,6 +18,7 @@ from sqlalchemy.future import select
 
 from app.core.auth_middleware import current
 from app.public_api.core import V1Route, authorize
+from app.public_api.social import router as social_router
 from app.database import get_db
 from app.models.models import CallLog, LiveCall, Prospect, SocialPost
 from app.services import credits as K
@@ -165,66 +166,6 @@ async def create_or_search_lead(
     }
 
 
-# ── Social Media Endpoints ───────────────────────────────────────────────────
-
-@router.post("/social/posts")
-async def schedule_social_post(
-    body: V1ScheduleSocialPostRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """Generate and schedule social posts via OutReach."""
-    ctx = current(request)
-    org_id = ctx["org_id"]
-
-    await require_service_entitlement(db, org_id, "social")
-
-    scopes = ctx.get("scopes", ["full_access"])
-    if not any(s in ("full_access", "social:publish") for s in scopes):
-        raise HTTPException(
-            status_code=403,
-            detail="Your API key does not have the 'social:publish' permission.",
-        )
-
-    now = datetime.utcnow()
-    publish_dt = now
-    if body.publish_at:
-        try:
-            publish_dt = datetime.fromisoformat(body.publish_at.replace("Z", "+00:00"))
-        except Exception:
-            publish_dt = now
-
-    slot_ms = float(publish_dt.timestamp() * 1000.0)
-
-    # Social workspace requires "v2_" ID prefix to render on the calendar & approvals
-    post_id = f"v2_{uuid.uuid4().hex[:12]}"
-    post = SocialPost(
-        id=post_id,
-        title=body.topic[:100],
-        copy=f"Generated update on {body.topic}",
-        channels=body.platforms or ["linkedin"],
-        status="draft",  # "draft" appears in Approvals queue for review
-        slot_date_ms=slot_ms,
-        due_at_ms=slot_ms,
-        time=publish_dt.strftime("%H:%M"),
-        theme="General",
-        tone=body.tone or "Professional",
-        created_at=now,
-    )
-    db.add(post)
-    await db.commit()
-    await db.refresh(post)
-
-    return {
-        "post_id": post.id,
-        "status": post.status,
-        "topic": body.topic,
-        "platforms": post.channels,
-        "publish_at": publish_dt.isoformat(),
-        "message": "Social media post queued for processing in Social Scheduler.",
-    }
-
-
 # ── Account Wallets & Quotas ─────────────────────────────────────────────────
 
 @router.get("/wallets")
@@ -247,3 +188,6 @@ async def get_wallet_balances(
         "key": {"id": ctx.get("key_id"), "name": ctx.get("name"), "scopes": ctx.get("scopes") or ["full_access"],
                 "test_mode": bool(ctx.get("test"))},
     }
+
+
+router.include_router(social_router)

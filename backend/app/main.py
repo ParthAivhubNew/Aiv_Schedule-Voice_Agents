@@ -53,6 +53,7 @@ from app.api.email_outreach import router as email_outreach_router
 from app.api.developer_keys import router as developer_keys_router
 from app.api.developer_webhooks import router as developer_webhooks_router
 from app.api.v1_public import router as v1_public_router
+from app.public_api.preview import router as preview_router
 from app.websockets.media_stream import router as media_stream_router
 
 logging.basicConfig(level=logging.INFO)
@@ -750,6 +751,7 @@ app.include_router(developer_keys_router, prefix=settings.API_PREFIX)
 app.include_router(developer_webhooks_router, prefix=settings.API_PREFIX)
 app.include_router(v1_public_router)  # Direct /v1 API compatibility
 app.include_router(v1_public_router, prefix=settings.API_PREFIX)  # /api/v1 compatibility
+app.include_router(preview_router, prefix=settings.API_PREFIX)  # /api/p/<token>: preview pages, no sign-in
 app.include_router(diagnostics_router)  # Direct /diagnostics compatibility
 app.include_router(media_stream_router)  # /ws/media-stream and /ws/listen/{call_id}
 

@@ -143,8 +143,8 @@ async def test_creating_a_webhook_to_a_private_address_is_refused(db, admin_toke
     async with _http(admin_token) as c:
         r = await c.post("/api/developer/webhooks", json={"url": "https://169.254.169.254/x", "events": ["call.completed"]})
         assert r.status_code == 400 and "private" in r.json()["detail"]
-        ok = await c.post("/api/developer/webhooks", json={"url": "http://localhost:9/hook", "events": ["social.post.ready", "nonsense"]})
-        assert ok.status_code == 200 and ok.json()["endpoint"]["events"] == ["social.post.ready"]
+        ok = await c.post("/api/developer/webhooks", json={"url": "http://localhost:9/hook", "events": ["post.ready", "nonsense"]})
+        assert ok.status_code == 200 and ok.json()["endpoint"]["events"] == ["post.ready"]
 
 
 def test_webhook_signature_can_be_checked_by_the_receiver():
