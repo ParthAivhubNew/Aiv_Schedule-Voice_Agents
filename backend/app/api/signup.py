@@ -210,11 +210,16 @@ async def _send_verification(op: Operator) -> bool:
     token = _sign({"typ": "verify_email", "sub": op.id, "email": (op.email or "").lower()}, VERIFY_TTL_S)
     link = f"{_base_url()}/api/auth/verify-email?t={token}"
     subject = "Confirm your email for Outreach by Aivhub"
-    msg = render(subject, [
-        f"Hi {html.escape(op.name or '')},",
-        "Confirm your email address to finish creating your Outreach by Aivhub account.",
-        "The link works for 3 days. If you did not sign up, ignore this email.",
-    ], {"label": "Confirm email", "url": link})
+    first = html.escape((op.name or "").split(" ")[0] or "there")
+    msg = render("Welcome aboard! One last step", [
+        f"Hi {first} &#128075;",
+        "Thanks for creating your Outreach by Aivhub account. Confirm your email address and your workspace is ready to go.",
+    ], {"label": "Confirm my email", "url": link},
+        note="This link works for 3 days. If you didn't sign up, you can safely ignore this email.",
+        highlights=[("AI calling", "Let an AI assistant make and answer calls for you."),
+                    ("Lead finding", "Find and check the companies worth contacting."),
+                    ("Post scheduling", "Plan and publish your social posts.")],
+        preheader="Confirm your email to start using your Outreach by Aivhub workspace.")
     res = await send_system_email(op.email or "", subject, msg["html"], msg["text"])
     return bool(res.get("ok"))
 

@@ -664,6 +664,22 @@ class StaffUser(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class NumberCheck(Base):
+    """What a carrier lookup said about one phone number, kept for 30 days so checking the same
+    number again (in any list) is free. Only numbers that got a real answer are kept."""
+    __tablename__ = "number_checks"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    phone = Column(String, nullable=False, index=True)  # E.164
+    status = Column(String, nullable=False)  # good, check, not_working
+    line_type = Column(String, default="")  # mobile, landline, voip, toll_free, other
+    carrier = Column(String, default="")
+    country = Column(String, default="")
+    found_name = Column(String, default="")
+    checked_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class CreditGrant(Base):
     """A batch of credits in one plugin's wallet (a plan renewal, a top-up, or added by staff).
     Usage takes from the batch closest to expiry first."""
@@ -1399,6 +1415,9 @@ class LeadAccount(Base):
     research = Column(JSON, nullable=True)  # last research run: overview, people, phones, emails, socials, sources
     researched_at = Column(DateTime, nullable=True)
     research_history = Column(JSON, nullable=True)  # earlier research runs, newest first, each {research, researched_at} -- so re-researching never throws away what an earlier run found
+    # The last "Check companies" result: {verdict, email, phone, reasons[], stages[], checked_at, ...}.
+    # Kept apart from the saved fields so a check never overwrites what the user imported.
+    verification = Column(JSON, nullable=True)
     # Points at the shared, cross-organisation fact about this company (see BusinessRecord below).
     # This org's own notes/status never leave this row; only the shared, public half is pointed to.
     business_record_id = Column(String, ForeignKey("business_records.id"), nullable=True, index=True)

@@ -288,13 +288,24 @@ def test_drawn_area_is_validated_and_matched():
         sample_points(clean_polygon([[50.0, -4.0], [50.0, 1.0], [55.0, 1.0], [55.0, -4.0]]))
 
 
-def test_outcodes_come_from_the_reverse_lookup(monkeypatch):
+def test_outcodes_come_from_the_reverse_lookup_and_the_districts_near_the_outline(monkeypatch):
     from app.services import geocoding
 
     async def fake_post(path, payload):
         assert path == "/postcodes" and payload["geolocations"]
         return {"result": [{"result": [{"outcode": "rg1"}, {"outcode": "RG30"}]}, {"result": None}, {"result": [{"outcode": "RG1"}]}]}
 
+    asked = []
+
+    async def fake_get(path, params):
+        asked.append(params)
+        return {"result": [{"outcode": "RG31"}, {"outcode": "rg1"}]}
+
+    geocoding._OUTCODE_CACHE.clear()
     monkeypatch.setattr(geocoding, "_post", fake_post)
+    monkeypatch.setattr(geocoding, "_get", fake_get)
     poly = geocoding.clean_polygon([[51.40, -1.05], [51.40, -0.90], [51.50, -0.90], [51.50, -1.05]])
-    assert asyncio.run(geocoding.outcodes_for_area(poly)) == ["RG1", "RG30"]
+    assert asyncio.run(geocoding.outcodes_for_area(poly)) == ["RG1", "RG30", "RG31"]
+    assert asked and all(a["radius"] == geocoding.NEAR_RADIUS_M for a in asked)  # the outline was checked for districts that just enter it
+    n = len(asked)
+    assert asyncio.run(geocoding.outcodes_for_area(poly)) == ["RG1", "RG30", "RG31"] and len(asked) == n  # the same shape is not asked again

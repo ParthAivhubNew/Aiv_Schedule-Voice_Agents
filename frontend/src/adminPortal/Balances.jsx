@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Save, ShieldAlert, Wallet, Receipt } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { adminApi } from "./adminApi";
+import { EmailFinderReport } from "./EmailFinderReport";
 import { Note, PageTitle, Pill, btn, card, cell, heading, input, useAction, useLoad } from "./ui";
 
 export function Balances({ canEdit }) {
@@ -186,6 +187,7 @@ export function Balances({ canEdit }) {
       </div>
 
       <VendorSpend />
+      <EmailFinderReport canEdit={canEdit} />
       <ModelPricing />
     </div>
   );

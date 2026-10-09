@@ -17,7 +17,7 @@ from app.services.enrichment_service import (
     fill_contact_gaps,
     _row_missing_fields,
 )
-from app.services import business_records, lead_filters
+from app.services import business_records, lead_filters, phrase_understanding
 from app.services.llm_gateway import call_open_chat_llm
 
 router = APIRouter(prefix="/enrichment", tags=["AI Lead Radar & Enrichment"])
@@ -317,7 +317,9 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 removed_names = plan["remove_names"]
             elif plan["action"] == "search":
                 try:
-                    found = await business_records.search_filtered(db, plan["filters"], limit=25, exclude_ids=req.exclude_ids or [])
+                    wide, _ = await phrase_understanding.apply(db, plan["filters"])  # the panel's box widens its words the same way
+                    found = await business_records.search_filtered(db, wide, limit=25, exclude_ids=req.exclude_ids or [])
+                    found["filters"] = business_records.normalize_filters(plan["filters"])  # show what was asked, not the widened words
                     registry = {"filters": found["filters"], "total": found["total"], "capped": found["total_capped"],
                                 "leads": [lead_filters.card(r) for r in found["rows"]]}
                 except ValueError as err:

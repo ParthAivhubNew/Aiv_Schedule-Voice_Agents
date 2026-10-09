@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, Search, Sparkles, Users } from "lucide-react";
+import { ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, Search, Sparkles, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
 import { LeadsMap } from "./LeadsMap";
+import { amountChoices } from "./drawShape";
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -209,6 +210,13 @@ function FindLeadsSearch({ store }) {
   const [area, setArea] = useState(null); // a polygon drawn on the map: [[lat, lng], ...]
   const [points, setPoints] = useState({}); // company id -> [lat, lng]
   const asked = useRef(new Set());
+  // A drawn area is counted first, the user picks how many to see, then the companies are placed in steps.
+  const [areaStep, setAreaStep] = useState(null); // null | {phase: counting|choose|running|done, ...}
+  const stopArea = useRef(false);
+  // How the typed words were read ("dentist" also looks for "dental"), and the words the user took out.
+  const [understood, setUnderstood] = useState([]);
+  const [dropTerms, setDropTerms] = useState([]);
+  const dropFor = useRef("");
 
   const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
@@ -246,27 +254,42 @@ function FindLeadsSearch({ store }) {
     })();
   }, [view, companies]);
 
-  const search = async (e, overrideForm, offset = 0, areaOverride) => {
+  const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride) => {
     if (e) e.preventDefault();
     const f = overrideForm || form;
     const shape = areaOverride !== undefined ? areaOverride : area;
     if (busy) return;
+    // New words start with a fresh reading; removing a word from the reading keeps the others as they are.
+    let drop = dropOverride;
+    if (drop === undefined) {
+      drop = f.sector === dropFor.current ? dropTerms : [];
+      if (drop !== dropTerms) setDropTerms(drop);
+    }
+    dropFor.current = f.sector;
+    if (shape) { countArea(shape, f, drop); return; }
     setBusy(true);
     setError("");
     try {
-      const r = await api.searchCompanies({ filters: formToFilters(f), limit: shape ? 100 : 25, offset, exclude_ids: excluded, ...(shape ? { area: shape } : {}) });
+      const r = await api.searchCompanies({ filters: formToFilters(f), limit: 25, offset, exclude_ids: excluded, drop_terms: drop });
       if (r.points) setPoints((p) => ({ ...p, ...r.points }));
       setCompanies((prev) => (offset ? [...prev, ...r.companies] : r.companies));
       setTotal(r.total);
       setCapped(r.total_capped);
       setApplied(r.filters);
       setChips(r.chips || []);
+      setUnderstood(r.understood || []);
       setSearched(true);
     } catch (err) {
       setError(err.message || "The search didn't finish. Try again.");
     } finally {
       setBusy(false);
     }
+  };
+
+  const dropTerm = (term) => {
+    const next = [...dropTerms, term];
+    setDropTerms(next);
+    search(null, form, 0, undefined, next);
   };
 
   const runIdea = (patch) => {
@@ -277,12 +300,69 @@ function FindLeadsSearch({ store }) {
     search(null, f, 0, null);
   };
 
+  // Step 1: how many companies could be in the area. Free and quick.
+  const countArea = async (shape, f = form, drop = dropTerms) => {
+    stopArea.current = true;
+    setError("");
+    setAreaStep({ phase: "counting" });
+    try {
+      const r = await api.areaCount({ filters: formToFilters(f), area: shape, drop_terms: drop });
+      setAreaStep({ phase: "choose", candidates: r.candidates, capped: r.capped });
+    } catch (err) {
+      setAreaStep(null);
+      setError(err.message || "The area couldn't be counted. Try again.");
+    }
+  };
+
+  // Step 2: read the area in steps until there are as many as the user asked for (or none are left).
+  const showFromArea = async (shape, target, candidates) => {
+    stopArea.current = false;
+    const got = [];
+    let scan = 0;
+    let more = true;
+    let lastChips = [];
+    let lastFilters = applied;
+    setCompanies([]);
+    setTotal(0);
+    setSearched(true);
+    try {
+      while (more && !stopArea.current && got.length < target) {
+        setAreaStep({ phase: "running", found: got.length, scanned: scan, candidates });
+        const r = await api.searchCompanies({ filters: formToFilters(form), area: shape, scan, exclude_ids: excluded, drop_terms: dropTerms });
+        if (stopArea.current) break;
+        if (r.points) setPoints((p) => ({ ...p, ...r.points }));
+        got.push(...r.companies);
+        setCompanies(got.slice(0, target));
+        setTotal(Math.min(got.length, target));
+        lastChips = r.chips || lastChips;
+        if (r.understood) setUnderstood(r.understood);
+        lastFilters = r.filters || lastFilters;
+        more = r.next_scan != null;
+        scan = r.next_scan ?? scan;
+      }
+      const shown = got.slice(0, target);
+      setCompanies(shown);
+      setTotal(shown.length);
+      setCapped(false);
+      setApplied(lastFilters);
+      setChips(lastChips);
+      setAreaStep({ phase: "done", shown: shown.length, more: more || got.length > target, candidates });
+    } catch (err) {
+      setError(err.message || "The search didn't finish. Try again.");
+      setAreaStep({ phase: "done", shown: got.length, more: true, candidates, stopped: true });
+    }
+  };
+
   const drawArea = (shape) => {
     setArea(shape);
     setExcluded([]);
-    search(null, form, 0, shape);
+    setCompanies([]);
+    setTotal(0);
+    countArea(shape, form);
   };
   const clearArea = () => {
+    stopArea.current = true;
+    setAreaStep(null);
     setArea(null);
     setExcluded([]);
     if (Object.keys(formToFilters(form)).some((k) => ["keyword", "towns", "postcode_prefixes"].includes(k))) search(null, form, 0, null);
@@ -311,6 +391,10 @@ function FindLeadsSearch({ store }) {
         filters: applied, exclude_ids: excluded,
       });
       if (res?.registry) {
+        stopArea.current = true;
+        setAreaStep(null);
+        setUnderstood([]);
+        setDropTerms([]);
         setArea(null); // the chat runs its own search, so a drawn area no longer applies
         setCompanies(res.registry.companies);
         setTotal(res.registry.total);
@@ -430,9 +514,52 @@ function FindLeadsSearch({ store }) {
               {chips.map((c) => <span key={c} className="ui-chip" style={{ cursor: "default" }}>{c}</span>)}
             </div>
           ) : null}
+          {understood.length ? (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>
+              <span style={{ ...muted, fontSize: 12.5 }}>Also looking for:</span>
+              {understood.flatMap((u) => u.terms).map((t) => (
+                <span key={t} className="ui-chip" style={{ cursor: "default", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  {t}
+                  <button type="button" aria-label={`Stop looking for ${t}`} disabled={busy} onClick={() => dropTerm(t)}
+                    style={{ all: "unset", cursor: "pointer", display: "inline-flex", color: C.slate }}><X size={12} /></button>
+                </span>
+              ))}
+            </div>
+          ) : null}
           {view === "map" ? (
             <div style={{ padding: 12 }}>
               <LeadsMap companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} />
+              {areaStep && area ? (
+                <div className="ui-card" role="status" style={{ marginTop: 10, padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  {areaStep.phase === "counting" ? <span style={muted}>Counting the companies in this area…</span> : null}
+                  {areaStep.phase === "choose" ? (
+                    areaStep.candidates ? (
+                      <>
+                        <span style={{ ...text, fontSize: 13, color: C.textInk, marginRight: "auto" }}>
+                          Up to <strong>{areaStep.candidates.toLocaleString()}{areaStep.capped ? "+" : ""}</strong> companies are in this area. How many do you want to see?
+                        </span>
+                        {amountChoices(areaStep.candidates).map((o) => (
+                          <button key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => showFromArea(area, o.value, areaStep.candidates)}>{o.label}</button>
+                        ))}
+                      </>
+                    ) : <span style={muted}>No company data in this area. Our data covers the UK, so draw over a UK town or a few postcodes.</span>
+                  ) : null}
+                  {areaStep.phase === "running" ? (
+                    <>
+                      <span style={{ ...muted, marginRight: "auto" }}>Placing companies on the map… {areaStep.found.toLocaleString()} found so far.</span>
+                      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { stopArea.current = true; }}>Stop</button>
+                    </>
+                  ) : null}
+                  {areaStep.phase === "done" ? (
+                    <>
+                      <span style={{ ...text, fontSize: 13, color: C.textInk, marginRight: "auto" }}>
+                        {areaStep.shown ? `Showing ${areaStep.shown.toLocaleString()} companies in this area.` : "No companies from our data are inside this exact shape."}
+                      </span>
+                      {areaStep.candidates ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setAreaStep({ phase: "choose", candidates: areaStep.candidates })}>Change how many</button> : null}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
               <div style={{ ...muted, fontSize: 12.5, marginTop: 8 }}>
                 {companies.some((c) => !points[c.id]) && busy === false && asked.current.size
                   ? "Companies without a usable postcode aren't on the map; they're still in the List view." : "Pins are placed at each company's registered postcode."}

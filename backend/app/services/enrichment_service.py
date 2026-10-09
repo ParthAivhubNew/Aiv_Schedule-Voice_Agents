@@ -302,7 +302,7 @@ async def search_google_places(query: str) -> Optional[Dict[str, Any]]:
             place_id = candidates[0].get("place_id")
             if not place_id:
                 return None
-            fields = "name,formatted_address,international_phone_number,website,rating,url"
+            fields = "name,formatted_address,international_phone_number,website,rating,url,business_status"
             details = await client.get(
                 "https://maps.googleapis.com/maps/api/place/details/json",
                 params={"place_id": place_id, "fields": fields, "key": key},
@@ -317,6 +317,7 @@ async def search_google_places(query: str) -> Optional[Dict[str, Any]]:
         "name": result.get("name") or "", "address": result.get("formatted_address") or "",
         "phone": result.get("international_phone_number") or "", "website": result.get("website") or "",
         "rating": result.get("rating"), "place_id": place_id,
+        "business_status": result.get("business_status") or "",  # OPERATIONAL, CLOSED_TEMPORARILY, CLOSED_PERMANENTLY
     }
 
 

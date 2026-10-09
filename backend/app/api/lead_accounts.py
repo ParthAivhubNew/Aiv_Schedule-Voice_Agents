@@ -90,6 +90,7 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]
         "source_url": a.source_url or "", "business_record_id": a.business_record_id or "", "research": a.research or None,
         "researched_at": a.researched_at.isoformat() + "Z" if a.researched_at else None,
         "research_history": a.research_history or [],
+        "verification": a.verification or None,
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
     }
@@ -115,6 +116,8 @@ class SearchIn(BaseModel):
     offset: int = 0
     exclude_ids: List[str] = []
     area: Optional[List[List[float]]] = None  # a drawn map area: [[lat, lng], ...] corners
+    scan: int = 0  # with an area: where this step starts reading the districts it touches (see search_in_area)
+    drop_terms: List[str] = []  # words the user removed from "how your words were read" (see phrase_understanding)
 
 
 @router.post("/search")
@@ -122,25 +125,49 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     """The Apollo-style filter search over the shared company store (the same one the chat runs).
     Free: it reads our own data and calls no paid service -- credits are only used when contacts
     are looked up. Every row is a stored record with its trust tier; nothing here is generated."""
-    from app.services import lead_filters
+    from app.services import lead_filters, phrase_understanding
 
+    shown_filters = business_records.normalize_filters(body.filters)  # what the user typed: this is what comes back
+    wide, understood = await phrase_understanding.apply(db, body.filters, body.drop_terms)
     try:
         if body.area:
-            out = await business_records.search_in_area(db, body.filters, body.area, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
+            out = await business_records.search_in_area(db, wide, body.area, scan=body.scan, exclude_ids=body.exclude_ids)
         else:
-            out = await business_records.search_filtered(db, body.filters, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
+            out = await business_records.search_filtered(db, wide, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
         if "statement timeout" in str(err).lower():
             raise HTTPException(status_code=504, detail="That search is too broad to finish. Add a town or a narrower sector and try again.")
         raise
+    out["filters"] = shown_filters
     chips = lead_filters.describe(out["filters"])
     if body.area:
         await db.commit()  # keeps the postcode points just looked up, so the next search is instant
         chips.append("Inside the area drawn on the map")
     return {"companies": [lead_filters.card(r) for r in out["rows"]], "total": out["total"],
-            "total_capped": out["total_capped"], "filters": out["filters"], "chips": chips, "points": out.get("points", {})}
+            "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
+            "next_scan": out.get("next_scan"), "understood": understood}
+
+
+@router.post("/search/area-count")
+async def area_count(body: SearchIn, db: AsyncSession = Depends(get_db)):
+    """How many companies a drawn area could hold, so the user picks how many to see before the
+    (slower) step of placing each one on the map. Free."""
+    if not body.area:
+        raise HTTPException(status_code=422, detail="Draw an area on the map first.")
+    from app.services import phrase_understanding
+
+    wide, _ = await phrase_understanding.apply(db, body.filters, body.drop_terms)
+    try:
+        out = await business_records.area_candidates(db, wide, body.area)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            raise HTTPException(status_code=504, detail="That area is too busy to count. Draw a smaller one.")
+        raise
+    return {"candidates": out["candidates"], "capped": out["capped"]}
 
 
 class GeocodeIn(BaseModel):

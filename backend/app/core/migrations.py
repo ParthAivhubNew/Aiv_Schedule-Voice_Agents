@@ -336,6 +336,54 @@ async def _lead_account_research_history_column(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS research_history JSON"))
 
 
+async def _business_record_postcode_index(conn: AsyncConnection) -> None:
+    """Postcode searches (the map's drawn area, and "postcode starts with") are all 'postcode LIKE
+    AB1 %' -- without an index each one reads every company. A prefix-ready btree makes them
+    instant. On a big store, build it ahead without blocking the app:
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_business_records_postcode_prefix ON business_records (postcode varchar_pattern_ops);"""
+    if conn.dialect.name != "postgresql":
+        return
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_business_records_postcode_prefix ON business_records (postcode varchar_pattern_ops)"))
+
+
+async def _lead_account_verification_column(conn: AsyncConnection) -> None:
+    """Saved Accounts > Check companies keeps its result in its own column, apart from what the
+    user imported (see models.py)."""
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS verification JSON"))
+
+
+async def _live_registry_check_config(conn: AsyncConnection) -> None:
+    """Teaches the company check how to read a live search hit from the two registers that can be
+    asked directly (Companies House, Food Hygiene): which hit field is the name, status, and so on.
+    Only adds what is missing; anything staff already set is left alone."""
+    import json
+
+    hits = {
+        "ds_companies_house": {
+            "search_field_map": {"name": "title", "registration_number": "company_number", "status": "company_status",
+                                 "company_category": "company_type", "incorporation_date": "date_of_creation",
+                                 "address": "address_snippet"},
+        },
+        "ds_food_hygiene": {
+            "search_endpoint": "/Establishments", "search_param": "name", "search_items_path": "establishments",
+            "search_extra_params": {"pageSize": "5"}, "test_query": "Tesco",
+            "search_field_map": {"name": "BusinessName", "postcode": "PostCode", "industry": "BusinessType",
+                                 "address": ["AddressLine1", "AddressLine2", "AddressLine3", "PostCode"]},
+            "search_defaults": {"status": "Active"},  # the register lists food businesses currently registered
+        },
+    }
+    for source_id, extra in hits.items():
+        row = (await conn.execute(text("SELECT config FROM data_sources WHERE id = :i"), {"i": source_id})).first()
+        if not row:
+            continue
+        config = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+        for key, value in extra.items():
+            config.setdefault(key, value)
+        await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = :i"),
+                           {"c": json.dumps(config), "i": source_id})
+
+
 async def _seed_companies_house_source(conn: AsyncConnection) -> None:
     """The first api-type DataSource -- a config row, not special-cased code (see
     data_source_connector.py). Picks up COMPANIES_HOUSE_API_KEY once, as a one-time convenience
@@ -645,6 +693,9 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_26_seed_google_places_vendor_price", _seed_google_places_vendor_price),
     ("2026_10_27_business_record_shared_research_column", _business_record_shared_research_column),
     ("2026_10_28_social_account_expiry", _social_account_expiry),
+    ("2026_10_29_lead_account_verification_column", _lead_account_verification_column),
+    ("2026_10_29_live_registry_check_config", _live_registry_check_config),
+    ("2026_10_30_business_record_postcode_index", _business_record_postcode_index),
 ]
 
 

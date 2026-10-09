@@ -27,6 +27,7 @@ MAX_POINTS = 100
 MAX_VERTICES = 300
 MAX_STEP_KM = 4.0   # a drawn area wider than ~40 km would need a coarser sample than we trust
 MIN_STEP_KM = 1.5
+NEAR_RADIUS_M = 3000  # how far from the outline a district's centre may be and still be considered
 
 Point = Tuple[float, float]  # (lat, lng)
 
@@ -69,9 +70,7 @@ def point_in_polygon(lat: float, lng: float, poly: List[Point]) -> bool:
     return inside
 
 
-def sample_points(poly: List[Point]) -> List[Point]:
-    """A grid of points inside the polygon (plus its corners), dense enough that every outcode the
-    area touches is near one. Raises ValueError when the area is too large to cover reliably."""
+def _grid_step_km(poly: List[Point]) -> float:
     lats = [p[0] for p in poly]
     lngs = [p[1] for p in poly]
     south, north, west, east = min(lats), max(lats), min(lngs), max(lngs)
@@ -81,6 +80,32 @@ def sample_points(poly: List[Point]) -> List[Point]:
     step = max(MIN_STEP_KM, math.sqrt(max(height_km * width_km, 0.01) / 60))
     if step > MAX_STEP_KM:
         raise ValueError("That area is too large to search. Draw a smaller one, around a town or a few postcodes.")
+    return step
+
+
+def edge_points(poly: List[Point], step_km: float, limit: int = 40) -> List[Point]:
+    """Points along the drawn outline, about one per step: the districts a shape only just enters sit
+    at its edge, where the inside grid can miss them."""
+    out: List[Point] = []
+    for i in range(len(poly)):
+        (a_lat, a_lng), (b_lat, b_lng) = poly[i], poly[(i + 1) % len(poly)]
+        km = math.hypot((b_lat - a_lat) * 111.0, (b_lng - a_lng) * 111.0 * math.cos(math.radians((a_lat + b_lat) / 2)))
+        n = max(1, int(km / step_km))
+        out.extend((a_lat + (b_lat - a_lat) * k / n, a_lng + (b_lng - a_lng) * k / n) for k in range(n))
+    if len(out) > limit:  # keep an even spread rather than only the first edges
+        stride = len(out) / limit
+        out = [out[int(k * stride)] for k in range(limit)]
+    return out
+
+
+def sample_points(poly: List[Point]) -> List[Point]:
+    """A grid of points inside the polygon (plus points along its outline), dense enough that every
+    outcode the area touches is near one. Raises ValueError when the area is too large to cover reliably."""
+    lats = [p[0] for p in poly]
+    lngs = [p[1] for p in poly]
+    south, north, west, east = min(lats), max(lats), min(lngs), max(lngs)
+    mid = (south + north) / 2
+    step = _grid_step_km(poly)
     dlat = step / 111.0
     dlng = step / (111.0 * max(math.cos(math.radians(mid)), 0.1))
     out: List[Point] = []
@@ -92,8 +117,10 @@ def sample_points(poly: List[Point]) -> List[Point]:
                 out.append((lat, lng))
             lng += dlng
         lat += dlat
-    out = out[: MAX_POINTS - 20] + poly[:20]
-    return out
+    if len(out) > MAX_POINTS - 40:  # an even spread, so a big area is not covered only in its south
+        stride = len(out) / (MAX_POINTS - 40)
+        out = [out[int(k * stride)] for k in range(MAX_POINTS - 40)]
+    return out + edge_points(poly, step)
 
 
 async def _post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -103,8 +130,24 @@ async def _post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         return r.json()
 
 
+async def _get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(f"{API}{path}", params=params)
+        r.raise_for_status()
+        return r.json()
+
+
+_OUTCODE_CACHE: Dict[Tuple[Point, ...], List[str]] = {}
+
+
 async def outcodes_for_area(poly: List[Point]) -> List[str]:
-    """The postcode districts (e.g. 'RG1', 'RG30') the drawn area touches, from postcodes.io's reverse lookup."""
+    """The postcode districts (e.g. 'RG1', 'RG30') the drawn area touches. The districts under the
+    shape come from postcodes.io's reverse lookup; districts that only just enter it are found with
+    its 'districts near this point' lookup along the outline. The answer is kept for the next search
+    over the same shape (a big area is searched in several steps)."""
+    key = tuple((round(a, 5), round(b, 5)) for a, b in poly)
+    if key in _OUTCODE_CACHE:
+        return _OUTCODE_CACHE[key]
     points = sample_points(poly)
     try:
         data = await _post("/postcodes", {"geolocations": [
@@ -113,11 +156,31 @@ async def outcodes_for_area(poly: List[Point]) -> List[str]:
         logger.warning(f"[geocoding] area lookup failed: {err}")
         raise ValueError("The map service didn't answer, so the area couldn't be searched. Try again in a moment.")
     found: List[str] = []
+
+    def add(code: Any) -> None:
+        code = str(code or "").upper()
+        if code and code not in found:
+            found.append(code)
+
     for item in data.get("result") or []:
         for hit in (item or {}).get("result") or []:
-            code = str(hit.get("outcode") or "").upper()
-            if code and code not in found:
-                found.append(code)
+            add(hit.get("outcode"))
+    sem = asyncio.Semaphore(8)
+
+    async def near(point: Point) -> List[str]:
+        async with sem:
+            try:
+                res = await _get("/outcodes", {"lat": point[0], "lon": point[1], "radius": NEAR_RADIUS_M, "limit": 5})
+            except Exception:
+                return []  # best effort: the districts under the shape are already in
+        return [h.get("outcode") for h in res.get("result") or []]
+
+    for codes in await asyncio.gather(*(near(p) for p in edge_points(poly, _grid_step_km(poly)))):
+        for code in codes:
+            add(code)
+    if len(_OUTCODE_CACHE) > 64:
+        _OUTCODE_CACHE.clear()
+    _OUTCODE_CACHE[key] = found
     return found
 
 

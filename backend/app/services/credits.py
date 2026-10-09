@@ -54,9 +54,16 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "lead_lookup": {"label": "Lead researched", "unit": "lead", "credits": 5, "wallet": "leadgen", "charged": True},
     "google_deep_search": {"label": "Deep web search", "unit": "search", "credits": 2, "wallet": "leadgen", "charged": True},
     "email_send": {"label": "Email sent", "unit": "email", "credits": 1, "wallet": "leadgen", "charged": True},
+    # Company checks (Saved Accounts > Check companies). Starting prices, editable in the rate card.
+    # Checks against our own records are free, so they have no item. A half credit is allowed: a run
+    # adds up what it used and rounds the total up once (see charge()).
+    "check_registry": {"label": "Registry check", "unit": "company", "credits": 1, "wallet": "leadgen", "charged": True},
+    "check_email": {"label": "Contact email check", "unit": "email found", "credits": 2.5, "wallet": "leadgen", "charged": True},
     # Telnyx charges us a monthly rental per number; 0 until staff set our price in the rate card.
     "phone_number_month": {"label": "Phone number, per month", "unit": "number a month", "credits": 1, "wallet": "voice", "charged": True},
     "number_setup": {"label": "Number setup", "unit": "number", "credits": 5, "wallet": "voice", "charged": True},
+    # Checking imported phone numbers: 1 credit per 5 numbers that get a real answer.
+    "number_check": {"label": "Number check", "unit": "5 numbers", "credits": 1, "wallet": "voice", "charged": True},
 }
 RATES_KEY = "credit_rates"
 
@@ -79,6 +86,7 @@ DEFAULT_UNIT_COSTS_USD_CENTS: Dict[str, float] = {
                                      # pay-as-you-go) that finds/enriches the lead; the LLM step
                                      # riding alongside it costs whatever provider the org
                                      # configured, left out above
+    "number_check": 1.5,            # 5 Telnyx Number Lookups at $0.003 each
     "google_deep_search": 3.5,      # Google Places Text Search + Place Details, combined ($0.035)
 }
 
@@ -146,15 +154,21 @@ async def rates(db) -> Dict[str, Dict[str, Any]]:
     out = {k: dict(v) for k, v in DEFAULT_RATES.items()}
     for k, v in stored.items():
         if k in out and isinstance(v, (int, float)) and v >= 0:
-            out[k]["credits"] = int(v)
+            out[k]["credits"] = _price(v)
     return out
+
+
+def _price(v: Any) -> Any:
+    """A price in credits: whole numbers stay whole, otherwise the nearest half credit."""
+    half = round(float(v) * 2) / 2
+    return int(half) if half == int(half) else half
 
 
 async def set_rates(db, patch: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     stored = await _get_doc(db, RATES_KEY)
     for k, v in (patch or {}).items():
         if k in DEFAULT_RATES:
-            stored[k] = max(0, int(v))
+            stored[k] = max(0, _price(v))
     await _put_doc(db, RATES_KEY, stored)
     return await rates(db)
 

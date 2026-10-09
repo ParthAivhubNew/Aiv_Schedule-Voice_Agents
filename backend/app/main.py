@@ -38,6 +38,7 @@ from app.api.sip_webhook import router as sip_webhook_router
 from app.api.telnyx_assistant_webhook import router as telnyx_assistant_webhook_router
 from app.api.enrichment import router as enrichment_router
 from app.api.lead_accounts import router as lead_accounts_router
+from app.api.lead_checks import router as lead_checks_router
 from app.api.calcom import router as calcom_router
 from app.api.livekit_router import router as livekit_router
 from app.api.vapi_router import router as vapi_router
@@ -47,6 +48,7 @@ from app.api.conversation_templates import router as conversation_templates_rout
 from app.api.diagnostics import router as diagnostics_router
 from app.api.voices import router as voices_router
 from app.api.numbers import router as numbers_router
+from app.api.number_check import router as number_check_router
 from app.api.email_outreach import router as email_outreach_router
 from app.api.developer_keys import router as developer_keys_router
 from app.api.developer_webhooks import router as developer_webhooks_router
@@ -727,6 +729,7 @@ app.include_router(telnyx_assistant_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(telnyx_assistant_webhook_router)  # Direct /telnyx-assistant compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
+app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
 app.include_router(calcom_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router)  # Direct /livekit compatibility
@@ -741,6 +744,7 @@ app.include_router(conversation_templates_router)  # Direct /conversation-templa
 app.include_router(diagnostics_router, prefix=settings.API_PREFIX)
 app.include_router(voices_router, prefix=settings.API_PREFIX)
 app.include_router(numbers_router, prefix=settings.API_PREFIX)
+app.include_router(number_check_router, prefix=settings.API_PREFIX)
 app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
 app.include_router(developer_keys_router, prefix=settings.API_PREFIX)
 app.include_router(developer_webhooks_router, prefix=settings.API_PREFIX)

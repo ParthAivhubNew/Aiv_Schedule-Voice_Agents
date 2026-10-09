@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, Download, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { applyMapping } from "./importMapping";
+import { CheckDetails, CheckDialog, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, exportCheckCsv, useCompanyCheck } from "./CheckCompanies";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -56,7 +57,7 @@ export function useLeadAccounts(onToast) {
   const replace = (a) => setAccounts((prev) => prev.map((x) => (x.id === a.id ? a : x)));
 
   return {
-    accounts, loading, error, researching, reload,
+    accounts, loading, error, researching, reload, toast: onToast,
     // Saves new accounts; ones already saved are skipped by the server.
     save: async (list) => {
       try {
@@ -231,6 +232,9 @@ const ACCOUNT_CHIPS = [
 export function AccountsView({ store, onOpen, onAdd, onGo }) {
   const [filter, setFilter] = useState("");
   const [scope, setScope] = useState("all");
+  const [picked, setPicked] = useState(() => new Set()); // ids ticked for "Check companies"
+  const [checking, setChecking] = useState(null); // { ids, pendingOnly } while the cost box is open
+  const check = useCompanyCheck({ onToast: store.toast, reload: store.reload });
   if (store.loading || (store.error && !store.accounts.length)) return <Loading store={store} />;
   if (!store.accounts.length) {
     return (
@@ -241,10 +245,21 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
     );
   }
   const q = filter.trim().toLowerCase();
-  const scopePred = ACCOUNT_CHIPS.find(([id]) => id === scope)[2];
+  // Verdict filters appear once some companies have been checked.
+  const verdictChips = VERDICT_ORDER
+    .map((k) => [`v_${k}`, VERDICTS[k].label, (a) => a.verification?.verdict === k])
+    .filter(([, , pred]) => store.accounts.some(pred))
+    .map(([id, label, pred]) => [id, `${label} ${store.accounts.filter(pred).length}`, pred]);
+  const chips = [...ACCOUNT_CHIPS, ...verdictChips];
+  const scopePred = (chips.find(([id]) => id === scope) || ACCOUNT_CHIPS[0])[2];
   const shown = store.accounts
     .filter(scopePred)
     .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q)));
+  const shownIds = shown.map((a) => a.id);
+  const allShownPicked = shownIds.length > 0 && shownIds.every((id) => picked.has(id));
+  const pickedIds = store.accounts.filter((a) => picked.has(a.id)).map((a) => a.id); // companies removed since are dropped
+  const toggle = (id) => setPicked((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const pendingCount = store.accounts.filter((a) => a.verification?.pending_registry).length;
   const stats = [
     ["Saved accounts", store.accounts.length],
     ["With a phone", store.accounts.filter((a) => a.phone).length],
@@ -261,8 +276,10 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
           </div>
         ))}
       </div>
+      <CheckProgress check={check} pendingCount={pendingCount} onFilter={(k) => setScope(`v_${k}`)}
+        onRecheck={() => setChecking({ ids: store.accounts.filter((a) => a.verification?.pending_registry).map((a) => a.id), pendingOnly: true })} />
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {ACCOUNT_CHIPS.map(([id, label]) => (
+        {chips.map(([id, label]) => (
           <button key={id} type="button" onClick={() => setScope(id)}
             className={`ui-btn ui-btn--sm ${scope === id ? "ui-btn--primary" : "ui-btn--ghost"}`}>
             {label}
@@ -270,23 +287,51 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
         ))}
       </div>
       <div className="ui-card" style={{ overflow: "hidden" }}>
-        <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input className="ui-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, website, contact or place" aria-label="Filter saved accounts" style={{ width: "100%", maxWidth: 360 }} />
+          <span style={{ flex: 1 }} />
+          <span style={{ ...muted, fontSize: 12.5 }}>{pickedIds.length ? `${pickedIds.length.toLocaleString()} selected` : "Tick companies to check them"}</span>
+          <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!pickedIds.length || check.job?.status === "running"}
+            title="Check these companies against our records, the company registers and the web"
+            onClick={() => setChecking({ ids: pickedIds, pendingOnly: false })}>
+            <ShieldCheck size={14} /> Check companies
+          </button>
+          {store.accounts.some((a) => a.verification) ? (
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => exportCheckCsv(pickedIds.length ? store.accounts.filter((a) => picked.has(a.id)) : shown)}
+              title="Download the list with each company's check result">
+              <Download size={14} /> Export results
+            </button>
+          ) : null}
         </div>
+        {allShownPicked && shownIds.length < store.accounts.length ? (
+          <div style={{ ...muted, padding: "6px 12px", background: C.paperSoft, borderBottom: `1px solid ${C.border}` }}>
+            {shownIds.length.toLocaleString()} shown are selected.{" "}
+            <button type="button" onClick={() => setPicked(new Set(store.accounts.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: C.cobalt, cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
+              Select all {store.accounts.length.toLocaleString()} saved companies
+            </button>
+          </div>
+        ) : null}
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
-          <table className="ui-table" style={{ minWidth: 760 }}>
+          <table className="ui-table" style={{ minWidth: 860 }}>
             <thead>
-              <tr><th>Company</th><th>Phone</th><th>Contact</th><th>Found by</th><th style={{ width: 1 }} aria-label="Actions" /></tr>
+              <tr>
+                <th style={{ width: 1 }}>
+                  <input type="checkbox" checked={allShownPicked} onChange={() => setPicked(allShownPicked ? new Set() : new Set(shownIds))} aria-label="Select all companies shown" />
+                </th>
+                <th>Company</th><th>Phone</th><th>Contact</th><th>Check</th><th>Found by</th><th style={{ width: 1 }} aria-label="Actions" />
+              </tr>
             </thead>
             <tbody>
               {shown.map((a) => (
                 <tr key={a.id}>
+                  <td><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
                     <button type="button" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
                     <div style={{ fontSize: 12, marginTop: 1 }}><SiteLink account={a} /></div>
                   </td>
                   <td style={{ fontVariantNumeric: "tabular-nums" }}>{a.phone || <span style={{ color: C.slateLight }}>Not found</span>}</td>
                   <td>{a.contact_name ? <>{a.contact_name}{a.contact_title ? <span style={{ color: C.slate }}> · {a.contact_title}</span> : null}</> : <span style={{ color: C.slateLight }}>Not found</span>}</td>
+                  <td><VerdictBadge verification={a.verification} /></td>
                   <td style={{ color: C.slate }}>{SOURCE_LABEL[a.source] || "Added by hand"}</td>
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
@@ -296,11 +341,14 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
                   </td>
                 </tr>
               ))}
-              {!shown.length ? <tr><td colSpan={5} style={{ color: C.slate }}>Nothing matches “{filter}”.</td></tr> : null}
+              {!shown.length ? <tr><td colSpan={7} style={{ color: C.slate }}>Nothing matches “{filter}”.</td></tr> : null}
             </tbody>
           </table>
         </div>
       </div>
+      {checking ? (
+        <CheckDialog ids={checking.ids} pendingOnly={checking.pendingOnly} onStart={check.start} onClose={() => setChecking(null)} />
+      ) : null}
     </div>
   );
 }
@@ -553,6 +601,7 @@ export function AccountPanel({ account, store, onClose }) {
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+          <CheckDetails account={live} />
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Research</div>

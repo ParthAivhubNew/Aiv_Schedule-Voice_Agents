@@ -16,10 +16,11 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -109,7 +110,26 @@ async def finder_keys() -> Dict[str, str]:
                     found[prov] = key.strip()
     except Exception as err:
         logger.warning(f"Email Finder keys not read: {err}")
-    return {p: found[p] for p in PROVIDERS if p in found}
+    return {p: found[p] for p in await finder_order() if p in found}
+
+
+ORDER_KEY = "email_finder_order"
+
+
+async def finder_order() -> List[str]:
+    """The order providers are tried in: the one staff chose in the owner portal, else the default.
+    A provider missing from a saved order is tried after the listed ones."""
+    from app.database import AsyncSessionLocal
+    from app.models.models import AppSetting
+
+    try:
+        async with AsyncSessionLocal() as s:
+            row = await s.get(AppSetting, ORDER_KEY)
+        saved = [x for x in ((row.data or {}).get("order") or []) if x in PROVIDERS] if row else []
+    except Exception as err:
+        logger.warning(f"Email Finder order not read: {err}")
+        saved = []
+    return saved + [p for p in PROVIDERS if p not in saved]
 
 
 def _check(res: httpx.Response, provider: str) -> Any:
@@ -218,6 +238,23 @@ def _person_out(email_addr: str, p: Dict[str, str], entity: str, status: str, so
             "entity_type": entity, "verification_status": status, "source": source, "cost_credits": 1}
 
 
+MISS_DAYS = 30  # a "nobody found this person" answer is trusted for this long
+RECHECK_DAYS = 90  # a verified address older than this is asked about again before it is used
+
+
+def _same_person(q, p: Dict[str, str]):
+    q = q.where(PersonCache.first_name.ilike(p["first_name"]), PersonCache.last_name.ilike(p["last_name"]))
+    return q.where(PersonCache.domain == p["domain"]) if p["domain"] else q.where(PersonCache.company_name.ilike(p["company"]))
+
+
+async def _hard_bounced(db: AsyncSession, email_addr: str) -> bool:
+    from app.models.models import EmailSuppression
+
+    row = (await db.execute(select(EmailSuppression.id).where(
+        func.lower(EmailSuppression.email) == email_addr.lower(), EmailSuppression.reason == "hard_bounce").limit(1))).first()
+    return bool(row)
+
+
 def _domain_of(raw: str) -> str:
     d = (raw or "").strip().lower()
     d = re.sub(r"^https?://", "", d).split("/")[0]
@@ -273,30 +310,42 @@ async def lookup_person_waterfall(
     pdl_person_id: Optional[str] = None,
     mission_id: Optional[str] = None,
     prospect_id: Optional[str] = None,
+    bill: bool = True,
 ) -> Dict[str, Any]:
-    """Finds a verified work email; charges 1 credit only when one is found."""
+    """Finds a verified work email; charges 1 credit only when one is found. bill=False leaves the
+    charging to the caller (a company check adds up a whole run and charges it once)."""
     p = {"first_name": (first_name or "").strip(), "last_name": (last_name or "").strip(),
          "company": (company_name or "").strip(), "domain": _domain_of(domain)}
     if not (p["first_name"] and p["last_name"] and (p["domain"] or p["company"])):
         return {"found": False, "error": "bad_input", "detail": "Give a first name, last name and the company's website or name."}
     query = f"{p['first_name']} {p['last_name']} @ {p['domain'] or p['company']}"
 
-    ok, why = await can_start(db, "lead_lookup")
-    if not ok:
-        return {"found": False, "error": "insufficient_credits", "detail": why}
+    if bill:
+        ok, why = await can_start(db, "lead_lookup")
+        if not ok:
+            return {"found": False, "error": "insufficient_credits", "detail": why}
 
-    # 1. Shared cache: a verified address found earlier, for anyone.
+    # 1. Shared cache: a verified address found earlier, for anyone. One older than RECHECK_DAYS is
+    # asked again below (and one that has since bounced is dropped), so a stale address is never served.
+    now = datetime.utcnow()
     q = select(PersonCache).where(PersonCache.verification_status.in_(("verified", "catch_all")))
     if pdl_person_id:
         q = q.where(PersonCache.pdl_person_id == pdl_person_id)
     else:
-        q = q.where(PersonCache.first_name.ilike(p["first_name"]), PersonCache.last_name.ilike(p["last_name"]))
-        q = q.where(PersonCache.domain == p["domain"]) if p["domain"] else q.where(PersonCache.company_name.ilike(p["company"]))
+        q = _same_person(q, p)
     cached = (await db.execute(q.order_by(PersonCache.updated_at.desc()))).scalars().first()
+    stale: Optional[PersonCache] = None
+    if cached and cached.email:
+        if await _hard_bounced(db, cached.email):
+            cached.verification_status = "expired"
+            cached = None
+        elif now - (cached.verified_at or cached.created_at or now) > timedelta(days=RECHECK_DAYS):
+            stale, cached = cached, None
     if cached and cached.email:
         db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider="cache",
                                  found_email=cached.email, cost_usd=0.0, latency_ms=0, hit=True))
-        await charge(db, "lead_lookup", 1, f"lead:{uuid.uuid4().hex[:16]}", f"Email found: {query}")
+        if bill:
+            await charge(db, "lead_lookup", 1, f"lead:{uuid.uuid4().hex[:16]}", f"Email found: {query}")
         await _auto_enroll_prospect(db, org_id, cached.email, p, mission_id, prospect_id)
         await db.commit()
         return _person_out(cached.email, p, cached.entity_type, cached.verification_status, "cache")
@@ -306,7 +355,17 @@ async def lookup_person_waterfall(
     if not keys:
         return {"found": False, "error": "not_configured",
                 "detail": "Email finding isn't set up yet. The Outreach team adds it in the owner portal."}
-    found_email, status, winner, catch_all = "", "", "", None
+
+    # A recent "nobody found" for this same person is answered without asking (or paying) anyone again.
+    miss = (await db.execute(_same_person(select(PersonCache).where(PersonCache.verification_status == "not_found"), p)
+                             .order_by(PersonCache.verified_at.desc()))).scalars().first()
+    if miss and miss.verified_at and now - miss.verified_at < timedelta(days=MISS_DAYS) and not stale:
+        db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider="miss_cache",
+                                 found_email="", cost_usd=0.0, latency_ms=0, hit=False))
+        await db.commit()
+        return {"found": False, "query": query, "detail": "No verified email found for this person."}
+
+    found_email, status, winner, catch_all, answered = "", "", "", None, 0
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         for provider, key in keys.items():
             if _PROVIDER_BACKOFF_UNTIL.get(provider, 0) > time.time():
@@ -315,6 +374,7 @@ async def lookup_person_waterfall(
             try:
                 email_addr, st = await ADAPTERS[provider](client, key, p)
                 _PROVIDER_FAILS[provider] = 0
+                answered += 1
             except Exception as err:
                 logger.warning(f"[Email Finder] {provider} failed: {err}")
                 _PROVIDER_FAILS[provider] = _PROVIDER_FAILS.get(provider, 0) + 1
@@ -336,15 +396,29 @@ async def lookup_person_waterfall(
         found_email, winner = catch_all
         status = "catch_all"
     if not found_email:
+        if answered:  # somebody really looked: remember it. If every provider failed, nothing is remembered.
+            if stale:
+                stale.verification_status = "expired"
+            if miss:
+                miss.verified_at, miss.updated_at = now, now
+            else:
+                db.add(PersonCache(id=str(uuid.uuid4()), email="", first_name=p["first_name"], last_name=p["last_name"],
+                                   company_name=p["company"], domain=p["domain"], verification_status="not_found",
+                                   verified_at=now, source=""))
         await db.commit()
         return {"found": False, "query": query, "detail": "No verified email found for this person."}
 
     entity = classify_pecr_entity(p["company"], found_email)
-    db.add(PersonCache(id=str(uuid.uuid4()), pdl_person_id=pdl_person_id or None, email=found_email.lower(),
-                       first_name=p["first_name"], last_name=p["last_name"], company_name=p["company"],
-                       domain=p["domain"] or found_email.split("@")[-1].lower(), entity_type=entity,
-                       entity_verified=False, verification_status=status, verified_at=datetime.utcnow(), source=winner))
-    await charge(db, "lead_lookup", 1, f"lead:{uuid.uuid4().hex[:16]}", f"Email found: {query}")
+    if stale:  # the old address is asked about again and refreshed in place
+        stale.email, stale.verification_status, stale.verified_at, stale.source = found_email.lower(), status, now, winner
+        stale.entity_type = entity
+    else:
+        db.add(PersonCache(id=str(uuid.uuid4()), pdl_person_id=pdl_person_id or None, email=found_email.lower(),
+                           first_name=p["first_name"], last_name=p["last_name"], company_name=p["company"],
+                           domain=p["domain"] or found_email.split("@")[-1].lower(), entity_type=entity,
+                           entity_verified=False, verification_status=status, verified_at=now, source=winner))
+    if bill:
+        await charge(db, "lead_lookup", 1, f"lead:{uuid.uuid4().hex[:16]}", f"Email found: {query}")
     await _auto_enroll_prospect(db, org_id, found_email, p, mission_id, prospect_id)
     await db.commit()
     return _person_out(found_email.lower(), p, entity, status, winner)

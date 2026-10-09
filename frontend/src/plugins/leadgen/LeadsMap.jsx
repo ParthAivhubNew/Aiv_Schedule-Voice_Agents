@@ -1,29 +1,41 @@
 import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Eraser, PenTool, X } from "lucide-react";
+import { Eraser, Pencil, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
+import { shapeFromPath } from "./drawShape";
 
 const text = { fontFamily: FONT_BODY };
 const BRAND = "#2563EB";
 const UK_CENTRE = [54.0, -2.5];
+// The UK and the land around it (Ireland, the Channel Islands, the nearby coast of France, Belgium and
+// the Netherlands): the map can be moved around this, but our company data is the UK's.
+const REGION = [[47.0, -14.0], [62.0, 6.5]];
+// Free OpenStreetMap tiles by default; a paid tile service can be swapped in without a code change.
+const TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const TILE_ATTRIBUTION = import.meta.env.VITE_MAP_TILE_ATTRIBUTION || "&copy; OpenStreetMap contributors";
+const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>')}") 2 22, crosshair`;
 
-// Map of the companies in the results, with a draw-an-area tool. Plain Leaflet (no wrapper library).
+// Map of the companies in the results, with a pencil to draw an area. Plain Leaflet (no wrapper library).
 // `points` is {companyId: [lat, lng]}; `area` is the drawn polygon [[lat, lng], ...] or null.
-// Drawing: click to place corners, click the first corner (or double-click) to finish, Esc to cancel.
+// Drawing: press and drag to draw around the area, let go to finish (the end joins back to the start),
+// Esc cancels. Works with a mouse, a finger or a stylus.
 export function LeadsMap({ companies, points, area, busy, onArea, onClear, height = 460 }) {
   const el = useRef(null);
   const map = useRef(null);
   const markers = useRef(null);
   const shape = useRef(null);
-  const draft = useRef({ pts: [], line: null, dots: [] });
+  const draft = useRef({ pts: [], line: null });
   const [drawing, setDrawing] = useState(false);
   const cbs = useRef({ onArea });
   cbs.current = { onArea };
 
   useEffect(() => {
-    const m = L.map(el.current, { center: UK_CENTRE, zoom: 6, zoomControl: true, doubleClickZoom: false });
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(m);
+    const m = L.map(el.current, {
+      center: UK_CENTRE, zoom: 6, minZoom: 5, zoomControl: true, doubleClickZoom: false,
+      maxBounds: REGION, maxBoundsViscosity: 0.9,
+    });
+    L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(m);
     markers.current = L.layerGroup().addTo(m);
     map.current = m;
     setTimeout(() => m.invalidateSize(), 0);
@@ -66,44 +78,64 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
   }, [area]);
 
   const resetDraft = () => {
-    const d = draft.current;
-    if (d.line) d.line.remove();
-    d.dots.forEach((x) => x.remove());
-    draft.current = { pts: [], line: null, dots: [] };
+    if (draft.current.line) draft.current.line.remove();
+    draft.current = { pts: [], line: null };
   };
 
-  const finish = () => {
-    const pts = draft.current.pts;
-    resetDraft();
-    setDrawing(false);
-    if (pts.length >= 3) cbs.current.onArea(pts.map((p) => [Number(p[0].toFixed(5)), Number(p[1].toFixed(5))]));
-  };
-
+  // The pencil: press, drag, let go.
   useEffect(() => {
     const m = map.current;
     if (!m || !drawing) return undefined;
     const container = m.getContainer();
-    container.style.cursor = "crosshair";
-    const onClick = (e) => {
-      const d = draft.current;
-      if (d.pts.length >= 3 && m.latLngToContainerPoint(e.latlng).distanceTo(m.latLngToContainerPoint(d.pts[0])) < 12) { finish(); return; }
-      d.pts.push([e.latlng.lat, e.latlng.lng]);
-      if (d.line) d.line.setLatLngs(d.pts); else d.line = L.polyline(d.pts, { color: BRAND, weight: 2, dashArray: "5 5" }).addTo(m);
-      d.dots.push(L.circleMarker(e.latlng, { radius: 5, color: BRAND, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(m));
+    const prev = { cursor: container.style.cursor, touch: container.style.touchAction };
+    container.style.cursor = PENCIL_CURSOR;
+    container.style.touchAction = "none"; // a finger draws instead of scrolling the page
+    m.dragging.disable();
+    let down = false;
+    const at = (e) => { const ll = m.mouseEventToLatLng(e); return [ll.lat, ll.lng]; };
+    const onDown = (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      down = true;
+      container.setPointerCapture?.(e.pointerId);
+      resetDraft();
+      draft.current.pts = [at(e)];
+      draft.current.line = L.polyline(draft.current.pts, { color: BRAND, weight: 3 }).addTo(m);
+      e.preventDefault();
     };
-    const onDbl = () => { if (draft.current.pts.length > 3) draft.current.pts.pop(); finish(); }; // dbl-click also fires two clicks at the same spot
-    const onKey = (e) => { if (e.key === "Escape") { resetDraft(); setDrawing(false); } };
-    m.on("click", onClick);
-    m.on("dblclick", onDbl);
+    const onMove = (e) => {
+      if (!down) return;
+      const d = draft.current;
+      const last = m.latLngToContainerPoint(d.pts[d.pts.length - 1]);
+      const here = m.mouseEventToContainerPoint(e);
+      if (last.distanceTo(here) < 3) return; // a point every few pixels is plenty
+      d.pts.push(at(e));
+      d.line.setLatLngs(d.pts);
+    };
+    const onUp = () => {
+      if (!down) return;
+      down = false;
+      const done = shapeFromPath(draft.current.pts);
+      resetDraft();
+      setDrawing(false);
+      if (done) cbs.current.onArea(done);
+    };
+    const onKey = (e) => { if (e.key === "Escape") { down = false; resetDraft(); setDrawing(false); } };
+    container.addEventListener("pointerdown", onDown);
+    container.addEventListener("pointermove", onMove);
+    container.addEventListener("pointerup", onUp);
+    container.addEventListener("pointercancel", onUp);
     window.addEventListener("keydown", onKey);
     return () => {
-      container.style.cursor = "";
-      m.off("click", onClick);
-      m.off("dblclick", onDbl);
+      container.style.cursor = prev.cursor;
+      container.style.touchAction = prev.touch;
+      container.removeEventListener("pointerdown", onDown);
+      container.removeEventListener("pointermove", onMove);
+      container.removeEventListener("pointerup", onUp);
+      container.removeEventListener("pointercancel", onUp);
       window.removeEventListener("keydown", onKey);
+      if (map.current) map.current.dragging.enable();
       resetDraft();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawing]);
 
   const btn = { display: "inline-flex", alignItems: "center", gap: 6 };
@@ -114,13 +146,13 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
         {drawing ? (
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={() => { resetDraft(); setDrawing(false); }}><X size={14} /> Cancel</button>
         ) : (
-          <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={btn} disabled={busy} onClick={() => setDrawing(true)}><PenTool size={14} /> {area ? "Redraw area" : "Draw area"}</button>
+          <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={btn} disabled={busy} onClick={() => setDrawing(true)}><Pencil size={14} /> {area ? "Redraw area" : "Draw area"}</button>
         )}
         {area && !drawing ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={onClear}><Eraser size={14} /> Clear area</button> : null}
       </div>
       {drawing ? (
         <div style={{ position: "absolute", left: 10, bottom: 28, zIndex: 500, background: "rgba(255,255,255,.95)", padding: "6px 10px", borderRadius: 6, ...text, fontSize: 12.5, color: C.ink }}>
-          Click to place corners. Click the first corner or double-click to finish. Esc cancels.
+          Press and drag to draw around the area. Let go to finish. Esc cancels.
         </div>
       ) : null}
     </div>

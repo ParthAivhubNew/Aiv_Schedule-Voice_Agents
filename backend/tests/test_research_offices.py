@@ -53,7 +53,7 @@ def test_a_general_address_comes_before_peoples_and_jobs_comes_last():
 async def test_research_reads_the_office_page_first(monkeypatch):
     read = []
 
-    async def fake_crawl(url):
+    async def fake_crawl(url, **kwargs):
         read.append(url)
         return {"phones": ["01752 262611", "01905 732144"], "emails": ["exeter@bishopfleming.co.uk"], "socials": {}, "description": ""}
 

@@ -1300,6 +1300,36 @@ async def vendor_costs(request: Request, month: str = ""):
         return await R.vendor_spend(db, month)
 
 
+@router.get("/email-finder-report")
+async def email_finder_report(request: Request, days: int = 7):
+    """How each email-finder provider is performing (hit rate, spend, bounces, cost per good email)
+    and the order they could be tried in. Staff only."""
+    from app.services import vendor_report as V
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return await V.report(db, days)
+
+
+class FinderOrderBody(BaseModel):
+    order: List[str]
+
+
+@router.put("/email-finder-order")
+async def put_email_finder_order(body: FinderOrderBody, request: Request):
+    """The order email-finder providers are tried in (the waterfall). Admin only."""
+    from app.services import vendor_report as V
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            order = await V.save_order(db, body.order)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        await db.commit()
+    return {"order": order}
+
+
 @router.get("/model-pricing")
 async def get_model_pricing(request: Request):
     """Every provider/model that has actually been used, with its $ price if staff have set one

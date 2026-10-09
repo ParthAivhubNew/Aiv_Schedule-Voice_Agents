@@ -485,35 +485,66 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     return {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f}
 
 
-AREA_CANDIDATES = 1500  # most companies read from the postcode districts an area touches, before the shape is applied
+AREA_CHUNK = 1500  # companies read per step from the postcode districts an area touches, before the shape is applied
+AREA_COUNT_CAP = 100_000
 
 
-async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *, limit: int = 100, offset: int = 0,
-                         exclude_ids: Optional[List[str]] = None) -> Dict[str, Any]:
-    """The same filters as search_filtered, but only companies whose postcode centre lies inside the
-    drawn area (a list of [lat, lng] corners). The area narrows the search by itself, so no
-    sector/town is required. Works from the postcode districts the shape touches, geocodes those
-    companies' postcodes (cached, see geocoding.py), then keeps the ones inside the shape.
-    Returns the page of rows, the total inside, and each row's point."""
+async def _area_conditions(db: AsyncSession, filters: Dict[str, Any], poly, exclude_ids: Optional[List[str]] = None):
+    """The filter conditions plus 'in one of the districts this shape touches'; None when it touches none."""
     from app.services import geocoding
 
-    poly = geocoding.clean_polygon(area)
     f = normalize_filters(filters)
     outcodes = await geocoding.outcodes_for_area(poly)
     if not outcodes:
-        return {"rows": [], "points": {}, "total": 0, "total_capped": False, "filters": f}
+        return f, None
     conds = _filter_conditions(f)
     conds.append(or_(*[BusinessRecord.postcode.like(f"{oc} %") for oc in outcodes]))
     if exclude_ids:
         conds.append(BusinessRecord.id.notin_(list(exclude_ids)))
+    return f, and_(*conds)
+
+
+async def area_candidates(db: AsyncSession, filters: Dict[str, Any], area: Any) -> Dict[str, Any]:
+    """How many companies sit in the postcode districts a drawn area touches (an upper bound: the
+    shape itself is applied as they are read). Cheap, so the user can choose how many to see."""
+    from app.services import geocoding
+
+    poly = geocoding.clean_polygon(area)
+    f, where = await _area_conditions(db, filters, poly)
+    if where is None:
+        return {"candidates": 0, "capped": False, "filters": f}
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    capped = select(BusinessRecord.id).where(where).limit(AREA_COUNT_CAP + 1).subquery()
+    n = int((await db.execute(select(func.count()).select_from(capped))).scalar() or 0)
+    return {"candidates": min(n, AREA_COUNT_CAP), "capped": n > AREA_COUNT_CAP, "filters": f}
+
+
+async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *, scan: int = 0, chunk: int = AREA_CHUNK,
+                         exclude_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """The same filters as search_filtered, but only companies whose postcode centre lies inside the
+    drawn area (a list of [lat, lng] corners). The area narrows the search by itself, so no
+    sector/town is required. Reads one step of `chunk` companies from the postcode districts the
+    shape touches (newest first, starting at `scan`), geocodes their postcodes (cached, see
+    geocoding.py) and keeps the ones inside the shape. `next_scan` is where the next step starts,
+    or None when every company has been read -- the caller keeps asking until it has as many as the
+    user wanted."""
+    from app.services import geocoding
+
+    poly = geocoding.clean_polygon(area)
+    f, where = await _area_conditions(db, filters, poly, exclude_ids)
+    if where is None:
+        return {"rows": [], "points": {}, "total": 0, "next_scan": None, "filters": f}
+    scan = max(0, int(scan or 0))
+    chunk = max(1, min(int(chunk or AREA_CHUNK), AREA_CHUNK))
     if db.get_bind().dialect.name == "postgresql":
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     rows = (await db.execute(
-        select(BusinessRecord).where(and_(*conds))
-        .order_by(BusinessRecord.incorporated_on.desc().nullslast(), BusinessRecord.id).limit(AREA_CANDIDATES + 1)
+        select(BusinessRecord).where(where)
+        .order_by(BusinessRecord.incorporated_on.desc().nullslast(), BusinessRecord.id).offset(scan).limit(chunk + 1)
     )).scalars().all()
-    capped = len(rows) > AREA_CANDIDATES
-    rows = rows[:AREA_CANDIDATES]
+    more = len(rows) > chunk
+    rows = rows[:chunk]
     coords = await geocoding.geocode(db, [r.postcode for r in rows])
     inside, points = [], {}
     for r in rows:
@@ -521,10 +552,7 @@ async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *
         if pt and geocoding.point_in_polygon(pt[0], pt[1], poly):
             inside.append(r)
             points[r.id] = [pt[0], pt[1]]
-    limit = max(1, min(int(limit or 100), 200))
-    page = inside[max(0, int(offset or 0)):][:limit]
-    return {"rows": page, "points": {r.id: points[r.id] for r in page}, "total": len(inside),
-            "total_capped": capped, "filters": f}
+    return {"rows": inside, "points": points, "total": len(inside), "next_scan": scan + chunk if more else None, "filters": f}
 
 
 def _admin_search_filter(q: str):
