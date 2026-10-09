@@ -1575,6 +1575,15 @@ class CalendarService:
         except Exception:
             pass
 
+        try:  # customers' webhooks hear about every booking: by the API, by an AI call or in the app
+            from app.core.tenancy import current_org
+            from app.public_api.meetings import booked_payload
+            from app.services.webhook_dispatcher import dispatch_event
+
+            dispatch_event(current_org(), "meeting.booked", {"meeting": booked_payload(meeting)})
+        except Exception:
+            pass
+
         return {
             "success": True,
             "bookingId": meeting.id,
