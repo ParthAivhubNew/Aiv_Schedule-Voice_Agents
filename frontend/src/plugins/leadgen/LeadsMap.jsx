@@ -6,7 +6,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { shapeFromPath } from "./drawShape";
 
 const text = { fontFamily: FONT_BODY };
-const BRAND = "#2563EB";
+const BRAND = "#111111"; // pins and the drawn line are black so they stand out on the map
 const UK_CENTRE = [54.0, -2.5];
 // The UK and the land around it (Ireland, the Channel Islands, the nearby coast of France, Belgium and
 // the Netherlands): the map can be moved around this, but our company data is the UK's.
@@ -14,7 +14,7 @@ const REGION = [[47.0, -14.0], [62.0, 6.5]];
 // Free OpenStreetMap tiles by default; a paid tile service can be swapped in without a code change.
 const TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION = import.meta.env.VITE_MAP_TILE_ATTRIBUTION || "&copy; OpenStreetMap contributors";
-const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>')}") 2 22, crosshair`;
+const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>')}") 2 22, crosshair`;
 
 // Map of the companies in the results, with a pencil to draw an area. Plain Leaflet (no wrapper library).
 // `points` is {companyId: [lat, lng]}; `area` is the drawn polygon [[lat, lng], ...] or null.

@@ -353,6 +353,11 @@ async def _lead_account_verification_column(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS verification JSON"))
 
 
+async def _lead_account_custom_column(conn: AsyncConnection) -> None:
+    """Saved Accounts keeps the extra columns a user chose to keep from an imported file."""
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS custom JSON"))
+
+
 async def _live_registry_check_config(conn: AsyncConnection) -> None:
     """Teaches the company check how to read a live search hit from the two registers that can be
     asked directly (Companies House, Food Hygiene): which hit field is the name, status, and so on.
@@ -696,6 +701,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_29_lead_account_verification_column", _lead_account_verification_column),
     ("2026_10_29_live_registry_check_config", _live_registry_check_config),
     ("2026_10_30_business_record_postcode_index", _business_record_postcode_index),
+    ("2026_10_31_lead_account_custom_column", _lead_account_custom_column),
 ]
 
 

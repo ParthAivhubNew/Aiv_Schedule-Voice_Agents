@@ -600,7 +600,7 @@ function FindLeadsSearch({ store }) {
                   ) : null}
                   {areaStep.phase === "running" ? (
                     <>
-                      <span style={{ ...muted, marginRight: "auto" }}>Placing companies on the map… {areaStep.found.toLocaleString()} found so far.</span>
+                      <span style={{ ...muted, marginRight: "auto" }}>Placing companies on the map…{areaStep.found ? ` ${areaStep.found.toLocaleString()} so far.` : ""}</span>
                       <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { stopArea.current = true; }}>Stop</button>
                     </>
                   ) : null}

@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import Papa from "papaparse";
 import { RefreshCw, ShieldCheck, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
@@ -236,25 +235,4 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------- results out
-export function exportCheckCsv(accounts) {
-  const rows = accounts.map((a) => {
-    const v = a.verification || {};
-    return {
-      Company: a.name, Website: a.website, Email: a.email, Phone: a.phone, Contact: a.contact_name,
-      Verdict: v.verdict ? VERDICTS[v.verdict]?.label || v.verdict : "Not checked",
-      Reasons: (v.reasons || []).join("; "),
-      "Website check": STATE_WORDS.website[v.website?.state] || "", "Email check": STATE_WORDS.email[v.email?.state] || "",
-      "Email found": v.email?.found || "", "Phone check": STATE_WORDS.phone[v.phone?.state] || "",
-      "Checked on": v.checked_at ? v.checked_at.slice(0, 10) : "",
-    };
-  });
-  const url = URL.createObjectURL(new Blob([Papa.unparse(rows)], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `company-check-${new Date().toISOString().slice(0, 10)}.csv`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

@@ -112,3 +112,28 @@ async def test_research_fills_only_empty_fields_and_pays_per_find(db, monkeypatc
         r = await c.post(f"/api/leads/accounts/{brig['id']}/research")
         assert r.status_code == 402 and "Leads" in r.json()["detail"]
         assert len(calls) == before
+
+
+def test_a_users_own_columns_are_cleaned_before_they_are_kept():
+    from app.api.lead_accounts import MAX_CUSTOM_COLUMNS, clean_custom
+
+    got = clean_custom({"  UK 03 Sic Desc. ": "Washing   of textiles", "Phone": "nope", "email": "x", "Nested": {"a": 1}, "Blank": "",
+                        "x" * 80: "long name", "Big": "v" * 900})
+    assert got["UK 03 Sic Desc."] == "Washing of textiles" and got["Blank"] == ""
+    assert "Phone" not in got and "email" not in got and "Nested" not in got  # our own field names and non-text values never come through
+    assert len(next(k for k in got if k.startswith("xxx"))) == 40 and len(got["Big"]) == 500
+    assert clean_custom("not a dict") is None and clean_custom({}) is None
+    assert len(clean_custom({f"col{i}": "v" for i in range(80)})) == MAX_CUSTOM_COLUMNS
+
+
+async def test_columns_kept_from_an_import_are_saved_with_the_company_and_listed_back(db):
+    _, token = await make_user(db, "lc", "Admin", org_id="org_acme")
+    async with _client(token) as c:
+        r = await c.post("/api/leads/accounts", json={"accounts": [
+            {"name": "Thame Cleaners", "source": "import", "custom": {"URN": "69716", "Locality": "Oxfordshire"}},
+            {"name": "Plain Co", "source": "import"},
+        ]})
+        assert r.status_code == 200, r.text
+        by = {a["name"]: a for a in (await c.get("/api/leads/accounts")).json()["accounts"]}
+        assert by["Thame Cleaners"]["custom"] == {"URN": "69716", "Locality": "Oxfordshire"}
+        assert by["Plain Co"]["custom"] == {}

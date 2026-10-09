@@ -1418,6 +1418,8 @@ class LeadAccount(Base):
     # The last "Check companies" result: {verdict, email, phone, reasons[], stages[], checked_at, ...}.
     # Kept apart from the saved fields so a check never overwrites what the user imported.
     verification = Column(JSON, nullable=True)
+    # The user's own extra columns from an imported file: {"column name": "value"} (see clean_custom).
+    custom = Column(JSON, nullable=True)
     # Points at the shared, cross-organisation fact about this company (see BusinessRecord below).
     # This org's own notes/status never leave this row; only the shared, public half is pointed to.
     business_record_id = Column(String, ForeignKey("business_records.id"), nullable=True, index=True)

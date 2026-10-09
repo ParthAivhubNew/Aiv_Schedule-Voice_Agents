@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, Download, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { applyMapping } from "./importMapping";
-import { CheckDetails, CheckDialog, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, exportCheckCsv, useCompanyCheck } from "./CheckCompanies";
+import { CheckDetails, CheckDialog, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck } from "./CheckCompanies";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -223,6 +223,52 @@ function SiteLink({ account }) {
 }
 
 // ---------------------------------------------------------------- Saved Accounts
+// Columns a person can hide from their own view of the table (kept in their browser; nothing is deleted).
+const BUILT_IN_COLUMNS = [["phone", "Phone"], ["contact", "Contact"], ["check", "Check"], ["source", "Found by"]];
+const HIDDEN_KEY = "aivhub_accounts_hidden_columns";
+const readHidden = () => {
+  try { const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; }
+};
+// The user's own columns from imported files, in the order they first appear.
+export function customColumns(accounts) {
+  const seen = [];
+  (accounts || []).forEach((a) => Object.keys(a.custom || {}).forEach((k) => { if (!seen.includes(k)) seen.push(k); }));
+  return seen;
+}
+
+function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    window.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); window.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Columns3 size={14} /> Columns{hidden.length ? ` (${hidden.length} hidden)` : ""}
+      </button>
+      {open ? (
+        <div role="menu" className="ui-card" style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 20, minWidth: 220, maxHeight: 320, overflowY: "auto", padding: 8, boxShadow: "0 8px 24px rgba(0,0,0,.14)" }}>
+          <div style={{ ...muted, fontSize: 12, padding: "2px 6px 6px" }}>Tick the columns you want to see. This only changes your view.</div>
+          {columns.map(([id, label]) => (
+            <label key={id} style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", cursor: "pointer" }}>
+              <input type="checkbox" checked={!hidden.includes(id)} onChange={() => onToggle(id)} /> {label}
+            </label>
+          ))}
+          {hidden.length ? (
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginTop: 4 }} onClick={onShowAll}>Show all</button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const ACCOUNT_CHIPS = [
   ["all", "All", () => true],
   ["contact", "Has contact", (a) => a.contact_name || a.email],
@@ -234,6 +280,7 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
   const [scope, setScope] = useState("all");
   const [picked, setPicked] = useState(() => new Set()); // ids ticked for "Check companies"
   const [checking, setChecking] = useState(null); // { ids, pendingOnly } while the cost box is open
+  const [hidden, setHidden] = useState(readHidden); // columns this person chose not to see
   const check = useCompanyCheck({ onToast: store.toast, reload: store.reload });
   if (store.loading || (store.error && !store.accounts.length)) return <Loading store={store} />;
   if (!store.accounts.length) {
@@ -244,6 +291,16 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
       </EmptyState>
     );
   }
+  const own = customColumns(store.accounts);
+  const allColumns = [...BUILT_IN_COLUMNS, ...own.map((n) => [`c:${n}`, n])];
+  const saveHidden = (next) => {
+    setHidden(next);
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* the choice just isn't remembered */ }
+  };
+  const toggleColumn = (id) => saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
+  const showing = (id) => !hidden.includes(id);
+  const shownOwn = own.filter((n) => showing(`c:${n}`));
+  const columnCount = 2 + ["phone", "contact", "check", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
   // Verdict filters appear once some companies have been checked.
   const verdictChips = VERDICT_ORDER
@@ -291,17 +348,12 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
           <input className="ui-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, website, contact or place" aria-label="Filter saved accounts" style={{ width: "100%", maxWidth: 360 }} />
           <span style={{ flex: 1 }} />
           <span style={{ ...muted, fontSize: 12.5 }}>{pickedIds.length ? `${pickedIds.length.toLocaleString()} selected` : "Tick companies to check them"}</span>
+          <ColumnsMenu columns={allColumns} hidden={hidden} onToggle={toggleColumn} onShowAll={() => saveHidden([])} />
           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!pickedIds.length || check.job?.status === "running"}
             title="Check these companies against our records, the company registers and the web"
             onClick={() => setChecking({ ids: pickedIds, pendingOnly: false })}>
             <ShieldCheck size={14} /> Check companies
           </button>
-          {store.accounts.some((a) => a.verification) ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => exportCheckCsv(pickedIds.length ? store.accounts.filter((a) => picked.has(a.id)) : shown)}
-              title="Download the list with each company's check result">
-              <Download size={14} /> Export results
-            </button>
-          ) : null}
         </div>
         {allShownPicked && shownIds.length < store.accounts.length ? (
           <div style={{ ...muted, padding: "6px 12px", background: C.paperSoft, borderBottom: `1px solid ${C.border}` }}>
@@ -312,13 +364,19 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
           </div>
         ) : null}
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
-          <table className="ui-table" style={{ minWidth: 860 }}>
+          <table className="ui-table" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
             <thead>
               <tr>
                 <th style={{ width: 1 }}>
                   <input type="checkbox" checked={allShownPicked} onChange={() => setPicked(allShownPicked ? new Set() : new Set(shownIds))} aria-label="Select all companies shown" />
                 </th>
-                <th>Company</th><th>Phone</th><th>Contact</th><th>Check</th><th>Found by</th><th style={{ width: 1 }} aria-label="Actions" />
+                <th>Company</th>
+                {showing("phone") ? <th>Phone</th> : null}
+                {showing("contact") ? <th>Contact</th> : null}
+                {showing("check") ? <th>Check</th> : null}
+                {showing("source") ? <th>Found by</th> : null}
+                {shownOwn.map((n) => <th key={n} style={{ whiteSpace: "nowrap" }}>{n}</th>)}
+                <th style={{ width: 1 }} aria-label="Actions" />
               </tr>
             </thead>
             <tbody>
@@ -329,10 +387,15 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
                     <button type="button" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
                     <div style={{ fontSize: 12, marginTop: 1 }}><SiteLink account={a} /></div>
                   </td>
-                  <td style={{ fontVariantNumeric: "tabular-nums" }}>{a.phone || <span style={{ color: C.slateLight }}>Not found</span>}</td>
-                  <td>{a.contact_name ? <>{a.contact_name}{a.contact_title ? <span style={{ color: C.slate }}> · {a.contact_title}</span> : null}</> : <span style={{ color: C.slateLight }}>Not found</span>}</td>
-                  <td><VerdictBadge verification={a.verification} /></td>
-                  <td style={{ color: C.slate }}>{SOURCE_LABEL[a.source] || "Added by hand"}</td>
+                  {showing("phone") ? <td style={{ fontVariantNumeric: "tabular-nums" }}>{a.phone || <span style={{ color: C.slateLight }}>Not found</span>}</td> : null}
+                  {showing("contact") ? <td>{a.contact_name ? <>{a.contact_name}{a.contact_title ? <span style={{ color: C.slate }}> · {a.contact_title}</span> : null}</> : <span style={{ color: C.slateLight }}>Not found</span>}</td> : null}
+                  {showing("check") ? <td><VerdictBadge verification={a.verification} /></td> : null}
+                  {showing("source") ? <td style={{ color: C.slate }}>{SOURCE_LABEL[a.source] || "Added by hand"}</td> : null}
+                  {shownOwn.map((n) => (
+                    <td key={n} title={a.custom?.[n] || ""} style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {a.custom?.[n] || <span style={{ color: C.slateLight }}>—</span>}
+                    </td>
+                  ))}
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
                       <ResearchButton store={store} account={a} />
@@ -341,7 +404,7 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
                   </td>
                 </tr>
               ))}
-              {!shown.length ? <tr><td colSpan={7} style={{ color: C.slate }}>Nothing matches “{filter}”.</td></tr> : null}
+              {!shown.length ? <tr><td colSpan={columnCount} style={{ color: C.slate }}>Nothing matches “{filter}”.</td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -602,6 +665,19 @@ export function AccountPanel({ account, store, onClose }) {
         </div>
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
           <CheckDetails account={live} />
+          {Object.keys(live.custom || {}).length ? (
+            <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>From your file</div>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)", gap: "4px 12px", ...text, fontSize: 13 }}>
+                {Object.entries(live.custom).map(([k, v]) => (
+                  <React.Fragment key={k}>
+                    <span style={{ color: C.slate, overflowWrap: "anywhere" }}>{k}</span>
+                    <span style={{ color: C.textInk, overflowWrap: "anywhere" }}>{v || "—"}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            </section>
+          ) : null}
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Research</div>
@@ -821,6 +897,9 @@ export function ImportView({ store, onGo, onAskAi }) {
               </tbody>
             </table>
           </div>
+          {customColumns(fields).length ? (
+            <div style={{ ...muted, fontSize: 12.5 }}>Kept as your own columns: {customColumns(fields).join(", ")}</div>
+          ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button type="button" className="ui-btn ui-btn--primary" disabled={!usable.length || busy} onClick={importNow}>
               {busy ? "Importing…" : `Import ${usable.length} ${usable.length === 1 ? "company" : "companies"}`}

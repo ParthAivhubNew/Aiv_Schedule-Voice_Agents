@@ -1,7 +1,7 @@
 // Standard columns for company import files, and matching a file's own columns to them.
 // Same shape as the Voice plugin's importMapping.js (./voice/calling/importMapping.js), but for
-// the fields a saved account actually has -- there's no "keep as extra column" option here since
-// an account has no place to put a column that isn't one of these.
+// the fields a saved account actually has. A column that is none of these can be kept as the user's
+// own column: its mapping is "custom:<name>", and its values are saved under that name.
 
 export const STANDARD_FIELDS = [
   { key: "name", label: "Company name", important: true },
@@ -16,6 +16,10 @@ export const STANDARD_FIELDS = [
 ];
 
 export const SKIP = "__skip__"; // do not import
+export const CUSTOM = "custom:"; // "custom:UK 03 Sic Desc." = keep this column, under that name
+export const MAX_CUSTOM = 30; // the server keeps at most this many own columns per company
+export const isCustom = (target) => typeof target === "string" && target.startsWith(CUSTOM);
+export const customName = (target) => (isCustom(target) ? target.slice(CUSTOM.length).replace(/\s+/g, " ").trim().slice(0, 40) : "");
 
 const GUESSES = [
   ["website", /web\s*address|website|web\s*site|homepage|\burl\b|domain/i],
@@ -56,15 +60,23 @@ export function applyMapping(headers, records, mapping) {
   const plan = [];
   const used = new Set();
   (headers || []).forEach((h) => {
-    const target = mapping[h] || SKIP;
+    let target = mapping[h] || SKIP;
+    if (isCustom(target)) target = customName(target) ? CUSTOM + customName(target) : SKIP;
     if (target === SKIP || used.has(target)) return;
+    if (isCustom(target) && plan.filter(([, t]) => isCustom(t)).length >= MAX_CUSTOM) return;
     used.add(target);
     plan.push([h, target]);
   });
   const out = (records || []).map((rec) => {
     const r = {};
     plan.forEach(([from, to]) => {
-      r[to] = String(rec[from] ?? "").trim();
+      const value = String(rec[from] ?? "").trim();
+      if (isCustom(to)) {
+        if (!r.custom) r.custom = {};
+        r.custom[customName(to)] = value;
+      } else {
+        r[to] = value;
+      }
     });
     return r;
   });
@@ -79,13 +91,18 @@ export function mappingWarnings(mapping, records) {
     warn.push("No column is matched to Company name or Website, so these rows have nothing to save them by.");
   }
   const counts = {};
-  vals.forEach((v) => { if (v !== SKIP) counts[v] = (counts[v] || 0) + 1; });
+  vals.forEach((v) => { if (v !== SKIP) counts[isCustom(v) ? CUSTOM + customName(v) : v] = (counts[isCustom(v) ? CUSTOM + customName(v) : v] || 0) + 1; });
   Object.entries(counts).forEach(([k, n]) => {
     if (n > 1) {
-      const label = (STANDARD_FIELDS.find((f) => f.key === k) || {}).label || k;
+      const label = isCustom(k) ? `your column "${customName(k)}"` : (STANDARD_FIELDS.find((f) => f.key === k) || {}).label || k;
       warn.push(`${n} columns are matched to ${label}; only the first is used.`);
     }
   });
+  const own = vals.filter(isCustom);
+  if (own.some((v) => !customName(v))) warn.push("A column kept as your own needs a name; without one it is left out.");
+  const taken = new Set(STANDARD_FIELDS.flatMap((f) => [f.key, f.label.toLowerCase()]));
+  own.forEach((v) => { if (taken.has(customName(v).toLowerCase())) warn.push(`"${customName(v)}" is already one of our fields. Choose it from the list, or give your column another name.`); });
+  if (new Set(own.map(customName).filter(Boolean)).size > MAX_CUSTOM) warn.push(`Only the first ${MAX_CUSTOM} of your own columns are kept.`);
   return warn;
 }
 

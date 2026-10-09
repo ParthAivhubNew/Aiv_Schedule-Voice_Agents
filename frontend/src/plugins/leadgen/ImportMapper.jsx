@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { AlertTriangle, FileSpreadsheet, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
-import { guessMapping, mappingWarnings, rememberMapping, savedMappingFor, SKIP, STANDARD_FIELDS } from "./importMapping";
+import { CUSTOM, guessMapping, isCustom, mappingWarnings, rememberMapping, savedMappingFor, SKIP, STANDARD_FIELDS } from "./importMapping";
+
+const OWN = "__own__"; // the dropdown entry for "keep this column as my own"
 
 const sel = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", padding: "0 8px", fontSize: 12.5, fontFamily: FONT_BODY, width: "100%" };
 
@@ -68,12 +70,18 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
                 <tr key={h} style={{ borderTop: `1px solid ${C.borderLight || C.border}` }}>
                   <td style={{ padding: "7px 6px", fontWeight: 600, color: C.ink }}>{h}</td>
                   <td style={{ padding: "7px 6px" }}>
-                    <select value={mapping[h] || SKIP} onChange={(e) => setField(h, e.target.value)} style={sel} aria-label={`Import ${h} as`}>
+                    <select value={isCustom(mapping[h]) ? OWN : (mapping[h] || SKIP)} aria-label={`Import ${h} as`} style={sel}
+                      onChange={(e) => setField(h, e.target.value === OWN ? CUSTOM + String(h).trim().slice(0, 40) : e.target.value)}>
                       <optgroup label="Account fields">
                         {STANDARD_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                       </optgroup>
+                      <option value={OWN}>Keep as my own column…</option>
                       <option value={SKIP}>Don't import</option>
                     </select>
+                    {isCustom(mapping[h]) ? (
+                      <input value={mapping[h].slice(CUSTOM.length)} maxLength={40} aria-label={`Name for your column ${h}`} placeholder="Name this column"
+                        onChange={(e) => setField(h, CUSTOM + e.target.value)} style={{ ...sel, marginTop: 6 }} />
+                    ) : null}
                   </td>
                   <td style={{ padding: "7px 6px", color: C.slate, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {preview.map((r) => String(r[h] ?? "")).filter(Boolean).join(" · ") || "—"}

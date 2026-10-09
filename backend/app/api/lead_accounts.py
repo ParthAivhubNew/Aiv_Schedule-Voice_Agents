@@ -42,6 +42,7 @@ class AccountIn(BaseModel):
     source: str = "manual"
     source_url: str = ""
     business_record_id: str = ""  # set when saved from the company store, so the dossier shows its registry facts
+    custom: Dict[str, Any] = {}  # extra columns the user kept from an imported file
 
 
 class AccountsIn(BaseModel):
@@ -69,6 +70,26 @@ def _clean(value: Any, limit: int = 300) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
+MAX_CUSTOM_COLUMNS = 30
+_RESERVED_COLUMNS = {"name", "website", "phone", "email", "contact", "contact_name", "contact_title", "industry", "region", "notes"}
+
+
+def clean_custom(raw: Any) -> Optional[Dict[str, str]]:
+    """The extra columns a user kept: plain-text names (up to 40 characters) and values (up to 500),
+    at most MAX_CUSTOM_COLUMNS of them. Anything else is dropped."""
+    if not isinstance(raw, dict):
+        return None
+    out: Dict[str, str] = {}
+    for key, value in raw.items():
+        name = _clean(key, 40)
+        if not name or name.lower() in _RESERVED_COLUMNS or name in out or isinstance(value, (dict, list)):
+            continue
+        out[name] = _clean(value, 500)
+        if len(out) >= MAX_CUSTOM_COLUMNS:
+            break
+    return out or None
+
+
 def _registry_out(biz: BusinessRecord) -> Dict[str, Any]:
     """The shared, cross-organisation facts about this company (see BusinessRecord) -- registry
     status/category/dates plus officers and who actually controls it, when a live lookup has
@@ -90,7 +111,7 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]
         "source_url": a.source_url or "", "business_record_id": a.business_record_id or "", "research": a.research or None,
         "researched_at": a.researched_at.isoformat() + "Z" if a.researched_at else None,
         "research_history": a.research_history or [],
-        "verification": a.verification or None,
+        "verification": a.verification or None, "custom": a.custom or {},
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
     }
@@ -285,7 +306,7 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
             phone=_clean(item.phone, 60), email=_clean(item.email, 200).lower(), contact_name=_clean(item.contact_name, 120),
             contact_title=_clean(item.contact_title, 120), industry=_clean(item.industry, 120), region=_clean(item.region, 120),
             notes=_clean(item.notes, 2000), source=item.source if item.source in _SOURCES else "manual",
-            source_url=_clean(item.source_url, 500),
+            source_url=_clean(item.source_url, 500), custom=clean_custom(item.custom),
             business_record_id=item.business_record_id if item.business_record_id in known_biz else None,
         )
         db.add(row)
