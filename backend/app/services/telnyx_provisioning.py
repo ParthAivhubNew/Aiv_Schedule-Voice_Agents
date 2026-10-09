@@ -87,7 +87,9 @@ async def _create_or_reuse(create, find):
     try:
         return await create()
     except TelnyxError as err:
-        if "duplicate" not in str(err).lower():
+        said = str(err).lower()
+        # Telnyx words it differently by resource: "duplicate", "already exists", "has already been taken".
+        if not any(w in said for w in ("duplicate", "already exists", "already been taken", "already in use")):
             raise
         found = await find()
         if not found:
@@ -182,8 +184,11 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
                 await _prepaid_only(db)
             if not setup.outbound_connection_id:
                 # Same webhook as our other Call Control apps: it handles every kind of call we place.
-                app_ = await manager.create_call_control_application(
-                    f"Outreach calls: {label}", f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id)
+                app_name = f"Outreach calls: {label}"
+                app_ = await _create_or_reuse(
+                    lambda: manager.create_call_control_application(
+                        app_name, f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id),
+                    lambda: manager.find_call_control_application(app_name))
                 setup.outbound_connection_id = str(app_.get("id") or "")
             from app.services import voice_assistants as VA
             if VA.enabled_for_org(_org()):

@@ -66,6 +66,10 @@ export default function LeadGenerationPlugin({
     }
   });
   const nav = useMobileNav(view);
+  // Find Leads stays alive (just hidden) once opened, so a search, its results and a drawn map area are
+  // still there when the user comes back from another tab.
+  const [findOpened, setFindOpened] = useState(view === "find_leads");
+  useEffect(() => { if (view === "find_leads") setFindOpened(true); }, [view]);
 
   // Any navigation that might carry an old/legacy tab id (a child view's onGo/onOpen callback,
   // or a saved deep link) must go through this, not the raw setter -- see normalizeLeadgenView.
@@ -354,7 +358,9 @@ export default function LeadGenerationPlugin({
             </div>
           ) : (
             <>
-          {view === "find_leads" && <FindLeadsView store={store} onGo={goTo} />}
+          {(findOpened || view === "find_leads") && (
+            <div style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} onGo={goTo} /></div>
+          )}
 
           {view === "accounts" && <AccountsView store={store} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} />}
 

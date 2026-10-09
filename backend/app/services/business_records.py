@@ -472,7 +472,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     if exclude_ids:
         conds.append(BusinessRecord.id.notin_(list(exclude_ids)))
     where = and_(*conds)
-    limit = max(1, min(int(limit or 25), 100))
+    limit = max(1, min(int(limit or 25), 250))
     if db.get_bind().dialect.name == "postgresql":  # a runaway filter must never tie up the database
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     capped = select(BusinessRecord.id).where(where).limit(COUNT_CAP + 1).subquery()

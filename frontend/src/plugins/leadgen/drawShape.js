@@ -59,6 +59,15 @@ export function shapeFromPath(path, max = MAX_CORNERS) {
 
 // How many companies to offer the user to see, given how many an area could hold.
 export function amountChoices(candidates) {
-  const steps = [100, 500, 1000].filter((n) => n < candidates);
+  const steps = [50, 100, 250, 500, 1000].filter((n) => n < candidates);
   return [...steps.map((n) => ({ value: n, label: n.toLocaleString() })), { value: Infinity, label: candidates ? `All ${candidates.toLocaleString()}` : "All" }];
 }
+
+// The number a user typed as "how many", as a whole number from 1 up to what the area holds, or null.
+export function typedAmount(raw, candidates) {
+  const n = Math.floor(Number(String(raw || "").replace(/[, ]/g, "")));
+  if (!Number.isFinite(n) || n < 1) return null;
+  return candidates ? Math.min(n, candidates) : n;
+}
+
+export const PAGE_SIZES = [25, 50, 100, 250];

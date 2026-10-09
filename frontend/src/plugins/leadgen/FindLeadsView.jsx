@@ -4,7 +4,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
 import { LeadsMap } from "./LeadsMap";
-import { amountChoices } from "./drawShape";
+import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -39,6 +39,11 @@ function formToFilters(f) {
   if (f.hasPhone) out.has_phone = true;
   if (f.hasEmail) out.has_email = true;
   return out;
+}
+
+// What the user asked for, in a few words ("accounting, bookkeeping · Leeds"), for the status card.
+function appliedWords(f) {
+  return [f.sector, f.town, f.postcode ? `postcode ${f.postcode}` : ""].map((s) => String(s || "").trim()).filter(Boolean).join(" · ");
 }
 
 function filtersToForm(fl) {
@@ -213,6 +218,12 @@ function FindLeadsSearch({ store }) {
   // A drawn area is counted first, the user picks how many to see, then the companies are placed in steps.
   const [areaStep, setAreaStep] = useState(null); // null | {phase: counting|choose|running|done, ...}
   const stopArea = useRef(false);
+  const [custom, setCustom] = useState(""); // a number typed as "how many"
+  // How many companies the list loads at a time; remembered in the browser.
+  const [pageSize, setPageSize] = useState(() => {
+    try { const n = Number(localStorage.getItem("aivhub_find_page_size")); return PAGE_SIZES.includes(n) ? n : 25; } catch { return 25; }
+  });
+  const pageRef = useRef(pageSize);
   // How the typed words were read ("dentist" also looks for "dental"), and the words the user took out.
   const [understood, setUnderstood] = useState([]);
   const [dropTerms, setDropTerms] = useState([]);
@@ -270,7 +281,7 @@ function FindLeadsSearch({ store }) {
     setBusy(true);
     setError("");
     try {
-      const r = await api.searchCompanies({ filters: formToFilters(f), limit: 25, offset, exclude_ids: excluded, drop_terms: drop });
+      const r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop });
       if (r.points) setPoints((p) => ({ ...p, ...r.points }));
       setCompanies((prev) => (offset ? [...prev, ...r.companies] : r.companies));
       setTotal(r.total);
@@ -284,6 +295,13 @@ function FindLeadsSearch({ store }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const changePageSize = (n) => {
+    pageRef.current = n;
+    setPageSize(n);
+    try { localStorage.setItem("aivhub_find_page_size", String(n)); } catch { /* the choice just isn't remembered */ }
+    if (searched && !area && !busy) search(null, form, 0, null); // reload the list at the new size
   };
 
   const dropTerm = (term) => {
@@ -375,6 +393,12 @@ function FindLeadsSearch({ store }) {
     setTotal((t) => Math.max(0, t - 1));
   };
 
+  // A drawn area is being counted or waiting for the user to pick an amount: nothing has been searched yet,
+  // so the screen must not claim "0 companies" or "no companies match".
+  const inArea = Boolean(area && areaStep);
+  const areaPending = inArea && (areaStep.phase === "counting" || areaStep.phase === "choose") && !companies.length;
+  const pickAmount = (n) => showFromArea(area, n, areaStep.candidates);
+  const pinCount = companies.filter((c) => points[c.id]).length;
   const saveOne = (c) => store.save([asAccount(c)]);
   const unsaved = companies.filter((c) => !isSaved(c));
 
@@ -496,9 +520,23 @@ function FindLeadsSearch({ store }) {
         <div className="ui-card" style={{ overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-              {total.toLocaleString()}{capped ? "+" : ""} {total === 1 ? "company matches" : "companies match"}
-              <span style={{ fontWeight: 400, color: C.slate }}> · showing {companies.length}</span>
+              {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : (
+                <>
+                  {total.toLocaleString()}{capped ? "+" : ""} {total === 1 ? "company matches" : "companies match"}
+                  <span style={{ fontWeight: 400, color: C.slate }}> · showing {companies.length}</span>
+                </>
+              )}
             </div>
+            {!area ? (
+              <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                Show
+                <select className="ui-input" aria-label="Companies to load at a time" value={pageSize} disabled={busy}
+                  onChange={(e) => changePageSize(Number(e.target.value))} style={{ height: 30, padding: "0 6px", width: "auto" }}>
+                  {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                at a time
+              </label>
+            ) : null}
             <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
               {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
                 <button key={id} type="button" aria-pressed={view === id} onClick={() => setView(id)}
@@ -531,7 +569,17 @@ function FindLeadsSearch({ store }) {
               <LeadsMap companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} />
               {areaStep && area ? (
                 <div className="ui-card" role="status" style={{ marginTop: 10, padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  {areaStep.phase === "counting" ? <span style={muted}>Counting the companies in this area…</span> : null}
+                  {areaStep.phase === "counting" ? (
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", width: "100%" }}>
+                      <RefreshCw size={18} className="ui-spin" color={C.slate} />
+                      <div>
+                        <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Counting the companies inside your area…</div>
+                        <div style={{ ...muted, fontSize: 12.5 }}>
+                          {[appliedWords(form), "inside the shape you drew"].filter(Boolean).join(" · ")}. This takes a few seconds and costs nothing.
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   {areaStep.phase === "choose" ? (
                     areaStep.candidates ? (
                       <>
@@ -539,10 +587,16 @@ function FindLeadsSearch({ store }) {
                           Up to <strong>{areaStep.candidates.toLocaleString()}{areaStep.capped ? "+" : ""}</strong> companies are in this area. How many do you want to see?
                         </span>
                         {amountChoices(areaStep.candidates).map((o) => (
-                          <button key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => showFromArea(area, o.value, areaStep.candidates)}>{o.label}</button>
+                          <button key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => pickAmount(o.value)}>{o.label}</button>
                         ))}
+                        <form onSubmit={(e) => { e.preventDefault(); const n = typedAmount(custom, areaStep.candidates); if (n) pickAmount(n); }}
+                          style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                          <input className="ui-input" inputMode="numeric" aria-label="Type how many to see" placeholder="Or type a number" value={custom}
+                            onChange={(e) => setCustom(e.target.value)} style={{ width: 130, height: 30 }} />
+                          <button type="submit" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!typedAmount(custom, areaStep.candidates)}>Show</button>
+                        </form>
                       </>
-                    ) : <span style={muted}>No company data in this area. Our data covers the UK, so draw over a UK town or a few postcodes.</span>
+                    ) : <span style={muted}>Nothing found inside this area. Our data covers the UK, so draw over a UK town or a few postcodes, or use "Redraw area" for a bigger area or fewer filters.</span>
                   ) : null}
                   {areaStep.phase === "running" ? (
                     <>
@@ -553,7 +607,9 @@ function FindLeadsSearch({ store }) {
                   {areaStep.phase === "done" ? (
                     <>
                       <span style={{ ...text, fontSize: 13, color: C.textInk, marginRight: "auto" }}>
-                        {areaStep.shown ? `Showing ${areaStep.shown.toLocaleString()} companies in this area.` : "No companies from our data are inside this exact shape."}
+                        {areaStep.shown
+                          ? `Showing ${areaStep.shown.toLocaleString()}${areaStep.candidates ? ` of up to ${areaStep.candidates.toLocaleString()}` : ""} companies in this area · ${pinCount.toLocaleString()} on the map.`
+                          : "No companies from our data are inside this exact shape."}
                       </span>
                       {areaStep.candidates ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setAreaStep({ phase: "choose", candidates: areaStep.candidates })}>Change how many</button> : null}
                     </>
@@ -568,7 +624,7 @@ function FindLeadsSearch({ store }) {
           ) : null}
           {companies.length ? companies.map((c, i) => (
             <CompanyRow key={c.id} c={c} saved={isSaved(c)} onSave={saveOne} onRemove={removeCompany} last={i === companies.length - 1} />
-          )) : searched ? (
+          )) : searched && !inArea ? (
             <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
           ) : null}
           {companies.length < total ? (

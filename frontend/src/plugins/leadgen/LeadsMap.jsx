@@ -39,7 +39,11 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
     markers.current = L.layerGroup().addTo(m);
     map.current = m;
     setTimeout(() => m.invalidateSize(), 0);
-    return () => { m.remove(); map.current = null; };
+    // The screen can be hidden while the user visits another tab and shown again: the map redraws itself
+    // whenever its box changes size, so it never comes back as grey squares.
+    const watch = typeof ResizeObserver === "function" ? new ResizeObserver(() => { if (map.current) map.current.invalidateSize(); }) : null;
+    if (watch) watch.observe(el.current);
+    return () => { if (watch) watch.disconnect(); m.remove(); map.current = null; };
   }, []);
 
   // Company pins.

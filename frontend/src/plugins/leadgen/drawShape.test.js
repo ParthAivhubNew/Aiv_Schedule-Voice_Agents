@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountChoices, MAX_CORNERS, shapeFromPath } from "./drawShape";
+import { amountChoices, MAX_CORNERS, shapeFromPath, typedAmount } from "./drawShape";
 
 describe("pencil shapes", () => {
   it("turns a wobbly hand-drawn loop into a few corners", () => {
@@ -32,10 +32,20 @@ describe("pencil shapes", () => {
 });
 
 describe("how many to show", () => {
-  it("offers only amounts below what is there, and All last", () => {
-    expect(amountChoices(3200).map((c) => c.label)).toEqual(["100", "500", "1,000", "All 3,200"]);
-    expect(amountChoices(300).map((c) => c.label)).toEqual(["100", "All 300"]);
+  it("offers only amounts below what is there, starting at 50, and All last", () => {
+    expect(amountChoices(3200).map((c) => c.label)).toEqual(["50", "100", "250", "500", "1,000", "All 3,200"]);
+    expect(amountChoices(494).map((c) => c.label)).toEqual(["50", "100", "250", "All 494"]);
+    expect(amountChoices(60).map((c) => c.label)).toEqual(["50", "All 60"]);
     expect(amountChoices(40).map((c) => c.label)).toEqual(["All 40"]);
     expect(amountChoices(40).at(-1).value).toBe(Infinity);
+  });
+
+  it("reads a typed number, never more than the area holds", () => {
+    expect(typedAmount("75", 494)).toBe(75);
+    expect(typedAmount("1,200", 494)).toBe(494);
+    expect(typedAmount("0", 494)).toBeNull();
+    expect(typedAmount("abc", 494)).toBeNull();
+    expect(typedAmount("", 494)).toBeNull();
+    expect(typedAmount("12.9", 494)).toBe(12);
   });
 });
