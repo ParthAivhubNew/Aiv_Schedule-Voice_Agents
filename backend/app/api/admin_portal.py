@@ -886,6 +886,20 @@ async def put_social_oauth_app(platform: str, body: SocialOAuthAppBody, request:
     return {"app": public_app_dict(app_row)}
 
 
+@router.get("/social-connections")
+async def social_connections(request: Request):
+    """Every organisation's connected social accounts and how long each login lasts, worst first --
+    staff only. Accounts that cannot renew themselves (state expiring/expired) need the customer to
+    reconnect; staff are emailed about those once the daily pass finds them. No tokens are returned."""
+    from app.core.tenancy import system_scope
+    from app.services.social_tokens import connection_report
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            return {"connections": await connection_report(db)}
+
+
 @router.get("/platform-keys")
 async def platform_keys(request: Request):
     """Provider groups with masked keys (never the keys themselves) and the Telnyx assistant."""
@@ -1284,6 +1298,36 @@ async def vendor_costs(request: Request, month: str = ""):
         raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
     async with AsyncSessionLocal() as db:
         return await R.vendor_spend(db, month)
+
+
+@router.get("/email-finder-report")
+async def email_finder_report(request: Request, days: int = 7):
+    """How each email-finder provider is performing (hit rate, spend, bounces, cost per good email)
+    and the order they could be tried in. Staff only."""
+    from app.services import vendor_report as V
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return await V.report(db, days)
+
+
+class FinderOrderBody(BaseModel):
+    order: List[str]
+
+
+@router.put("/email-finder-order")
+async def put_email_finder_order(body: FinderOrderBody, request: Request):
+    """The order email-finder providers are tried in (the waterfall). Admin only."""
+    from app.services import vendor_report as V
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            order = await V.save_order(db, body.order)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        await db.commit()
+    return {"order": order}
 
 
 @router.get("/model-pricing")

@@ -24,17 +24,13 @@ import {
 import { useEffect, useState } from "react";
 import { api } from "../../api/apiClient";
 import {
-  applyCallHourPolicy,
   C,
-  CALL_HOUR_POLICIES,
   FONT_BODY,
   FONT_DISPLAY,
-  LUNCH_HOUR_OPTIONS,
   PECR,
   PROFILE_TABS,
   SOURCE_TYPES,
   TIMEZONES,
-  WEEKDAY_HOUR_OPTIONS,
 } from "../../app/constants";
 import { Field, SectionIntro, TopBar } from "../../app/ui";
 import { announceOrgUpdated } from "../../org/orgSettings";
@@ -62,6 +58,22 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
   }, [dirty, onDirtyChange]);
 
   const markDirty = () => setDirty(true);
+
+  // Numbers the company owns: the caller ID is chosen from these (or filled in when there is one).
+  const [ownedNumbers, setOwnedNumbers] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    api.getNumbers().then((list) => {
+      if (alive && Array.isArray(list)) setOwnedNumbers(list.filter((n) => n.e164 && n.status !== "released"));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  useEffect(() => {
+    // One number: it is the caller ID. Set quietly, so opening the page does not look like an unsaved edit.
+    if (ownedNumbers.length === 1 && profile.callerId !== ownedNumbers[0].e164) {
+      setProfile((p) => ({ ...p, callerId: ownedNumbers[0].e164 }));
+    }
+  }, [ownedNumbers]);
 
   const requestTab = (nextId) => {
     if (nextId === tab) return;
@@ -432,7 +444,28 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
               <Field label="Website" value={profile.website || ""} onChange={(v) => update("website", v)} placeholder="https://" hint="Also added automatically as a knowledge source." />
               <Field label="LinkedIn / other social links" value={profile.social || ""} onChange={(v) => update("social", v)} placeholder="linkedin.com/company/…" />
               <Field label="Caller persona name" value={profile.callerName} onChange={(v) => update("callerName", v)} placeholder="Name the agent uses" hint="The name the AI introduces itself as on calls." />
-              <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…" />
+              {ownedNumbers.length === 0 ? (
+                <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…"
+                  hint="Get a phone number under Subscription → Numbers and it appears here." />
+              ) : ownedNumbers.length === 1 ? (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Caller ID number shown</div>
+                  <div style={{ padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.paperSoft || "#F7F8FA" }}>{ownedNumbers[0].e164}</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>Your only number, so it is used on every call.</div>
+                </div>
+              ) : (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Caller ID number shown</div>
+                  <select
+                    value={ownedNumbers.some((n) => n.e164 === profile.callerId) ? profile.callerId : (ownedNumbers.find((n) => n.isDefault) || ownedNumbers[0]).e164}
+                    onChange={(e) => update("callerId", e.target.value)}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+                  >
+                    {ownedNumbers.map((n) => <option key={n.id} value={n.e164}>{n.e164}{n.label ? ` · ${n.label}` : ""}</option>)}
+                  </select>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>The number people see when the AI calls. Choose a different one on a call from the calling screen.</div>
+                </div>
+              )}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Organisation timezone</div>
                 <select
@@ -470,114 +503,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   </select>
                 </div>
               </div>
-              <Field
-                label="Post approver emails"
-                value={Array.isArray(profile.approverEmails) ? profile.approverEmails.join(", ") : (profile.approverEmails || "")}
-                onChange={(v) => update("approverEmails", v)}
-                placeholder="approver@company.com, manager@company.com"
-                hint="Every scheduled post is sent here for approval. Separate several with commas."
-              />
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Active Calendar Engine</div>
-                <select
-                  value={profile.calendar_mode || profile.calendarMode || "internal"}
-                  onChange={(e) => update("calendar_mode", e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
-                >
-                  <option value="internal">Internal Database Calendar</option>
-                  <option value="calcom">Cal.com Cloud Calendar & Event Types</option>
-                </select>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
-                  Switch at any time. When using Internal mode, booked appointments appear directly in your local Meetings tab. When Cal.com is selected, slots and bookings synchronize via Cal.com.
-                </div>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>When we may call — a policy, not an accident</div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.5, marginBottom: 10 }}>
-                  UK PECR for B2B live calls: <strong>08:00–21:00 weekdays</strong>, <strong>09:00–18:00 weekends</strong>. Calling a shorter office day is legal. It is not the legal maximum.
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {CALL_HOUR_POLICIES.map((p) => {
-                    const active = (profile.callHoursPolicy || "respectful") === p.id;
-                    const range = p.id === "custom"
-                      ? `${profile.weekdayStart || "09:00"}–${profile.weekdayEnd || "17:30"}`
-                      : `${p.weekdayStart}–${p.weekdayEnd}`;
-                    return (
-                      <button
-                        key={p.id}
-                        onClick={() => {
-                          const next = applyCallHourPolicy(p.id, profile);
-                          setProfile((pr) => {
-                            const merged = { ...pr, ...next };
-                            try { localStorage.setItem("aivhub_company_profile", JSON.stringify(merged)); } catch (_) {}
-                            return merged;
-                          });
-                        }}
-                        style={{
-                          textAlign: "left", padding: "11px 13px", borderRadius: 9, cursor: "pointer",
-                          border: `1.5px solid ${active ? C.ink : C.border}`, background: active ? C.paper : "#fff",
-                        }}
-                      >
-                        <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.textInk }}>
-                          {p.label} · {range} weekdays
-                        </div>
-                        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate, marginTop: 4, lineHeight: 1.4 }}>{p.blurb}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {(profile.callHoursPolicy || "respectful") === "custom" && (
-                  <>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate }}>Window</span>
-                      <select
-                        value={profile.weekdayStart || "09:00"}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setProfile((p) => {
-                            const next = { ...p, weekdayStart: v, callHoursPolicy: "custom" };
-                            try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
-                            return next;
-                          });
-                        }}
-                        style={{ flex: 1, minWidth: 110, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
-                      >
-                        {WEEKDAY_HOUR_OPTIONS.filter((t) => t < (profile.weekdayEnd || "21:00")).map((t) => <option key={t}>{t}</option>)}
-                      </select>
-                      <span style={{ color: C.slateLight }}>–</span>
-                      <select
-                        value={profile.weekdayEnd || "17:30"}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setProfile((p) => {
-                            const next = { ...p, weekdayEnd: v, callHoursPolicy: "custom" };
-                            try { localStorage.setItem("aivhub_company_profile", JSON.stringify(next)); } catch (_) {}
-                            return next;
-                          });
-                        }}
-                        style={{ flex: 1, minWidth: 110, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}
-                      >
-                        {WEEKDAY_HOUR_OPTIONS.filter((t) => t > (profile.weekdayStart || "08:00")).map((t) => <option key={t}>{t}</option>)}
-                      </select>
-                    </div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 6 }}>
-                      Hard stop is PECR 08:00–21:00 weekdays.
-                    </div>
-                  </>
-                )}
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Lunch break of the people we call</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <select value={profile.lunchStart || "12:00"} onChange={(e) => update("lunchStart", e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}>
-                    {LUNCH_HOUR_OPTIONS.filter((t) => t < (profile.lunchEnd || "15:00")).map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                  <span style={{ color: C.slateLight }}>–</span>
-                  <select value={profile.lunchEnd || "13:00"} onChange={(e) => update("lunchEnd", e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13 }}>
-                    {LUNCH_HOUR_OPTIONS.filter((t) => t > (profile.lunchStart || "11:00")).map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>No voice, WhatsApp, SMS, or email is sent in this window — so nobody is disturbed at lunch.</div>
+              <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 9, background: C.paperSoft || "#F7F8FA", border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.5 }}>
+                Calling hours, meeting hours and lunch breaks are set in <strong>Working Hours</strong>. They are kept in one place so they never disagree.
               </div>
               <Field label="Tone" value={profile.tone} onChange={(v) => update("tone", v)} placeholder="Professional, concise, friendly" />
               {renderSaveBtn("Save changes")}
@@ -617,7 +544,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: ragTone.fg, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                             {ragTone.label}
-                            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", opacity: 0.8 }}>pgvector</span>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", opacity: 0.8 }}>Search index</span>
                   </div>
                           <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: ragTone.fg, opacity: 0.85, marginTop: 3, lineHeight: 1.45 }}>{ragTone.sub}</div>
                 </div>

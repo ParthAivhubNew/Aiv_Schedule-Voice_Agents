@@ -16,11 +16,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.enrichment import _can_research, _charge_leads
+from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_search, _charge_leads
 from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
 from app.services import business_lookup, business_records
-from app.services.enrichment_service import _host_of, enrich_prospect_intelligence
+from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, search_google_places
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
@@ -42,6 +42,7 @@ class AccountIn(BaseModel):
     source: str = "manual"
     source_url: str = ""
     business_record_id: str = ""  # set when saved from the company store, so the dossier shows its registry facts
+    custom: Dict[str, Any] = {}  # extra columns the user kept from an imported file
 
 
 class AccountsIn(BaseModel):
@@ -69,6 +70,26 @@ def _clean(value: Any, limit: int = 300) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
+MAX_CUSTOM_COLUMNS = 30
+_RESERVED_COLUMNS = {"name", "website", "phone", "email", "contact", "contact_name", "contact_title", "industry", "region", "notes"}
+
+
+def clean_custom(raw: Any) -> Optional[Dict[str, str]]:
+    """The extra columns a user kept: plain-text names (up to 40 characters) and values (up to 500),
+    at most MAX_CUSTOM_COLUMNS of them. Anything else is dropped."""
+    if not isinstance(raw, dict):
+        return None
+    out: Dict[str, str] = {}
+    for key, value in raw.items():
+        name = _clean(key, 40)
+        if not name or name.lower() in _RESERVED_COLUMNS or name in out or isinstance(value, (dict, list)):
+            continue
+        out[name] = _clean(value, 500)
+        if len(out) >= MAX_CUSTOM_COLUMNS:
+            break
+    return out or None
+
+
 def _registry_out(biz: BusinessRecord) -> Dict[str, Any]:
     """The shared, cross-organisation facts about this company (see BusinessRecord) -- registry
     status/category/dates plus officers and who actually controls it, when a live lookup has
@@ -89,6 +110,8 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]
         "industry": a.industry or "", "region": a.region or "", "notes": a.notes or "", "source": a.source or "manual",
         "source_url": a.source_url or "", "business_record_id": a.business_record_id or "", "research": a.research or None,
         "researched_at": a.researched_at.isoformat() + "Z" if a.researched_at else None,
+        "research_history": a.research_history or [],
+        "verification": a.verification or None, "custom": a.custom or {},
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
     }
@@ -113,6 +136,10 @@ class SearchIn(BaseModel):
     limit: int = 25
     offset: int = 0
     exclude_ids: List[str] = []
+    area: Optional[List[List[float]]] = None  # a drawn map area: [[lat, lng], ...] corners
+    scan: int = 0  # with an area: where this step starts reading the districts it touches (see search_in_area)
+    drop_terms: List[str] = []  # words the user removed from "how your words were read" (see phrase_understanding)
+    widen: bool = False  # with an area: the typed words found nothing when counted, so the nearby words are used (see /search/area-count)
 
 
 @router.post("/search")
@@ -120,18 +147,101 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     """The Apollo-style filter search over the shared company store (the same one the chat runs).
     Free: it reads our own data and calls no paid service -- credits are only used when contacts
     are looked up. Every row is a stored record with its trust tier; nothing here is generated."""
-    from app.services import lead_filters
+    from app.services import lead_filters, phrase_understanding
 
+    shown_filters = business_records.normalize_filters(body.filters)  # what the user typed: this is what comes back
+    understood: List[Dict[str, Any]] = []
     try:
-        out = await business_records.search_filtered(db, body.filters, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids)
+        if body.area:
+            # An area is read in steps, so the decision to use nearby words was made once, when it was counted.
+            if body.widen:
+                wide, understood = await phrase_understanding.apply(db, body.filters, body.drop_terms)
+            else:
+                wide = shown_filters
+            out = await business_records.search_in_area(db, wide, body.area, scan=body.scan, exclude_ids=body.exclude_ids)
+        else:
+            out, understood = await phrase_understanding.widen_if_empty(
+                db, body.filters, body.drop_terms,
+                lambda f: business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids))
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
         if "statement timeout" in str(err).lower():
             raise HTTPException(status_code=504, detail="That search is too broad to finish. Add a town or a narrower sector and try again.")
         raise
+    out["filters"] = shown_filters
+    chips = lead_filters.describe(out["filters"])
+    if body.area:
+        await db.commit()  # keeps the postcode points just looked up, so the next search is instant
+        chips.append("Inside the area drawn on the map")
     return {"companies": [lead_filters.card(r) for r in out["rows"]], "total": out["total"],
-            "total_capped": out["total_capped"], "filters": out["filters"], "chips": lead_filters.describe(out["filters"])}
+            "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
+            "next_scan": out.get("next_scan"), "understood": understood}
+
+
+async def _candidates_as_total(pending) -> Dict[str, Any]:
+    out = await pending
+    return {**out, "total": out["candidates"]}
+
+
+@router.post("/search/area-count")
+async def area_count(body: SearchIn, db: AsyncSession = Depends(get_db)):
+    """How many companies a drawn area could hold, so the user picks how many to see before the
+    (slower) step of placing each one on the map. Free."""
+    if not body.area:
+        raise HTTPException(status_code=422, detail="Draw an area on the map first.")
+    from app.services import phrase_understanding
+
+    try:
+        out, understood = await phrase_understanding.widen_if_empty(
+            db, body.filters, body.drop_terms,
+            lambda f: _candidates_as_total(business_records.area_candidates(db, f, body.area)))
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            raise HTTPException(status_code=504, detail="That area is too busy to count. Draw a smaller one.")
+        raise
+    return {"candidates": out["candidates"], "capped": out["capped"], "widened": bool(understood), "understood": understood}
+
+
+@router.get("/districts")
+async def town_districts(town: str = "", include_closed: bool = False, db: AsyncSession = Depends(get_db)):
+    """The postcode districts of one town with how many companies each holds -- counts only, no companies.
+    Free. Feeds the picker next to the Town box on Find Leads."""
+    try:
+        rows = await business_records.districts_for_town(db, town, include_closed)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            raise HTTPException(status_code=504, detail="Too many companies in that town to list its areas. Type a postcode instead.")
+        raise
+    return {"town": town.strip(), "districts": rows, "total": sum(r["count"] for r in rows)}
+
+
+class GeocodeIn(BaseModel):
+    ids: List[str] = []
+
+
+@router.post("/geocode")
+async def geocode_companies(body: GeocodeIn, db: AsyncSession = Depends(get_db)):
+    """Map points for companies already on screen: {id: [lat, lng]} from each one's postcode.
+    Free (postcode centres are public and cached); a company with no usable postcode is just left out."""
+    from app.services import geocoding
+
+    ids = list(dict.fromkeys(body.ids))[:200]
+    if not ids:
+        return {"points": {}}
+    rows = (await db.execute(select(BusinessRecord.id, BusinessRecord.postcode).where(BusinessRecord.id.in_(ids)))).all()
+    coords = await geocoding.geocode(db, [pc for _, pc in rows])
+    points = {}
+    for rid, pc in rows:
+        pt = coords.get(geocoding.norm_postcode(pc))
+        if pt:
+            points[rid] = [pt[0], pt[1]]
+    await db.commit()
+    return {"points": points}
 
 
 class ContactsIn(BaseModel):
@@ -225,7 +335,7 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
             phone=_clean(item.phone, 60), email=_clean(item.email, 200).lower(), contact_name=_clean(item.contact_name, 120),
             contact_title=_clean(item.contact_title, 120), industry=_clean(item.industry, 120), region=_clean(item.region, 120),
             notes=_clean(item.notes, 2000), source=item.source if item.source in _SOURCES else "manual",
-            source_url=_clean(item.source_url, 500),
+            source_url=_clean(item.source_url, 500), custom=clean_custom(item.custom),
             business_record_id=item.business_record_id if item.business_record_id in known_biz else None,
         )
         db.add(row)
@@ -262,6 +372,79 @@ async def delete_account(account_id: str, db: AsyncSession = Depends(get_db)):
     return {"ok": True}
 
 
+async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[BusinessRecord]:
+    """Fill empty fields from the shared, cross-organisation BusinessRecord store -- someone else
+    may already have looked this company up via Companies House or an earlier search. Free: it's
+    our own stored data and calls no paid API, so this never charges a credit.
+
+    If another organisation's Research run already found a full dossier for this company
+    (shared.shared_research -- team, named contacts, sources), that dossier is public fact about
+    the business, not that organisation's private data, so it's copied here too: this account
+    looks fully researched without this organisation ever paying for its own research run.
+    Never overwrites research this organisation already paid for or entered itself."""
+    shared = await business_records.lookup(db, name=row.name, domain=row.domain)
+    if shared:
+        row.business_record_id = shared.id
+        row.industry = row.industry or _clean(shared.industry, 120)
+        row.region = row.region or _clean(shared.region, 120)
+        row.phone = row.phone or _clean(shared.phone, 60)
+        row.email = row.email or _clean(shared.email, 200).lower()
+        if shared.shared_research and not row.research:
+            row.research = shared.shared_research
+            row.researched_at = row.updated_at = shared.updated_at or datetime.utcnow()
+            team = shared.shared_research.get("team") or []
+            if team and not row.contact_name:
+                row.contact_name = team[0].get("name") or row.contact_name
+                row.contact_title = row.contact_title or team[0].get("title") or ""
+        await db.commit()
+    return shared
+
+
+@router.post("/accounts/{account_id}/quick-check")
+async def quick_check_account(account_id: str, db: AsyncSession = Depends(get_db)):
+    """Fill what we can from our own shared company store only -- no live web search, no AI
+    call, no credit charged. Use /research below for a live web search (which does cost a
+    credit when it finds something) -- this is the free step before reaching for that."""
+    row = await _account(db, account_id)
+    shared = await _apply_shared_record(db, row)
+    biz = shared or await _registry_for(db, account_id)
+    return _out(row, biz)
+
+
+@router.post("/accounts/{account_id}/deep-search")
+async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db)):
+    """"Deep web search": one structured lookup against Google's places data (2 Leads credits
+    when it finds something -- shown to the user only as "Deep web search", never by vendor
+    name). Checks our own shared store first, same as /research; whatever it finds is saved
+    back to that store so the next lookup for this company is free."""
+    row = await _account(db, account_id)
+    await _apply_shared_record(db, row)
+    await _can_deep_search(db)
+    place = await search_google_places(f"{row.name} {row.region}".strip())
+    if not place:
+        biz = await _registry_for(db, account_id)
+        return _out(row, biz)
+    row.phone = row.phone or _clean(place.get("phone"), 60)
+    row.website = row.website or _clean(place.get("website"), 300)
+    row.region = row.region or _clean(place.get("address"), 120)
+    if not row.domain and row.website:
+        row.domain = _domain(row.website)
+    try:
+        shared_row = await business_records.upsert(
+            db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
+            data={"name": row.name, "domain": row.domain, "website": row.website, "phone": row.phone,
+                  "region": row.region, "description": f"Rating {place['rating']}/5 on Google." if place.get("rating") else ""},
+        )
+        row.business_record_id = row.business_record_id or shared_row.id
+    except ValueError:
+        pass
+    row.updated_at = datetime.utcnow()
+    await db.commit()
+    await _charge_deep_search(db, f"Deep web search: {row.name}")
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
+    return _out(row, biz)
+
+
 @router.post("/accounts/{account_id}/research")
 async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     """Research one company on the web (1 Leads credit when anything is found). Fills only the
@@ -271,17 +454,11 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     else may have already looked this company up via Companies House or an earlier search); the
     live web search below still runs regardless, since it finds things (people, phones, socials)
     no registry API covers, and whatever it finds is saved back to the shared store afterwards
-    for the next organisation that asks about this same company."""
+    for the next organisation that asks about this same company. Only the live search below is
+    ever charged -- see _charge_leads below, called only when it actually finds something."""
     row = await _account(db, account_id)
     await _can_research(db)
-    shared = await business_records.lookup(db, name=row.name, domain=row.domain)
-    if shared:
-        row.business_record_id = shared.id
-        row.industry = row.industry or _clean(shared.industry, 120)
-        row.region = row.region or _clean(shared.region, 120)
-        row.phone = row.phone or _clean(shared.phone, 60)
-        row.email = row.email or _clean(shared.email, 200).lower()
-        await db.commit()
+    await _apply_shared_record(db, row)
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
                                                   domain=row.domain or row.website or None, person=row.contact_name or None,
@@ -303,6 +480,12 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     # -- so the dossier can label who's who instead of one flat, unattributed list of addresses.
     email_contacts = [{"email": _clean(c.get("email"), 200).lower(), "name": _clean(c.get("name"), 120)}
                        for c in (data.get("emailContacts") or []) if c.get("email")][:5]
+    if row.research and row.researched_at:
+        # Keep the run this is about to replace -- re-researching used to throw it away, so an
+        # earlier run's findings (maybe about a person who's since left) were gone for good.
+        history = list(row.research_history or [])
+        history.insert(0, {"research": row.research, "researched_at": row.researched_at.isoformat() + "Z"})
+        row.research_history = history[:10]
     row.research = {
         "overview": "" if overview == "No detailed summary found." else _clean(overview, 2000),
         "people": people,
@@ -340,6 +523,11 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
                       "email": row.email, "region": row.region, "description": overview},
             )
             row.business_record_id = row.business_record_id or shared_row.id
+            # The full dossier (team, named contacts, sources) is public fact about the business,
+            # not this organisation's private data -- every other organisation's saved account for
+            # the same company gets it too, for free, via _apply_shared_record above.
+            shared_row.shared_research = row.research
+            await db.flush()
         except ValueError:
             pass  # nothing identifiable enough to be worth caching for anyone else
     await db.commit()

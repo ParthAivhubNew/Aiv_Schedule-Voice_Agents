@@ -69,7 +69,7 @@ def _message(body: Any, status: int) -> str:
         if errs:
             e = errs[0]
             detail = e.get("detail") or e.get("title") or ""
-            return f"Telnyx: {detail}".strip()
+            return detail.strip() or f"The request failed ({status})."
     except Exception:
         pass
     return f"Telnyx request failed ({status})."

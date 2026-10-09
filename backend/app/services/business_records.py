@@ -366,10 +366,10 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
     return await lookup_scrape(db, query=query, scope=scope)
 
 
-FILTER_KEYS = ("sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
+FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone")
 COUNT_CAP = 10_000
-_NEEDS_ONE_OF = ("sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
+_NEEDS_ONE_OF = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
 
 
 def _like(term: str, *, prefix_only: bool = False, exact: bool = False) -> str:
@@ -388,7 +388,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     """Keeps only the filter keys we know, in a predictable shape, so a model-written filter dict
     can never inject anything else into the query."""
     out: Dict[str, Any] = {}
-    for key in ("sector", "sic_codes", "towns", "postcode_prefixes", "size_bands"):
+    for key in ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "size_bands"):
         values = _as_list((filters or {}).get(key))
         if key == "sic_codes":
             values = [re.sub(r"\D", "", v) for v in values if re.sub(r"\D", "", v)]
@@ -420,6 +420,9 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
     conds = []
     if f["status"].lower() != "any":
         conds.append(func.lower(B.status) == f["status"].lower())
+    if f.get("keyword"):  # the panel's single box: a word may be part of the name or of the sector
+        conds.append(or_(*[or_(B.name.ilike(_like(t), escape="\\"), B.sic_text.ilike(_like(t), escape="\\"),
+                               B.industry.ilike(_like(t), escape="\\")) for t in f["keyword"]]))
     if f.get("sector"):
         conds.append(or_(*[or_(B.sic_text.ilike(_like(t), escape="\\"), B.industry.ilike(_like(t), escape="\\"))
                            for t in f["sector"]]))
@@ -469,7 +472,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     if exclude_ids:
         conds.append(BusinessRecord.id.notin_(list(exclude_ids)))
     where = and_(*conds)
-    limit = max(1, min(int(limit or 25), 100))
+    limit = max(1, min(int(limit or 25), 250))
     if db.get_bind().dialect.name == "postgresql":  # a runaway filter must never tie up the database
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     capped = select(BusinessRecord.id).where(where).limit(COUNT_CAP + 1).subquery()
@@ -480,6 +483,114 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
         .limit(limit).offset(max(0, int(offset or 0)))
     )).scalars().all()
     return {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f}
+
+
+_DISTRICTS: Dict[str, Any] = {}  # town -> (when, rows); the shared store changes slowly, so a town is counted once in a while
+_DISTRICTS_TTL = 600.0
+_OUTCODE = "^[A-Za-z]{1,2}[0-9][0-9A-Za-z]?"
+
+
+def _natural(code: str):
+    """LS2 before LS10: letters, then the number, then any trailing letter."""
+    m = re.match(r"^([A-Z]+)(\d+)([A-Z]?)$", code)
+    return (m.group(1), int(m.group(2)), m.group(3)) if m else (code, 0, "")
+
+
+async def districts_for_town(db: AsyncSession, town: str, include_closed: bool = False) -> List[Dict[str, Any]]:
+    """The postcode districts (LS1, LS6...) of the companies in one town and how many each has, for the
+    picker next to the Town box. Counts only -- never the companies. Same town match as the search."""
+    import time
+
+    name = re.sub(r"\s+", " ", str(town or "")).strip()[:60]
+    if len(name) < 2:
+        raise ValueError("Type a town first.")
+    key = f"{name.lower()}|{int(bool(include_closed))}"
+    hit = _DISTRICTS.get(key)
+    if hit and time.monotonic() - hit[0] < _DISTRICTS_TTL:
+        return hit[1]
+    B = BusinessRecord
+    code = func.upper(func.substring(B.postcode, _OUTCODE))
+    where = [B.region.ilike(_like(name, exact=True), escape="\\"), code.isnot(None)]
+    if not include_closed:
+        where.append(func.lower(B.status) == "active")
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '15s'"))
+    rows = (await db.execute(select(code, func.count()).where(*where).group_by(code))).all()
+    out = [{"district": d, "count": int(n)} for d, n in sorted(rows, key=lambda r: _natural(r[0])) if d]
+    if len(_DISTRICTS) > 500:
+        _DISTRICTS.clear()
+    _DISTRICTS[key] = (time.monotonic(), out)
+    return out
+
+
+AREA_CHUNK = 1500  # companies read per step from the postcode districts an area touches, before the shape is applied
+AREA_COUNT_CAP = 100_000
+
+
+async def _area_conditions(db: AsyncSession, filters: Dict[str, Any], poly, exclude_ids: Optional[List[str]] = None):
+    """The filter conditions plus 'in one of the districts this shape touches'; None when it touches none."""
+    from app.services import geocoding
+
+    f = normalize_filters(filters)
+    outcodes = await geocoding.outcodes_for_area(poly)
+    if not outcodes:
+        return f, None
+    conds = _filter_conditions(f)
+    conds.append(or_(*[BusinessRecord.postcode.like(f"{oc} %") for oc in outcodes]))
+    if exclude_ids:
+        conds.append(BusinessRecord.id.notin_(list(exclude_ids)))
+    return f, and_(*conds)
+
+
+async def area_candidates(db: AsyncSession, filters: Dict[str, Any], area: Any) -> Dict[str, Any]:
+    """How many companies sit in the postcode districts a drawn area touches (an upper bound: the
+    shape itself is applied as they are read). Cheap, so the user can choose how many to see."""
+    from app.services import geocoding
+
+    poly = geocoding.clean_polygon(area)
+    f, where = await _area_conditions(db, filters, poly)
+    if where is None:
+        return {"candidates": 0, "capped": False, "filters": f}
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    capped = select(BusinessRecord.id).where(where).limit(AREA_COUNT_CAP + 1).subquery()
+    n = int((await db.execute(select(func.count()).select_from(capped))).scalar() or 0)
+    return {"candidates": min(n, AREA_COUNT_CAP), "capped": n > AREA_COUNT_CAP, "filters": f}
+
+
+async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *, scan: int = 0, chunk: int = AREA_CHUNK,
+                         exclude_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """The same filters as search_filtered, but only companies whose postcode centre lies inside the
+    drawn area (a list of [lat, lng] corners). The area narrows the search by itself, so no
+    sector/town is required. Reads one step of `chunk` companies from the postcode districts the
+    shape touches (newest first, starting at `scan`), geocodes their postcodes (cached, see
+    geocoding.py) and keeps the ones inside the shape. `next_scan` is where the next step starts,
+    or None when every company has been read -- the caller keeps asking until it has as many as the
+    user wanted."""
+    from app.services import geocoding
+
+    poly = geocoding.clean_polygon(area)
+    f, where = await _area_conditions(db, filters, poly, exclude_ids)
+    if where is None:
+        return {"rows": [], "points": {}, "total": 0, "next_scan": None, "filters": f}
+    scan = max(0, int(scan or 0))
+    chunk = max(1, min(int(chunk or AREA_CHUNK), AREA_CHUNK))
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    rows = (await db.execute(
+        select(BusinessRecord).where(where)
+        .order_by(BusinessRecord.incorporated_on.desc().nullslast(), BusinessRecord.id).offset(scan).limit(chunk + 1)
+    )).scalars().all()
+    more = len(rows) > chunk
+    rows = rows[:chunk]
+    coords = await geocoding.geocode(db, [r.postcode for r in rows])
+    inside, points = [], {}
+    for r in rows:
+        pt = coords.get(geocoding.norm_postcode(r.postcode))
+        if pt and geocoding.point_in_polygon(pt[0], pt[1], poly):
+            inside.append(r)
+            points[r.id] = [pt[0], pt[1]]
+    return {"rows": inside, "points": points, "total": len(inside), "next_scan": scan + chunk if more else None, "filters": f}
 
 
 def _admin_search_filter(q: str):

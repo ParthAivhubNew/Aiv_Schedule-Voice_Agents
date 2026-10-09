@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
+import { ImportMapper } from "./ImportMapper";
+import { applyMapping } from "./importMapping";
+import { CheckDetails, CheckDialog, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck } from "./CheckCompanies";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -54,7 +57,7 @@ export function useLeadAccounts(onToast) {
   const replace = (a) => setAccounts((prev) => prev.map((x) => (x.id === a.id ? a : x)));
 
   return {
-    accounts, loading, error, researching, reload,
+    accounts, loading, error, researching, reload, toast: onToast,
     // Saves new accounts; ones already saved are skipped by the server.
     save: async (list) => {
       try {
@@ -109,6 +112,48 @@ export function useLeadAccounts(onToast) {
         });
       }
     },
+    // Deep web search: one structured lookup (Google Places under the hood -- never named to the
+    // user), 2 Leads credits when it finds something.
+    deepSearch: async (id) => {
+      setResearching((b) => ({ ...b, [id]: true }));
+      try {
+        const before = accounts.find((x) => x.id === id);
+        const a = await api.deepSearchLeadAccount(id);
+        replace(a);
+        const changed = before && (a.phone !== before.phone || a.website !== before.website || a.region !== before.region);
+        onToast(changed ? `Deep web search found more on ${a.name}.` : `Nothing new found for ${a.name}. No credit used.`);
+        return a;
+      } catch (e) {
+        onToast(e.message || "Deep web search failed. Try again.");
+        return null;
+      } finally {
+        setResearching((b) => {
+          const next = { ...b };
+          delete next[id];
+          return next;
+        });
+      }
+    },
+    // Free: only checks our own shared company store, no live web search, no credit.
+    quickCheck: async (id) => {
+      setResearching((b) => ({ ...b, [id]: true }));
+      try {
+        const a = await api.quickCheckLeadAccount(id);
+        replace(a);
+        onToast(a.researched_at ? `Found a full research dossier for ${a.name} in our records -- already paid for by an earlier search.`
+          : a.registry ? `Found ${a.name} in our records.` : `Nothing of ours on ${a.name} yet. No credit used.`);
+        return a;
+      } catch (e) {
+        onToast(e.message || "Couldn't check right now.");
+        return null;
+      } finally {
+        setResearching((b) => {
+          const next = { ...b };
+          delete next[id];
+          return next;
+        });
+      }
+    },
   };
 }
 
@@ -120,6 +165,31 @@ function ResearchButton({ store, account, size = "sm" }) {
       onClick={() => store.research(account.id)} title="Search the web for this company's details. 1 Leads credit if anything is found.">
       {busy ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />}
       {busy ? "Researching…" : account.researched_at ? "Research again" : "Research"}
+    </button>
+  );
+}
+
+// Free: looks only at our own shared company store, no live web search -- never costs a credit.
+function QuickCheckButton({ store, account, size = "sm" }) {
+  const busy = Boolean(store.researching[account.id]);
+  return (
+    <button type="button" className={`ui-btn ui-btn--ghost${size === "sm" ? " ui-btn--sm" : ""}`} disabled={busy}
+      onClick={() => store.quickCheck(account.id)} title="Check our own company records for this account. Always free.">
+      {busy ? <RefreshCw size={14} className="ui-spin" /> : <Search size={14} />}
+      Check our records (free)
+    </button>
+  );
+}
+
+// One structured lookup beyond our own records -- shown to the user only as "Deep web search",
+// never by the vendor behind it.
+function DeepSearchButton({ store, account, size = "sm" }) {
+  const busy = Boolean(store.researching[account.id]);
+  return (
+    <button type="button" className={`ui-btn ui-btn--secondary${size === "sm" ? " ui-btn--sm" : ""}`} disabled={busy}
+      onClick={() => store.deepSearch(account.id)} title="A deeper structured lookup for this company's phone, address and website. 2 Leads credits if anything new is found.">
+      {busy ? <RefreshCw size={14} className="ui-spin" /> : <Search size={14} />}
+      Deep web search
     </button>
   );
 }
@@ -153,15 +223,86 @@ function SiteLink({ account }) {
 }
 
 // ---------------------------------------------------------------- Saved Accounts
+// Columns a person can hide from their own view of the table (kept in their browser; nothing is deleted).
+const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["check", "Check"], ["source", "Found by"]];
+const ROLE_INBOXES = new Set(["info", "sales", "admin", "contact", "hello", "office", "enquiries", "enquiry", "support", "accounts", "mail", "team", "hr", "jobs", "careers", "marketing", "service", "bookings", "orders", "reception", "help", "general"]);
+
+// What a row can honestly show for "Contact" and "Email": what is saved on the company first, then what its
+// research found, so a researched company is never shown as empty while its dossier holds the details.
+export function contactFor(a) {
+  if (a.contact_name) return { text: a.contact_name, title: a.contact_title || "", fromResearch: false };
+  const r = a.research || {};
+  const person = (r.team || []).find((t) => t.name) || (r.people || []).find((t) => t.name);
+  if (person) return { text: person.name, title: person.title || person.role || "", fromResearch: true };
+  const named = (r.email_contacts || []).find((c) => c.name);
+  if (named) return { text: named.name, title: "", fromResearch: true };
+  const mailbox = [...(r.team || []).map((t) => t.email), ...(r.emails || [])].find((e) => /^[a-z]{2,}[._-][a-z]{2,}@/i.test(e || "") && !ROLE_INBOXES.has(String(e).split(/[._-]|@/)[0].toLowerCase()));
+  if (mailbox) return { text: mailbox, title: "", fromResearch: true };
+  return null;
+}
+export function emailFor(a) {
+  if (a.email) return { text: a.email, fromResearch: false };
+  const r = a.research || {};
+  const found = (r.emails || [])[0] || (r.team || []).map((t) => t.email).find(Boolean);
+  return found ? { text: found, fromResearch: true } : null;
+}
+const HIDDEN_KEY = "aivhub_accounts_hidden_columns";
+const readHidden = () => {
+  try { const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; }
+};
+// The user's own columns from imported files, in the order they first appear.
+export function customColumns(accounts) {
+  const seen = [];
+  (accounts || []).forEach((a) => Object.keys(a.custom || {}).forEach((k) => { if (!seen.includes(k)) seen.push(k); }));
+  return seen;
+}
+
+function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    window.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); window.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Columns3 size={14} /> Columns{hidden.length ? ` (${hidden.length} hidden)` : ""}
+      </button>
+      {open ? (
+        <div role="menu" className="ui-card" style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 20, minWidth: 220, maxHeight: 320, overflowY: "auto", padding: 8, boxShadow: "0 8px 24px rgba(0,0,0,.14)" }}>
+          <div style={{ ...muted, fontSize: 12, padding: "2px 6px 6px" }}>Tick the columns you want to see. This only changes your view.</div>
+          {columns.map(([id, label]) => (
+            <label key={id} style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", cursor: "pointer" }}>
+              <input type="checkbox" checked={!hidden.includes(id)} onChange={() => onToggle(id)} /> {label}
+            </label>
+          ))}
+          {hidden.length ? (
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginTop: 4 }} onClick={onShowAll}>Show all</button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const ACCOUNT_CHIPS = [
   ["all", "All", () => true],
-  ["contact", "Has contact", (a) => a.contact_name || a.email],
+  ["contact", "Has contact", (a) => contactFor(a) || emailFor(a)],
   ["researched", "Researched", (a) => a.researched_at],
 ];
 
 export function AccountsView({ store, onOpen, onAdd, onGo }) {
   const [filter, setFilter] = useState("");
   const [scope, setScope] = useState("all");
+  const [picked, setPicked] = useState(() => new Set()); // ids ticked for "Check companies"
+  const [checking, setChecking] = useState(null); // { ids, pendingOnly } while the cost box is open
+  const [hidden, setHidden] = useState(readHidden); // columns this person chose not to see
+  const check = useCompanyCheck({ onToast: store.toast, reload: store.reload });
   if (store.loading || (store.error && !store.accounts.length)) return <Loading store={store} />;
   if (!store.accounts.length) {
     return (
@@ -171,15 +312,36 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
       </EmptyState>
     );
   }
+  const own = customColumns(store.accounts);
+  const allColumns = [...BUILT_IN_COLUMNS, ...own.map((n) => [`c:${n}`, n])];
+  const saveHidden = (next) => {
+    setHidden(next);
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* the choice just isn't remembered */ }
+  };
+  const toggleColumn = (id) => saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
+  const showing = (id) => !hidden.includes(id);
+  const shownOwn = own.filter((n) => showing(`c:${n}`));
+  const columnCount = 2 + ["phone", "email", "contact", "check", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
-  const scopePred = ACCOUNT_CHIPS.find(([id]) => id === scope)[2];
+  // Verdict filters appear once some companies have been checked.
+  const verdictChips = VERDICT_ORDER
+    .map((k) => [`v_${k}`, VERDICTS[k].label, (a) => a.verification?.verdict === k])
+    .filter(([, , pred]) => store.accounts.some(pred))
+    .map(([id, label, pred]) => [id, `${label} ${store.accounts.filter(pred).length}`, pred]);
+  const chips = [...ACCOUNT_CHIPS, ...verdictChips];
+  const scopePred = (chips.find(([id]) => id === scope) || ACCOUNT_CHIPS[0])[2];
   const shown = store.accounts
     .filter(scopePred)
     .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q)));
+  const shownIds = shown.map((a) => a.id);
+  const allShownPicked = shownIds.length > 0 && shownIds.every((id) => picked.has(id));
+  const pickedIds = store.accounts.filter((a) => picked.has(a.id)).map((a) => a.id); // companies removed since are dropped
+  const toggle = (id) => setPicked((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const pendingCount = store.accounts.filter((a) => a.verification?.pending_registry).length;
   const stats = [
     ["Saved accounts", store.accounts.length],
     ["With a phone", store.accounts.filter((a) => a.phone).length],
-    ["With a contact", store.accounts.filter((a) => a.contact_name || a.email).length],
+    ["With a contact", store.accounts.filter((a) => contactFor(a) || emailFor(a)).length],
     ["Researched", store.accounts.filter((a) => a.researched_at).length],
   ];
   return (
@@ -192,8 +354,10 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
           </div>
         ))}
       </div>
+      <CheckProgress check={check} pendingCount={pendingCount} onFilter={(k) => setScope(`v_${k}`)}
+        onRecheck={() => setChecking({ ids: store.accounts.filter((a) => a.verification?.pending_registry).map((a) => a.id), pendingOnly: true })} />
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {ACCOUNT_CHIPS.map(([id, label]) => (
+        {chips.map(([id, label]) => (
           <button key={id} type="button" onClick={() => setScope(id)}
             className={`ui-btn ui-btn--sm ${scope === id ? "ui-btn--primary" : "ui-btn--ghost"}`}>
             {label}
@@ -201,24 +365,68 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
         ))}
       </div>
       <div className="ui-card" style={{ overflow: "hidden" }}>
-        <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input className="ui-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, website, contact or place" aria-label="Filter saved accounts" style={{ width: "100%", maxWidth: 360 }} />
+          <span style={{ flex: 1 }} />
+          <span style={{ ...muted, fontSize: 12.5 }}>{pickedIds.length ? `${pickedIds.length.toLocaleString()} selected` : "Tick companies to check them"}</span>
+          <ColumnsMenu columns={allColumns} hidden={hidden} onToggle={toggleColumn} onShowAll={() => saveHidden([])} />
+          <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!pickedIds.length || check.job?.status === "running"}
+            title="Check these companies against our records, the company registers and the web"
+            onClick={() => setChecking({ ids: pickedIds, pendingOnly: false })}>
+            <ShieldCheck size={14} /> Check companies
+          </button>
         </div>
+        {allShownPicked && shownIds.length < store.accounts.length ? (
+          <div style={{ ...muted, padding: "6px 12px", background: C.paperSoft, borderBottom: `1px solid ${C.border}` }}>
+            {shownIds.length.toLocaleString()} shown are selected.{" "}
+            <button type="button" onClick={() => setPicked(new Set(store.accounts.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: C.cobalt, cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
+              Select all {store.accounts.length.toLocaleString()} saved companies
+            </button>
+          </div>
+        ) : null}
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
-          <table className="ui-table" style={{ minWidth: 760 }}>
+          <table className="ui-table" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
             <thead>
-              <tr><th>Company</th><th>Phone</th><th>Contact</th><th>Found by</th><th style={{ width: 1 }} aria-label="Actions" /></tr>
+              <tr>
+                <th style={{ width: 1 }}>
+                  <input type="checkbox" checked={allShownPicked} onChange={() => setPicked(allShownPicked ? new Set() : new Set(shownIds))} aria-label="Select all companies shown" />
+                </th>
+                <th>Company</th>
+                {showing("phone") ? <th>Phone</th> : null}
+                {showing("email") ? <th>Email</th> : null}
+                {showing("contact") ? <th>Contact</th> : null}
+                {showing("check") ? <th>Check</th> : null}
+                {showing("source") ? <th>Found by</th> : null}
+                {shownOwn.map((n) => <th key={n} style={{ whiteSpace: "nowrap" }}>{n}</th>)}
+                <th style={{ width: 1 }} aria-label="Actions" />
+              </tr>
             </thead>
             <tbody>
               {shown.map((a) => (
                 <tr key={a.id}>
+                  <td><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
                     <button type="button" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
                     <div style={{ fontSize: 12, marginTop: 1 }}><SiteLink account={a} /></div>
                   </td>
-                  <td style={{ fontVariantNumeric: "tabular-nums" }}>{a.phone || <span style={{ color: C.slateLight }}>Not found</span>}</td>
-                  <td>{a.contact_name ? <>{a.contact_name}{a.contact_title ? <span style={{ color: C.slate }}> · {a.contact_title}</span> : null}</> : <span style={{ color: C.slateLight }}>Not found</span>}</td>
-                  <td style={{ color: C.slate }}>{SOURCE_LABEL[a.source] || "Added by hand"}</td>
+                  {showing("phone") ? <td style={{ fontVariantNumeric: "tabular-nums" }}>{a.phone || <span style={{ color: C.slateLight }}>Not found</span>}</td> : null}
+                  {showing("email") ? <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={emailFor(a)?.text || ""}>
+                    {emailFor(a) ? emailFor(a).text : <span style={{ color: C.slateLight }}>Not found</span>}</td> : null}
+                  {showing("contact") ? (
+                    <td>
+                      {contactFor(a)
+                        ? <>{contactFor(a).text}{contactFor(a).title ? <span style={{ color: C.slate }}> · {contactFor(a).title}</span> : null}
+                          {contactFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}</>
+                        : <span style={{ color: C.slateLight }}>Not found</span>}
+                    </td>
+                  ) : null}
+                  {showing("check") ? <td><VerdictBadge verification={a.verification} /></td> : null}
+                  {showing("source") ? <td style={{ color: C.slate }}>{SOURCE_LABEL[a.source] || "Added by hand"}</td> : null}
+                  {shownOwn.map((n) => (
+                    <td key={n} title={a.custom?.[n] || ""} style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {a.custom?.[n] || <span style={{ color: C.slateLight }}>—</span>}
+                    </td>
+                  ))}
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
                       <ResearchButton store={store} account={a} />
@@ -227,11 +435,52 @@ export function AccountsView({ store, onOpen, onAdd, onGo }) {
                   </td>
                 </tr>
               ))}
-              {!shown.length ? <tr><td colSpan={5} style={{ color: C.slate }}>Nothing matches “{filter}”.</td></tr> : null}
+              {!shown.length ? <tr><td colSpan={columnCount} style={{ color: C.slate }}>Nothing matches “{filter}”.</td></tr> : null}
             </tbody>
           </table>
         </div>
       </div>
+      {checking ? (
+        <CheckDialog ids={checking.ids} pendingOnly={checking.pendingOnly} onStart={check.start} onClose={() => setChecking(null)} />
+      ) : null}
+    </div>
+  );
+}
+
+// A past research run, shown collapsed to its date -- expand to see what that run found, so
+// re-researching never quietly throws away an earlier result the user might still want.
+function HistorySnapshot({ entry }) {
+  const [open, setOpen] = useState(false);
+  const r = entry.research || {};
+  const when = new Date(entry.researched_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return (
+    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+      <button type="button" onClick={() => setOpen((v) => !v)}
+        style={{ ...text, fontSize: 12.5, color: C.slate, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}>
+        {open ? "Hide" : "Show"} research from {when}
+      </button>
+      {open ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+          {r.overview ? <div style={{ ...text, fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>{r.overview}</div> : null}
+          {r.team?.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {r.team.map((p, i) => (
+                <div key={i} style={{ ...text, fontSize: 13, color: C.textInk }}>
+                  <span style={{ fontWeight: 600 }}>{p.name}</span>{p.title ? <span style={{ color: C.slate }}> · {p.title}</span> : null}
+                  {(p.phone || p.email) ? <span style={{ color: C.slate }}> — {[p.phone, p.email].filter(Boolean).join(" · ")}</span> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {r.phones?.length ? <div style={{ ...text, fontSize: 13, color: C.textInk }}>Phones: {r.phones.join(", ")}</div> : null}
+          {(r.email_contacts?.length ? r.email_contacts.map((c) => c.email) : r.emails || []).length ? (
+            <div style={{ ...text, fontSize: 13, color: C.textInk }}>Emails: {(r.email_contacts?.length ? r.email_contacts.map((c) => c.email) : r.emails).join(", ")}</div>
+          ) : null}
+          {!r.overview && !r.team?.length && !r.phones?.length && !r.emails?.length && !r.email_contacts?.length ? (
+            <div style={{ ...muted }}>Nothing public was found in this run.</div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -244,6 +493,8 @@ function Dossier({ account, store }) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span style={{ ...muted, flex: "1 1 220px" }}>Not researched yet. Research searches the web for its details, people and sources.</span>
+        <QuickCheckButton store={store} account={account} />
+        <DeepSearchButton store={store} account={account} />
         <ResearchButton store={store} account={account} />
       </div>
     );
@@ -252,6 +503,8 @@ function Dossier({ account, store }) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span style={{ ...muted, flex: "1 1 220px" }}>The last research found nothing public about this company.</span>
+        <QuickCheckButton store={store} account={account} />
+        <DeepSearchButton store={store} account={account} />
         <ResearchButton store={store} account={account} />
       </div>
     );
@@ -379,6 +632,12 @@ function Dossier({ account, store }) {
         </div>
       ) : null}
       <div style={{ ...muted, fontSize: 12 }}>Researched {new Date(account.researched_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</div>
+      {account.research_history?.length ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={label}>Previous research ({account.research_history.length})</div>
+          {account.research_history.map((entry, i) => <HistorySnapshot key={entry.researched_at || i} entry={entry} />)}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -436,9 +695,24 @@ export function AccountPanel({ account, store, onClose }) {
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+          <CheckDetails account={live} />
+          {Object.keys(live.custom || {}).length ? (
+            <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>From your file</div>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)", gap: "4px 12px", ...text, fontSize: 13 }}>
+                {Object.entries(live.custom).map(([k, v]) => (
+                  <React.Fragment key={k}>
+                    <span style={{ color: C.slate, overflowWrap: "anywhere" }}>{k}</span>
+                    <span style={{ color: C.textInk, overflowWrap: "anywhere" }}>{v || "—"}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            </section>
+          ) : null}
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Research</div>
+              {live.researched_at ? <DeepSearchButton store={store} account={live} /> : null}
               {live.researched_at ? <ResearchButton store={store} account={live} /> : null}
             </div>
             <Dossier account={live} store={store} />
@@ -451,7 +725,8 @@ export function AccountPanel({ account, store, onClose }) {
               <textarea className="ui-input" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} style={{ height: "auto", padding: "8px 10px", resize: "vertical", lineHeight: 1.5 }} />
             </label>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button type="button" className="ui-btn ui-btn--primary" disabled={!changed || !form.name.trim()} onClick={() => store.update(live.id, form)}>Save changes</button>
+              <button type="button" className="ui-btn ui-btn--primary" disabled={!changed || !form.name.trim()}
+                onClick={async () => { if (await store.update(live.id, form)) onClose(); }}>Save changes</button>
               <span style={{ flex: 1 }} />
               {confirmRemove ? (
                 <>
@@ -501,33 +776,6 @@ export function AddAccountForm({ store, onClose }) {
 }
 
 // ---------------------------------------------------------------- Import
-const IMPORT_FIELDS = [
-  ["name", "Company name", ["company", "company name", "business", "business name", "organisation", "organization", "account", "account name", "name"]],
-  ["website", "Website", ["website", "web site", "url", "site", "domain", "homepage", "web"]],
-  ["phone", "Phone", ["phone", "phone number", "telephone", "tel", "mobile", "contact number", "number"]],
-  ["email", "Email", ["email", "e-mail", "email address", "mail"]],
-  ["contact_name", "Contact", ["contact", "contact name", "full name", "person", "decision maker", "owner"]],
-  ["contact_title", "Contact's job title", ["title", "job title", "role", "position"]],
-  ["industry", "Industry", ["industry", "sector", "category", "type"]],
-  ["region", "Town or region", ["town", "city", "region", "location", "county", "area", "country", "address"]],
-  ["notes", "Notes", ["notes", "note", "description", "comments", "comment"]],
-];
-
-function guessColumns(headers) {
-  const norm = (h) => String(h || "").trim().toLowerCase().replace(/[_-]+/g, " ");
-  const taken = new Set();
-  const map = {};
-  for (const [key, , names] of IMPORT_FIELDS) {
-    const hit = names.map((n) => headers.find((h) => norm(h) === n && !taken.has(h))).find(Boolean)
-      || names.map((n) => headers.find((h) => norm(h).includes(n) && !taken.has(h))).find(Boolean);
-    if (hit) {
-      map[key] = hit;
-      taken.add(hit);
-    }
-  }
-  return map;
-}
-
 // Same logic as the Voice plugin's file import (CallingWorkspace.jsx: parseSpreadsheetFile) --
 // every sheet of a workbook is read, not just the first, and .json is accepted alongside
 // .xlsx/.xls/.ods/.csv/.tsv/.txt, so people can bring in whatever file they already have.
@@ -562,24 +810,24 @@ async function parseImportFile(file) {
   return { sheets, sheetNames };
 }
 
-export function ImportView({ store, onGo }) {
+export function ImportView({ store, onGo, onAskAi }) {
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
   const [sheets, setSheets] = useState(null); // { sheetName: rawRecords[] }
   const [sheetNames, setSheetNames] = useState([]); // sheets that actually have rows
+  const [showMapper, setShowMapper] = useState(false); // "Match your columns" popup, same as Voice's file import
   const [activeSheet, setActiveSheet] = useState("");
-  const [rows, setRows] = useState([]);
-  const [map, setMap] = useState({});
+  const [fields, setFields] = useState([]); // account-shaped rows, after column matching
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
-  const headers = rows.length ? Object.keys(rows[0]) : [];
 
-  const loadSheet = (allSheets, sName) => {
-    const data = (allSheets[sName] || []).filter((r) => Object.values(r).some((v) => String(v).trim()));
-    setActiveSheet(sName);
-    setRows(data);
-    setMap(data.length ? guessColumns(Object.keys(data[0])) : {});
+  const resetFile = () => {
+    setFile(null);
+    setSheets(null);
+    setSheetNames([]);
+    setFields([]);
+    setShowMapper(false);
   };
 
   const pick = async (f) => {
@@ -593,40 +841,57 @@ export function ImportView({ store, onGo }) {
       setFile(f);
       setSheets(allSheets);
       setSheetNames(withRows);
-      loadSheet(allSheets, withRows[0]);
+      setShowMapper(true);
     } catch (e) {
-      setFile(null);
-      setSheets(null);
-      setSheetNames([]);
-      setRows([]);
+      resetFile();
       setError(e.message || "Couldn't read that file. Use .xlsx, .xls, .ods, .csv, .tsv or .json.");
     }
   };
-  const mapped = rows.map((r) => Object.fromEntries(IMPORT_FIELDS.map(([k]) => [k, map[k] ? String(r[map[k]] ?? "").trim() : ""])));
-  const usable = mapped.filter((r) => r.name || r.website);
+
+  const onMapped = ({ sheet, map }) => {
+    const data = (sheets[sheet] || []).filter((r) => Object.values(r).some((v) => String(v).trim()));
+    const headers = data.length ? Object.keys(data[0]) : [];
+    setActiveSheet(sheet);
+    setFields(applyMapping(headers, data, map));
+    setShowMapper(false);
+  };
+
+  const usable = fields.filter((r) => r.name || r.website);
   const importNow = async () => {
     setBusy(true);
     const r = await store.save(usable.map((x) => ({ ...x, source: "import" })));
     setBusy(false);
     if (r) {
       setDone(r);
-      setFile(null);
-      setRows([]);
-      setSheets(null);
-      setSheetNames([]);
+      resetFile();
     }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <input ref={fileRef} type="file" hidden accept=".xlsx,.xls,.ods,.csv,.tsv,.txt,.json" onChange={(e) => { pick(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-      {!rows.length ? (
+      {showMapper ? (
+        <ImportMapper
+          fileName={file?.name}
+          sheets={sheets}
+          sheetNames={sheetNames}
+          initialSheet={activeSheet}
+          onCancel={resetFile}
+          onImport={onMapped}
+        />
+      ) : null}
+      {!fields.length ? (
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files && e.dataTransfer.files[0]); }}
           style={{ border: "1.5px dashed #CBD1D9", borderRadius: 8, background: "var(--ui-sunken)", padding: "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
           <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: "#8B5CF6" }}><FileSpreadsheet size={20} /></div>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Import companies from a file</div>
           <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel, CSV or JSON file here. Every sheet in a workbook is read, not just the first, and you can check which column is which before anything is saved. Companies you already saved are skipped.</div>
-          <button type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Choose a file</button>
+          <button type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Upload CSV / Excel</button>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+            {[".xlsx", ".xls", ".csv", ".tsv", ".ods", ".json"].map((ext) => (
+              <span key={ext} style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 500, color: C.slate, padding: "2px 6px", border: `1px solid ${C.border}`, background: "#fff", borderRadius: 4 }}>{ext}</span>
+            ))}
+          </div>
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
           {done ? (
             <div style={{ ...muted, color: C.textInk }}>
@@ -634,49 +899,43 @@ export function ImportView({ store, onGo }) {
               <button type="button" className="ui-link" onClick={() => onGo("accounts")}>Open saved accounts</button>
             </div>
           ) : null}
+          {onAskAi ? (
+            <div style={{ fontSize: 12.5, color: C.slate, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
+              Or
+              <button type="button" className="ui-link" onClick={onAskAi}>ask the AI to find companies instead</button>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="ui-card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{file?.name} · {rows.length} {rows.length === 1 ? "row" : "rows"}</div>
-            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { setRows([]); setFile(null); setSheets(null); setSheetNames([]); }}>Choose another file</button>
-          </div>
-          {sheetNames.length > 1 ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <span style={{ ...muted, fontSize: 12.5 }}>Sheet:</span>
-              {sheetNames.map((n) => (
-                <button key={n} type="button" onClick={() => loadSheet(sheets, n)}
-                  className={`ui-btn ui-btn--sm ${activeSheet === n ? "ui-btn--primary" : "ui-btn--ghost"}`}>{n}</button>
-              ))}
-            </div>
-          ) : null}
-          <div style={{ ...muted }}>Check which column holds each detail. Rows without a company name or website are left out.</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 210px), 1fr))", gap: 10 }}>
-            {IMPORT_FIELDS.map(([k, label]) => (
-              <label key={k} style={{ display: "flex", flexDirection: "column", gap: 4, ...text, fontSize: 12.5, color: C.slate }}>
-                {label}
-                <select className="ui-input" value={map[k] || ""} onChange={(e) => setMap((m) => ({ ...m, [k]: e.target.value || undefined }))}>
-                  <option value="">Not in this file</option>
-                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
-                </select>
-              </label>
-            ))}
+            <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{file?.name} · {fields.length} {fields.length === 1 ? "row" : "rows"}</div>
+            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => setShowMapper(true)}>Edit column matches</button>
+            <button type="button" className="ui-btn ui-btn--ghost" onClick={resetFile}>Choose another file</button>
           </div>
           <div className="ui-scroll" style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 6 }}>
             <table className="ui-table" style={{ minWidth: 640 }}>
-              <thead><tr>{IMPORT_FIELDS.filter(([k]) => map[k]).map(([k, label]) => <th key={k}>{label}</th>)}</tr></thead>
+              <thead><tr><th>Company</th><th>Website</th><th>Phone</th><th>Contact</th></tr></thead>
               <tbody>
-                {mapped.slice(0, 5).map((r, i) => (
-                  <tr key={i}>{IMPORT_FIELDS.filter(([k]) => map[k]).map(([k]) => <td key={k} style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{r[k]}</td>)}</tr>
+                {fields.slice(0, 5).map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</td>
+                    <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{r.website}</td>
+                    <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{r.phone}</td>
+                    <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{r.contact_name}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {customColumns(fields).length ? (
+            <div style={{ ...muted, fontSize: 12.5 }}>Kept as your own columns: {customColumns(fields).join(", ")}</div>
+          ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button type="button" className="ui-btn ui-btn--primary" disabled={!usable.length || busy} onClick={importNow}>
               {busy ? "Importing…" : `Import ${usable.length} ${usable.length === 1 ? "company" : "companies"}`}
             </button>
-            {rows.length > usable.length ? <span style={{ ...muted, fontSize: 12.5 }}>{rows.length - usable.length} without a name or website will be left out.</span> : null}
+            {fields.length > usable.length ? <span style={{ ...muted, fontSize: 12.5 }}>{fields.length - usable.length} without a name or website will be left out.</span> : null}
           </div>
         </div>
       )}

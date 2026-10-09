@@ -14,12 +14,13 @@ export const btn = (primary, disabled) => ({
 const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 };
 const check = { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13 };
 const hint = { fontSize: 11.5, color: C.slate, fontWeight: 400 };
-// "" in any choice means Telnyx picks; after a sync we know what it picked.
-const telnyxDefault = (picked) => `Telnyx default${picked ? ` (${picked})` : ""}`;
+// "" in any choice means the platform picks. Staff also see what it picked; clients just see "Default".
+const platformDefault = (picked, staff) => `Default${staff && picked ? ` (${picked})` : ""}`;
 
-// How the user's own assistant speaks and listens: every voice, model and speech-to-text engine
-// Telnyx offers. Voices are many, so they are narrowed by provider and language first.
-export function VoiceFields({ catalogue, me, setMe, effective = {} }) {
+// How the user's own assistant speaks and listens. Voices are many, so they are narrowed by
+// language and gender first. The technical choices (voice provider and model, the AI model and the
+// speech engine) are set by the platform: only staff (`staff`) see and change them.
+export function VoiceFields({ catalogue, me, setMe, effective = {}, staff = false }) {
   const [f, setF] = useState({ provider: "", engine: "", lang: "", gender: "", q: "" });
   const s = me.settings;
   const set = (patch) => setMe({ ...me, settings: { ...s, ...patch } });
@@ -61,8 +62,8 @@ export function VoiceFields({ catalogue, me, setMe, effective = {} }) {
   return (
     <>
       <div style={grid}>
-        {filter("provider", "Voice provider", providers, `All providers (${voices.length} voices)`)}
-        {filter("engine", "Voice model (text-to-speech)", engines, "Any model")}
+        {staff && filter("provider", "Voice provider", providers, `All providers (${voices.length} voices)`)}
+        {staff && filter("engine", "Voice model (text-to-speech)", engines, "Any model")}
         {filter("lang", "Voice language", languages, "Any language")}
         {filter("gender", "Gender", genders, "Any")}
         <label style={label}>Search voices
@@ -70,21 +71,23 @@ export function VoiceFields({ catalogue, me, setMe, effective = {} }) {
         </label>
         <label style={label}>Voice ({shown.length})
           <select aria-label="Voice" value={me.voice} onChange={(e) => setMe({ ...me, voice: e.target.value })} style={input}>
-            <option value="">{telnyxDefault(effective.voice)}</option>
+            <option value="">{platformDefault(effective.voice, staff)}</option>
             {shown.map((v) => (
-              <option key={v.id} value={v.id}>{v.label}{v.engine ? ` · ${v.engine}` : ""}{v.language ? ` · ${v.language}` : ""}{v.gender ? ` · ${v.gender}` : ""}</option>
+              <option key={v.id} value={v.id}>{v.label}{staff && v.engine ? ` · ${v.engine}` : ""}{v.language ? ` · ${v.language}` : ""}{v.gender ? ` · ${v.gender}` : ""}</option>
             ))}
           </select>
         </label>
+        {staff && (
         <label style={label}>AI model (the brain)
           <select aria-label="Model" value={me.model} onChange={(e) => setMe({ ...me, model: e.target.value })} style={input}>
-            <option value="">{telnyxDefault(effective.model)}</option>
+            <option value="">{platformDefault(effective.model, staff)}</option>
             {group("Recommended for calls", models.filter((m) => m.recommended || m.recommended === undefined))}
-            {group("Other Telnyx-hosted models", models.filter((m) => m.recommended === false && !m.needsKey))}
+            {group("Other hosted models", models.filter((m) => m.recommended === false && !m.needsKey))}
             {group("Needs your own provider key", models.filter((m) => m.recommended === false && m.needsKey))}
           </select>
-          <span style={hint}>Reasoning is switched off on calls by Telnyx, so faster models answer quicker.</span>
+          <span style={hint}>Reasoning is switched off on calls, so faster models answer quicker.</span>
         </label>
+        )}
         <label style={label}>Speaking speed: {Number(s.voiceSpeed).toFixed(2)}×
           <input aria-label="Speaking speed" type="range" min="0.5" max="2" step="0.05" value={s.voiceSpeed} onChange={(e) => set({ voiceSpeed: Number(e.target.value) })} />
         </label>
@@ -97,12 +100,14 @@ export function VoiceFields({ catalogue, me, setMe, effective = {} }) {
             {s.background && <input aria-label="Background volume" type="range" min="0.1" max="1" step="0.1" value={s.backgroundVolume} onChange={(e) => set({ backgroundVolume: Number(e.target.value) })} />}
           </div>
         </label>
+        {staff && (
         <label style={label}>Speech-to-text (how it hears)
           <select aria-label="Speech to text" value={s.sttModel} onChange={(e) => set({ sttModel: e.target.value, language: "" })} style={input}>
-            <option value="">{telnyxDefault(effective.sttModel)}</option>
+            <option value="">{platformDefault(effective.sttModel, staff)}</option>
             {(catalogue.stt || []).map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </label>
+        )}
         <label style={label}>Language it listens for
           {sttLanguages.length ? (
             <select aria-label="Listening language" value={s.language} onChange={(e) => set({ language: e.target.value })} style={input}>
@@ -124,7 +129,7 @@ export function VoiceFields({ catalogue, me, setMe, effective = {} }) {
   );
 }
 
-// How every call behaves (admins). Same settings as Telnyx's assistant, in plain words.
+// How every call behaves (admins), in plain words.
 export function BehaviourFields({ a, set }) {
   const transfers = a.transfers || [];
   const setRow = (i, patch) => set({ transfers: transfers.map((t, j) => (j === i ? { ...t, ...patch } : t)) });
@@ -142,13 +147,13 @@ export function BehaviourFields({ a, set }) {
         {toggle("interruptions", "People can interrupt the agent")}
         {toggle("noGreetingInterrupt", "Nobody can interrupt the greeting")}
         {toggle("textCaller", "Agent can text the caller during the call")}
-        {toggle("keepData", "Keep conversation history", "off: Telnyx keeps no transcript or insights")}
+        {toggle("keepData", "Keep conversation history", "off: no transcript or insights are kept")}
       </div>
       <div style={grid}>
         <label style={label}>Ask "are you still there?" after (seconds of silence)
           <input aria-label="Silence check-in seconds" type="number" min="0" max="600" value={a.idleReplySecs} onChange={(e) => set({ idleReplySecs: e.target.value })} style={input} />
         </label>
-        <label style={label}>Hang up after silence (seconds, 0 = Telnyx default)
+        <label style={label}>Hang up after silence (seconds, 0 = standard)
           <input aria-label="Silence hang-up seconds" type="number" min="0" max="14400" value={a.idleHangupSecs} onChange={(e) => set({ idleHangupSecs: e.target.value })} style={input} />
         </label>
         <label style={label}>If the agent fails, send the call to
@@ -156,15 +161,15 @@ export function BehaviourFields({ a, set }) {
         </label>
         <label style={label}>Background noise filter
           <select aria-label="Noise filter" value={a.noise} onChange={(e) => set({ noise: e.target.value })} style={input}>
-            <option value="">Telnyx default</option>
-            <option value="aicoustics">ai-coustics (best for AI)</option>
-            <option value="krisp">Krisp</option>
-            <option value="deepfilternet">DeepFilterNet</option>
+            <option value="">Standard</option>
+            <option value="aicoustics">Best for AI calls</option>
+            <option value="krisp">Strong</option>
+            <option value="deepfilternet">Light</option>
             <option value="disabled">Off</option>
           </select>
         </label>
       </div>
-      <label style={label}>Words to recognise (names, brands; comma separated; used by Deepgram Nova-3 and Flux)
+      <label style={label}>Words to recognise (names, brands; comma separated)
         <input aria-label="Words to recognise" placeholder="Aivhub, Outreach, Siobhan" value={a.keyterms} onChange={(e) => set({ keyterms: e.target.value })} style={input} />
       </label>
       <div style={{ display: "grid", gap: 6 }}>

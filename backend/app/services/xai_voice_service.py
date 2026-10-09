@@ -1669,7 +1669,7 @@ async def join_xai_call_session(
             if call_obj.mission:
                 mission_name = call_obj.mission
             call_obj.transcript = (call_obj.transcript or []) + [
-                f"System: xAI Realtime Voice Agent connected (SIP Call: {call_id[:8]}...)"
+                f"System: Voice agent connected (call {call_id[:8]}...)"
             ]
             await db.commit()
             logger.info(f"[XAI-WS] Successfully linked xAI session {call_id} to existing LiveCall {local_call_id} (carrier: {carrier_sid}, prospect: {prospect_name})")
@@ -1684,7 +1684,7 @@ async def join_xai_call_session(
                 state="pitching",
                 channel="voice",
                 duration="00:01",
-                transcript=[f"System: Inbound xAI call connected ({call_id[:8]}...)"]
+                transcript=[f"System: Inbound call connected ({call_id[:8]}...)"]
             )
             db.add(call_obj)
             await db.commit()
@@ -2135,7 +2135,7 @@ async def join_xai_call_session(
                             async with AsyncSessionLocal() as db:
                                 notif = Notification(
                                     id=f"n_{uuid.uuid4().hex[:6]}",
-                                    text="❌ TTS Provider Failed: External TTS (Cartesia/ElevenLabs) is configured but failed. Switch to xAI built-in voice in Voice & Telephony settings.",
+                                    text="❌ The selected voice could not be used on this call. Choose another voice, or contact support.",
                                     type="error",
                                 )
                                 db.add(notif)

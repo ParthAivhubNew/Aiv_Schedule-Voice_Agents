@@ -64,6 +64,8 @@ import { AudioStreamPlayer } from "../../../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../../../tokens";
 import { AnalyticsTab } from "./AnalyticsTab";
 import { ImportMapper } from "./ImportMapper";
+import { NumberCheckBar, StatusBadge } from "./NumberCheckBar";
+import { LINE, MATCH, filterRows, hasChecks, statusOf } from "./numberCheck";
 import { WorkingHoursTab } from "./WorkingHoursTab";
 import { NumbersPage } from "./NumbersPage";
 import { WhatsappInbox } from "./WhatsappInbox";
@@ -1000,6 +1002,7 @@ export function CallingWorkspace({
   const [savedLists, setSavedLists] = useState(() => readJson(LS_LISTS, []) || []);
   const [savedContacts, setSavedContacts] = useState(() => readJson(LS_CONTACTS, []) || []);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [checkFilter, setCheckFilter] = useState(""); // number-check result filter on the list
   const [histOpen, setHistOpen] = useState(false);
   const [hoverMsg, setHoverMsg] = useState("");
   const [editingId, setEditingId] = useState("");
@@ -1044,6 +1047,23 @@ export function CallingWorkspace({
   const chatHintTimer = useRef(null);
   const copiedTimer = useRef(null);
   const extras = useMemo(() => extraHeaders(headers), [headers]);
+  const shownRows = useMemo(() => filterRows(rows, checkFilter), [rows, checkFilter]);
+  const showChecks = useMemo(() => hasChecks(rows), [rows]);
+  useEffect(() => { if (checkFilter && rows.length && !shownRows.length) setCheckFilter(""); }, [checkFilter, rows.length, shownRows.length]);
+  // Every column of the list as plain text, for the CSV export.
+  const exportBaseColumns = useMemo(() => {
+    const plain = (r, h) => {
+      const key = headerToField(h);
+      if (key === "phone") return rowPhone(r) || r.phone || "";
+      return String((r.cells && r.cells[h]) || (key ? r[key] : "") || "");
+    };
+    return [
+      ...headers.map((h) => ({ id: "h_" + h, label: h, get: (r) => plain(r, h) })),
+      ...extras.map((h) => ({ id: "x_" + h, label: h, get: (r) => String(r[h.toLowerCase()] || "") })),
+      { id: "calls", label: "Calls", get: (r) => String(r.callTimes || 0) },
+      { id: "last", label: "Last result", get: (r) => r.lastOutcome || "Not called" },
+    ];
+  }, [headers, extras]);
 
   const activeCountryObj = useMemo(() => {
     return COUNTRY_CODES.find((c) => c.code === countryCode) || {
@@ -1648,6 +1668,7 @@ export function CallingWorkspace({
     setActiveSheet("");
     setHeaders([...DEFAULT_LIST_HEADERS]);
     setRows([]);
+    setCheckFilter("");
     setSelectedIds(new Set());
     if (fileRef.current) fileRef.current.value = "";
     if (!silent) showToast(`New list: ${label}`);
@@ -1682,6 +1703,7 @@ export function CallingWorkspace({
       else if (field === "phone") cleaned = coercePhoneCell(val) || val.trim();
       else cleaned = val.trim();
       next[field] = cleaned;
+      if (field === "phone") delete next.check;
       if (field === "company" || field === "contact") {
         next.name = (field === "company" ? cleaned : next.company) || (field === "contact" ? cleaned : next.contact) || next.name;
       }
@@ -2254,7 +2276,7 @@ export function CallingWorkspace({
       assistantQueueRef.current = queue;
       setAssistantQueued(queue.length);
       goPage("live");
-      showToast(`Telnyx Assistant: calling ${prospects.length} contact${prospects.length === 1 ? "" : "s"}, ${cap} at a time.`);
+      showToast(`AI Assistant: calling ${prospects.length} contact${prospects.length === 1 ? "" : "s"}, ${cap} at a time.`);
       await pumpAssistantQueue(liveCalls);
       await refreshLive();
       return;
@@ -2972,7 +2994,7 @@ export function CallingWorkspace({
                           className="ui-input" style={{ height: 30, padding: "0 8px", fontSize: 12.5, cursor: "pointer" }}
                         >
                           <option value="engine">Our AI Engine</option>
-                          <option value="assistant">Telnyx Assistant</option>
+                          <option value="assistant">AI Assistant</option>
                         </select>
                       </div>
                     )}
@@ -3071,6 +3093,20 @@ export function CallingWorkspace({
                         </button>
                       ) : null}
                     </div>
+                  ) : null}
+                  {rows.length ? (
+                    <NumberCheckBar
+                      rows={rows}
+                      setRows={setRows}
+                      selectedIds={selectedIds}
+                      setSelectedIds={setSelectedIds}
+                      phoneOf={rowPhone}
+                      filter={checkFilter}
+                      setFilter={setCheckFilter}
+                      baseColumns={exportBaseColumns}
+                      showToast={showToast}
+                      fileName={fileName}
+                    />
                   ) : null}
                   {availableSheets.length > 1 && (
                     <div className="ui-scroll" style={{
@@ -3173,13 +3209,23 @@ export function CallingWorkspace({
                           {extras.map((h) => (
                             <th key={"x_" + h}>{h}</th>
                           ))}
+                          {showChecks ? (
+                            <>
+                              <th>Number</th>
+                              <th>Name found</th>
+                              <th>Name match</th>
+                              <th>Line</th>
+                              <th>Carrier</th>
+                              <th>Country</th>
+                            </>
+                          ) : null}
                           <th style={{ textAlign: "right" }}>Calls</th>
                           <th>Last result</th>
                           <th style={{ width: 1 }} aria-label="Actions" />
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map((r) => {
+                        {shownRows.map((r) => {
                           const phone = rowPhone(r);
                           const canDial = digitsInPhone(phone).length >= 7;
                           const checked = selectedIds.has(r.id);
@@ -3232,6 +3278,16 @@ export function CallingWorkspace({
                                   </td>
                                 );
                               })}
+                              {showChecks ? (
+                                <>
+                                  <td title={r.check && r.check.checkedOn ? `Checked ${r.check.checkedOn}` : undefined}><StatusBadge status={statusOf(r)} /></td>
+                                  <td style={{ color: C.textInk }}>{(r.check && r.check.foundName) || ""}</td>
+                                  <td style={{ color: C.slate }}>{r.check ? MATCH[r.check.match] || "" : ""}</td>
+                                  <td style={{ color: C.slate }}>{r.check ? LINE[r.check.lineType] || "" : ""}</td>
+                                  <td style={{ color: C.slate }}>{(r.check && r.check.carrier) || ""}</td>
+                                  <td style={{ color: C.slate }}>{(r.check && r.check.country) || ""}</td>
+                                </>
+                              ) : null}
                               <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.callTimes || 0}</td>
                               <td style={{ color: r.lastOutcome ? C.textInk : C.slateLight }}>{r.lastOutcome || "Not called"}</td>
                               <td style={{ textAlign: "right", paddingRight: 8 }}>
@@ -3462,7 +3518,7 @@ export function CallingWorkspace({
               <style>{LIVE_CARD_KEYFRAMES}</style>
               {assistantQueued > 0 ? (
                 <div style={{ ...card(), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
-                  <span style={{ flex: 1 }}><b>{assistantQueued}</b> more contact{assistantQueued === 1 ? "" : "s"} queued for the Telnyx Assistant — the next one dials as soon as a line frees up.</span>
+                  <span style={{ flex: 1 }}><b>{assistantQueued}</b> more contact{assistantQueued === 1 ? "" : "s"} queued for the AI Assistant — the next one dials as soon as a line frees up.</span>
                   <button type="button" onClick={() => { assistantQueueRef.current = []; setAssistantQueued(0); showToast("Queue stopped."); }} style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", fontWeight: 700 }}>Stop queue</button>
                 </div>
               ) : null}
@@ -3894,6 +3950,7 @@ export function CallingWorkspace({
                 notifications={notifications}
                 setNotifications={setNotifications}
                 onDirtyChange={setTemplatesDirty}
+                onOpenPage={goPage}
               />
             </div>
           )}
@@ -3906,7 +3963,7 @@ export function CallingWorkspace({
 
           {page === "numbers" && operator?.is_admin && <NumbersPage />}
           {page === "subscription" && operator?.is_admin && <SubscriptionPage wallet="voice" back="/voice/subscription" />}
-          {page === "studio" && <AgentStudio onOpenPage={goPage} />}
+          {page === "studio" && <AgentStudio onOpenPage={goPage} staff={Boolean(operator?.is_platform_org)} />}
           {page === "whatsapp" && canSee(operator, "calling") && <WhatsappInbox />}
 
           {page === "hours" && canSee(operator, "company") && (

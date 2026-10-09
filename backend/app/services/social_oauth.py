@@ -329,6 +329,7 @@ async def _exchange_x(app, code, verifier) -> Dict[str, Any]:
             "platform": "x",
             "access_token": access,
             "refresh_token": refresh,
+            "expires_in": tok.get("expires_in"),
             "account_id": xid,
             "handle": f"@{handle}" if handle and not str(handle).startswith("@") else handle,
             "label": f"X · @{handle.lstrip('@')}",
@@ -368,6 +369,7 @@ async def _exchange_linkedin(app, code) -> Dict[str, Any]:
             "platform": "linkedin",
             "access_token": access,
             "refresh_token": refresh,
+            "expires_in": tok.get("expires_in"),
             "account_id": sub,
             "handle": name,
             "label": f"LinkedIn · {name}",
@@ -492,6 +494,7 @@ async def _exchange_threads(app, code) -> Dict[str, Any]:
         tok = res.json() or {}
         access = tok.get("access_token") or ""
         uid = str(tok.get("user_id") or "")
+        expires_in = tok.get("expires_in")
         # long-lived
         try:
             ll = await client.get(
@@ -504,6 +507,7 @@ async def _exchange_threads(app, code) -> Dict[str, Any]:
             )
             if ll.status_code == 200:
                 access = (ll.json() or {}).get("access_token") or access
+                expires_in = (ll.json() or {}).get("expires_in") or expires_in
         except Exception:
             pass
         uname = uid
@@ -520,11 +524,21 @@ async def _exchange_threads(app, code) -> Dict[str, Any]:
             "platform": "threads",
             "access_token": access,
             "refresh_token": "",
+            "expires_in": expires_in,
             "account_id": uid,
             "handle": f"@{uname}" if uname and not str(uname).startswith("@") else uname,
             "label": f"Threads · @{str(uname).lstrip('@')}",
             "extra": {"authType": "oauth2"},
         }
+
+
+def _expiry_from(expires_in: Any) -> Optional[datetime]:
+    """UTC moment a token stops working, from the provider's expires_in seconds; None if unknown."""
+    try:
+        secs = int(expires_in)
+    except (TypeError, ValueError):
+        return None
+    return datetime.utcnow() + timedelta(seconds=secs) if secs > 0 else None
 
 
 async def upsert_oauth_account(db: AsyncSession, payload: Dict[str, Any]) -> Optional[SocialAccount]:
@@ -550,12 +564,13 @@ async def upsert_oauth_account(db: AsyncSession, payload: Dict[str, Any]) -> Opt
         db.add(existing)
         created = True
     existing.access_token = payload.get("access_token") or existing.access_token
+    existing.refresh_token = payload.get("refresh_token") or existing.refresh_token or ""
     try:
         from app.services.social_publisher import seal_account_secrets
         seal_account_secrets(existing)
     except Exception:
         pass
-    existing.refresh_token = payload.get("refresh_token") or existing.refresh_token or ""
+    existing.expires_at = _expiry_from(payload.get("expires_in"))
     existing.account_id = account_id or existing.account_id
     existing.handle = handle or existing.handle
     existing.label = payload.get("label") or existing.label

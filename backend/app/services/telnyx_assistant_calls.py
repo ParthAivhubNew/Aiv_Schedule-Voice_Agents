@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from sqlalchemy.future import select
 
+from app.core.brand import scrub
 from app.database import AsyncSessionLocal
 from app.models.models import LiveCall
 from app.services.process_logger import log_process_event
@@ -410,10 +411,10 @@ async def handle_call_control_event(event_type: str, payload: Dict[str, Any], st
             if rec:
                 lines = list(rec.transcript or [])
                 if result.get("ok"):
-                    lines.append("System: Answered — Telnyx AI Assistant connected.")
+                    lines.append("System: Answered — AI Assistant connected.")
                     rec.state = "pitching"
                 else:
-                    lines.append(f"System: Answered, but the Telnyx AI Assistant could not start ({result.get('error')}).")
+                    lines.append(f"System: Answered, but the AI Assistant could not start ({scrub(result.get('error'))}).")
                     rec.state = "failed"
                 rec.transcript = lines
                 state["base_lines"] = lines
@@ -562,7 +563,7 @@ async def track_inbound(call_control_id: str, caller_phone: str, prospect_label:
     call_id = f"call_{uuid.uuid4().hex[:8]}"
     caller_clean = normalize_phone_number(caller_phone) if caller_phone else ""
     label = prospect_label or (f"Caller ({caller_clean[-4:]})" if caller_clean else "Inbound caller")
-    base = [f"System: Inbound call from {caller_clean or 'unknown number'} answered by Telnyx AI Assistant."]
+    base = [f"System: Inbound call from {caller_clean or 'unknown number'} answered by the AI Assistant."]
     async with AsyncSessionLocal() as db:
         existing = await _find_live_call(db, call_control_id)
         if existing:

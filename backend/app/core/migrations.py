@@ -311,6 +311,102 @@ async def _lead_account_business_record_column(conn: AsyncConnection) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lead_accounts_business_record_id ON lead_accounts (business_record_id)"))
 
 
+async def _business_record_shared_research_column(conn: AsyncConnection) -> None:
+    """Carries one organisation's full Research dossier (team, named contacts, sources) into the
+    shared, cross-organisation store -- public fact about the business, not that organisation's
+    private data, so the next organisation that looks up the same company gets it too, free."""
+    await conn.execute(text("ALTER TABLE business_records ADD COLUMN IF NOT EXISTS shared_research JSON"))
+
+
+async def _seed_google_places_vendor_price(conn: AsyncConnection) -> None:
+    """Google Places' real per-lookup cost (Text Search + Place Details, combined), for the
+    admin portal's vendor-spend estimate -- same editable row as every other vendor price."""
+    import uuid
+
+    await conn.execute(text(
+        "INSERT INTO provider_prices (id, provider, model, kind, price_in_usd, price_out_usd, confirmed, created_at, updated_at, updated_by) "
+        "VALUES (:id, 'google_places', '', 'lookup', 0.035, 0, TRUE, now(), now(), 'migration') "
+        "ON CONFLICT (provider, model, kind) DO NOTHING"
+    ), {"id": f"pp_{uuid.uuid4().hex[:12]}"})
+
+
+async def _lead_account_research_history_column(conn: AsyncConnection) -> None:
+    """Re-researching a saved account used to throw away what the last run found; this column
+    keeps earlier runs so users can look back at more than just the latest one (see models.py)."""
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS research_history JSON"))
+
+
+async def _business_record_postcode_index(conn: AsyncConnection) -> None:
+    """Postcode searches (the map's drawn area, and "postcode starts with") are all 'postcode LIKE
+    AB1 %' -- without an index each one reads every company. A prefix-ready btree makes them
+    instant. On a big store, build it ahead without blocking the app:
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_business_records_postcode_prefix ON business_records (postcode varchar_pattern_ops);"""
+    if conn.dialect.name != "postgresql":
+        return
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_business_records_postcode_prefix ON business_records (postcode varchar_pattern_ops)"))
+
+
+async def _lead_account_verification_column(conn: AsyncConnection) -> None:
+    """Saved Accounts > Check companies keeps its result in its own column, apart from what the
+    user imported (see models.py)."""
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS verification JSON"))
+
+
+async def _business_record_sic_text_trigram_index(conn: AsyncConnection) -> None:
+    """The Find Leads box looks for a word in the name, the industry AND the official sector text
+    (sic_text). The first two have trigram indexes (see _business_record_search_indexes); this one had
+    none, so one unindexed part made a word like "cafe" scan the whole table in a big town and time out.
+
+    On a big live table build it first without blocking anything, then restart the app (this step then
+    finds it done): docker compose exec postgres psql -U <user> -d <db> -c "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_business_records_sic_text_trgm ON business_records USING GIN (sic_text gin_trgm_ops);"
+    """
+    if conn.dialect.name != "postgresql":
+        return
+    try:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+    except Exception as err:
+        logger.warning(f"Could not enable pg_trgm (sector search will fall back to a plain scan): {err}")
+        return
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_business_records_sic_text_trgm ON business_records USING GIN (sic_text gin_trgm_ops)"))
+
+
+async def _lead_account_custom_column(conn: AsyncConnection) -> None:
+    """Saved Accounts keeps the extra columns a user chose to keep from an imported file."""
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS custom JSON"))
+
+
+async def _live_registry_check_config(conn: AsyncConnection) -> None:
+    """Teaches the company check how to read a live search hit from the two registers that can be
+    asked directly (Companies House, Food Hygiene): which hit field is the name, status, and so on.
+    Only adds what is missing; anything staff already set is left alone."""
+    import json
+
+    hits = {
+        "ds_companies_house": {
+            "search_field_map": {"name": "title", "registration_number": "company_number", "status": "company_status",
+                                 "company_category": "company_type", "incorporation_date": "date_of_creation",
+                                 "address": "address_snippet"},
+        },
+        "ds_food_hygiene": {
+            "search_endpoint": "/Establishments", "search_param": "name", "search_items_path": "establishments",
+            "search_extra_params": {"pageSize": "5"}, "test_query": "Tesco",
+            "search_field_map": {"name": "BusinessName", "postcode": "PostCode", "industry": "BusinessType",
+                                 "address": ["AddressLine1", "AddressLine2", "AddressLine3", "PostCode"]},
+            "search_defaults": {"status": "Active"},  # the register lists food businesses currently registered
+        },
+    }
+    for source_id, extra in hits.items():
+        row = (await conn.execute(text("SELECT config FROM data_sources WHERE id = :i"), {"i": source_id})).first()
+        if not row:
+            continue
+        config = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+        for key, value in extra.items():
+            config.setdefault(key, value)
+        await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = :i"),
+                           {"c": json.dumps(config), "i": source_id})
+
+
 async def _seed_companies_house_source(conn: AsyncConnection) -> None:
     """The first api-type DataSource -- a config row, not special-cased code (see
     data_source_connector.py). Picks up COMPANIES_HOUSE_API_KEY once, as a one-time convenience
@@ -583,6 +679,10 @@ async def _seed_open_data_sources(conn: AsyncConnection) -> None:
             "fields": json.dumps(["name", "address", "postcode", "phone", "website", "industry"])})
 
 
+async def _social_account_expiry(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -612,6 +712,15 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_23_business_record_search_columns", _business_record_search_columns),
     ("2026_10_23_companies_house_search_fields", _companies_house_search_fields),
     ("2026_10_24_seed_open_data_sources", _seed_open_data_sources),
+    ("2026_10_25_lead_account_research_history_column", _lead_account_research_history_column),
+    ("2026_10_26_seed_google_places_vendor_price", _seed_google_places_vendor_price),
+    ("2026_10_27_business_record_shared_research_column", _business_record_shared_research_column),
+    ("2026_10_28_social_account_expiry", _social_account_expiry),
+    ("2026_10_29_lead_account_verification_column", _lead_account_verification_column),
+    ("2026_10_29_live_registry_check_config", _live_registry_check_config),
+    ("2026_10_30_business_record_postcode_index", _business_record_postcode_index),
+    ("2026_10_31_lead_account_custom_column", _lead_account_custom_column),
+    ("2026_11_01_business_record_sic_text_trigram_index", _business_record_sic_text_trigram_index),
 ]
 
 

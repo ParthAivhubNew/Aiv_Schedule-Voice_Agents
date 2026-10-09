@@ -81,7 +81,7 @@ export function NumbersTab() {
               <span style={{ fontSize: 12, color: C.slate, width: 110 }}>AI assistant ID</span>
               <input
                 defaultValue={n.assistantId}
-                placeholder="Optional: Telnyx assistant for this line"
+                placeholder="Optional: assistant for this line"
                 onBlur={(e) => e.target.value !== n.assistantId && act(() => api.updateNumber(n.id, { assistant_id: e.target.value }))}
                 style={{ ...input, flex: 1, minWidth: 220, fontFamily: FONT_MONO, fontSize: 12 }}
               />
@@ -117,7 +117,7 @@ export function NumbersTab() {
             <input style={input} placeholder="+44 20 7946 0000" value={form.e164} onChange={(e) => setForm({ ...form, e164: e.target.value })} />
             <input style={input} placeholder="Label (optional)" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
           </div>
-          <input style={input} placeholder="Telnyx assistant ID for this line (optional)" value={form.assistant_id} onChange={(e) => setForm({ ...form, assistant_id: e.target.value })} />
+          <input style={input} placeholder="Assistant ID for this line (optional)" value={form.assistant_id} onChange={(e) => setForm({ ...form, assistant_id: e.target.value })} />
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button type="button" style={btn(false)} onClick={() => setAdding(false)}>Cancel</button>
             <button type="submit" style={btn(true)}>Save number</button>

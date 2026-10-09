@@ -160,7 +160,7 @@ export function LiveCallCard({
             {call.mission ? <span>· {call.mission}</span> : null}
             {isAssistant ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.cobaltDeep, fontWeight: 700 }}>
-                · <Sparkles size={12} /> Telnyx AI Assistant
+                · <Sparkles size={12} /> AI Assistant
               </span>
             ) : null}
           </div>
@@ -210,7 +210,7 @@ export function LiveCallCard({
             )
           ) : isAssistant ? (
             <span style={{ fontSize: 11.5, color: C.slate, alignSelf: "center", maxWidth: 320 }}>
-              Audio runs inside Telnyx — live listen/take-over isn't available for Assistant calls. The transcript updates as they talk.
+              Audio runs on the assistant's own line — live listen/take-over isn't available for Assistant calls. The transcript updates as they talk.
             </span>
           ) : null}
           <div style={{ flex: 1 }} />

@@ -18,7 +18,7 @@ function Message({ msg }) {
 // Agent Studio: how the AI caller sounds and behaves. Each user picks their voice and adds their
 // phone (test calls, taking over calls); admins set the company's rules and which script each
 // campaign uses. Scripts themselves are written in AI Templates; knowledge on the Company page.
-export function AgentStudio({ onOpenPage }) {
+export function AgentStudio({ onOpenPage, staff = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [me, setMe] = useState({ voice: "", model: "", phone: "", settings: {} });
@@ -90,7 +90,7 @@ export function AgentStudio({ onOpenPage }) {
       <div style={{ ...box, maxWidth: 640, fontFamily: FONT_BODY }}>
         {title(PhoneCall, "Get a phone number first")}
         <div style={{ fontSize: 13, color: C.slate }}>
-          Your assistant's voice, AI model and call rules are set up here once your company has a number to call from.
+          Your assistant's voice and call rules are set up here once your company has a number to call from.
           {data.isAdmin ? "" : " Ask your admin to add one."}
         </div>
         {data.isAdmin && onOpenPage && (
@@ -117,7 +117,7 @@ export function AgentStudio({ onOpenPage }) {
           {status && ` Status: ${status.status === "ready" ? "ready" : status.status === "error" ? "needs attention" : "being set up"}.`}
           {status?.error && ` (${status.error})`}
         </div>
-        <VoiceFields catalogue={catalogue} me={me} setMe={setMe} effective={data.me.effective} />
+        <VoiceFields catalogue={catalogue} me={me} setMe={setMe} effective={data.me.effective} staff={staff} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, alignItems: "end" }}>
           <label style={label}>Your phone (test calls, taking over calls)
             <input aria-label="Your phone" placeholder="+447700900123" value={me.phone} onChange={(e) => setMe({ ...me, phone: e.target.value })} style={input} />

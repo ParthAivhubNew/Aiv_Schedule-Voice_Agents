@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +38,7 @@ from app.api.sip_webhook import router as sip_webhook_router
 from app.api.telnyx_assistant_webhook import router as telnyx_assistant_webhook_router
 from app.api.enrichment import router as enrichment_router
 from app.api.lead_accounts import router as lead_accounts_router
+from app.api.lead_checks import router as lead_checks_router
 from app.api.calcom import router as calcom_router
 from app.api.livekit_router import router as livekit_router
 from app.api.vapi_router import router as vapi_router
@@ -44,6 +48,7 @@ from app.api.conversation_templates import router as conversation_templates_rout
 from app.api.diagnostics import router as diagnostics_router
 from app.api.voices import router as voices_router
 from app.api.numbers import router as numbers_router
+from app.api.number_check import router as number_check_router
 from app.api.email_outreach import router as email_outreach_router
 from app.api.developer_keys import router as developer_keys_router
 from app.api.developer_webhooks import router as developer_webhooks_router
@@ -149,6 +154,26 @@ async def _platform_balance_check_loop():
             raise
         except Exception as loop_err:
             logger.warning(f"[Balances] Check cycle failed: {loop_err}")
+
+
+async def _social_token_refresh_loop():
+    """Once a day: renew social logins that end within a week and email staff (never customers)
+    about any that need a reconnect. First pass shortly after start so a restart never skips a day."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.services.social_tokens import run_daily_pass
+    delay = 300
+    while True:
+        try:
+            await asyncio.sleep(delay)
+            delay = 86400
+            with system_scope():
+                async with AsyncSessionLocal() as db:
+                    await run_daily_pass(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Social Tokens] Daily pass failed: {loop_err}")
 
 
 @asynccontextmanager
@@ -627,6 +652,7 @@ async def lifespan(app: FastAPI):
     email_task = asyncio.create_task(email_loop())
     number_health_task = asyncio.create_task(_telnyx_number_health_loop())
     balance_check_task = asyncio.create_task(_platform_balance_check_loop())
+    social_token_task = asyncio.create_task(_social_token_refresh_loop())
 
     yield
 
@@ -636,6 +662,7 @@ async def lifespan(app: FastAPI):
     credits_task.cancel()
     number_health_task.cancel()
     balance_check_task.cancel()
+    social_token_task.cancel()
     logger.info("Shutting down Outreach by Aivhub Voice Agent API...")
 
 app = FastAPI(
@@ -702,6 +729,7 @@ app.include_router(telnyx_assistant_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(telnyx_assistant_webhook_router)  # Direct /telnyx-assistant compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
+app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
 app.include_router(calcom_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router)  # Direct /livekit compatibility
@@ -716,6 +744,7 @@ app.include_router(conversation_templates_router)  # Direct /conversation-templa
 app.include_router(diagnostics_router, prefix=settings.API_PREFIX)
 app.include_router(voices_router, prefix=settings.API_PREFIX)
 app.include_router(numbers_router, prefix=settings.API_PREFIX)
+app.include_router(number_check_router, prefix=settings.API_PREFIX)
 app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
 app.include_router(developer_keys_router, prefix=settings.API_PREFIX)
 app.include_router(developer_webhooks_router, prefix=settings.API_PREFIX)

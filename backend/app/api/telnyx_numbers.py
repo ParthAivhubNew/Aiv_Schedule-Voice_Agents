@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from app.core.brand import scrub
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -56,14 +57,21 @@ async def _ready_client(db: AsyncSession, ctx: Dict[str, Any]):
     setup = await TP.ensure_setup(db, await _org_name(db, ctx["org_id"]), ctx.get("email") or "")
     await db.commit()
     if setup.status != "ready":
-        raise HTTPException(status_code=503, detail=setup.last_error or "Your phone line is still being set up. Try again in a minute.")
+        raise HTTPException(status_code=503, detail=_clean(setup.last_error) or "Your phone line is still being set up. Try again in a minute.")
     return setup, TP.client_for(setup)
+
+
+def _clean(text: Optional[str]) -> str:
+    """A saved error as the customer may read it: no supplier name, no "Telnyx:" prefix."""
+    import re
+
+    return scrub(re.sub(r"^\s*telnyx:\s*", "", text or "", flags=re.I))
 
 
 def _sub_json(s) -> Optional[Dict[str, Any]]:
     if not s:
         return None
-    return {"id": s.id, "status": s.status, "reason": s.reason, "entityType": s.entity_type, "country": s.country,
+    return {"id": s.id, "status": s.status, "reason": _clean(s.reason), "entityType": s.entity_type, "country": s.country,
             "numberType": s.number_type, "documents": [d.get("filename") for d in s.documents or []],
             "submittedAt": s.created_at.isoformat() if s.created_at else None,
             "updatedAt": s.updated_at.isoformat() if s.updated_at else None}
@@ -90,7 +98,7 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     return {
         "platformReady": TP.platform_ready(),
         "mode": setup.mode if setup else TP.account_mode(),
-        "account": {"status": setup.status if setup else "new", "error": setup.last_error if setup else ""},
+        "account": {"status": setup.status if setup else "new", "error": _clean(setup.last_error) if setup else ""},
         "verification": _sub_json(await TP.latest_verification(db)),
         "orders": [{"id": o.id, "phoneNumber": o.phone_number, "status": o.status, "error": o.error,
                     "at": o.created_at.isoformat() if o.created_at else None,
@@ -117,7 +125,7 @@ async def set_allowed_countries(body: CountriesBody, request: Request, db: Async
         try:
             await client.update_outbound_voice_profile(setup.outbound_voice_profile_id, countries)
         except TelnyxError as err:
-            raise HTTPException(status_code=502, detail=str(err))
+            raise HTTPException(status_code=502, detail=scrub(err))
     await db.commit()
     return {"countries": countries}
 
@@ -130,7 +138,7 @@ async def requirements(request: Request, country: str = "GB", number_type: str =
         return {"country": country, "numberType": number_type,
                 "fields": TP.normalise_requirements(await client.requirements(country.upper(), number_type))}
     except TelnyxError as err:
-        raise HTTPException(status_code=502, detail=str(err))
+        raise HTTPException(status_code=502, detail=scrub(err))
 
 
 @router.post("/verification")
@@ -194,7 +202,7 @@ async def search(request: Request, country: str = "GB", number_type: str = "loca
     try:
         found = await client.search_numbers(country.upper(), number_type, locality.strip(), area_code.strip(), contains.strip(), limit=20)
     except TelnyxError as err:
-        raise HTTPException(status_code=502, detail=str(err))
+        raise HTTPException(status_code=502, detail=scrub(err))
     price, staff = await _our_price(db), _staff(ctx)
     out = []
     for n in found:
@@ -272,7 +280,7 @@ async def release(number_id: str, request: Request, db: AsyncSession = Depends(g
     try:
         await _release_number(db, n)
     except TelnyxError as err:
-        raise HTTPException(status_code=502, detail=f"This number could not be released: {err}")
+        raise HTTPException(status_code=502, detail=f"This number could not be released: {scrub(err)}")
     await db.commit()
     return {"ok": True}
 

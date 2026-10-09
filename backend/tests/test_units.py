@@ -260,3 +260,52 @@ def test_voice_provider_keys_and_engine_fit():
     assert not _fits("openai", "library", "cartesia")
     assert _fits("xai", "library", "xai") and not _fits("livekit", "library", "xai")
     assert not _fits("vapi", "library", "cartesia")
+
+
+# ── Find Leads map: postcodes and drawn areas ──────────────────────────────
+
+def test_postcodes_are_normalised_and_partial_ones_rejected():
+    from app.services.geocoding import norm_postcode
+
+    assert norm_postcode("sw1a1aa") == "SW1A 1AA"
+    assert norm_postcode(" RG1  1AB ") == "RG1 1AB"
+    assert norm_postcode("M1") == ""
+    assert norm_postcode("") == ""
+
+
+def test_drawn_area_is_validated_and_matched():
+    from app.services.geocoding import clean_polygon, point_in_polygon, sample_points
+
+    square = clean_polygon([[51.40, -1.05], [51.40, -0.90], [51.50, -0.90], [51.50, -1.05]])
+    assert point_in_polygon(51.45, -0.97, square)
+    assert not point_in_polygon(51.55, -0.97, square)
+    assert 3 < len(sample_points(square)) <= 100
+    with pytest.raises(ValueError):
+        clean_polygon([[51.4, -1.0], [51.5, -1.0]])
+    with pytest.raises(ValueError):
+        clean_polygon([[951.4, -1.0], [51.5, -1.0], [51.5, -0.9]])
+    with pytest.raises(ValueError):  # roughly the whole of England
+        sample_points(clean_polygon([[50.0, -4.0], [50.0, 1.0], [55.0, 1.0], [55.0, -4.0]]))
+
+
+def test_outcodes_come_from_the_reverse_lookup_and_the_districts_near_the_outline(monkeypatch):
+    from app.services import geocoding
+
+    async def fake_post(path, payload):
+        assert path == "/postcodes" and payload["geolocations"]
+        return {"result": [{"result": [{"outcode": "rg1"}, {"outcode": "RG30"}]}, {"result": None}, {"result": [{"outcode": "RG1"}]}]}
+
+    asked = []
+
+    async def fake_get(path, params):
+        asked.append(params)
+        return {"result": [{"outcode": "RG31"}, {"outcode": "rg1"}]}
+
+    geocoding._OUTCODE_CACHE.clear()
+    monkeypatch.setattr(geocoding, "_post", fake_post)
+    monkeypatch.setattr(geocoding, "_get", fake_get)
+    poly = geocoding.clean_polygon([[51.40, -1.05], [51.40, -0.90], [51.50, -0.90], [51.50, -1.05]])
+    assert asyncio.run(geocoding.outcodes_for_area(poly)) == ["RG1", "RG30", "RG31"]
+    assert asked and all(a["radius"] == geocoding.NEAR_RADIUS_M for a in asked)  # the outline was checked for districts that just enter it
+    n = len(asked)
+    assert asyncio.run(geocoding.outcodes_for_area(poly)) == ["RG1", "RG30", "RG31"] and len(asked) == n  # the same shape is not asked again

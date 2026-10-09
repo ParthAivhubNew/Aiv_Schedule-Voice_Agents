@@ -277,7 +277,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
                 </span>
               </button>
 
-              {/* Developer API Keys */}
+              {/* Admin APIs & Webhooks */}
               {onOpenDeveloperKeys && (
                 <button
                   onClick={() => { setOpen(false); onOpenDeveloperKeys(); }}
@@ -301,7 +301,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
                       <KeyRound size={15} />
                     </div>
                     <div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Developer API Keys</div>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Admin APIs & Webhooks</div>
                       <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Voice, Leads & Social APIs</div>
                     </div>
                   </div>

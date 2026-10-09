@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.future import select
 
+from app.core.brand import scrub
 from app.services.telnyx_client import TelnyxClient, TelnyxError, platform_key
 
 logger = logging.getLogger("telnyx_provisioning")
@@ -87,7 +88,9 @@ async def _create_or_reuse(create, find):
     try:
         return await create()
     except TelnyxError as err:
-        if "duplicate" not in str(err).lower():
+        said = str(err).lower()
+        # Telnyx words it differently by resource: "duplicate", "already exists", "has already been taken".
+        if not any(w in said for w in ("duplicate", "already exists", "already been taken", "already in use")):
             raise
         found = await find()
         if not found:
@@ -182,8 +185,11 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
                 await _prepaid_only(db)
             if not setup.outbound_connection_id:
                 # Same webhook as our other Call Control apps: it handles every kind of call we place.
-                app_ = await manager.create_call_control_application(
-                    f"Outreach calls: {label}", f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id)
+                app_name = f"Outreach calls: {label}"
+                app_ = await _create_or_reuse(
+                    lambda: manager.create_call_control_application(
+                        app_name, f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id),
+                    lambda: manager.find_call_control_application(app_name))
                 setup.outbound_connection_id = str(app_.get("id") or "")
             from app.services import voice_assistants as VA
             if VA.enabled_for_org(_org()):
@@ -195,7 +201,7 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             setup.messaging_profile_id = setup.messaging_profile_id or os.getenv("TELNYX_MESSAGING_PROFILE_ID", "").strip()
         setup.status, setup.last_error = "ready", ""
     except TelnyxError as err:
-        setup.last_error = str(err)[:500]
+        setup.last_error = scrub(err)[:500]
         if not was_ready:  # what already worked (e.g. buying numbers) keeps working
             setup.status = "error"
     return setup
@@ -322,7 +328,7 @@ async def submit_verification(db, client: TelnyxClient, *, country: str, number_
         submitted = await client.submit_requirement_group(sub.requirement_group_id)
         sub.status = str(submitted.get("status") or group.get("status") or "pending-approval")
     except TelnyxError as err:
-        sub.status, sub.reason = "error", str(err)[:500]
+        sub.status, sub.reason = "error", scrub(err)[:500]
     return sub
 
 
@@ -345,7 +351,7 @@ def _group_reason(group: Dict[str, Any]) -> str:
     return "; ".join(reasons)[:500]
 
 
-async def _notify_both(event: str, subject: str, lines: List[str]) -> None:
+async def _notify_both(event: str, subject: str, lines: List[str], staff_lines: Optional[List[str]] = None) -> None:
     """The same message to the affected organisation's own users, and again to Aivhub's platform
     organisation, so staff learn about a problem the same day the customer does, not only when
     they happen to check System logs. Used for anything that was fine and then went bad — a
@@ -358,7 +364,7 @@ async def _notify_both(event: str, subject: str, lines: List[str]) -> None:
     await notify(event, subject, lines)
     try:
         with org_scope(platform_org()):
-            await notify(event, f"[{org}] {subject}", lines)
+            await notify(event, f"[{org}] {subject}", list(lines) + list(staff_lines or []))
     except Exception:
         pass
 
@@ -423,12 +429,13 @@ async def refresh_number(db, n, client: TelnyxClient) -> Any:
     if healthy and not was_active:
         n.status = "active"
         await notify("numbers", f"{n.e164} is working again",
-                     [f"Telnyx now reports {n.e164} as active again."])
+                     [f"{n.e164} is active again."])
     elif not healthy and was_active:
         n.status = "held"
-        await _notify_both("numbers", f"{n.e164} was suspended or held by Telnyx",
-                           [f"Telnyx now reports this number's status as '{telnyx_status or 'unknown'}', not active.",
-                            "Outbound calls from it may fail until this is resolved. Contact the OutReach team."])
+        await _notify_both("numbers", f"{n.e164} was suspended or put on hold",
+                           ["This number is not active on the phone network.",
+                            "Outbound calls from it may fail until this is resolved. Contact the OutReach team."],
+                           staff_lines=[f"The carrier reports this number's status as '{telnyx_status or 'unknown'}', not active."])
     return n
 
 

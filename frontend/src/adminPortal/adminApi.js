@@ -87,6 +87,8 @@ export const adminApi = {
   rates: () => request("/rates"),
   setRates: (rates) => request("/rates", { method: "PUT", body: { rates } }),
   revenue: (month, includeAivhub = false) => request(`/revenue?month=${q(month)}&include_aivhub=${includeAivhub}`),
+  emailFinderReport: (days = 7) => request(`/email-finder-report?days=${q(days)}`),
+  setEmailFinderOrder: (order) => request("/email-finder-order", { method: "PUT", body: { order } }),
   unitCosts: () => request("/unit-costs"),
   setUnitCosts: (body) => request("/unit-costs", { method: "PUT", body }),
   platformKeys: () => request("/platform-keys"),

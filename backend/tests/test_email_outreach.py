@@ -253,7 +253,7 @@ async def _charges(db):
 async def test_finding_emails_uses_saved_providers_and_charges_only_verified_finds(client, db, mail, monkeypatch):
     from app.services import enrichment_waterfall as W
 
-    await _credits(db)
+    await _credits(db, 20)  # a find costs the rate card's "Lead researched" price (5), and this test makes three
     body = {"first_name": "Ann", "last_name": "Lee", "domain": "https://www.client.com/about"}
     r = await client.post("/api/email/find", json=body)
     assert r.status_code == 503 and "isn't set up" in r.json()["detail"]
@@ -298,7 +298,9 @@ async def test_nothing_found_is_free_and_not_remembered(client, db, mail, monkey
     got = (await client.post("/api/email/find", json={"first_name": "Bo", "last_name": "Lee", "company_name": "Corp"})).json()
     assert got["found"] is False
     assert await _charges(db) == 0
-    assert (await db.execute(text("SELECT count(*) FROM person_cache"))).scalar() == 0
+    # no address is stored; only a dated "nobody found" note, which the finder honours for 30 days
+    assert (await db.execute(text("SELECT count(*) FROM person_cache WHERE email <> ''"))).scalar() == 0
+    assert (await db.execute(text("SELECT count(*) FROM person_cache WHERE verification_status = 'not_found'"))).scalar() == 1
 
 
 async def test_staff_set_the_platform_mailbox_and_it_answers_warmup_mail(staff, db, mail, monkeypatch):
