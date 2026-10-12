@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ENDPOINTS, endpointKey, defaultBody } from "./developerCatalog";
+import { ENDPOINTS, RUN_ACTIONS, endpointKey, defaultBody, runRequest } from "./developerCatalog";
 import { SNIPPET_LANGS, buildSnippet, snippetsFor } from "./developerSnippets";
 
 describe("developer snippets", () => {
@@ -48,5 +48,23 @@ describe("developer snippets", () => {
       expect(ep.summary.length).toBeGreaterThan(20);
       expect(ep.scope).toMatch(/^[a-z]+:[a-z]+$|^any key$/);
     }
+  });
+  it("gives every documented call one action on the one endpoint", () => {
+    const actions = ENDPOINTS.map((ep) => RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })]);
+    expect(actions.every(Boolean)).toBe(true);
+    expect(new Set(actions).size).toBe(ENDPOINTS.length);
+    expect(Object.keys(RUN_ACTIONS)).toHaveLength(ENDPOINTS.length);
+  });
+
+  it("turns a call into a request to POST /v1/run", () => {
+    const find = (m, p) => ENDPOINTS.find((e) => e.method === m && e.path === p);
+    const start = runRequest(find("POST", "/v1/voice/calls"), defaultBody(find("POST", "/v1/voice/calls")));
+    expect(start.method).toBe("POST");
+    expect(start.path).toBe("/v1/run");
+    expect(JSON.parse(start.body)).toMatchObject({ plugin: "voice", action: "call.start", data: { to: "+447911123456" } });
+    const got = JSON.parse(runRequest(find("GET", "/v1/voice/calls/{id}"), "").body);
+    expect(got).toEqual({ plugin: "voice", action: "call.get", id: "call_8f2a91c4" });
+    const slots = JSON.parse(runRequest(ENDPOINTS.find((e) => e.path.startsWith("/v1/meetings/slots")), "").body);
+    expect(slots).toEqual({ plugin: "voice", action: "meeting.slots", data: { date: "2026-11-03", days: "3" } });
   });
 });

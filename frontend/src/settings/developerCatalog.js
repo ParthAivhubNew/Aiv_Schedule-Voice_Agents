@@ -43,6 +43,7 @@ export const ENDPOINTS = [
     pathParam: { name: "id", example: "call_8f2a91c4" },
     body: { action: "guide", message: "Offer them Tuesday at 3pm instead" },
   },
+  { group: "voice", method: "GET", path: "/v1/voice/calls/{id}/recording", scope: "voice:calls", title: "Download the recording", summary: "The call's recording as audio. Test calls have none.", pathParam: { name: "id", example: "call_8f2a91c4" } },
   { group: "voice", method: "GET", path: "/v1/voice/scripts", scope: "voice:calls", title: "Saved call scripts", summary: "Your saved outbound scripts. Use an id as script_id when you make a call." },
   // ── Leads ──
   {
@@ -129,6 +130,7 @@ export const STEPS = [
 ];
 
 export const IDEAS = [
+  { title: "One endpoint for everything", text: "Send every request to POST /v1/run with a plugin (voice, leads, social or account), an action (the step, such as call.start) and the details in data. Use id for something that already exists. One key, one address, a different payload for each step. The separate addresses listed below do the same and keep working." },
   { title: "Create, then wait", text: "Anything that takes time (a call, a post, a campaign, a lead search) answers at once with an id and a status. Ask for it again with that id, or set up a webhook and we tell you when it is done." },
   { title: "Nothing goes out without approval", text: "Posts and email campaigns wait for a decision. The preview link works without signing in, so anyone you share it with can read, edit, approve or reject it. Approving by link, email, the app or the API all change the same record." },
   { title: "Retries are safe", text: "Send an Idempotency-Key header (any unique text) with a request that creates something. If your software retries, you get the first answer back and nothing is done twice or charged twice." },
@@ -146,6 +148,52 @@ export const ERRORS = [
   ["rate_limited", "429", "Too many requests. Wait the number of seconds in Retry-After."],
   ["internal_error", "500", "Our side. Quote the request_id if you contact us."],
 ];
+
+// The plugin and action that send each call through the one endpoint, POST /v1/run.
+export const RUN_ACTIONS = {
+  "POST /v1/voice/calls": "voice.call.start",
+  "GET /v1/voice/calls/{id}": "voice.call.get",
+  "GET /v1/voice/calls": "voice.call.list",
+  "DELETE /v1/voice/calls/{id}": "voice.call.hangup",
+  "POST /v1/voice/calls/{id}/control": "voice.call.control",
+  "GET /v1/voice/calls/{id}/recording": "voice.call.recording",
+  "GET /v1/voice/scripts": "voice.scripts.list",
+  "GET /v1/meetings/slots": "voice.meeting.slots",
+  "POST /v1/meetings": "voice.meeting.book",
+  "GET /v1/meetings": "voice.meeting.list",
+  "GET /v1/meetings/{id}": "voice.meeting.get",
+  "PATCH /v1/meetings/{id}": "voice.meeting.update",
+  "POST /v1/leads/searches": "leads.search.create",
+  "GET /v1/leads/searches/{id}": "leads.search.get",
+  "POST /v1/leads": "leads.lead.add",
+  "GET /v1/leads": "leads.lead.list",
+  "POST /v1/email/campaigns": "leads.campaign.create",
+  "GET /v1/email/campaigns/{id}": "leads.campaign.get",
+  "GET /v1/email/campaigns": "leads.campaign.list",
+  "PATCH /v1/email/campaigns/{id}": "leads.campaign.edit",
+  "POST /v1/email/campaigns/{id}/decision": "leads.campaign.decision",
+  "POST /v1/social/posts": "social.post.create",
+  "GET /v1/social/posts/{id}": "social.post.get",
+  "GET /v1/social/posts": "social.post.list",
+  "PATCH /v1/social/posts/{id}": "social.post.edit",
+  "POST /v1/social/posts/{id}/decision": "social.post.decision",
+  "GET /v1/wallets": "account.wallet",
+};
+
+// The same call as one request to POST /v1/run: { plugin, action, id?, data? }.
+export function runRequest(ep, bodyText) {
+  const [plugin, ...rest] = (RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })] || "").split(".");
+  const request = { plugin, action: rest.join(".") };
+  if (ep.pathParam) request.id = ep.pathParam.example;
+  let data = {};
+  if (ep.method === "GET") {
+    data = Object.fromEntries(new URLSearchParams(ep.path.split("?")[1] || ""));
+  } else if ((bodyText || "").trim()) {
+    try { data = JSON.parse(bodyText); } catch { data = {}; }
+  }
+  if (Object.keys(data).length) request.data = data;
+  return { method: "POST", path: "/v1/run", body: JSON.stringify(request, null, 2) };
+}
 
 export function defaultBody(ep) {
   return ep.body ? JSON.stringify(ep.body, null, 2) : "";

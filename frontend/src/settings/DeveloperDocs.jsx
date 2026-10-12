@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { MultiLangCodeBlock, SUPPORTED_LANGS, WEBHOOK_LANGS, getWebhookVerificationSnippets } from "./DeveloperCodeSnippets";
-import { API_BASE, ENDPOINTS, ERRORS, GROUPS, IDEAS, STEPS } from "./developerCatalog";
+import { API_BASE, ENDPOINTS, ERRORS, GROUPS, IDEAS, STEPS, RUN_ACTIONS, runRequest } from "./developerCatalog";
 import { snippetsFor } from "./developerSnippets";
 
 const METHOD_COLOURS = { GET: ["#047857", "#ECFDF5"], POST: ["#1D4ED8", "#EFF6FF"], PATCH: ["#B45309", "#FFFBEB"], DELETE: ["#B91C1C", "#FEF2F2"] };
@@ -65,19 +65,24 @@ function Endpoint({ ep, apiKey }) {
   const [open, setOpen] = useState(false);
   const path = ep.pathParam ? ep.path.replace(`{${ep.pathParam.name}}`, ep.pathParam.example) : ep.path;
   const body = ep.body ? JSON.stringify(ep.body, null, 2) : "";
+  const run = runRequest(ep, body);
+  const action = RUN_ACTIONS[`${ep.method} ${ep.path.split("?")[0]}`] || "";
   return (
     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
         style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", width: "100%", textAlign: "left", background: "none", border: "none", padding: "12px 16px", cursor: "pointer", fontFamily: FONT_BODY }}>
-        <Method m={ep.method} />
-        <code style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: C.textInk, overflowWrap: "anywhere" }}>{ep.path}</code>
+        <Method m="POST" />
+        <code style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: C.textInk, overflowWrap: "anywhere" }}>{action}</code>
         <span style={{ fontSize: 13, color: C.slate, flex: "1 1 200px" }}>{ep.title}</span>
         <span style={{ fontSize: 11, color: C.slate, fontFamily: FONT_MONO }}>{ep.scope}</span>
       </button>
       {open && (
         <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
           <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: C.textInk }}>{ep.summary}</p>
-          <MultiLangCodeBlock snippets={snippetsFor(ep.method, path, apiKey, body)} availableLangs={LANGS} defaultLang="curl" title="Example request" />
+          <MultiLangCodeBlock snippets={snippetsFor(run.method, run.path, apiKey, run.body)} availableLangs={LANGS} defaultLang="curl" title="Example request (one endpoint)" />
+          <div style={{ fontSize: 11.5, color: C.slate }}>
+            Also available at its own address: <code style={{ fontFamily: FONT_MONO }}>{ep.method} {path}</code>
+          </div>
           {ep.response && (
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", marginBottom: 4 }}>Example answer</div>
@@ -100,7 +105,7 @@ export function DeveloperDocs({ apiKey = "sk_test_YOUR_KEY", events = [], webhoo
       <section>
         <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 17, margin: "0 0 4px", color: C.textInk }}>Use Outreach from your own software</h3>
         <p style={{ margin: "0 0 12px", fontSize: 13, color: C.slate, lineHeight: 1.55 }}>
-          Make phone calls, find and check leads, send email campaigns and write social posts from your own software. Everything is at <code>{API_BASE}</code>; send your key as <code>Authorization: Bearer sk_…</code>.
+          Make phone calls, find and check leads, send email campaigns and write social posts from your own software. Everything goes to one address, <code>POST {API_BASE}/v1/run</code>, with your key as <code>Authorization: Bearer sk_…</code>. Say which plugin (voice, leads, social) and which action you want, and put the details in <code>data</code>.
         </p>
         <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
           {STEPS.map((s, i) => (

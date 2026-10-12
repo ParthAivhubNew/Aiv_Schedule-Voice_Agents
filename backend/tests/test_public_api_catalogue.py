@@ -43,8 +43,8 @@ def test_every_documented_call_exists_and_every_call_is_documented():
     routes = {(m, normal(p)) for m, p in routes}
     docs = {(m, normal(p)) for m, p in docs}
     assert docs - routes == set(), "documented but not in the API"
-    # The recording download is a link inside a call, not a call people make by hand.
-    assert routes - docs - {("GET", "/v1/voice/calls/{id}/recording")} == set(), "in the API but not documented"
+    # POST /v1/run (and its read-only link form) is the front door to all of them, described in the docs' opening text.
+    assert routes - docs - {("GET", "/v1/run"), ("POST", "/v1/run")} == set(), "in the API but not documented"
 
 
 def test_the_surface_is_small():
@@ -76,4 +76,6 @@ def test_every_route_uses_the_shared_rules():
     leaves = [r for r in _leaf_routes(router.routes) if isinstance(r, APIRoute)]
     assert len(leaves) >= 25
     for route in leaves:
+        if route.path == "/run":  # the front door only hands each request to a route that does follow the shared rules
+            continue
         assert isinstance(route, V1Route), f"{route.path} skips the shared error shape, retries, limits and audit trail"
