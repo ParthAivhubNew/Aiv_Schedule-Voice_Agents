@@ -19,20 +19,42 @@ from app.services.entitlement import get_org_entitlements, SCOPE_TO_SERVICE
 router = APIRouter(prefix="/developer/keys", tags=["Developer API"])
 
 AVAILABLE_SCOPES = [
-    {"id": "voice:calls", "label": "Phone calls", "desc": "Make AI phone calls, steer them, take over, and read the results", "service": "voice"},
-    {"id": "leads:search", "label": "Find leads", "desc": "Search companies by area, find contacts, check emails, phones and companies", "service": "leads"},
-    {"id": "email:write", "label": "Email campaigns (create)", "desc": "Draft email campaigns for approval and read their results", "service": "leads"},
-    {"id": "email:approve", "label": "Email campaigns (approve)", "desc": "Approve or reject email campaigns so they send", "service": "leads"},
-    {"id": "social:write", "label": "Social posts (create)", "desc": "Create, preview and edit social posts", "service": "social"},
-    {"id": "social:approve", "label": "Social posts (approve)", "desc": "Approve or reject social posts so they publish", "service": "social"},
-    {"id": "calendar:book", "label": "Meetings", "desc": "See open times and book, move or cancel meetings", "service": "any"},
-    {"id": "wallets:read", "label": "Balance and prices", "desc": "Check remaining credits and what each action costs", "service": "any"},
+    {
+        "id": "voice:calls",
+        "label": "Phone calls & meetings",
+        "desc": "Make AI phone calls, steer live calls, download recordings, and book calendar slots",
+        "service": "voice",
+    },
+    {
+        "id": "leads:search",
+        "label": "Find leads & email campaigns",
+        "desc": "Search companies, enrich contacts, verify emails, and draft or launch cold email sequences",
+        "service": "leads",
+    },
+    {
+        "id": "social:publish",
+        "label": "Social posts & publishing",
+        "desc": "Generate AI copy & imagery, preview per channel, and schedule/publish across social networks",
+        "service": "social",
+    },
+    {
+        "id": "wallets:read",
+        "label": "Balance and prices",
+        "desc": "Check remaining credit balances and service pricing",
+        "service": "any",
+    },
 ]
+BUNDLE_SCOPES = {
+    "voice:calls": ["voice:calls", "calendar:book"],
+    "leads:search": ["leads:search", "email:write", "email:approve"],
+    "social:publish": ["social:publish", "social:write", "social:approve"],
+    "wallets:read": ["wallets:read"],
+}
 FREE_SCOPES = ("wallets:read", "calendar:book")  # no plan needed
 SERVICE_SCOPES = {
-    "voice": ["voice:calls"],
+    "voice": ["voice:calls", "calendar:book"],
     "leads": ["leads:search", "email:write", "email:approve"],
-    "social": ["social:write", "social:approve"],
+    "social": ["social:publish", "social:write", "social:approve"],
 }
 
 
@@ -126,16 +148,16 @@ async def create_api_key(
                     clean_scopes += SERVICE_SCOPES.get(svc, [])
             clean_scopes += list(FREE_SCOPES)
         elif s in FREE_SCOPES or (s in known and not body.live):
-            clean_scopes.append(s)
-        elif s in SCOPE_TO_SERVICE and s in known:
-            svc_needed = SCOPE_TO_SERVICE[s]
-            if not entitlements.get(svc_needed):
+            clean_scopes.extend(BUNDLE_SCOPES.get(s, [s]))
+        elif s in SCOPE_TO_SERVICE or s in known:
+            svc_needed = SCOPE_TO_SERVICE.get(s) or next((a["service"] for a in AVAILABLE_SCOPES if a["id"] == s), None)
+            if svc_needed and svc_needed not in ("all", "any") and not entitlements.get(svc_needed):
                 label = svc_needed.capitalize()
                 raise HTTPException(
                     status_code=402,
                     detail=f"Subscription required. You must purchase a {label} plan or credits to generate a key with the '{s}' permission."
                 )
-            clean_scopes.append(s)
+            clean_scopes.extend(BUNDLE_SCOPES.get(s, [s]))
 
     clean_scopes = list(dict.fromkeys(clean_scopes))  # remove duplicates preserving order
     if not clean_scopes:

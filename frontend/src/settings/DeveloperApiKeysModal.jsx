@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   KeyRound,
   Plus,
@@ -29,14 +29,74 @@ import {
   Users,
   Share2,
   Wallet,
+  Search,
+  ChevronDown,
+  Mail,
+  Calendar,
 } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { navigateHash } from "../utils/route";
 import { MultiLangCodeBlock, SUPPORTED_LANGS } from "./DeveloperCodeSnippets";
 import { DeveloperDocs } from "./DeveloperDocs";
-import { ENDPOINTS, defaultBody, endpointKey } from "./developerCatalog";
+import { GROUPS, ENDPOINTS, defaultBody, endpointKey } from "./developerCatalog";
 import { buildSnippet } from "./developerSnippets";
+
+const PLAYGROUND_CATEGORIES = [
+  { id: "all", label: "All APIs", icon: Layers },
+  { id: "voice", label: "Phone calls", icon: Phone },
+  { id: "leads", label: "Find leads", icon: Users },
+  { id: "email", label: "Email campaigns", icon: Mail },
+  { id: "social", label: "Social posts", icon: Share2 },
+  { id: "meetings", label: "Meetings", icon: Calendar },
+  { id: "account", label: "Account", icon: Wallet },
+];
+
+const getMethodBadge = (method) => {
+  switch (method) {
+    case "POST":
+      return { bg: "#ECFDF5", color: "#059669", border: "#A7F3D0" };
+    case "GET":
+      return { bg: "#EFF6FF", color: "#2563EB", border: "#BFDBFE" };
+    case "PATCH":
+      return { bg: "#FEF3C7", color: "#D97706", border: "#FDE68A" };
+    case "DELETE":
+      return { bg: "#FFE4E6", color: "#E11D48", border: "#FECDD3" };
+    default:
+      return { bg: "#F1F5F9", color: "#475569", border: "#CBD5E1" };
+  }
+};
+
+const formatScopePills = (scopes = []) => {
+  if (scopes.includes("full_access")) return ["Full Access"];
+  const set = new Set(scopes);
+  const pills = [];
+  if (set.has("voice:calls") || set.has("calendar:book")) {
+    pills.push("Voice & Meetings");
+  }
+  if (set.has("leads:search") || set.has("email:write") || set.has("email:approve")) {
+    pills.push("Leads & Campaigns");
+  }
+  if (set.has("social:publish") || set.has("social:write") || set.has("social:approve")) {
+    pills.push("Social Publishing");
+  }
+  if (set.has("wallets:read") || set.has("wallets")) {
+    pills.push("Wallets & Usage");
+  }
+  scopes.forEach((s) => {
+    if (
+      ![
+        "voice:calls", "calendar:book",
+        "leads:search", "email:write", "email:approve",
+        "social:publish", "social:write", "social:approve",
+        "wallets:read", "wallets"
+      ].includes(s)
+    ) {
+      pills.push(s);
+    }
+  });
+  return pills.length > 0 ? pills : ["Standard Access"];
+};
 
 export function DeveloperApiKeysModal({ open, onClose }) {
   const [activeTab, setActiveTab] = useState("keys"); // "keys" | "webhooks" | "playground" | "docs"
@@ -94,6 +154,29 @@ export function DeveloperApiKeysModal({ open, onClose }) {
   const [copiedCodeSnippet, setCopiedCodeSnippet] = useState(false);
   const [copiedResponseJson, setCopiedResponseJson] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [playgroundCategory, setPlaygroundCategory] = useState("all");
+  const [endpointSearch, setEndpointSearch] = useState("");
+  const [endpointDropdownOpen, setEndpointDropdownOpen] = useState(false);
+  const endpointDropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (endpointDropdownRef.current && !endpointDropdownRef.current.contains(event.target)) {
+        setEndpointDropdownOpen(false);
+      }
+    }
+    function handleEscape(e) {
+      if (e.key === "Escape") setEndpointDropdownOpen(false);
+    }
+    if (endpointDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleEscape);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+        document.removeEventListener("keydown", handleEscape);
+      };
+    }
+  }, [endpointDropdownOpen]);
 
   useEffect(() => {
     if (open) {
@@ -914,7 +997,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                         }}
                       >
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {(k.scopes || []).map((s) => (
+                          {formatScopePills(k.scopes || []).map((s) => (
                             <span
                               key={s}
                               style={{
@@ -926,7 +1009,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                 fontSize: 11,
                               }}
                             >
-                              {s === "full_access" ? "Full Access" : s}
+                              {s}
                             </span>
                           ))}
                         </div>
@@ -1424,6 +1507,61 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                 </div>
               </div>
 
+              {/* Category Filter Pills */}
+              <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                {PLAYGROUND_CATEGORIES.map((cat) => {
+                  const isCatActive = playgroundCategory === cat.id;
+                  const count = cat.id === "all" ? ENDPOINTS.length : ENDPOINTS.filter((e) => e.group === cat.id).length;
+                  const CatIcon = cat.icon;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isCatActive}
+                      onClick={() => {
+                        setPlaygroundCategory(cat.id);
+                        if (cat.id !== "all") {
+                          const firstOfGroup = ENDPOINTS.find((e) => e.group === cat.id);
+                          if (firstOfGroup) {
+                            handleEndpointSelect(endpointKey(firstOfGroup));
+                          }
+                        }
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "5px 12px",
+                        borderRadius: 20,
+                        border: `1px solid ${isCatActive ? C.cobalt : C.border}`,
+                        background: isCatActive ? C.cobalt : "#fff",
+                        color: isCatActive ? "#fff" : C.textInk,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <CatIcon size={12} color={isCatActive ? "#fff" : C.slate} />
+                      <span>{cat.label}</span>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: "1px 5px",
+                          borderRadius: 8,
+                          backgroundColor: isCatActive ? "rgba(255,255,255,0.25)" : "#F1F5F9",
+                          color: isCatActive ? "#fff" : C.slate,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* Control Bar: API Key & Endpoint Selector */}
               <div
                 style={{
@@ -1472,29 +1610,295 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                 </div>
 
                 <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, marginBottom: 4 }}>
-                    Select Endpoint
-                  </label>
-                  <select
-                    value={playgroundEndpoint}
-                    onChange={(e) => handleEndpointSelect(e.target.value)}
-                    style={{
-                      width: "100%",
-                      height: 38,
-                      borderRadius: 8,
-                      border: `1px solid ${C.border}`,
-                      backgroundColor: "#fff",
-                      padding: "0 10px",
-                      fontSize: 12.5,
-                      fontFamily: FONT_MONO,
-                      fontWeight: 600,
-                      outline: "none",
-                    }}
-                  >
-                    {ENDPOINTS.map((e) => (
-                      <option key={endpointKey(e)} value={endpointKey(e)}>{`${e.method} ${e.path.split("?")[0]} (${e.title})`}</option>
-                    ))}
-                  </select>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.textInk }}>
+                      Select Endpoint
+                    </label>
+                    <span style={{ fontSize: 11, color: C.slate }}>
+                      {playgroundCategory === "all" ? "All endpoints" : PLAYGROUND_CATEGORIES.find((c) => c.id === playgroundCategory)?.label}
+                    </span>
+                  </div>
+
+                    <div ref={endpointDropdownRef} style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      title={playgroundRequest().ep.title}
+                      onClick={() => setEndpointDropdownOpen(!endpointDropdownOpen)}
+                      style={{
+                        width: "100%",
+                        minHeight: 38,
+                        borderRadius: 8,
+                        border: `1px solid ${endpointDropdownOpen ? C.cobalt : C.border}`,
+                        backgroundColor: "#fff",
+                        padding: "5px 10px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        boxShadow: endpointDropdownOpen ? "0 0 0 2px rgba(52, 87, 213, 0.15)" : "none",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      {(() => {
+                        const curEp = playgroundRequest().ep;
+                        const b = getMethodBadge(curEp.method);
+                        return (
+                          <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1, overflow: "hidden" }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                backgroundColor: b.bg,
+                                color: b.color,
+                                border: `1px solid ${b.border}`,
+                                letterSpacing: "0.5px",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {curEp.method}
+                            </span>
+                            <span
+                              style={{
+                                fontFamily: FONT_MONO,
+                                fontSize: 12.5,
+                                fontWeight: 700,
+                                color: C.textInk,
+                                whiteSpace: "nowrap",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {curEp.path.split("?")[0]}
+                            </span>
+                            <span
+                              title={curEp.title}
+                              style={{
+                                fontSize: 11.5,
+                                color: C.slate,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                flex: 1,
+                              }}
+                            >
+                              ({curEp.title})
+                            </span>
+                          </div>
+                        );
+                      })()}
+                      <ChevronDown
+                        size={15}
+                        color={C.slate}
+                        style={{
+                          transform: endpointDropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
+                          transition: "transform 0.2s ease",
+                          flexShrink: 0,
+                        }}
+                      />
+                    </button>
+
+                    {endpointDropdownOpen && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "calc(100% + 5px)",
+                          left: 0,
+                          right: 0,
+                          zIndex: 60,
+                          backgroundColor: "#fff",
+                          borderRadius: 10,
+                          border: `1px solid ${C.border}`,
+                          boxShadow: "0 10px 25px -4px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.06)",
+                          overflow: "hidden",
+                          display: "flex",
+                          flexDirection: "column",
+                        }}
+                      >
+                        <div
+                          style={{
+                            padding: "8px 10px",
+                            borderBottom: `1px solid ${C.borderLight}`,
+                            backgroundColor: "#F8FAFC",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <Search size={13} color={C.slate} />
+                          <input
+                            type="text"
+                            value={endpointSearch}
+                            onChange={(e) => setEndpointSearch(e.target.value)}
+                            placeholder="Filter by path, method, or title..."
+                            autoFocus
+                            style={{
+                              border: "none",
+                              outline: "none",
+                              width: "100%",
+                              fontSize: 12,
+                              background: "transparent",
+                              color: C.textInk,
+                            }}
+                          />
+                          {endpointSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setEndpointSearch("")}
+                              style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0 }}
+                            >
+                              <X size={12} color={C.slate} />
+                            </button>
+                          )}
+                        </div>
+
+                        <div
+                          style={{
+                            maxHeight: 280,
+                            overflowY: "auto",
+                            padding: "4px 0",
+                            scrollbarWidth: "thin",
+                          }}
+                        >
+                          {(() => {
+                            const filtered = ENDPOINTS.filter((e) => {
+                              const matchesCat = playgroundCategory === "all" || e.group === playgroundCategory;
+                              if (!matchesCat) return false;
+                              if (!endpointSearch.trim()) return true;
+                              const q = endpointSearch.toLowerCase();
+                              return (
+                                e.path.toLowerCase().includes(q) ||
+                                e.title.toLowerCase().includes(q) ||
+                                e.method.toLowerCase().includes(q) ||
+                                (e.summary && e.summary.toLowerCase().includes(q))
+                              );
+                            });
+
+                            if (filtered.length === 0) {
+                              return (
+                                <div style={{ padding: "16px 12px", textAlign: "center", fontSize: 12, color: C.slate }}>
+                                  No endpoints found matching "{endpointSearch}"
+                                </div>
+                              );
+                            }
+
+                            const groupMap = {};
+                            filtered.forEach((e) => {
+                              if (!groupMap[e.group]) groupMap[e.group] = [];
+                              groupMap[e.group].push(e);
+                            });
+
+                            return Object.entries(groupMap).map(([grpId, epList]) => {
+                              const grpInfo = GROUPS.find((g) => g.id === grpId) || { label: grpId };
+                              return (
+                                <div key={grpId} style={{ marginBottom: 2 }}>
+                                  {playgroundCategory === "all" && (
+                                    <div
+                                      style={{
+                                        padding: "6px 12px 3px",
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        color: C.slate,
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.5px",
+                                        backgroundColor: "#F8FAFC",
+                                        borderBottom: `1px solid ${C.borderLight}`,
+                                        borderTop: `1px solid ${C.borderLight}`,
+                                      }}
+                                    >
+                                      {grpInfo.label} ({epList.length})
+                                    </div>
+                                  )}
+                                  {epList.map((e) => {
+                                    const key = endpointKey(e);
+                                    const isSelected = key === playgroundEndpoint;
+                                    const b = getMethodBadge(e.method);
+                                    return (
+                                      <button
+                                        key={key}
+                                        type="button"
+                                        title={e.title}
+                                        onClick={() => {
+                                          handleEndpointSelect(key);
+                                          setEndpointDropdownOpen(false);
+                                          setEndpointSearch("");
+                                        }}
+                                        style={{
+                                          width: "100%",
+                                          padding: "7px 12px",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          gap: 8,
+                                          border: "none",
+                                          backgroundColor: isSelected ? "#EEF2FF" : "transparent",
+                                          cursor: "pointer",
+                                          textAlign: "left",
+                                          transition: "background 0.12s ease",
+                                        }}
+                                        onMouseEnter={(ev) => {
+                                          if (!isSelected) ev.currentTarget.style.backgroundColor = "#F8FAFC";
+                                        }}
+                                        onMouseLeave={(ev) => {
+                                          if (!isSelected) ev.currentTarget.style.backgroundColor = "transparent";
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1, overflow: "hidden" }}>
+                                          <span
+                                            style={{
+                                              fontSize: 9.5,
+                                              fontWeight: 800,
+                                              padding: "1px 5px",
+                                              borderRadius: 4,
+                                              backgroundColor: b.bg,
+                                              color: b.color,
+                                              border: `1px solid ${b.border}`,
+                                              letterSpacing: "0.5px",
+                                              flexShrink: 0,
+                                            }}
+                                          >
+                                            {e.method}
+                                          </span>
+                                          <span
+                                            style={{
+                                              fontFamily: FONT_MONO,
+                                              fontSize: 12,
+                                              fontWeight: isSelected ? 700 : 500,
+                                              color: isSelected ? C.cobalt : C.textInk,
+                                              whiteSpace: "nowrap",
+                                              flexShrink: 0,
+                                            }}
+                                          >
+                                            {e.path.split("?")[0]}
+                                          </span>
+                                          <span
+                                            title={e.title}
+                                            style={{
+                                              fontSize: 11.5,
+                                              color: C.slate,
+                                              overflow: "hidden",
+                                              textOverflow: "ellipsis",
+                                              whiteSpace: "nowrap",
+                                              flex: 1,
+                                            }}
+                                          >
+                                            ({e.title})
+                                          </span>
+                                        </div>
+                                        {isSelected && <Check size={13} color={C.cobalt} style={{ flexShrink: 0 }} />}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

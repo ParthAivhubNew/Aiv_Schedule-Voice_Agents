@@ -61,7 +61,11 @@ def error_body(request_id: str, status: int, code: str, message: str, details: O
 
 # ── Keys, scopes, test mode ──────────────────────────────────────────────────
 # A key made before the finer scopes existed keeps what it had.
-LEGACY_SCOPES: Dict[str, Tuple[str, ...]] = {"social:publish": ("social:write", "social:approve")}
+LEGACY_SCOPES: Dict[str, Tuple[str, ...]] = {
+    "social:publish": ("social:write", "social:approve"),
+    "leads:search": ("email:write", "email:approve"),
+    "voice:calls": ("calendar:book",),
+}
 
 
 def has_scope(ctx: Dict[str, Any], needed: str) -> bool:
