@@ -39,7 +39,7 @@ import { api } from "../api/apiClient";
 import { navigateHash } from "../utils/route";
 import { MultiLangCodeBlock, SUPPORTED_LANGS } from "./DeveloperCodeSnippets";
 import { DeveloperDocs } from "./DeveloperDocs";
-import { GROUPS, ENDPOINTS, defaultBody, endpointKey } from "./developerCatalog";
+import { GROUPS, ENDPOINTS, defaultData, endpointKey, pluginAction, runRequest } from "./developerCatalog";
 import { buildSnippet } from "./developerSnippets";
 
 const PLAYGROUND_CATEGORIES = [
@@ -147,7 +147,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
   const [playgroundKey, setPlaygroundKey] = useState("");
   const [playgroundEndpoint, setPlaygroundEndpoint] = useState("POST /v1/voice/calls");
   const [playgroundPathId, setPlaygroundPathId] = useState("");
-  const [playgroundRequestBody, setPlaygroundRequestBody] = useState(defaultBody(ENDPOINTS[0]));
+  const [playgroundRequestBody, setPlaygroundRequestBody] = useState(defaultData(ENDPOINTS[0]));
   const [playgroundSending, setPlaygroundSending] = useState(false);
   const [playgroundResponse, setPlaygroundResponse] = useState(null);
   const [playgroundSnippetLang, setPlaygroundSnippetLang] = useState("curl");
@@ -369,15 +369,15 @@ export function DeveloperApiKeysModal({ open, onClose }) {
     const ep = ENDPOINTS.find((e) => endpointKey(e) === key) || ENDPOINTS[0];
     setPlaygroundEndpoint(key);
     setPlaygroundResponse(null);
-    setPlaygroundRequestBody(defaultBody(ep));
+    setPlaygroundRequestBody(defaultData(ep));
     setPlaygroundPathId(ep.pathParam ? ep.pathParam.example : "");
   };
 
-  // The request the playground will send: method, full path (with the id filled in) and whether it carries a body.
+  // The request the playground sends: always POST /v1/run, with the chosen plugin and action, the id and the details.
   const playgroundRequest = () => {
     const ep = ENDPOINTS.find((e) => endpointKey(e) === playgroundEndpoint) || ENDPOINTS[0];
-    const path = ep.pathParam ? ep.path.replace(`{${ep.pathParam.name}}`, (playgroundPathId || ep.pathParam.example).trim()) : ep.path;
-    return { ep, method: ep.method, path, hasBody: ep.method !== "GET" && ep.method !== "DELETE" };
+    const run = runRequest(ep, playgroundRequestBody, playgroundPathId);
+    return { ep, method: run.method, path: run.path, body: run.body, hasBody: true, ...pluginAction(ep) };
   };
 
   const handleSendPlaygroundRequest = async () => {
@@ -397,7 +397,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
     setPlaygroundResponse(null);
     const startTime = performance.now();
     try {
-      const { method, path: targetPath, hasBody } = playgroundRequest();
+      const { method, path: targetPath, body: runBody } = playgroundRequest();
 
       const headers = {
         "Content-Type": "application/json",
@@ -410,9 +410,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
         method,
         headers,
       };
-      if (hasBody && playgroundRequestBody.trim()) {
-        fetchOpts.body = playgroundRequestBody;
-      }
+      fetchOpts.body = runBody;
 
       const res = await fetch(targetPath, fetchOpts);
       const durationMs = Math.round(performance.now() - startTime);
@@ -446,8 +444,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
 
   // Generate dynamic client code for the current playground request
   const getGeneratedCodeSnippet = () => {
-    const { method, path, hasBody } = playgroundRequest();
-    return buildSnippet(playgroundSnippetLang, method, path, playgroundKey, hasBody ? playgroundRequestBody : "");
+    const { method, path, body } = playgroundRequest();
+    return buildSnippet(playgroundSnippetLang, method, path, playgroundKey, body);
   };
 
   const copyToClipboard = (text, type = "secret", id = "") => {
@@ -799,7 +797,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                     Active API Keys
                   </h3>
                   <p style={{ margin: "2px 0 0", fontSize: 12, color: C.slate }}>
-                    Secret keys for authenticating requests to <code>/v1/</code> endpoints.
+                    Secret keys for authenticating requests to the <code>POST /v1/run</code> endpoint.
                   </p>
                 </div>
                 <button
@@ -1643,7 +1641,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                     >
                       {(() => {
                         const curEp = playgroundRequest().ep;
-                        const b = getMethodBadge(curEp.method);
+                        const b = getMethodBadge("GET");
                         return (
                           <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1, overflow: "hidden" }}>
                             <span
@@ -1659,7 +1657,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                 flexShrink: 0,
                               }}
                             >
-                              {curEp.method}
+                              {pluginAction(curEp).plugin}
                             </span>
                             <span
                               style={{
@@ -1671,7 +1669,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                 flexShrink: 0,
                               }}
                             >
-                              {curEp.path.split("?")[0]}
+                              {pluginAction(curEp).action}
                             </span>
                             <span
                               title={curEp.title}
@@ -1770,6 +1768,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                               const q = endpointSearch.toLowerCase();
                               return (
                                 e.path.toLowerCase().includes(q) ||
+                                pluginAction(e).action.toLowerCase().includes(q) ||
+                                pluginAction(e).plugin.includes(q) ||
                                 e.title.toLowerCase().includes(q) ||
                                 e.method.toLowerCase().includes(q) ||
                                 (e.summary && e.summary.toLowerCase().includes(q))
@@ -1814,7 +1814,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                   {epList.map((e) => {
                                     const key = endpointKey(e);
                                     const isSelected = key === playgroundEndpoint;
-                                    const b = getMethodBadge(e.method);
+                                    const b = getMethodBadge("GET");
                                     return (
                                       <button
                                         key={key}
@@ -1859,7 +1859,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                               flexShrink: 0,
                                             }}
                                           >
-                                            {e.method}
+                                            {pluginAction(e).plugin}
                                           </span>
                                           <span
                                             style={{
@@ -1871,7 +1871,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                               flexShrink: 0,
                                             }}
                                           >
-                                            {e.path.split("?")[0]}
+                                            {pluginAction(e).action}
                                           </span>
                                           <span
                                             title={e.title}
@@ -1906,7 +1906,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
               {playgroundRequest().ep.pathParam && (
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, marginBottom: 4 }}>
-                    Path Parameter: <code>{playgroundRequest().ep.pathParam.name}</code>
+                    id (the thing you are working on): <code>{playgroundRequest().ep.pathParam.name}</code>
                   </label>
                   <input
                     type="text"
@@ -1933,23 +1933,22 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                 {/* Request Payload Column */}
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: C.textInk }}>Request JSON Body</span>
-                    {!playgroundRequest().hasBody && (
-                      <span style={{ fontSize: 11, color: C.slate }}>GET endpoints do not use a body</span>
-                    )}
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.textInk }}>Details (data)</span>
+                    <span style={{ fontSize: 11, color: C.slate }}>
+                      Sent to <code>POST /v1/run</code> as plugin <code>{playgroundRequest().plugin}</code>, action <code>{playgroundRequest().action}</code>
+                    </span>
                   </div>
                   <textarea
                     rows={11}
                     value={playgroundRequestBody}
                     onChange={(e) => setPlaygroundRequestBody(e.target.value)}
-                    disabled={!playgroundRequest().hasBody}
-                    placeholder={!playgroundRequest().hasBody ? "No body required for GET" : "{ ... }"}
+                    placeholder='{ } (optional details, such as filters)'
                     style={{
                       width: "100%",
                       borderRadius: 10,
                       border: `1px solid ${C.border}`,
-                      backgroundColor: !playgroundRequest().hasBody ? "#F8FAFC" : "#0F172A",
-                      color: !playgroundRequest().hasBody ? C.slate : "#38BDF8",
+                      backgroundColor: "#0F172A",
+                      color: "#38BDF8",
                       fontFamily: FONT_MONO,
                       fontSize: 12,
                       padding: 12,

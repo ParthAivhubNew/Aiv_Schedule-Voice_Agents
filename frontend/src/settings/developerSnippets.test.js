@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ENDPOINTS, RUN_ACTIONS, endpointKey, defaultBody, runRequest } from "./developerCatalog";
+import { ENDPOINTS, RUN_ACTIONS, endpointKey, defaultBody, defaultData, pluginAction, runRequest } from "./developerCatalog";
 import { SNIPPET_LANGS, buildSnippet, snippetsFor } from "./developerSnippets";
 
 describe("developer snippets", () => {
@@ -66,5 +66,21 @@ describe("developer snippets", () => {
     expect(got).toEqual({ plugin: "voice", action: "call.get", id: "call_8f2a91c4" });
     const slots = JSON.parse(runRequest(ENDPOINTS.find((e) => e.path.startsWith("/v1/meetings/slots")), "").body);
     expect(slots).toEqual({ plugin: "voice", action: "meeting.slots", data: { date: "2026-11-03", days: "3" } });
+  });
+  it("uses the id and details the playground user typed", () => {
+    const find = (m, p) => ENDPOINTS.find((e) => e.method === m && e.path === p);
+    const edit = find("PATCH", "/v1/social/posts/{id}");
+    const sent = JSON.parse(runRequest(edit, '{"regenerate":"text","instruction":"Shorter"}', " v2_abc ").body);
+    expect(sent).toEqual({ plugin: "social", action: "post.edit", id: "v2_abc", data: { regenerate: "text", instruction: "Shorter" } });
+    const list = find("GET", "/v1/voice/calls");
+    expect(JSON.parse(runRequest(list, '{"status":"completed"}').body).data).toEqual({ status: "completed" });
+    expect(JSON.parse(runRequest(list, "").body)).toEqual({ plugin: "voice", action: "call.list" });
+    expect(pluginAction(list)).toEqual({ plugin: "voice", action: "call.list" });
+  });
+
+  it("starts a read from its filters and a create from its example body", () => {
+    expect(JSON.parse(defaultData(ENDPOINTS.find((e) => e.path.startsWith("/v1/meetings/slots"))))).toEqual({ date: "2026-11-03", days: "3" });
+    expect(JSON.parse(defaultData(ENDPOINTS.find((e) => e.method === "POST" && e.path === "/v1/voice/calls"))).to).toBe("+447911123456");
+    expect(defaultData(ENDPOINTS.find((e) => e.method === "GET" && e.path === "/v1/wallets"))).toBe("");
   });
 });

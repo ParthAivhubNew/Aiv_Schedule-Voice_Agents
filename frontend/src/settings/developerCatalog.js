@@ -180,18 +180,27 @@ export const RUN_ACTIONS = {
   "GET /v1/wallets": "account.wallet",
 };
 
-// The same call as one request to POST /v1/run: { plugin, action, id?, data? }.
-export function runRequest(ep, bodyText) {
+// The details to start from for a call: its example body, or for a read its filters (the part after "?").
+export function defaultData(ep) {
+  if (ep.body) return JSON.stringify(ep.body, null, 2);
+  const query = Object.fromEntries(new URLSearchParams(ep.path.split("?")[1] || ""));
+  return Object.keys(query).length ? JSON.stringify(query, null, 2) : "";
+}
+
+// "voice.call.start" -> { plugin: "voice", action: "call.start" } for a documented call.
+export function pluginAction(ep) {
   const [plugin, ...rest] = (RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })] || "").split(".");
-  const request = { plugin, action: rest.join(".") };
-  if (ep.pathParam) request.id = ep.pathParam.example;
+  return { plugin, action: rest.join(".") };
+}
+
+// The same call as one request to POST /v1/run: { plugin, action, id?, data? }. `id` overrides the example id.
+export function runRequest(ep, bodyText, id) {
+  const request = pluginAction(ep);
+  if (ep.pathParam) request.id = (id || "").trim() || ep.pathParam.example;
   let data = {};
-  if (ep.method === "GET") {
-    data = Object.fromEntries(new URLSearchParams(ep.path.split("?")[1] || ""));
-  } else if ((bodyText || "").trim()) {
-    try { data = JSON.parse(bodyText); } catch { data = {}; }
-  }
-  if (Object.keys(data).length) request.data = data;
+  try { data = JSON.parse((bodyText || "").trim() || "{}"); } catch { data = {}; }
+  if (!bodyText?.trim() && ep.method === "GET") data = JSON.parse(defaultData(ep) || "{}");
+  if (data && typeof data === "object" && Object.keys(data).length) request.data = data;
   return { method: "POST", path: "/v1/run", body: JSON.stringify(request, null, 2) };
 }
 
