@@ -109,8 +109,10 @@ async def test_every_request_is_written_to_the_audit_trail(db, admin_token):
     await asyncio.sleep(0.3)
     db.expire_all()
     rows = (await db.execute(select(PublicApiAudit))).scalars().all()
-    assert [(a.method, a.path, a.status, a.request_id) for a in rows] == [("GET", "/v1/wallets", 200, r.headers["x-request-id"])]
-    assert rows[0].key_id.startswith("key_")
+    # only this request: the last request of an earlier test may still be writing its own row
+    mine = [a for a in rows if a.request_id == r.headers["x-request-id"]]
+    assert [(a.method, a.path, a.status) for a in mine] == [("GET", "/v1/wallets", 200)]
+    assert mine[0].key_id.startswith("key_")
 
 
 async def test_test_keys_are_free_and_marked_as_test(db):
@@ -118,9 +120,11 @@ async def test_test_keys_are_free_and_marked_as_test(db):
     async with _http(token) as c:
         live = await c.post("/api/developer/keys", json={"name": "Live", "scopes": ["voice:calls"], "live": True})
         assert live.status_code == 402  # a live key needs a plan
-        test = await c.post("/api/developer/keys", json={"name": "Test", "scopes": ["voice:calls", "social:write", "email:approve"], "live": False})
+        test = await c.post("/api/developer/keys", json={"name": "Test", "scopes": ["voice:calls", "social:publish", "leads:search"], "live": False})
         assert test.status_code == 200 and test.json()["secret"].startswith("sk_test_")
-        assert set(test.json()["key"]["scopes"]) == {"voice:calls", "social:write", "email:approve"}
+        # each permission on the keys screen brings the finer ones it covers
+        assert set(test.json()["key"]["scopes"]) == {"voice:calls", "calendar:book", "social:publish", "social:write", "social:approve",
+                                                     "leads:search", "email:write", "email:approve"}
     async with _http(test.json()["secret"]) as c:
         me = (await c.get("/v1/wallets")).json()
         assert me["key"]["test_mode"] is True

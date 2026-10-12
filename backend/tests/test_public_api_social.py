@@ -294,7 +294,7 @@ async def test_you_only_see_your_own_companys_posts(db, admin_token):
         p = (await c.post("/v1/social/posts", json={"prompt": "Announce our new office"})).json()
     _, other_admin = await make_user(db, "rival", "Admin", org_id="org_rival")
     async with _http(other_admin) as c:
-        other_key = (await c.post("/api/developer/keys", json={"name": "Rival key", "scopes": ["social:write"], "live": False})).json()["secret"]
+        other_key = (await c.post("/api/developer/keys", json={"name": "Rival key", "scopes": ["social:publish"], "live": False})).json()["secret"]
     async with _http(other_key) as c:
         assert (await c.get(f"/v1/social/posts/{p['id']}")).status_code == 404
         assert (await c.get("/v1/social/posts")).json()["data"] == []
