@@ -47,6 +47,8 @@ class AccountIn(BaseModel):
 
 class AccountsIn(BaseModel):
     accounts: List[AccountIn]
+    list_id: str = ""  # put every saved or already-saved company in this list...
+    list_name: str = ""  # ...or in the list with this name (made if it doesn't exist yet)
 
 
 class AccountPatch(BaseModel):
@@ -305,16 +307,23 @@ async def account_registry(account_id: str, db: AsyncSession = Depends(get_db)):
     return {"registry": _registry_out(biz) if biz else None}
 
 
+def _place(region: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (region or "").lower()).strip()
+
+
 @router.post("/accounts")
 async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     """Save one or many accounts. A company already saved (same website, or same name when there
     is no website) is skipped, so saving a search twice or re-importing a file adds no copies."""
     if len(body.accounts) > MAX_PER_REQUEST:
         raise HTTPException(status_code=400, detail=f"Save at most {MAX_PER_REQUEST} accounts at a time.")
-    existing = (await db.execute(select(LeadAccount.domain, LeadAccount.name))).all()
-    domains = {d for d, _ in existing if d}
-    names = {(n or "").strip().lower() for _, n in existing}
+    existing = (await db.execute(select(LeadAccount.id, LeadAccount.domain, LeadAccount.name, LeadAccount.region))).all()
+    by_domain = {d: i for i, d, _, _ in existing if d}
+    # Without a website the same name only counts as the same company in the same town or postcode
+    # (two "Smith & Sons" in different towns are two companies).
+    by_name = {((n or "").strip().lower(), _place(r)): i for i, _, n, r in existing}
     added: List[LeadAccount] = []
+    matched: List[str] = []  # companies that were already saved: not copied, but still go in the list
     skipped = 0
     claimed = {i.business_record_id for i in body.accounts if i.business_record_id}
     known_biz = set((await db.execute(select(BusinessRecord.id).where(BusinessRecord.id.in_(claimed)))).scalars().all()) if claimed else set()
@@ -325,9 +334,11 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         if not name:
             skipped += 1
             continue
-        key = name.lower()
-        if (domain and domain in domains) or (not domain and key in names):
+        key = (name.lower(), _place(item.region))
+        hit = by_domain.get(domain) if domain else by_name.get(key)
+        if hit:
             skipped += 1
+            matched.append(hit)
             continue
         row = LeadAccount(
             id=f"acc_{uuid.uuid4().hex[:16]}", name=name, domain=domain,
@@ -341,10 +352,15 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         db.add(row)
         added.append(row)
         if domain:
-            domains.add(domain)
-        names.add(key)
+            by_domain[domain] = row.id
+        by_name[key] = row.id
     await db.commit()
-    return {"added": len(added), "skipped": skipped, "accounts": [_out(a) for a in added]}
+    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "accounts": [_out(a) for a in added]}
+    if body.list_id or body.list_name.strip():
+        from app.api.lead_lists import put_in_list
+
+        out["list"] = await put_in_list(db, body.list_id, body.list_name, [a.id for a in added] + matched)
+    return out
 
 
 @router.patch("/accounts/{account_id}")
@@ -459,6 +475,18 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     row = await _account(db, account_id)
     await _can_research(db)
     await _apply_shared_record(db, row)
+    found = await research_into(db, row)
+    await db.commit()
+    if found:
+        await _charge_leads(db, 1, f"Researched {row.name}")
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
+    return _out(row, biz)
+
+
+async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
+    """The live web search itself: fills the account's empty fields and its research dossier. Returns
+    whether anything was found (the only case that is charged). Does not commit or charge; the caller does.
+    Raises HTTPException 502 when the search can't run. Used by Research and by the bulk Enrich run."""
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
                                                   domain=row.domain or row.website or None, person=row.contact_name or None,
@@ -530,11 +558,7 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
             await db.flush()
         except ValueError:
             pass  # nothing identifiable enough to be worth caching for anyone else
-    await db.commit()
-    if found:
-        await _charge_leads(db, 1, f"Researched {row.name}")
-    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
-    return _out(row, biz)
+    return found
 
 
 class AskIn(BaseModel):

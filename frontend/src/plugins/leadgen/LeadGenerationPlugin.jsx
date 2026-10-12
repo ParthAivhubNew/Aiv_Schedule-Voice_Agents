@@ -22,6 +22,7 @@ import {
   Tag,
   CreditCard,
   MessageSquare,
+  ListChecks,
   Lock
 } from "lucide-react";
 import { AppSwitcher } from "../../hub/AppSwitcher";
@@ -33,6 +34,8 @@ import { usePluginAccess } from "../../components/PluginAccessGate";
 import { CampaignsView, MailboxesView, RepliesView, useOutreachData } from "./OutreachViews";
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
+import { ListsView, useLeadLists } from "./Lists";
+import { CampaignWizard } from "./CampaignWizard";
 
 
 export default function LeadGenerationPlugin({
@@ -45,7 +48,7 @@ export default function LeadGenerationPlugin({
     if (!raw) return "find_leads";
     if (raw === "campaigns" || raw === "email" || raw.startsWith("email/") || raw === "sequences" || raw === "find_email") return "outreach";
     if (raw === "warmup") return "mailboxes";
-    if (raw === "contacts" || raw === "dossiers") return "accounts";
+    if (raw === "contacts" || raw === "dossiers" || raw === "accounts") return "lists";
     if (raw === "suppression") return "replies";
     if (raw === "copilot" || raw === "scout" || raw === "import_export") return "find_leads";
     return raw;
@@ -108,14 +111,16 @@ export default function LeadGenerationPlugin({
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
-  const store = useLeadAccounts(showToast);
+  const listsStore = useLeadLists(showToast);
+  const store = useLeadAccounts(showToast, listsStore.reload);
   const outreach = useOutreachData();
+  const [wizard, setWizard] = useState(null); // { listId } while the new-campaign steps are open
 
   // Navigation Items on Left
   const navItems = [
     { id: "find_leads", label: "Find Leads", icon: Sparkles, section: "Find Leads" },
-    { id: "accounts", label: "Saved Accounts", icon: Building2, count: store.accounts.length || null, section: "Enrichment" },
-    { id: "outreach", label: "Email Sequences", icon: Send, section: "Email Outreach" },
+    { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, section: "Enrichment" },
+    { id: "outreach", label: "Campaigns", icon: Send, section: "Email Outreach" },
     { id: "replies", label: "Inbox & Replies", icon: MessageSquare, section: "Email Outreach" },
     { id: "mailboxes", label: "Mailboxes & Warmup", icon: Layers, section: "Mailboxes" },
     ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, section: "Billing" }] : []),
@@ -123,8 +128,8 @@ export default function LeadGenerationPlugin({
 
   const viewTitles = {
     find_leads: { title: "Find Leads", desc: "Search for companies, then refine with the AI in the same place -- or import a spreadsheet instead." },
-    accounts: { title: "Saved Accounts", desc: "The companies you saved. Research one to fill in its details." },
-    outreach: { title: "Cold Email Sequences & Campaigns", desc: "Multi-step email cadences, automated follow-up schedules, response analytics, and work-email finding." },
+    lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
+    outreach: { title: "Campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
     replies: { title: "Inbox & Reply Categorization", desc: "Classified prospect replies with intent tagging, plus your do-not-email list." },
     mailboxes: { title: "Connected Mailboxes & Deliverability", desc: "SMTP/IMAP connections, automated warmup ramp, SPF/DKIM/DMARC DNS health." },
     subscription: { title: "Subscription & Credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
@@ -306,7 +311,7 @@ export default function LeadGenerationPlugin({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {view === "accounts" && (
+            {view === "lists" && (
               <button
                 onClick={() => setShowAddModal(true)}
                 style={{
@@ -324,7 +329,7 @@ export default function LeadGenerationPlugin({
                   cursor: "pointer",
                 }}
               >
-                <Plus size={14} /> Add Account
+                <Plus size={14} /> Add one company
               </button>
             )}
 
@@ -362,9 +367,12 @@ export default function LeadGenerationPlugin({
             <div style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} onGo={goTo} /></div>
           )}
 
-          {view === "accounts" && <AccountsView store={store} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} />}
+          {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }} />}
 
-          {view === "outreach" && <CampaignsView outreach={outreach} />}
+          {view === "outreach" && (wizard
+            ? <CampaignWizard store={store} listsStore={listsStore} outreach={outreach} initialListId={wizard.listId}
+                onCancel={() => setWizard(null)} onDone={() => { setWizard(null); outreach.reloadCampaigns(); }} />
+            : <CampaignsView outreach={outreach} onNew={() => setWizard({ listId: "" })} />)}
 
           {view === "replies" && <RepliesView />}
 

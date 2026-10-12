@@ -343,6 +343,16 @@ function eventTime(item) {
   return normTime(item.time || item.prospectTime || "");
 }
 
+// Which connectable provider sits behind a platform label (null: our own room / Cal.com).
+function providerOf(platform) {
+  const p = String(platform || "").toLowerCase();
+  if (/jitsi|outreach|cal\.com/.test(p)) return null;
+  if (p.includes("zoom")) return "zoom";
+  if (p.includes("teams") || p.includes("microsoft")) return "microsoft";
+  if (p.includes("google") || p.includes("meet")) return "google";
+  return null;
+}
+
 const emptyPlan = () => ({
   prospect: "",
   phone: "",
@@ -383,6 +393,37 @@ export function CallingSchedule({
   const [dayExpanded, setDayExpanded] = useState(false);
   const [invitePreviewOpen, setInvitePreviewOpen] = useState(false);
   const [bookingPolicy, setBookingPolicy] = useState(null);
+  const [meetLinks, setMeetLinks] = useState([]);
+
+  const loadMeetLinks = () => api.getMeetingLinks().then((r) => setMeetLinks((r && r.providers) || [])).catch(() => {});
+  const connectMeetLink = async (provider) => {
+    try {
+      const r = await api.startMeetingLink(provider);
+      window.open(r.authUrl, "aivhub-meeting-connect", "width=520,height=700");
+    } catch (e) {
+      onToast(e.message || "Could not start the sign-in.");
+    }
+  };
+  const disconnectMeetLink = async (provider) => {
+    try {
+      await api.disconnectMeetingLink(provider);
+      await loadMeetLinks();
+    } catch (e) {
+      onToast(e.message || "Could not disconnect.");
+    }
+  };
+
+  useEffect(() => {
+    loadMeetLinks();
+    const onMsg = (ev) => {
+      const d = ev && ev.data;
+      if (!d || d.type !== "aivhub-meeting-oauth") return;
+      loadMeetLinks();
+      onToast(d.ok ? `Connected${d.account ? ` · ${d.account}` : ""}.` : (d.error || "Could not connect."));
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const kinds = useMemo(() => kindsFromPolicy(bookingPolicy), [bookingPolicy]);
   const notifyChannels = useMemo(() => notifyFromPolicy(bookingPolicy), [bookingPolicy]);
@@ -498,8 +539,10 @@ export function CallingSchedule({
       onToast("WhatsApp confirmation needs a mobile number.");
       return;
     }
-    if (plan.kind === "video" && !plan.videoLink.trim() && /zoom|teams|google/i.test(plan.platform)) {
-      onToast("Paste the video meeting link, or switch platform to Outreach Meet for an auto room.");
+    const provider = providerOf(plan.platform);
+    const providerReady = provider && meetLinks.some((m) => m.provider === provider && m.connected);
+    if (plan.kind === "video" && !plan.videoLink.trim() && /zoom|teams|google/i.test(plan.platform) && !providerReady) {
+      onToast("Connect your account for this platform, paste a meeting link, or switch to Outreach Meet for an auto room.");
       return;
     }
     setSaving(true);
@@ -526,6 +569,7 @@ export function CallingSchedule({
         mission: "",
       });
       onNote(`Scheduled ${kindMeta(plan.kind, kinds).label.toLowerCase()} with ${plan.prospect} · ${plan.day} ${plan.time}`, "success");
+      if (res && res.linkNote) onToast(`Saved, but no meeting link was created. ${res.linkNote}`);
       if (plan.notifyWhatsapp && res && res.whatsapp && !res.whatsapp.sent && res.whatsapp.waMeUrl) {
         window.open(res.whatsapp.waMeUrl, "_blank", "noopener");
         onToast("WhatsApp draft opened — tap send.");
@@ -688,6 +732,33 @@ export function CallingSchedule({
               <option value="Jitsi (auto room)">Outreach Meet (auto room)</option>
               <option>Cal.com</option>
             </select>
+            {(() => {
+              const provider = providerOf(plan.platform);
+              if (!provider) return null;
+              const info = meetLinks.find((m) => m.provider === provider);
+              if (!info) return null;
+              const box = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: C.slate, marginBottom: 10 };
+              const btn = { height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" };
+              if (info.connected) {
+                return (
+                  <div style={box}>
+                    <span>✓ {info.label} connected{info.account ? ` · ${info.account}` : ""}. The link is created when you save.</span>
+                    <button type="button" onClick={() => disconnectMeetLink(provider)} style={btn}>Disconnect</button>
+                  </div>
+                );
+              }
+              if (!info.configured) {
+                return <div style={box}>{info.label} auto-links are not enabled on this platform yet. Paste a link below.</div>;
+              }
+              return (
+                <div style={box}>
+                  <span>{info.error || `Connect ${info.label} to create the meeting link automatically.`}</span>
+                  <button type="button" onClick={() => connectMeetLink(provider)} style={{ ...btn, background: C.ink, color: "#fff", border: "none" }}>
+                    Connect {info.label}
+                  </button>
+                </div>
+              );
+            })()}
             <Label>Meeting join URL</Label>
             <input
               value={plan.videoLink}
@@ -698,7 +769,7 @@ export function CallingSchedule({
             <div style={{ fontSize: 11, color: C.slate, marginTop: 6 }}>
               {/jitsi/i.test(plan.platform)
                 ? "Empty link → we create a unique meeting room when you save."
-                : "Paste the Meet / Zoom / Teams / Cal.com link. Required for those platforms."}
+                : "Leave blank if connected above, or paste your own Meet / Zoom / Teams / Cal.com link."}
             </div>
           </div>
         )}

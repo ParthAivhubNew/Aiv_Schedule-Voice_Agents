@@ -258,7 +258,65 @@ export function PlatformKeys({ canEdit }) {
           <SocialOAuthApps canEdit={canEdit} />
         </div>
       )}
+
+      {activeTab === "voice" && (
+        <div style={{ display: "grid", gap: 16 }}>
+          <div style={heading}>Meeting Apps (Google Meet, Teams, Zoom)</div>
+          <MeetingApps canEdit={canEdit} />
+        </div>
+      )}
     </>
+  );
+}
+
+// Google / Microsoft / Zoom developer apps behind the "Connect" buttons in the Schedule window.
+function MeetingApps({ canEdit }) {
+  const [data, err, reload] = useLoad(adminApi.meetingApps);
+  const [msg, run] = useAction(reload);
+  const [open, setOpen] = useState("");
+  const [draft, setDraft] = useState({ clientId: "", clientSecret: "" });
+
+  if (!data) return <Note error={err}>{err}</Note>;
+  const save = (provider, label) => run(() => {
+    if (!draft.clientId.trim()) throw new Error("Client ID is required.");
+    return adminApi.saveMeetingApp(provider, draft).then((r) => { setOpen(""); return r; });
+  }, `${label}: app saved. Organisations can now click Connect.`);
+
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ fontSize: 12.5, color: C.slate }}>
+        One app per provider, shared by every organisation. Create it in the provider's developer portal and register
+        the callback URL shown below.
+      </div>
+      <Note error={msg.error}>{msg.text}</Note>
+      {(data.apps || []).map((a) => (
+        <div key={a.provider} style={{ ...card, display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontWeight: 700 }}>{a.label}</div>
+            {a.configured ? <Pill tone="green">Configured{a.clientIdHint ? `: ${a.clientIdHint}` : ""}</Pill> : <Pill>Not set up</Pill>}
+          </div>
+          <div style={mono}>Callback URL: {a.callbackUrl}</div>
+          {canEdit && (open === a.provider ? (
+            <div style={{ display: "grid", gap: 6, maxWidth: 420 }}>
+              <input aria-label={`${a.label} client id`} placeholder="Client ID" value={draft.clientId}
+                onChange={(e) => setDraft({ ...draft, clientId: e.target.value })} style={input} />
+              <input aria-label={`${a.label} client secret`} type="password"
+                placeholder={a.hasSecret ? "New secret (empty = keep saved one)" : "Client secret"}
+                value={draft.clientSecret} onChange={(e) => setDraft({ ...draft, clientSecret: e.target.value })} style={input} />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="button" style={btn(true)} onClick={() => save(a.provider, a.label)}>Save</button>
+                <button type="button" style={btn(false)} onClick={() => setOpen("")}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" style={{ ...btn(false), justifySelf: "start" }}
+              onClick={() => { setOpen(a.provider); setDraft({ clientId: "", clientSecret: "" }); }}>
+              {a.configured ? "Replace" : "Set up"}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 

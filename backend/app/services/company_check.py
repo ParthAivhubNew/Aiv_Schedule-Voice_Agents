@@ -451,6 +451,7 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
 
     # E. contact email finder (optional)
     email = free["email"]
+    found_email = ""
     if ctx.find_emails and len((row.get("contact_name") or "").split()) >= 2:
         # The address we already hold for this company is used first when it is plainly the contact's
         # own and its mail server is real: nothing is paid for it.
@@ -459,6 +460,7 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
             found = ""
         else:
             found = await _find_email(row, ctx)
+        found_email = found
         if found:
             stages.append("email_finder")
             spent["email"] = 1
@@ -474,6 +476,43 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     }
     if link_id:
         out["record_id"] = link_id
+    fixes = build_fixes(row, ev.get("deep"), free, found_email)
+    if fixes:
+        out["fixes"] = fixes
+    return out
+
+
+def _digits(raw: str) -> str:
+    return re.sub(r"\D", "", raw or "")[-9:]
+
+
+def _host(url: str) -> str:
+    return re.sub(r"^https?://(www\.)?", "", (url or "").strip().lower()).split("/")[0]
+
+
+def build_fixes(row: Dict[str, Any], deep: Optional[Dict[str, Any]], free: Dict[str, Any], found_email: str) -> List[Dict[str, Any]]:
+    """What the check learned that differs from what the user saved. A blank field it can fill is filled
+    (kind "fill"). A value the user gave that looks wrong is never overwritten: it is offered as a fix
+    (kind "fix") that stays open until accepted. Each entry keeps the original value beside the new one."""
+    out: List[Dict[str, Any]] = []
+
+    def add(field: str, old: str, new: str, why: str) -> None:
+        out.append({"field": field, "from": old, "to": new, "kind": "fill" if not old else "fix", "applied": False, "why": why})
+
+    deep = deep if deep and deep.get("found") else {}
+    phone, site = (deep.get("phone") or "").strip(), (deep.get("website") or "").strip()
+    cur_phone, cur_site = (row.get("phone") or "").strip(), (row.get("website") or row.get("domain") or "").strip()
+    if phone and not cur_phone:
+        add("phone", "", phone, "Found by the deep web search")
+    elif phone and cur_phone and _digits(phone) != _digits(cur_phone) and (free.get("phone") or {}).get("state") == "invalid":
+        add("phone", cur_phone, phone, "The number you had isn't usable; the deep web search found this one")
+    if site and not cur_site:
+        add("website", "", site, "Found by the deep web search")
+    elif site and cur_site and _host(site) != _host(cur_site) and (free.get("website") or {}).get("state") in ("dead", "parked"):
+        add("website", cur_site, site, "Your website isn't working; the deep web search found this one")
+    cur_email = (row.get("email") or "").strip()
+    if found_email and found_email.lower() != cur_email.lower():
+        add("email", cur_email, found_email.lower(), "A verified address was found for this contact")
     return out
 
 
@@ -525,7 +564,7 @@ class Context(SimpleNamespace):
 def _account_row(a) -> Dict[str, Any]:
     return {"id": a.id, "name": a.name or "", "website": a.website or "", "domain": a.domain or "", "phone": a.phone or "",
             "email": a.email or "", "contact_name": a.contact_name or "", "region": a.region or "",
-            "business_record_id": a.business_record_id or ""}
+            "business_record_id": a.business_record_id or "", "researched": bool(a.researched_at)}
 
 
 async def live_sources() -> List[Any]:
@@ -552,7 +591,7 @@ async def live_sources() -> List[Any]:
     return out
 
 
-def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, *, registry: bool, deep: bool, email: bool) -> Dict[str, int]:
+def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, *, registry: bool, deep: bool, email: bool, web_rows: int = 0) -> Dict[str, int]:
     """The most a run could cost, in whole credits, per paid step (a run is charged once per step,
     rounded up). Used for the cost shown before the run and for the credits held while it runs."""
     import math
@@ -562,6 +601,7 @@ def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, 
 
     out = {"registry": cost("check_registry", rows) if registry else 0,
            "deep": cost("google_deep_search", rows) if deep else 0,
-           "email": cost("check_email", with_contact) if email else 0}
-    out["total"] = out["registry"] + out["deep"] + out["email"]
+           "email": cost("check_email", with_contact) if email else 0,
+           "web": cost("lead_lookup", web_rows)}
+    out["total"] = out["registry"] + out["deep"] + out["email"] + out["web"]
     return out

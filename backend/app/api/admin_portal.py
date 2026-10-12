@@ -886,6 +886,35 @@ async def put_social_oauth_app(platform: str, body: SocialOAuthAppBody, request:
     return {"app": public_app_dict(app_row)}
 
 
+@router.get("/meeting-apps")
+async def list_meeting_apps(request: Request):
+    """The Google / Microsoft / Zoom developer apps behind every organisation's meeting-room
+    "Connect" button -- staff only. Secrets are never returned."""
+    from app.services import meeting_rooms
+
+    _who(request)
+    await meeting_rooms.load_creds()
+    return meeting_rooms.apps_view()
+
+
+class MeetingAppBody(BaseModel):
+    clientId: str = ""
+    clientSecret: str = ""
+
+
+@router.put("/meeting-apps/{provider}")
+async def put_meeting_app(provider: str, body: MeetingAppBody, request: Request):
+    from app.services import meeting_rooms
+
+    _admin_only(request)
+    if provider not in meeting_rooms.PROVIDERS:
+        raise HTTPException(status_code=400, detail="Unsupported provider.")
+    if not body.clientId.strip():
+        raise HTTPException(status_code=400, detail="Client ID is required.")
+    await meeting_rooms.save_app(provider, body.clientId, body.clientSecret)
+    return meeting_rooms.apps_view()
+
+
 @router.get("/social-connections")
 async def social_connections(request: Request):
     """Every organisation's connected social accounts and how long each login lasts, worst first --

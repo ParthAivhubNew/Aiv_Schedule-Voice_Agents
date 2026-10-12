@@ -852,6 +852,24 @@ class SocialOAuthState(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class MeetingProvider(Base):
+    """An organisation's connected Google / Microsoft / Zoom account, used to create real
+    meeting rooms. Tokens are sealed (see app.services.secret_box)."""
+    __tablename__ = "meeting_providers"
+    # Owning organisation; the database fills it in (see app.core.tenancy).
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)  # "<provider>:<org>"
+    provider = Column(String, nullable=False)  # google | microsoft | zoom
+    account = Column(String, default="")  # email shown to the user
+    access_token = Column(Text, default="")
+    refresh_token = Column(Text, default="")
+    expires_at = Column(Float, default=0.0)
+    status = Column(String, default="connected")
+    last_error = Column(String, default="")
+    connected_at = Column(DateTime, default=datetime.utcnow)
+
+
 class SocialEmail(Base):
     __tablename__ = "social_emails"
     # Owning organisation; the database fills it in (see app.core.tenancy).

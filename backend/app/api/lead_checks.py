@@ -26,6 +26,7 @@ class CheckIn(BaseModel):
     all: bool = False  # every saved company (Select all), whatever page it is on
     pending_only: bool = False  # only companies whose register check is still pending
     include_email: bool = False
+    include_web: bool = False  # also run the live web search for companies not researched yet
 
 
 async def _accounts(db: AsyncSession, body: CheckIn) -> List[LeadAccount]:
@@ -45,15 +46,33 @@ async def _accounts(db: AsyncSession, body: CheckIn) -> List[LeadAccount]:
 @router.post("/estimate")
 async def estimate(body: CheckIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """What a check would cost at most, and which checks can run right now. Charges nothing."""
-    return await job.estimate(db, await _accounts(db, body), body.include_email)
+    return await job.estimate(db, await _accounts(db, body), body.include_email, body.include_web)
 
 
 @router.post("")
 async def start_check(body: CheckIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    started = await job.start(db, await _accounts(db, body), body.include_email)
+    started = await job.start(db, await _accounts(db, body), body.include_email, body.include_web)
     if started.get("error"):
         raise HTTPException(status_code=402 if "credits" in started["error"].lower() else 409, detail=started["error"])
     return started
+
+
+class AcceptIn(BaseModel):
+    ids: List[str]
+    fields: List[str] = []  # empty = every open fix
+
+
+@router.post("/fixes/accept")
+async def accept_fixes(body: AcceptIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Apply the fixes a check suggested, for one company or many (Accept all fixes on a list)."""
+    from app.services import check_fixes
+
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="Pick at least one company.")
+    rows = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(body.ids[:MAX_COMPANIES])))).scalars().all()
+    applied = sum(check_fixes.accept(a, body.fields) for a in rows)
+    await db.commit()
+    return {"applied": applied}
 
 
 @router.get("/latest")
@@ -64,6 +83,22 @@ async def latest() -> Dict[str, Any]:
 @router.get("/{job_id}")
 async def progress(job_id: str) -> Dict[str, Any]:
     doc = await job.get_job(job_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="That check isn't in your history.")
+    return {"job": doc}
+
+
+@router.post("/{job_id}/pause")
+async def pause(job_id: str) -> Dict[str, Any]:
+    doc = await job.set_paused(job_id, True)
+    if not doc:
+        raise HTTPException(status_code=404, detail="That check isn't in your history.")
+    return {"job": doc}
+
+
+@router.post("/{job_id}/resume")
+async def resume(job_id: str) -> Dict[str, Any]:
+    doc = await job.set_paused(job_id, False)
     if not doc:
         raise HTTPException(status_code=404, detail="That check isn't in your history.")
     return {"job": doc}

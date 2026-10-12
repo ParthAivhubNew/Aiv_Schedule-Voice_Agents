@@ -33,7 +33,7 @@ from app.models.models import (
     EmailTemplate,
 )
 from app.services import mail_transport as T
-from app.services.dns_verifier import verify_domain_dns
+from app.services.dns_verifier import setup_guide, verify_domain_dns
 from app.services.email_dispatcher import mailbox_settings, read_unsubscribe_token, suppress
 from app.services.enrichment_waterfall import lookup_person_waterfall
 from app.services.llm_gateway import call_open_chat_llm
@@ -72,6 +72,18 @@ def _dns_fields(mb: EmailMailbox, dns: Dict[str, Any]) -> None:
     mb.mx_verified = dns["mx_verified"]
     mb.last_dns_check_at = datetime.utcnow()
     mb.dns_check_details = dns
+
+
+def _sending_blockers(mb: EmailMailbox) -> List[str]:
+    """Why this mailbox cannot send yet, in plain words (empty when it can)."""
+    out: List[str] = []
+    if not mb.spf_verified:
+        out.append("SPF is missing")
+    if not mb.dkim_verified:
+        out.append("DKIM is missing")
+    if mb.status in ("connected", "paused", "error"):
+        out.append({"connected": "warm-up has not been started", "paused": "it is paused", "error": "its login is failing"}[mb.status])
+    return out
 
 
 # ── Overview ────────────────────────────────────────────────────────────────
@@ -128,6 +140,11 @@ def _mailbox_out(mb: EmailMailbox, log: Optional[EmailSendLog]) -> Dict[str, Any
         "spf_verified": mb.spf_verified, "dkim_verified": mb.dkim_verified,
         "dmarc_verified": mb.dmarc_verified, "mx_verified": mb.mx_verified,
         "dns": mb.dns_check_details or {}, "last_sync_at": _iso(mb.last_sync_at),
+        "can_send": not _sending_blockers(mb), "blockers": _sending_blockers(mb),
+        "setup": setup_guide(mb.email.split("@")[-1], mb.provider, mb.dns_check_details or {
+            "spf_verified": mb.spf_verified, "dkim_verified": mb.dkim_verified,
+            "dmarc_verified": mb.dmarc_verified, "mx_verified": mb.mx_verified}),
+        "dkim_selector": (mb.dns_check_details or {}).get("dkim_selector") or "",
         "smtp_host": s["smtp_host"], "imap_host": s["imap_host"],
         "today_sent": log.sent_count if log else 0, "today_warmup_sent": log.warmup_sent_count if log else 0,
         "today_campaign_sent": log.campaign_sent_count if log else 0, "today_bounced": log.bounced_count if log else 0,
@@ -225,11 +242,22 @@ async def test_mailbox(mailbox_id: str, request: Request, db: AsyncSession = Dep
     return {"ok": True}
 
 
+class DnsCheckBody(BaseModel):
+    dkim_selector: Optional[str] = None  # a custom DKIM name, if the mail host did not use a common one
+
+
 @router.post("/mailboxes/{mailbox_id}/dns-check")
-async def audit_mailbox_dns(mailbox_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def audit_mailbox_dns(mailbox_id: str, request: Request, body: Optional[DnsCheckBody] = None,
+                            db: AsyncSession = Depends(get_db)):
     current(request)
     mb = await _mailbox(db, mailbox_id)
-    dns = await verify_domain_dns(mb.email.split("@")[-1])
+    typed = re.sub(r"[^a-z0-9_-]", "", ((body.dkim_selector if body else "") or "").strip().lower().split("._domainkey")[0])
+    selector = typed or (mb.dns_check_details or {}).get("dkim_selector_pref") or None
+    dns = await verify_domain_dns(mb.email.split("@")[-1], selector)
+    if selector and not dns.get("dkim_verified"):
+        dns["recommendations"].append(f"No DKIM record found at {selector}._domainkey.{mb.email.split('@')[-1]} yet. DNS changes can take up to an hour.")
+    if typed:
+        dns["dkim_selector_pref"] = typed
     _dns_fields(mb, dns)
     await db.commit()
     return {"mailbox": _mailbox_out(mb, None)}
@@ -248,10 +276,16 @@ async def set_warmup(mailbox_id: str, body: WarmupBody, request: Request, db: As
         mb.pause_reason = "Paused by you."
     elif body.action in ("start", "skip"):
         if not (mb.spf_verified and mb.dkim_verified):
-            _dns_fields(mb, await verify_domain_dns(mb.email.split("@")[-1]))
+            pref = (mb.dns_check_details or {}).get("dkim_selector_pref")
+            fresh = await verify_domain_dns(mb.email.split("@")[-1], pref)
+            if pref:
+                fresh["dkim_selector_pref"] = pref
+            _dns_fields(mb, fresh)
             if not (mb.spf_verified and mb.dkim_verified):
                 await db.commit()
-                raise HTTPException(status_code=400, detail="Set up SPF and DKIM for this domain first (see DNS check).")
+                missing = " and ".join(n for n, ok in (("SPF", mb.spf_verified), ("DKIM", mb.dkim_verified)) if not ok)
+                raise HTTPException(status_code=400, detail=f"Can't start yet: {missing} not found for {mb.email.split('@')[-1]}. "
+                                                            "Add the record shown on this mailbox, wait a few minutes, then press Check DNS.")
         if body.action == "skip":
             mb.status = "active"
         else:
@@ -405,7 +439,8 @@ async def set_campaign_status(campaign_id: str, body: StatusBody, request: Reque
             raise HTTPException(status_code=400, detail="Pick at least one mailbox to send from.")
         boxes = (await db.execute(select(EmailMailbox).where(EmailMailbox.id.in_(camp.mailbox_ids)))).scalars().all()
         if not any(b.status in ("warming", "active", "graduated") for b in boxes):
-            raise HTTPException(status_code=400, detail="Start warmup (or mark as already warm) on one of its mailboxes first.")
+            why = "; ".join(f"{b.email}: {', '.join(_sending_blockers(b)) or 'not started'}" for b in boxes)
+            raise HTTPException(status_code=400, detail=f"None of this campaign's mailboxes can send yet ({why}). Fix them on the Mailboxes page first.")
         has_leads = (await db.execute(select(EmailEnrollment.id).where(EmailEnrollment.campaign_id == camp.id,
                                                                         EmailEnrollment.status == "active").limit(1))).first()
         if not has_leads:

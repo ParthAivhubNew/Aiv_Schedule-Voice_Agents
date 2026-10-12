@@ -122,6 +122,8 @@ export const adminApi = {
   vendorCosts: (month) => request(`/vendor-costs?month=${q(month)}`),
   socialOauthApps: () => request("/social-oauth-apps"),
   saveSocialOauthApp: (platform, body) => request(`/social-oauth-apps/${q(platform)}`, { method: "PUT", body }),
+  meetingApps: () => request("/meeting-apps"),
+  saveMeetingApp: (provider, body) => request(`/meeting-apps/${q(provider)}`, { method: "PUT", body }),
   modelPricing: () => request("/model-pricing"),
   saveModelPrice: (id, priceIn, priceOut) => request(`/model-pricing/${q(id)}`, { method: "PUT", body: { priceIn, priceOut } }),
   modelPricingMonthlyCost: (month) => request(`/model-pricing/monthly-cost?month=${q(month)}`),

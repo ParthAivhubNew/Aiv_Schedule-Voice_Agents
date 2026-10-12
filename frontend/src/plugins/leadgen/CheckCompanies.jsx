@@ -19,7 +19,7 @@ export const VERDICTS = {
 };
 export const VERDICT_ORDER = ["verified", "looks_ok", "problem", "not_found", "unclear"];
 
-const STAGE_LABEL = { our_records: "Our records", registry: "Company register", website: "Website", email: "Email", phone: "Phone", deep_search: "Deep web search", email_finder: "Email finder" };
+const STAGE_LABEL = { web: "Web research", our_records: "Our records", registry: "Company register", website: "Website", email: "Email", phone: "Phone", deep_search: "Deep web search", email_finder: "Email finder" };
 const STATE_WORDS = {
   email: { verified: "Confirmed", found: "A verified address was found", ok: "Looks right", invalid: "Not working", none: "None given", unchecked: "Couldn't check" },
   phone: { ok: "Looks right", invalid: "Not a usable number", none: "None given", unchecked: "Couldn't check" },
@@ -117,6 +117,14 @@ export function useCompanyCheck({ onToast, reload }) {
       if (!jobId) return;
       try { setJob((await api.cancelCompanyCheck(jobId)).job); } catch (e) { latest.current.onToast(e.message || "Couldn't cancel."); }
     },
+    pause: async () => {
+      if (!jobId) return;
+      try { setJob((await api.pauseCompanyCheck(jobId)).job); } catch (e) { latest.current.onToast(e.message || "Couldn't pause."); }
+    },
+    resume: async () => {
+      if (!jobId) return;
+      try { setJob((await api.resumeCompanyCheck(jobId)).job); } catch (e) { latest.current.onToast(e.message || "Couldn't resume."); }
+    },
     dismiss: () => setJob(null),
   };
 }
@@ -132,9 +140,12 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <ShieldCheck size={16} color={C.cobalt} />
         <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-          {running ? `Checking ${job.done.toLocaleString()} of ${job.total.toLocaleString()}` : job.status === "done" ? `Checked ${job.done.toLocaleString()} companies`
+          {running ? `${job.pause ? "Paused at" : "Checking"} ${job.done.toLocaleString()} of ${job.total.toLocaleString()}` : job.status === "done" ? `Checked ${job.done.toLocaleString()} companies`
             : job.status === "cancelled" ? `Cancelled after ${job.done.toLocaleString()} of ${job.total.toLocaleString()}` : `Stopped after ${job.done.toLocaleString()} of ${job.total.toLocaleString()}`}
         </div>
+        {running ? (
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={job.pause ? check.resume : check.pause}>{job.pause ? "Resume" : "Pause"}</button>
+        ) : null}
         {running ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={check.cancel}>Cancel</button> : null}
         {!running && pendingCount > 0 ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onRecheck}><RefreshCw size={13} /> Re-check {pendingCount} pending</button> : null}
         {!running ? <button type="button" className="ui-icon-btn" aria-label="Dismiss" onClick={check.dismiss}><X size={16} /></button> : null}
@@ -162,6 +173,7 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
 // ---------------------------------------------------------------- the box before a run
 export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
   const [email, setEmail] = useState(false);
+  const [web, setWeb] = useState(true);
   const [est, setEst] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -169,11 +181,11 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
   useEffect(() => {
     let alive = true;
     setEst(null);
-    api.estimateCompanyCheck({ ids, pending_only: pendingOnly, include_email: email })
+    api.estimateCompanyCheck({ ids, pending_only: pendingOnly, include_email: email, include_web: web })
       .then((r) => { if (alive) setEst(r); })
       .catch((e) => { if (alive) setError(e.message || "Couldn't work out the cost."); });
     return () => { alive = false; };
-  }, [ids, pendingOnly, email]);
+  }, [ids, pendingOnly, email, web]);
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -185,7 +197,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
     setBusy(true);
     setError("");
     try {
-      await onStart({ ids, pending_only: pendingOnly, include_email: email });
+      await onStart({ ids, pending_only: pendingOnly, include_email: email, include_web: web });
       onClose();
     } catch (e) {
       setError(e.message || "Couldn't start the check.");
@@ -196,20 +208,29 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
   const li = { ...text, fontSize: 13, color: C.textInk, lineHeight: 1.5 };
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div role="dialog" aria-label="Check companies" onClick={(e) => e.stopPropagation()} className="ui-card"
+      <div role="dialog" aria-label="Get contact details" onClick={(e) => e.stopPropagation()} className="ui-card"
         style={{ width: "min(100%, 520px)", padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-            Check {est ? est.companies.toLocaleString() : ids.length.toLocaleString()} {(est ? est.companies : ids.length) === 1 ? "company" : "companies"}
+            Get contact details for {est ? est.companies.toLocaleString() : ids.length.toLocaleString()} {(est ? est.companies : ids.length) === 1 ? "company" : "companies"}
           </div>
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
-        <div style={muted}>Each company is checked one step at a time, cheapest first, and stops as soon as it has a clear answer. Nothing you saved is changed.</div>
+        <div style={muted}>Each company is corrected and completed one step at a time, cheapest first. Blanks are filled in. A value you gave that looks wrong is never overwritten: it is offered as a fix you can accept, with your original kept beside it.</div>
         <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
           <li style={li}><strong>Our records</strong>, plus website, email and phone checks: free</li>
           <li style={li}><strong>Company register</strong>, asked directly when our records can't settle it: {est ? `${est.rates.check_registry} credit${est.rates.check_registry === 1 ? "" : "s"} each` : "…"}{est && !est.ready.registry ? " (not set up yet, so skipped)" : ""}</li>
           <li style={li}><strong>Deep web search</strong>, only if nothing above knows the company: {est ? `${est.rates.google_deep_search} credits each` : "…"}{est && !est.ready.deep ? " (not set up yet, so skipped)" : ""}</li>
         </ul>
+        <label style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start" }}>
+          <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>
+            Also search the web for each company's people, phones and emails{est ? ` (${est.rates.lead_lookup} credits for each company where something is found)` : ""}
+            <span style={{ ...muted, display: "block", fontSize: 12 }}>
+              {est ? `${est.web_rows.toLocaleString()} of these haven't been looked up yet. Ones already looked up are skipped.` : ""}
+            </span>
+          </span>
+        </label>
         <label style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start", opacity: est && !est.ready.email ? 0.55 : 1 }}>
           <input type="checkbox" checked={email} disabled={est ? !est.ready.email : false} onChange={(e) => setEmail(e.target.checked)} style={{ marginTop: 3 }} />
           <span>
@@ -230,7 +251,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
         {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="ui-btn ui-btn--primary" disabled={!est || busy || est.companies === 0} onClick={go}>{busy ? "Starting…" : "Start check"}</button>
+          <button type="button" className="ui-btn ui-btn--primary" disabled={!est || busy || est.companies === 0} onClick={go}>{busy ? "Starting…" : "Start"}</button>
         </div>
       </div>
     </div>

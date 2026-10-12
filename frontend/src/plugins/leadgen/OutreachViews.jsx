@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { Note, Pill, btn, card, cell, input, th, useAction, useLoad, when } from "../../adminPortal/ui";
@@ -14,6 +14,54 @@ const small = { fontSize: 12, color: C.slate };
 
 function Check({ ok, children }) {
   return <span style={{ fontSize: 12, color: ok ? C.green : C.red, fontWeight: 600 }}>{ok ? "✓" : "✗"} {children}</span>;
+}
+
+function CopyBox({ text }) {
+  const [done, setDone] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); } catch { /* clipboard blocked: the text is still selectable */ }
+  };
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", background: C.bg || "#f3f4f6", borderRadius: 6, padding: "3px 8px", maxWidth: "100%" }}>
+      <code style={{ fontSize: 12, wordBreak: "break-all", userSelect: "all" }}>{text}</code>
+      <button type="button" style={{ ...btn(false), padding: "1px 8px", fontSize: 11 }} onClick={copy}>{done ? "Copied" : "Copy"}</button>
+    </span>
+  );
+}
+
+// What is still missing for a mailbox's domain, with the exact record to add. Re-checks by itself
+// every 90 seconds while the page is open so the ticks turn green without pressing anything.
+function SetupGuide({ mailbox: m, onCheck, onAuto }) {
+  const steps = m.setup || [];
+  const [selector, setSelector] = useState(m.dkim_selector || "");
+  const missing = steps.length > 0;
+  useEffect(() => {
+    if (!missing) return undefined;
+    const id = setInterval(() => { onAuto(selector.trim() || undefined); }, 90000);
+    return () => clearInterval(id);
+  }, [missing, selector]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!missing) return null;
+  return (
+    <div style={{ display: "grid", gap: 10, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700 }}>Set up your domain ({m.email.split("@")[1]})</div>
+      <div style={small}>Add these in the place you manage your domain's DNS (your domain registrar or host). Changes can take a few minutes to an hour; this page re-checks by itself.</div>
+      {steps.map((s) => (
+        <div key={s.key} style={{ display: "grid", gap: 4, fontSize: 12 }}>
+          <div style={{ fontWeight: 700 }}>{s.title} <span style={{ fontWeight: 400, color: C.slate }}>· {s.why}</span></div>
+          <div style={row}><span style={small}>Type</span><b>{s.type}</b><span style={small}>Name</span><CopyBox text={s.host} /></div>
+          {s.value ? <div style={row}><span style={small}>Value</span><CopyBox text={s.value} /></div> : null}
+          {s.howto ? <div style={small}>{s.howto}</div> : null}
+          {s.key === "dkim" && (
+            <div style={row}>
+              <span style={small}>{s.note}</span>
+              <input style={{ ...input, width: 140 }} placeholder="selector e.g. google" value={selector} onChange={(e) => setSelector(e.target.value)} />
+            </div>
+          )}
+        </div>
+      ))}
+      <div><button type="button" style={btn(true)} onClick={() => onCheck(selector.trim() || undefined)}>I've added them, check now</button></div>
+    </div>
+  );
 }
 
 // ── Shared outreach store ─────────────────────────────────────────────────
@@ -114,9 +162,14 @@ export function MailboxesView({ outreach }) {
               <Check ok={m.dmarc_verified}>DMARC</Check><Check ok={m.mx_verified}>MX</Check>
               <span style={small}>Bounces (7 days): {(m.bounce_rate_7d * 100).toFixed(1)}%</span>
             </div>
-            {(dns.recommendations || []).length > 0 && (
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: C.slate }}>{dns.recommendations.map((r) => <li key={r}>{r}</li>)}</ul>
+            {!m.can_send && (m.blockers || []).length > 0 && (
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.red, background: "#fef2f2", borderRadius: 8, padding: "8px 10px" }}>
+                Nothing will send from this mailbox yet: {m.blockers.join(", ")}.
+              </div>
             )}
+            <SetupGuide mailbox={m} onCheck={(sel) => run(() => api.emailCheckDns(m.id, sel), "DNS checked.")}
+              onAuto={(sel) => api.emailCheckDns(m.id, sel).then(outreach.reloadMailboxes).catch(() => {})} />
+            {(dns.recommendations || []).filter((r) => /unavailable|No DKIM record found/.test(r)).map((r) => <div key={r} style={small}>{r}</div>)}
             <div style={row}>
               {!sending && <button type="button" style={btn(true)} onClick={() => run(() => api.emailWarmup(m.id, "start"), "Warmup started.")}>Start warmup</button>}
               {!sending && <button type="button" style={btn(false)} title="For a mailbox that has sent normal email for months" onClick={() => {
@@ -303,7 +356,7 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
   );
 }
 
-export function CampaignsView({ outreach }) {
+export function CampaignsView({ outreach, onNew }) {
   const [open, setOpen] = useState("");
   const [creating, setCreating] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -320,7 +373,7 @@ export function CampaignsView({ outreach }) {
       <Note error>{outreach.error}</Note>
       <div style={row}>
         <button type="button" style={btn(false)} onClick={() => setFindOpen(true)}>Find a work email</button>
-        <button type="button" style={{ ...btn(true), marginLeft: "auto" }} onClick={() => setCreating(true)}>New campaign</button>
+        <button type="button" style={{ ...btn(true), marginLeft: "auto" }} onClick={() => (onNew ? onNew() : setCreating(true))}>New campaign</button>
       </div>
       {camps.length === 0 && <div style={{ ...card, ...small }}>No campaigns yet. Create one, add leads, then start it.</div>}
       {camps.map((c) => (

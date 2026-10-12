@@ -16,6 +16,48 @@ logger = logging.getLogger("dns_verifier")
 STANDARD_DKIM_SELECTORS = ["google", "selector1", "selector2", "default", "k1", "mail", "s1"]
 
 
+_SPF_BY_PROVIDER = {
+    "gmail": "v=spf1 include:_spf.google.com ~all",
+    "outlook": "v=spf1 include:spf.protection.outlook.com ~all",
+    "zoho": "v=spf1 include:zoho.eu include:zoho.com ~all",
+    "one.com": "v=spf1 include:_custspf.one.com ~all",
+}
+_DKIM_HOWTO = {
+    "gmail": "In Google Admin: Apps > Google Workspace > Gmail > Authenticate email. Pick the domain, press Generate new record, "
+             "copy the TXT value into your DNS (name google._domainkey), then press Start authentication.",
+    "outlook": "In Microsoft 365 Defender: Email & collaboration > Policies > DKIM. Pick the domain and copy the two CNAME records "
+               "(selector1._domainkey and selector2._domainkey) into your DNS, then turn signing on.",
+    "zoho": "In Zoho Mail Admin: Email Configuration > DKIM. Add a selector, copy the TXT value into your DNS, then press Verify.",
+    "one.com": "In one.com Control Panel: Email > DKIM. Turn it on and add the record it shows to your DNS.",
+}
+
+
+def setup_guide(domain: str, provider: str, dns: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Plain steps for each record still missing: what to add, where, and the value to paste where
+    we know it. DKIM's value is made by the mail host, so for that one we say where to get it."""
+    domain = (domain or "").strip().lower()
+    dns = dns or {}
+    steps: List[Dict[str, Any]] = []
+    if not dns.get("spf_verified"):
+        steps.append({"key": "spf", "title": "SPF", "type": "TXT", "host": domain or "@",
+                      "value": _SPF_BY_PROVIDER.get(provider, "v=spf1 include:YOUR-MAIL-PROVIDER ~all"),
+                      "why": "Tells inboxes which servers may send for your domain."})
+    if not dns.get("dkim_verified"):
+        steps.append({"key": "dkim", "title": "DKIM", "type": "TXT", "host": f"(selector)._domainkey.{domain}",
+                      "value": "", "why": "Signs your mail so it is not marked as forged. Sending cannot start without it.",
+                      "howto": _DKIM_HOWTO.get(provider, "Your mail provider generates this record: find DKIM in its admin settings, "
+                                                          "copy the record it shows into your DNS."),
+                      "note": "Already added it under a custom name? Type that name in the selector box and press Check DNS."})
+    if not dns.get("dmarc_verified"):
+        steps.append({"key": "dmarc", "title": "DMARC", "type": "TXT", "host": f"_dmarc.{domain}",
+                      "value": "v=DMARC1; p=none;",
+                      "why": "Tells inboxes what to do with mail that fails the checks. p=none only watches, it blocks nothing."})
+    if not dns.get("mx_verified"):
+        steps.append({"key": "mx", "title": "MX", "type": "MX", "host": domain, "value": "",
+                      "why": "Where your mail is received. Your provider shows the values to use."})
+    return steps
+
+
 async def verify_domain_dns(domain: str, dkim_selector: Optional[str] = None) -> Dict[str, Any]:
     """Asynchronously audits domain DNS records for email deliverability readiness."""
     domain = (domain or "").strip().lower()

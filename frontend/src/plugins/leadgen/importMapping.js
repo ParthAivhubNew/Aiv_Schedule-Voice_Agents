@@ -37,18 +37,31 @@ export function signature(headers) {
   return (headers || []).map((h) => String(h).trim().toLowerCase()).sort().join("|");
 }
 
+// Columns that match a standard field are matched to it; every other column is kept as the user's own
+// column under its own name, so nothing in their file is lost by default (they can still pick Don't import).
 export function guessMapping(headers) {
   const used = new Set();
   const out = {};
+  const taken = new Set(STANDARD_FIELDS.flatMap((f) => [f.key, f.label.toLowerCase()]));
+  const names = new Set();
+  let own = 0;
   (headers || []).forEach((h) => {
     const name = String(h || "").trim();
     const hit = GUESSES.find(([key, re]) => !used.has(key) && re.test(name));
     if (hit) {
       out[h] = hit[0];
       used.add(hit[0]);
-    } else {
-      out[h] = SKIP;
+      return;
     }
+    let keep = name.replace(/\s+/g, " ").slice(0, 40).trim();
+    if (keep && taken.has(keep.toLowerCase())) keep = `${keep.slice(0, 32)} (file)`;
+    if (!keep || names.has(keep.toLowerCase()) || own >= MAX_CUSTOM) {
+      out[h] = SKIP;
+      return;
+    }
+    names.add(keep.toLowerCase());
+    own += 1;
+    out[h] = CUSTOM + keep;
   });
   return out;
 }
@@ -106,7 +119,7 @@ export function mappingWarnings(mapping, records) {
   return warn;
 }
 
-const STORE = "leadgen_import_mappings";
+const STORE = "leadgen_import_mappings_v2"; // v2: columns are kept by default, so older saved matches are not reused
 
 export function savedMappingFor(headers) {
   try {

@@ -29,6 +29,7 @@ from app.api.prospects import router as prospects_router
 from app.api.calls import router as calls_router
 from app.api.meetings import router as meetings_router
 from app.api.schedule import router as schedule_router
+from app.api.meeting_links import router as meeting_links_router
 from app.api.profile import router as profile_router
 from app.api.connections import router as connections_router
 from app.api.analytics import router as analytics_router
@@ -39,6 +40,7 @@ from app.api.telnyx_assistant_webhook import router as telnyx_assistant_webhook_
 from app.api.enrichment import router as enrichment_router
 from app.api.lead_accounts import router as lead_accounts_router
 from app.api.lead_checks import router as lead_checks_router
+from app.api.lead_lists import router as lead_lists_router
 from app.api.calcom import router as calcom_router
 from app.api.livekit_router import router as livekit_router
 from app.api.vapi_router import router as vapi_router
@@ -718,6 +720,7 @@ app.include_router(calls_router, prefix=settings.API_PREFIX)
 app.include_router(calls_router)  # Direct /calls compatibility
 app.include_router(meetings_router, prefix=settings.API_PREFIX)
 app.include_router(schedule_router, prefix=settings.API_PREFIX)
+app.include_router(meeting_links_router, prefix=settings.API_PREFIX)
 app.include_router(profile_router, prefix=settings.API_PREFIX)
 app.include_router(connections_router, prefix=settings.API_PREFIX)
 app.include_router(connections_router)  # Direct /connections compatibility
@@ -731,6 +734,7 @@ app.include_router(telnyx_assistant_webhook_router)  # Direct /telnyx-assistant 
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
 app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
+app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
 app.include_router(calcom_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router)  # Direct /livekit compatibility

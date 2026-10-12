@@ -5,6 +5,9 @@ from app.database import get_db
 from app.models.models import ScheduleItem, Meeting, Notification, CompanyProfile
 from app.schemas.schemas import ScheduleItemSchema
 from app.services.whatsapp_notify import send_whatsapp, whatsapp_ready, digits_only, wa_me_url
+from app.services import meeting_rooms
+from app.services.org_settings import org_timezone
+from app.services.timezone_service import to_utc
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from urllib.parse import quote
@@ -149,6 +152,25 @@ async def create_schedule_item(req: ScheduleItemSchema, db: AsyncSession = Depen
     email = (req.email or "").strip() or None
     platform = (req.platform or ("Google Meet" if kind == "video" else None))
     video_link = _video_link(req, item_id)
+    link_note = None
+    provider = meeting_rooms.provider_for(platform) if kind == "video" and not video_link else None
+    if provider:
+        # Google Meet / Teams / Zoom picked and no link pasted: create a real room in the
+        # organisation's connected account.
+        try:
+            start_utc = to_utc(req.day, req.time, await org_timezone(db))
+            made = await meeting_rooms.create_room(
+                db, provider,
+                title=f"Meeting with {req.prospect}",
+                start_utc=start_utc,
+                attendee_email=(req.email or "").strip(),
+            )
+        except Exception:
+            made = {"ok": False, "error": "Could not read the meeting date and time."}
+        if made.get("ok"):
+            video_link = made["url"]
+        else:
+            link_note = made.get("error")
     address = (req.address or "").strip() or None
     notes = (req.notes or "").strip() or None
     whatsapp_to = (req.whatsapp_to or req.whatsappTo or phone or "").strip() or None
@@ -221,6 +243,8 @@ async def create_schedule_item(req: ScheduleItemSchema, db: AsyncSession = Depen
 
     out = _item_dict(item)
     out["whatsapp"] = wa
+    if link_note:
+        out["linkNote"] = link_note
     return out
 
 

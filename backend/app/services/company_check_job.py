@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -16,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 
 from app.core.tenancy import current_org, org_scope
+from app.services import check_fixes
 from app.services import company_check as cc
 from app.services import credits as credit
 
@@ -23,8 +25,9 @@ logger = logging.getLogger("company_check_job")
 
 _TASKS: Dict[str, "asyncio.Task"] = {}
 FLUSH_EVERY = 10
+POLL_SECONDS = 3.0
 _STEPS = (("registry", "check_registry", "Registry check"), ("deep", "google_deep_search", "Deep web search"),
-          ("email", "check_email", "Contact email check"))
+          ("email", "check_email", "Contact email check"), ("web", "lead_lookup", "Web research"))
 
 
 def _key(org_id: str, job_id: str) -> str:
@@ -79,6 +82,16 @@ async def request_cancel(job_id: str) -> Dict[str, Any]:
     return _expire_if_stalled(doc)
 
 
+async def set_paused(job_id: str, paused: bool) -> Dict[str, Any]:
+    """Pause or resume a running check. Held credits stay held; companies already checked keep their results."""
+    org = current_org()
+    doc = await _read(_key(org, job_id))
+    if doc.get("status") == "running":
+        doc["pause"] = bool(paused)
+        await _write(_key(org, job_id), doc)
+    return _expire_if_stalled(doc)
+
+
 async def readiness() -> Dict[str, Any]:
     """Which checks can run right now (a register, the deep web search and the email finders each
     need a key saved by staff). The cost shown to the user only counts steps that can really run."""
@@ -89,18 +102,19 @@ async def readiness() -> Dict[str, Any]:
     return {"sources": sources, "registry": bool(sources), "deep": bool(await google_places_key()), "email": bool(await finder_keys())}
 
 
-async def estimate(db, accounts: List[Any], include_email: bool) -> Dict[str, Any]:
+async def estimate(db, accounts: List[Any], include_email: bool, include_web: bool = False) -> Dict[str, Any]:
     ready = await readiness()
     rates = await credit.rates(db)
     with_contact = sum(1 for a in accounts if len((a.contact_name or "").split()) >= 2)
+    web_rows = sum(1 for a in accounts if not a.researched_at) if include_web else 0
     parts = cc.price_parts(rates, len(accounts), with_contact, registry=ready["registry"], deep=ready["deep"],
-                           email=include_email and ready["email"])
-    return {"companies": len(accounts), "with_contact": with_contact, "ready": {k: ready[k] for k in ("registry", "deep", "email")},
+                           email=include_email and ready["email"], web_rows=web_rows)
+    return {"companies": len(accounts), "with_contact": with_contact, "web_rows": web_rows, "ready": {k: ready[k] for k in ("registry", "deep", "email")},
             "max_credits": parts, "balance": await credit.wallet_balance(db, "leadgen"),
-            "rates": {i: rates[i]["credits"] for i in ("check_registry", "google_deep_search", "check_email")}}
+            "rates": {i: rates[i]["credits"] for i in ("check_registry", "google_deep_search", "check_email", "lead_lookup")}}
 
 
-async def start(db, accounts: List[Any], include_email: bool) -> Dict[str, Any]:
+async def start(db, accounts: List[Any], include_email: bool, include_web: bool = False) -> Dict[str, Any]:
     """Hold the credits and start the run. Returns {error} when it can't start."""
     org = current_org()
     pointer = await _read(_latest_key(org))
@@ -110,12 +124,12 @@ async def start(db, accounts: List[Any], include_email: bool) -> Dict[str, Any]:
             return {"error": "A check is already running. Let it finish or cancel it first."}
     if not accounts:
         return {"error": "Pick at least one company to check."}
-    est = await estimate(db, accounts, include_email)
+    est = await estimate(db, accounts, include_email, include_web)
     job_id = f"chk_{uuid.uuid4().hex[:12]}"
     held = []
     for step, item, label in _STEPS:
         if est["max_credits"][step] > 0:
-            qty = len(accounts) if step != "email" else est["with_contact"]
+            qty = {"email": est["with_contact"], "web": est["web_rows"]}.get(step, len(accounts))
             held.append({"item": item, "quantity": qty, "ref": f"{job_id}:{step}", "note": f"{label} (held for a company check)"})
     ok, why = await credit.hold(db, held)
     if not ok:
@@ -124,7 +138,7 @@ async def start(db, accounts: List[Any], include_email: bool) -> Dict[str, Any]:
     await db.commit()
     ready = await readiness()
     doc = {"job_id": job_id, "org_id": org, "status": "running", "total": len(accounts), "done": 0, "cancel": False,
-           "options": {"email": bool(include_email and ready["email"])}, "max_credits": est["max_credits"],
+           "options": {"email": bool(include_email and ready["email"]), "web": bool(include_web)}, "max_credits": est["max_credits"],
            "counts": {v: 0 for v in cc.VERDICTS}, "used": {s: 0 for s, _, _ in _STEPS}, "charged": None,
            "ready": est["ready"], "started_at": datetime.utcnow().isoformat(), "updated_at": datetime.utcnow().isoformat()}
     await _write(_key(org, job_id), doc)
@@ -147,7 +161,7 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                 queue.put_nowait(r)
             pending: List[tuple] = []
             lock = asyncio.Lock()
-            state = {"cancelled": False}
+            state = {"cancelled": False, "paused": False, "polled": 0.0}
 
             async def flush(force: bool = False) -> None:
                 async with lock:
@@ -159,12 +173,24 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                     cur = await _read(key)
                     if cur.get("cancel"):
                         state["cancelled"] = True
+                    state["paused"] = bool(cur.get("pause")) and not state["cancelled"]
                     doc["cancel"] = bool(cur.get("cancel"))
+                    doc["pause"] = state["paused"]
                     doc["updated_at"] = datetime.utcnow().isoformat()
+                    state["polled"] = time.monotonic()
                     await _write(key, doc)
 
             async def worker() -> None:
                 while not state["cancelled"]:
+                    # Look for a pause or cancel every few seconds, not only after a batch is saved,
+                    # so pressing either takes effect quickly. While paused nothing new is started,
+                    # what is already finished is saved, and the run keeps its heartbeat so it is not
+                    # mistaken for a stalled one.
+                    if time.monotonic() - state["polled"] > POLL_SECONDS:
+                        await flush(force=True)
+                    if state["paused"]:
+                        await asyncio.sleep(1.0)
+                        continue
                     try:
                         row = queue.get_nowait()
                     except asyncio.QueueEmpty:
@@ -177,6 +203,8 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                                   "spent": {"registry": 0, "deep": 0, "email": 0}, "email": {"state": "unchecked"},
                                   "phone": {"state": "unchecked"}, "website": {"state": "unchecked"},
                                   "checked_at": datetime.utcnow().isoformat() + "Z", "job_id": job_id, "pending_registry": False}
+                    if doc["options"].get("web") and not row.get("researched"):
+                        result.setdefault("spent", {})["web"] = await _web_research(row["id"], result)
                     doc["done"] += 1
                     doc["counts"][result["verdict"]] = doc["counts"].get(result["verdict"], 0) + 1
                     for step, n in result.get("spent", {}).items():
@@ -206,6 +234,27 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
         _TASKS.pop(job_id, None)
 
 
+async def _web_research(account_id: str, result: Dict[str, Any]) -> int:
+    """The live web search for one company, as part of the same run. Returns 1 when it found something
+    (the only case that is charged), else 0. A failure here never fails the company's check."""
+    from app.api.lead_accounts import _apply_shared_record, research_into
+    from app.database import AsyncSessionLocal
+    from app.models.models import LeadAccount
+
+    try:
+        async with AsyncSessionLocal() as db:
+            acc = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()
+            if not acc:
+                return 0
+            await _apply_shared_record(db, acc)
+            found = await research_into(db, acc)
+            await db.commit()
+            return 1 if found else 0
+    except Exception as err:
+        logger.warning(f"[company_check] web research failed for {account_id}: {err}")
+        return 0
+
+
 async def _save_results(batch: List[tuple]) -> None:
     from app.database import AsyncSessionLocal
     from app.models.models import LeadAccount
@@ -218,6 +267,11 @@ async def _save_results(batch: List[tuple]) -> None:
             if not acc:
                 continue
             result = {k: v for k, v in result.items() if k != "spent"}
+            for fix in result.get("fixes") or []:
+                # A blank field is filled right away; a value the user gave is only ever offered (see check_fixes).
+                if fix["kind"] == "fill" and not getattr(acc, fix["field"], ""):
+                    check_fixes.set_field(acc, fix["field"], fix["to"])
+                    fix["applied"] = True
             acc.verification = result
             if result.get("record_id") and not acc.business_record_id:
                 acc.business_record_id = result["record_id"]

@@ -34,3 +34,22 @@ describe("keeping a file's own column", () => {
     expect(customName(`${CUSTOM}${"z".repeat(80)}`)).toHaveLength(40);
   });
 });
+
+describe("default matches", () => {
+  it("keeps every column that is not one of our fields, under its own name", () => {
+    const map = guessMapping(["Business Name", "URN", "Postcode District", "UK 03 Sic Desc."]);
+    expect(map["Business Name"]).toBe("name");
+    expect(map.URN).toBe(`${CUSTOM}URN`);
+    expect(map["Postcode District"]).toBe("region");
+    expect(map["UK 03 Sic Desc."]).toBe("industry");
+  });
+
+  it("never gives a kept column the name of one of our fields, or the same name twice, or leaves it unnamed", () => {
+    const map = guessMapping(["Notes", "Comment", "id", "ID", ""]);
+    expect(map.Notes).toBe("notes");
+    expect(map.Comment).toBe(`${CUSTOM}Comment`);
+    expect(map.id).toBe(`${CUSTOM}id`);
+    expect(map.ID).toBe("__skip__");
+    expect(map[""]).toBe("__skip__");
+  });
+});
