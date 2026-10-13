@@ -205,6 +205,47 @@ button, input, select, textarea {
 .ui-scroll::-webkit-scrollbar-thumb { background: var(--ui-line-strong); border-radius: 99px; }
 .ui-scroll::-webkit-scrollbar-track { background: transparent; }
 
+/* Sleek modern scrollbars for panels, modals, and lists */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  transition: background 0.15s ease;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.custom-scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+.custom-scrollbar-dark::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar-dark::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar-dark::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+  transition: background 0.15s ease;
+}
+.custom-scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
 /* Top of every app's sidebar: Home and the other apps. */
 .ui-switcher {
   display: flex;

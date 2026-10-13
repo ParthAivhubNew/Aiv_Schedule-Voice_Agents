@@ -38,7 +38,17 @@ import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { navigateHash } from "../utils/route";
 import { DeveloperDocs } from "./DeveloperDocs";
-import { BuildTestPanel } from "./BuildTestPanel";
+import BuildAndTestRequest from "./BuildAndTestRequest";
+import { GROUPS, ENDPOINTS, defaultData, endpointKey, pluginAction, runRequest } from "./developerCatalog";
+import { buildSnippet } from "./developerSnippets";
+
+const PLAYGROUND_CATEGORIES = [
+  { id: "all", label: "All Services", icon: Layers },
+  { id: "voice", label: "Voice AI", icon: Phone },
+  { id: "leads", label: "Lead Gen & Email", icon: Users },
+  { id: "social", label: "Social Media", icon: Megaphone },
+  { id: "account", label: "Account & Wallets", icon: Wallet },
+];
 
 const getMethodBadge = (method) => {
   switch (method) {
@@ -411,8 +421,9 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           backgroundColor: "#fff",
           borderRadius: 20,
           width: "100%",
-          maxWidth: 900,
-          maxHeight: "92vh",
+          maxWidth: 1180,
+          height: "90vh",
+          maxHeight: "90vh",
           display: "flex",
           flexDirection: "column",
           boxShadow: "0 25px 60px rgba(18, 20, 28, 0.25)",
@@ -542,7 +553,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
               gap: 6,
             }}
           >
-            <Play size={15} /> Build and test a request
+            <Play size={15} /> Build and Test a Request
           </button>
 
           <button
@@ -566,7 +577,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
         </div>
 
         {/* Body Content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+        <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", padding: 24 }}>
           {error && (
             <div
               style={{
@@ -1407,7 +1418,12 @@ export function DeveloperApiKeysModal({ open, onClose }) {
 
           {/* TAB 3: BUILD AND TEST A REQUEST */}
           {activeTab === "playground" && (
-            <BuildTestPanel apiKey={playgroundKey} onApiKeyChange={setPlaygroundKey} />
+            <BuildAndTestRequest
+              apiKey={playgroundKey}
+              keys={keys}
+              onKeyChange={(k) => setPlaygroundKey(k)}
+              onNavigateToKeys={() => setActiveTab("keys")}
+            />
           )}
 
           {/* TAB 4: DOCUMENTATION */}
@@ -1574,8 +1590,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                     scope.service === "voice"
                                       ? "#/voice/subscription"
                                       : scope.service === "leads"
-                                      ? "#/leadgen/subscription"
-                                      : "#/scheduler/subscription";
+                                        ? "#/leadgen/subscription"
+                                        : "#/scheduler/subscription";
                                   navigateHash(route);
                                 }}
                                 style={{
