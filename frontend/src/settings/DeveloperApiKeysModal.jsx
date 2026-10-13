@@ -27,7 +27,7 @@ import {
   Layers,
   Phone,
   Users,
-  Share2,
+  Megaphone,
   Wallet,
   Search,
   ChevronDown,
@@ -43,13 +43,11 @@ import { GROUPS, ENDPOINTS, defaultData, endpointKey, pluginAction, runRequest }
 import { buildSnippet } from "./developerSnippets";
 
 const PLAYGROUND_CATEGORIES = [
-  { id: "all", label: "All APIs", icon: Layers },
-  { id: "voice", label: "Phone calls", icon: Phone },
-  { id: "leads", label: "Find leads", icon: Users },
-  { id: "email", label: "Email campaigns", icon: Mail },
-  { id: "social", label: "Social posts", icon: Share2 },
-  { id: "meetings", label: "Meetings", icon: Calendar },
-  { id: "account", label: "Account", icon: Wallet },
+  { id: "all", label: "All Services", icon: Layers },
+  { id: "voice", label: "Voice AI", icon: Phone },
+  { id: "leads", label: "Lead Gen & Email", icon: Users },
+  { id: "social", label: "Social Media", icon: Megaphone },
+  { id: "account", label: "Account & Wallets", icon: Wallet },
 ];
 
 const getMethodBadge = (method) => {
@@ -65,6 +63,59 @@ const getMethodBadge = (method) => {
     default:
       return { bg: "#F1F5F9", color: "#475569", border: "#CBD5E1" };
   }
+};
+
+const getPluginBadge = (plugin) => {
+  switch (plugin) {
+    case "voice":
+      return {
+        label: "voice",
+        bg: "#ECFDF5",
+        color: "#059669",
+        border: "#A7F3D0",
+        icon: Phone,
+      };
+    case "leads":
+      return {
+        label: "leads",
+        bg: "#EFF6FF",
+        color: "#2563EB",
+        border: "#BFDBFE",
+        icon: Users,
+      };
+    case "social":
+      return {
+        label: "social",
+        bg: "#F5F3FF",
+        color: "#7C3AED",
+        border: "#DDD6FE",
+        icon: Megaphone,
+      };
+    case "account":
+      return {
+        label: "account",
+        bg: "#FEF3C7",
+        color: "#D97706",
+        border: "#FDE68A",
+        icon: Wallet,
+      };
+    default:
+      return {
+        label: plugin || "action",
+        bg: "#F1F5F9",
+        color: "#475569",
+        border: "#CBD5E1",
+        icon: Code2,
+      };
+  }
+};
+
+const getEventService = (eventId = "") => {
+  if (eventId.startsWith("call.") || eventId.startsWith("meeting.")) return "voice";
+  if (eventId.startsWith("leads.") || eventId.startsWith("campaign.")) return "leads";
+  if (eventId.startsWith("post.")) return "social";
+  if (eventId.startsWith("wallet.") || eventId.startsWith("account.")) return "account";
+  return "voice";
 };
 
 const formatScopePills = (scopes = []) => {
@@ -1395,22 +1446,32 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                         >
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                             <span style={{ fontWeight: 600, color: C.slateLight, fontSize: 11 }}>Events:</span>
-                            {(ep.events || []).map((ev) => (
-                              <span
-                                key={ev}
-                                style={{
-                                  background: "#ECFDF5",
-                                  color: "#047857",
-                                  padding: "2px 7px",
-                                  borderRadius: 5,
-                                  fontWeight: 600,
-                                  fontSize: 10.5,
-                                  fontFamily: FONT_MONO,
-                                }}
-                              >
-                                {ev}
-                              </span>
-                            ))}
+                            {(ep.events || []).map((ev) => {
+                              const evSvc = getEventService(ev);
+                              const evBadge = getPluginBadge(evSvc);
+                              const EvIcon = evBadge.icon;
+                              return (
+                                <span
+                                  key={ev}
+                                  style={{
+                                    background: evBadge.bg,
+                                    color: evBadge.color,
+                                    border: `1px solid ${evBadge.border}`,
+                                    padding: "2px 7px",
+                                    borderRadius: 5,
+                                    fontWeight: 600,
+                                    fontSize: 10.5,
+                                    fontFamily: FONT_MONO,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 3.5,
+                                  }}
+                                >
+                                  <EvIcon size={9} strokeWidth={2.5} />
+                                  {ev}
+                                </span>
+                              );
+                            })}
                           </div>
 
                           <div>
@@ -1479,28 +1540,30 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           {activeTab === "playground" && (
             <div>
               <div style={{ marginBottom: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                   <div>
-                    <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 16, margin: "0 0 4px", color: C.textInk, fontWeight: 700 }}>
-                      Interactive API Playground
-                    </h3>
-                    <p style={{ margin: 0, fontSize: 12.5, color: C.slate }}>
-                      Execute real live API requests directly against your OutReach environment and inspect real-time responses.
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 3 }}>
+                      <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 16, margin: 0, color: C.textInk, fontWeight: 700 }}>
+                        Interactive API Playground
+                      </h3>
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          padding: "2px 8px",
+                          borderRadius: 6,
+                          backgroundColor: "#ECFDF5",
+                          color: "#059669",
+                          border: "1px solid #A7F3D0",
+                          fontFamily: FONT_MONO,
+                        }}
+                      >
+                        SINGLE ENDPOINT: POST /v1/run
+                      </span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 12, color: C.slate }}>
+                      Execute real live commands directly through the master dispatcher <code>POST /v1/run</code>.
                     </p>
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        padding: "3px 8px",
-                        borderRadius: 6,
-                        backgroundColor: "#ECFDF5",
-                        color: "#059669",
-                        fontWeight: 600,
-                      }}
-                    >
-                      Base: /v1
-                    </span>
                   </div>
                 </div>
               </div>
@@ -1509,7 +1572,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
               <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
                 {PLAYGROUND_CATEGORIES.map((cat) => {
                   const isCatActive = playgroundCategory === cat.id;
-                  const count = cat.id === "all" ? ENDPOINTS.length : ENDPOINTS.filter((e) => e.group === cat.id).length;
+                  const count = cat.id === "all" ? ENDPOINTS.length : ENDPOINTS.filter((e) => pluginAction(e).plugin === cat.id).length;
                   const CatIcon = cat.icon;
                   return (
                     <button
@@ -1520,7 +1583,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                       onClick={() => {
                         setPlaygroundCategory(cat.id);
                         if (cat.id !== "all") {
-                          const firstOfGroup = ENDPOINTS.find((e) => e.group === cat.id);
+                          const firstOfGroup = ENDPOINTS.find((e) => pluginAction(e).plugin === cat.id);
                           if (firstOfGroup) {
                             handleEndpointSelect(endpointKey(firstOfGroup));
                           }
@@ -1610,10 +1673,10 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                     <label style={{ fontSize: 12, fontWeight: 600, color: C.textInk }}>
-                      Select Endpoint
+                      Select Action
                     </label>
                     <span style={{ fontSize: 11, color: C.slate }}>
-                      {playgroundCategory === "all" ? "All endpoints" : PLAYGROUND_CATEGORIES.find((c) => c.id === playgroundCategory)?.label}
+                      {playgroundCategory === "all" ? "All actions" : PLAYGROUND_CATEGORIES.find((c) => c.id === playgroundCategory)?.label}
                     </span>
                   </div>
 
@@ -1641,23 +1704,29 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                     >
                       {(() => {
                         const curEp = playgroundRequest().ep;
-                        const b = getMethodBadge("GET");
+                        const pa = pluginAction(curEp);
+                        const b = getPluginBadge(pa.plugin);
+                        const PluginIcon = b.icon;
                         return (
                           <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1, overflow: "hidden" }}>
                             <span
                               style={{
                                 fontSize: 10,
                                 fontWeight: 800,
-                                padding: "2px 6px",
-                                borderRadius: 4,
+                                padding: "2px 7px",
+                                borderRadius: 5,
                                 backgroundColor: b.bg,
                                 color: b.color,
                                 border: `1px solid ${b.border}`,
-                                letterSpacing: "0.5px",
+                                letterSpacing: "0.4px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 3.5,
                                 flexShrink: 0,
                               }}
                             >
-                              {pluginAction(curEp).plugin}
+                              <PluginIcon size={10} strokeWidth={2.5} />
+                              {pa.plugin}
                             </span>
                             <span
                               style={{
@@ -1669,7 +1738,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                 flexShrink: 0,
                               }}
                             >
-                              {pluginAction(curEp).action}
+                              {pa.action}
                             </span>
                             <span
                               title={curEp.title}
@@ -1730,7 +1799,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                             type="text"
                             value={endpointSearch}
                             onChange={(e) => setEndpointSearch(e.target.value)}
-                            placeholder="Filter by path, method, or title..."
+                            placeholder="Filter by action name or keyword..."
                             autoFocus
                             style={{
                               border: "none",
@@ -1762,14 +1831,15 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                         >
                           {(() => {
                             const filtered = ENDPOINTS.filter((e) => {
-                              const matchesCat = playgroundCategory === "all" || e.group === playgroundCategory;
+                              const pa = pluginAction(e);
+                              const matchesCat = playgroundCategory === "all" || pa.plugin === playgroundCategory;
                               if (!matchesCat) return false;
                               if (!endpointSearch.trim()) return true;
                               const q = endpointSearch.toLowerCase();
                               return (
                                 e.path.toLowerCase().includes(q) ||
-                                pluginAction(e).action.toLowerCase().includes(q) ||
-                                pluginAction(e).plugin.includes(q) ||
+                                pa.action.toLowerCase().includes(q) ||
+                                pa.plugin.includes(q) ||
                                 e.title.toLowerCase().includes(q) ||
                                 e.method.toLowerCase().includes(q) ||
                                 (e.summary && e.summary.toLowerCase().includes(q))
@@ -1779,42 +1849,58 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                             if (filtered.length === 0) {
                               return (
                                 <div style={{ padding: "16px 12px", textAlign: "center", fontSize: 12, color: C.slate }}>
-                                  No endpoints found matching "{endpointSearch}"
+                                  No actions found matching "{endpointSearch}"
                                 </div>
                               );
                             }
 
                             const groupMap = {};
                             filtered.forEach((e) => {
-                              if (!groupMap[e.group]) groupMap[e.group] = [];
-                              groupMap[e.group].push(e);
+                              const p = pluginAction(e).plugin;
+                              if (!groupMap[p]) groupMap[p] = [];
+                              groupMap[p].push(e);
                             });
 
+                            const SERVICE_LABELS = {
+                              voice: "Voice AI (Calls & Meetings)",
+                              leads: "Lead Generation (Search & Campaigns)",
+                              social: "Social Media",
+                              account: "Account & Balance",
+                            };
+
                             return Object.entries(groupMap).map(([grpId, epList]) => {
-                              const grpInfo = GROUPS.find((g) => g.id === grpId) || { label: grpId };
+                              const grpLabel = SERVICE_LABELS[grpId] || grpId;
+                              const grpBadge = getPluginBadge(grpId);
+                              const GrpIcon = grpBadge.icon;
                               return (
                                 <div key={grpId} style={{ marginBottom: 2 }}>
                                   {playgroundCategory === "all" && (
                                     <div
                                       style={{
-                                        padding: "6px 12px 3px",
+                                        padding: "6px 12px",
                                         fontSize: 10,
                                         fontWeight: 700,
-                                        color: C.slate,
+                                        color: grpBadge.color,
                                         textTransform: "uppercase",
                                         letterSpacing: "0.5px",
-                                        backgroundColor: "#F8FAFC",
-                                        borderBottom: `1px solid ${C.borderLight}`,
-                                        borderTop: `1px solid ${C.borderLight}`,
+                                        backgroundColor: grpBadge.bg,
+                                        borderBottom: `1px solid ${grpBadge.border}`,
+                                        borderTop: `1px solid ${grpBadge.border}`,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 5,
                                       }}
                                     >
-                                      {grpInfo.label} ({epList.length})
+                                      <GrpIcon size={10} strokeWidth={2.5} />
+                                      <span>{grpLabel} ({epList.length})</span>
                                     </div>
                                   )}
                                   {epList.map((e) => {
                                     const key = endpointKey(e);
                                     const isSelected = key === playgroundEndpoint;
-                                    const b = getMethodBadge("GET");
+                                    const pa = pluginAction(e);
+                                    const b = getPluginBadge(pa.plugin);
+                                    const ItemIcon = b.icon;
                                     return (
                                       <button
                                         key={key}
@@ -1833,7 +1919,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                           justifyContent: "space-between",
                                           gap: 8,
                                           border: "none",
-                                          backgroundColor: isSelected ? "#EEF2FF" : "transparent",
+                                          backgroundColor: isSelected ? "#F1F5F9" : "transparent",
                                           cursor: "pointer",
                                           textAlign: "left",
                                           transition: "background 0.12s ease",
@@ -1850,16 +1936,20 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                             style={{
                                               fontSize: 9.5,
                                               fontWeight: 800,
-                                              padding: "1px 5px",
+                                              padding: "2px 6px",
                                               borderRadius: 4,
                                               backgroundColor: b.bg,
                                               color: b.color,
                                               border: `1px solid ${b.border}`,
-                                              letterSpacing: "0.5px",
+                                              letterSpacing: "0.4px",
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              gap: 3,
                                               flexShrink: 0,
                                             }}
                                           >
-                                            {pluginAction(e).plugin}
+                                            <ItemIcon size={9} strokeWidth={2.5} />
+                                            {pa.plugin}
                                           </span>
                                           <span
                                             style={{
@@ -1871,7 +1961,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                                               flexShrink: 0,
                                             }}
                                           >
-                                            {pluginAction(e).action}
+                                            {pa.action}
                                           </span>
                                           <span
                                             title={e.title}
@@ -2234,6 +2324,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
               borderRadius: 16,
               width: "100%",
               maxWidth: 480,
+              maxHeight: "90vh",
+              overflowY: "auto",
               padding: 24,
               boxShadow: "0 20px 50px rgba(0, 0, 0, 0.3)",
             }}
@@ -2439,11 +2531,13 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           style={{
             position: "fixed",
             inset: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.4)",
+            backgroundColor: "rgba(0, 0, 0, 0.45)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             zIndex: 1100,
+            padding: 16,
+            boxSizing: "border-box",
           }}
           onClick={() => setShowCreateWebhookModal(false)}
         >
@@ -2452,147 +2546,374 @@ export function DeveloperApiKeysModal({ open, onClose }) {
               backgroundColor: "#fff",
               borderRadius: 16,
               width: "100%",
-              maxWidth: 520,
-              padding: 24,
-              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.3)",
+              maxWidth: 580,
+              maxHeight: "88vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 25px 60px rgba(0, 0, 0, 0.3)",
+              overflow: "hidden",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, margin: "0 0 12px" }}>
-              Register Webhook Endpoint
-            </h3>
-
-            <form onSubmit={handleCreateWebhook}>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.textInk, marginBottom: 6 }}>
-                  Endpoint URL
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://your-crm.com/api/webhooks/outreach"
-                  value={webhookUrl}
-                  onChange={(e) => setWebhookUrl(e.target.value)}
-                  required
-                  autoFocus
+            {/* Pinned Modal Header */}
+            <div
+              style={{
+                padding: "18px 22px 14px",
+                borderBottom: `1px solid ${C.borderLight}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexShrink: 0,
+                backgroundColor: "#fff",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
                   style={{
-                    width: "100%",
-                    height: 40,
+                    width: 36,
+                    height: 36,
                     borderRadius: 10,
-                    border: `1px solid ${C.border}`,
-                    padding: "0 12px",
-                    fontSize: 13.5,
-                    fontFamily: FONT_MONO,
-                    outline: "none",
-                    boxSizing: "border-box",
+                    backgroundColor: "#EEF2FF",
+                    color: C.cobalt,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
-                />
-                <span style={{ fontSize: 11, color: C.slate, marginTop: 4, display: "block" }}>
-                  Must begin with <code>https://</code> (or <code>http://localhost</code> for local development).
-                </span>
+                >
+                  <Radio size={18} />
+                </div>
+                <div>
+                  <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, margin: 0, color: C.textInk }}>
+                    Register Webhook Endpoint
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: C.slate }}>
+                    Receive real-time signed HTTP POST events when actions finish.
+                  </p>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateWebhookModal(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: C.slate,
+                  padding: 4,
+                  borderRadius: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.textInk, marginBottom: 6 }}>
-                  Description / Partner App
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Tender Portal Call Logger"
-                  value={webhookDesc}
-                  onChange={(e) => setWebhookDesc(e.target.value)}
-                  style={{
-                    width: "100%",
-                    height: 40,
-                    borderRadius: 10,
-                    border: `1px solid ${C.border}`,
-                    padding: "0 12px",
-                    fontSize: 13.5,
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
+            {/* Form with scrollable body and pinned footer */}
+            <form
+              onSubmit={handleCreateWebhook}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                flex: 1,
+                minHeight: 0,
+                overflow: "hidden",
+              }}
+            >
+              {/* Scrollable Form Body */}
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  padding: "18px 22px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 14,
+                }}
+              >
+                {/* Endpoint URL */}
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, marginBottom: 5 }}>
+                    Endpoint URL <span style={{ color: "#EF4444" }}>*</span>
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://your-crm.com/api/webhooks/outreach"
+                    value={webhookUrl}
+                    onChange={(e) => setWebhookUrl(e.target.value)}
+                    required
+                    autoFocus
+                    style={{
+                      width: "100%",
+                      height: 38,
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      padding: "0 12px",
+                      fontSize: 13,
+                      fontFamily: FONT_MONO,
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <span style={{ fontSize: 11, color: C.slate, marginTop: 4, display: "block" }}>
+                    Must begin with <code>https://</code> (or <code>http://localhost</code> for local development).
+                  </span>
+                </div>
 
-              {/* Events Checklist */}
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.textInk, marginBottom: 8 }}>
-                  Subscribed Events
-                </label>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {supportedEvents.map((ev) => {
-                    const isChecked = webhookEvents.includes(ev.id);
+                {/* Description */}
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, marginBottom: 5 }}>
+                    Description / Partner App
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Tender Portal Call Logger, CRM Sync"
+                    value={webhookDesc}
+                    onChange={(e) => setWebhookDesc(e.target.value)}
+                    style={{
+                      width: "100%",
+                      height: 38,
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      padding: "0 12px",
+                      fontSize: 13,
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
 
-                    return (
-                      <label
-                        key={ev.id}
+                {/* Events Section */}
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: C.textInk }}>
+                        Subscribed Events
+                      </span>
+                      <span style={{ fontSize: 11, color: C.slate, marginLeft: 6 }}>
+                        ({webhookEvents.length} of {supportedEvents.length} selected)
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setWebhookEvents(supportedEvents.map((ev) => ev.id))}
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          fontSize: 12.5,
+                          background: "transparent",
+                          border: "none",
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                          color: C.cobalt,
                           cursor: "pointer",
-                          padding: "8px 12px",
-                          borderRadius: 10,
-                          backgroundColor: isChecked ? "#ECFDF5" : "#FAFBFD",
-                          border: `1px solid ${isChecked ? "#A7F3D0" : C.borderLight}`,
+                          padding: 0,
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setWebhookEvents([...webhookEvents, ev.id]);
-                            } else {
-                              setWebhookEvents(webhookEvents.filter((id) => id !== ev.id));
-                            }
-                          }}
-                        />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontWeight: 600, color: C.textInk }}>{ev.label}</span>
-                            <code style={{ fontSize: 10.5, color: C.slate, fontFamily: FONT_MONO }}>{ev.id}</code>
+                        Select all
+                      </button>
+                      <span style={{ color: C.borderLight }}>|</span>
+                      <button
+                        type="button"
+                        onClick={() => setWebhookEvents([])}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                          color: C.slate,
+                          cursor: "pointer",
+                          padding: 0,
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scrollable, categorized event cards */}
+                  <div
+                    style={{
+                      maxHeight: 280,
+                      overflowY: "auto",
+                      border: `1px solid ${C.borderLight}`,
+                      borderRadius: 10,
+                      backgroundColor: "#FAFBFD",
+                      padding: 10,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 12,
+                    }}
+                  >
+                    {[
+                      { id: "voice", label: "Voice AI & Calendar Bookings", icon: Phone },
+                      { id: "leads", label: "Lead Gen & Email Campaigns", icon: Users },
+                      { id: "social", label: "Social Media Automation", icon: Megaphone },
+                    ].map((cat) => {
+                      const catEvents = supportedEvents.filter((ev) => getEventService(ev.id) === cat.id);
+                      if (catEvents.length === 0) return null;
+                      const CatIcon = cat.icon;
+                      const catBadge = getPluginBadge(cat.id);
+                      return (
+                        <div key={cat.id}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "4px 8px",
+                              marginBottom: 6,
+                              borderRadius: 6,
+                              backgroundColor: catBadge.bg,
+                              color: catBadge.color,
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.5px",
+                            }}
+                          >
+                            <CatIcon size={12} strokeWidth={2.5} />
+                            <span>{cat.label} ({catEvents.length})</span>
                           </div>
-                          <div style={{ fontSize: 11, color: C.slate }}>{ev.desc}</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {catEvents.map((ev) => {
+                              const isChecked = webhookEvents.includes(ev.id);
+                              return (
+                                <label
+                                  key={ev.id}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "flex-start",
+                                    gap: 10,
+                                    fontSize: 12,
+                                    cursor: "pointer",
+                                    padding: "8px 10px",
+                                    borderRadius: 8,
+                                    backgroundColor: isChecked ? "#fff" : "transparent",
+                                    border: `1px solid ${isChecked ? catBadge.border : "transparent"}`,
+                                    boxShadow: isChecked ? "0 1px 3px rgba(0,0,0,0.04)" : "none",
+                                    transition: "all 0.12s ease",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    style={{ marginTop: 2, cursor: "pointer", accentColor: C.cobalt }}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setWebhookEvents([...webhookEvents, ev.id]);
+                                      } else {
+                                        setWebhookEvents(webhookEvents.filter((id) => id !== ev.id));
+                                      }
+                                    }}
+                                  />
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                                      <span
+                                        style={{
+                                          fontSize: 9.5,
+                                          fontWeight: 800,
+                                          padding: "1px 5px",
+                                          borderRadius: 4,
+                                          backgroundColor: catBadge.bg,
+                                          color: catBadge.color,
+                                          border: `1px solid ${catBadge.border}`,
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: 3,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        <CatIcon size={9} strokeWidth={2.5} />
+                                        {catBadge.label}
+                                      </span>
+                                      <span style={{ fontWeight: 600, color: C.textInk, fontSize: 12.5 }}>
+                                        {ev.label}
+                                      </span>
+                                      <code
+                                        style={{
+                                          fontSize: 10.5,
+                                          color: C.slate,
+                                          fontFamily: FONT_MONO,
+                                          backgroundColor: "#F1F5F9",
+                                          padding: "1px 5px",
+                                          borderRadius: 4,
+                                        }}
+                                      >
+                                        {ev.id}
+                                      </code>
+                                    </div>
+                                    <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.35 }}>
+                                      {ev.desc}
+                                    </div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </label>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateWebhookModal(false)}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: 8,
-                    border: `1px solid ${C.border}`,
-                    background: "#fff",
-                    fontWeight: 600,
-                    fontSize: 13,
-                    cursor: "pointer",
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creatingWebhook || !webhookUrl.trim() || webhookEvents.length === 0}
-                  style={{
-                    padding: "8px 20px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: C.cobalt,
-                    color: "#fff",
-                    fontWeight: 600,
-                    fontSize: 13,
-                    cursor: "pointer",
-                  }}
-                >
-                  {creatingWebhook ? "Registering..." : "Register Webhook"}
-                </button>
+              {/* Pinned Modal Footer */}
+              <div
+                style={{
+                  padding: "12px 22px",
+                  borderTop: `1px solid ${C.borderLight}`,
+                  backgroundColor: "#F8FAFC",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ fontSize: 12, color: C.slate }}>
+                  Signing secret will be shown once after registration.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateWebhookModal(false)}
+                    style={{
+                      padding: "7px 14px",
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      background: "#fff",
+                      fontWeight: 600,
+                      fontSize: 12.5,
+                      cursor: "pointer",
+                      color: C.textInk,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={creatingWebhook || !webhookUrl.trim() || webhookEvents.length === 0}
+                    style={{
+                      padding: "7px 18px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: creatingWebhook || !webhookUrl.trim() || webhookEvents.length === 0 ? "#CBD5E1" : C.cobalt,
+                      color: "#fff",
+                      fontWeight: 600,
+                      fontSize: 12.5,
+                      cursor: creatingWebhook || !webhookUrl.trim() || webhookEvents.length === 0 ? "not-allowed" : "pointer",
+                      boxShadow: creatingWebhook || !webhookUrl.trim() || webhookEvents.length === 0 ? "none" : "0 2px 6px rgba(52, 87, 213, 0.25)",
+                    }}
+                  >
+                    {creatingWebhook ? "Registering..." : "Register Webhook"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

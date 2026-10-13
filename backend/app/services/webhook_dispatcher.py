@@ -25,22 +25,16 @@ from app.models.models import WebhookDeliveryLog, WebhookEndpoint
 logger = logging.getLogger("webhook_dispatcher")
 
 SUPPORTED_EVENTS = [
+    # Voice AI & Calendar
     {"id": "call.completed", "label": "Call completed", "service": "voice",
      "desc": "An AI phone call finished. Includes the outcome, answers, transcript and any booked meeting."},
     {"id": "call.failed", "label": "Call failed", "service": "voice",
      "desc": "A call could not be completed (busy, unanswered, rejected, carrier error)."},
     {"id": "call.needs_human", "label": "Call needs a person", "service": "voice",
      "desc": "The AI asked for a person to step in, or the caller asked for one. Take over from the live call page."},
-    {"id": "post.ready", "label": "Post ready to approve", "service": "social",
-     "desc": "A post was written and is waiting for approval. Includes the preview link."},
-    {"id": "post.approved", "label": "Post approved", "service": "social",
-     "desc": "A post was approved (by link, email, the app or the API) and is scheduled."},
-    {"id": "post.rejected", "label": "Post rejected or cancelled", "service": "social",
-     "desc": "A post was rejected or cancelled and will not go live."},
-    {"id": "post.published", "label": "Post published", "service": "social",
-     "desc": "A post went live on its channels."},
-    {"id": "post.failed", "label": "Post failed", "service": "social",
-     "desc": "A post could not be written or published. Includes the reason."},
+    {"id": "meeting.booked", "label": "Meeting booked", "service": "voice",
+     "desc": "A meeting was booked, by the API or by an AI call."},
+    # Lead Gen & Email Outreach
     {"id": "leads.ready", "label": "Lead search finished", "service": "leads",
      "desc": "A lead search (and any checks you asked for) is done."},
     {"id": "campaign.ready", "label": "Campaign ready to approve", "service": "leads",
@@ -51,8 +45,17 @@ SUPPORTED_EVENTS = [
      "desc": "Someone replied to a campaign email."},
     {"id": "campaign.completed", "label": "Campaign finished", "service": "leads",
      "desc": "Every email in the campaign has been sent."},
-    {"id": "meeting.booked", "label": "Meeting booked", "service": "any",
-     "desc": "A meeting was booked, by the API or by an AI call."},
+    # Social Media Automation
+    {"id": "post.ready", "label": "Post ready to approve", "service": "social",
+     "desc": "A post was written and is waiting for approval. Includes the preview link."},
+    {"id": "post.approved", "label": "Post approved", "service": "social",
+     "desc": "A post was approved (by link, email, the app or the API) and is scheduled."},
+    {"id": "post.published", "label": "Post published", "service": "social",
+     "desc": "A post went live on its channels."},
+    {"id": "post.rejected", "label": "Post rejected or cancelled", "service": "social",
+     "desc": "A post was rejected or cancelled and will not go live."},
+    {"id": "post.failed", "label": "Post failed", "service": "social",
+     "desc": "A post could not be written or published. Includes the reason."},
 ]
 API_VERSION = "2026-10"
 # A failed delivery is tried again after each of these waits (seconds). Kept in memory:
