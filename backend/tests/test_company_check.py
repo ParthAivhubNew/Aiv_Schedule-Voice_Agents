@@ -84,10 +84,47 @@ def test_no_supplier_names_reach_the_reasons():
 def test_a_run_is_priced_per_step_and_rounded_up_once():
     rates = {"check_registry": {"credits": 1}, "google_deep_search": {"credits": 2}, "check_email": {"credits": 2.5}}
     p = cc.price_parts(rates, 1000, 3, registry=True, deep=True, email=True)
-    assert p == {"registry": 1000, "deep": 2000, "email": 8, "web": 0, "total": 3008}  # 3 emails x 2.5 = 7.5 -> 8
+    assert p == {"registry": 1000, "deep": 2000, "email": 8, "web": 0, "phone": 0, "total": 3008}  # 3 emails x 2.5 = 7.5 -> 8
     rates["lead_lookup"] = {"credits": 5}
     assert cc.price_parts(rates, 10, 0, registry=False, deep=False, email=False, web_rows=4)["web"] == 20
     assert cc.price_parts(rates, 10, 10, registry=False, deep=False, email=False)["total"] == 0
+    rates["lead_phone_check"] = {"credits": 1}
+    assert cc.price_parts(rates, 10, 0, registry=False, deep=False, email=False, phone_rows=11)["phone"] == 3  # 11 numbers, 5 to a credit
+
+
+def test_a_uk_number_saved_without_its_zero_is_tried_as_a_uk_number():
+    assert cc.phone_candidates("7702167658") == ["+447702167658", "+7702167658"]
+    assert cc.phone_candidates("07702 167658") == ["+447702167658"]
+    assert cc.phone_candidates("+1 202 555 0143") == ["+12025550143"]
+
+
+async def test_the_phone_network_decides_and_the_missing_zero_becomes_a_fix(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import number_check as NC
+
+    class Net:
+        async def lookup_number(self, e164):
+            from app.services.telnyx_client import TelnyxError
+            if e164 == "+447702167658":
+                return {"carrier": {"type": "mobile", "normalized_carrier": "EE"}, "country_code": "GB"}
+            raise TelnyxError("unknown", 404)
+
+    async def no_cache(db, phones):
+        return {}
+
+    async def keep(db, rows):
+        return None
+
+    monkeypatch.setattr(NC, "cached_answers", no_cache)
+    monkeypatch.setattr(NC, "remember", keep)
+    ctx = SimpleNamespace(phone_sem=asyncio.Semaphore(2), phone_client=Net())
+    state, asked = await cc.verify_phone({"id": "a", "name": "R S Cars", "phone": "7702167658"}, {"state": "ok"}, ctx)
+    assert asked == 1 and state["verified"] is True and state["suggest"] == "07702167658" and state["carrier"] == "EE"
+    fixes = cc.build_fixes({"phone": "7702167658", "email": ""}, None, {"phone": state}, "")
+    assert [(f["field"], f["from"], f["to"], f["kind"]) for f in fixes] == [("phone", "7702167658", "07702167658", "fix")]
+    state, asked = await cc.verify_phone({"id": "b", "name": "X", "phone": "02080580305"}, {"state": "ok"}, ctx)
+    assert state["state"] == "invalid" and state["verified"] is False and asked == 1
 
 
 # ── a whole run through the API ─────────────────────────────────────────────────────────────────
@@ -116,7 +153,7 @@ def fake_world(monkeypatch):
 
     async def readiness():
         from types import SimpleNamespace
-        return {"sources": [SimpleNamespace(id="ds_x", config={})], "registry": True, "deep": True, "email": True}
+        return {"sources": [SimpleNamespace(id="ds_x", config={})], "registry": True, "deep": True, "email": True, "phone": False}
 
     async def registry(sources, paces, name):
         calls["registry"] += 1
@@ -173,7 +210,7 @@ async def test_a_selected_list_is_checked_charged_once_and_nothing_saved_is_over
 
         est = (await c.post("/api/leads/checks/estimate", json={"ids": ids, "include_email": True})).json()
         assert est["companies"] == 4 and est["with_contact"] == 1
-        assert est["max_credits"] == {"registry": 4, "deep": 8, "email": 3, "web": 0, "total": 15}  # 1 email x 2.5 -> 3
+        assert est["max_credits"] == {"registry": 4, "deep": 8, "email": 3, "web": 0, "phone": 0, "total": 15}  # 1 email x 2.5 -> 3
 
         started = await c.post("/api/leads/checks", json={"ids": ids, "include_email": True})
         assert started.status_code == 200, started.text

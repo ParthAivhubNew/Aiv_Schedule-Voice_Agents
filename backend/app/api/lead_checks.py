@@ -27,6 +27,7 @@ class CheckIn(BaseModel):
     pending_only: bool = False  # only companies whose register check is still pending
     include_email: bool = False
     include_web: bool = False  # also run the live web search for companies not researched yet
+    include_phone: bool = True  # ask the phone network whether each number is real (1 credit per 5 numbers)
 
 
 async def _accounts(db: AsyncSession, body: CheckIn) -> List[LeadAccount]:
@@ -46,7 +47,7 @@ async def _accounts(db: AsyncSession, body: CheckIn) -> List[LeadAccount]:
 @router.post("/estimate")
 async def estimate(body: CheckIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """What a check would cost at most, and which checks can run right now. Charges nothing."""
-    return await job.estimate(db, await _accounts(db, body), body.include_email, body.include_web)
+    return await job.estimate(db, await _accounts(db, body), body.include_email, body.include_web, body.include_phone)
 
 
 @router.post("")

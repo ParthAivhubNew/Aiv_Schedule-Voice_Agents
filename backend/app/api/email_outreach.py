@@ -139,6 +139,7 @@ def _mailbox_out(mb: EmailMailbox, log: Optional[EmailSendLog]) -> Dict[str, Any
         "warmup_started_at": _iso(mb.warmup_started_at), "graduated_at": _iso(mb.graduated_at),
         "spf_verified": mb.spf_verified, "dkim_verified": mb.dkim_verified,
         "dmarc_verified": mb.dmarc_verified, "mx_verified": mb.mx_verified,
+        "aliases": mb.aliases or [],
         "dns": mb.dns_check_details or {}, "last_sync_at": _iso(mb.last_sync_at),
         "can_send": not _sending_blockers(mb), "blockers": _sending_blockers(mb),
         "setup": setup_guide(mb.email.split("@")[-1], mb.provider, mb.dns_check_details or {
@@ -211,6 +212,48 @@ async def update_mailbox(mailbox_id: str, body: MailboxPatch, request: Request, 
         mb.last_error = ""
         if mb.status == "error":
             mb.status = "connected"
+    await db.commit()
+    return {"mailbox": _mailbox_out(mb, None)}
+
+
+class AliasBody(BaseModel):
+    address: str
+    name: str = ""
+
+
+@router.post("/mailboxes/{mailbox_id}/aliases")
+async def add_alias(mailbox_id: str, body: AliasBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """A second address this mailbox can send as (an alias set up at the email provider). It must be on the
+    mailbox's own domain, so the mailbox's SPF, DKIM and DMARC records cover it."""
+    current(request)
+    mb = await _mailbox(db, mailbox_id)
+    addr = body.address.strip().lower()
+    if not _EMAIL.match(addr):
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    if addr.split("@")[-1] != mb.email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail=f"An alias must be on the same domain as the mailbox (@{mb.email.split('@')[-1]}).")
+    if addr == mb.email:
+        raise HTTPException(status_code=400, detail="That is the mailbox's own address.")
+    aliases = list(mb.aliases or [])
+    if any(a["address"] == addr for a in aliases):
+        raise HTTPException(status_code=409, detail="That alias is already added.")
+    if len(aliases) >= 10:
+        raise HTTPException(status_code=400, detail="A mailbox can have up to 10 aliases.")
+    aliases.append({"address": addr, "name": body.name.strip()[:80]})
+    mb.aliases = aliases
+    await db.commit()
+    return {"mailbox": _mailbox_out(mb, None)}
+
+
+@router.delete("/mailboxes/{mailbox_id}/aliases")
+async def remove_alias(mailbox_id: str, address: str, request: Request, db: AsyncSession = Depends(get_db)):
+    current(request)
+    mb = await _mailbox(db, mailbox_id)
+    want = address.strip().lower()
+    mb.aliases = [a for a in (mb.aliases or []) if a["address"] != want]
+    for camp in (await db.execute(select(EmailCampaign))).scalars().all():
+        if (camp.alias_map or {}).get(mailbox_id) == want:
+            camp.alias_map = {k: v for k, v in camp.alias_map.items() if k != mailbox_id}
     await db.commit()
     return {"mailbox": _mailbox_out(mb, None)}
 
@@ -316,6 +359,7 @@ class CampaignBody(BaseModel):
     days_of_week: List[int] = [1, 2, 3, 4, 5]
     min_delay_seconds: int = 120
     steps: List[StepBody] = []
+    aliases: Dict[str, str] = {}  # {mailbox_id: alias address to send as}; leave a mailbox out to send as itself
 
 
 def _check_campaign(body: CampaignBody) -> None:
@@ -353,6 +397,16 @@ async def _known_mailboxes(db: AsyncSession, ids: List[str]) -> List[str]:
     return [i for i in dict.fromkeys(ids) if i in have]
 
 
+async def _clean_aliases(db: AsyncSession, ids: List[str], wanted: Dict[str, str]) -> Dict[str, str]:
+    """Only an alias the chosen mailbox really has is kept."""
+    out: Dict[str, str] = {}
+    for mid, addr in (wanted or {}).items():
+        mb = (await db.execute(select(EmailMailbox).where(EmailMailbox.id == mid))).scalars().first()
+        if mid in ids and mb and any(a["address"] == (addr or "").strip().lower() for a in (mb.aliases or [])):
+            out[mid] = addr.strip().lower()
+    return out
+
+
 async def _campaign_out(db: AsyncSession, camp: EmailCampaign, full: bool = False) -> Dict[str, Any]:
     counts = dict((await db.execute(select(EmailEnrollment.status, func.count(EmailEnrollment.id))
                                     .where(EmailEnrollment.campaign_id == camp.id).group_by(EmailEnrollment.status))).all())
@@ -360,7 +414,7 @@ async def _campaign_out(db: AsyncSession, camp: EmailCampaign, full: bool = Fals
                                   .where(EmailMessage.campaign_id == camp.id).group_by(EmailMessage.status))).all())
     sent = sum(msgs.values())
     out = {
-        "id": camp.id, "name": camp.name, "status": camp.status, "mailbox_ids": camp.mailbox_ids or [],
+        "id": camp.id, "name": camp.name, "status": camp.status, "mailbox_ids": camp.mailbox_ids or [], "aliases": camp.alias_map or {},
         "sending_window_start": camp.sending_window_start, "sending_window_end": camp.sending_window_end,
         "days_of_week": camp.days_of_week or [], "min_delay_seconds": camp.min_delay_seconds,
         "leads": sum(counts.values()), "lead_status": counts, "sent": sent,
@@ -392,8 +446,9 @@ async def list_campaigns(request: Request, db: AsyncSession = Depends(get_db)):
 async def create_campaign(body: CampaignBody, request: Request, db: AsyncSession = Depends(get_db)):
     current(request)
     _check_campaign(body)
+    known = await _known_mailboxes(db, body.mailbox_ids)
     camp = EmailCampaign(id=f"cp_{uuid.uuid4().hex[:12]}", name=body.name.strip()[:120], status="draft",
-                         mailbox_ids=await _known_mailboxes(db, body.mailbox_ids), timezone_policy="org",
+                         mailbox_ids=known, alias_map=await _clean_aliases(db, known, body.aliases), timezone_policy="org",
                          sending_window_start=body.sending_window_start, sending_window_end=body.sending_window_end,
                          days_of_week=sorted(set(body.days_of_week)), min_delay_seconds=max(30, body.min_delay_seconds),
                          max_delay_seconds=max(30, body.min_delay_seconds))
@@ -418,6 +473,7 @@ async def update_campaign(campaign_id: str, body: CampaignBody, request: Request
     camp = await _campaign(db, campaign_id)
     camp.name = body.name.strip()[:120]
     camp.mailbox_ids = await _known_mailboxes(db, body.mailbox_ids)
+    camp.alias_map = await _clean_aliases(db, camp.mailbox_ids, body.aliases)
     camp.sending_window_start, camp.sending_window_end = body.sending_window_start, body.sending_window_end
     camp.days_of_week = sorted(set(body.days_of_week))
     camp.min_delay_seconds = camp.max_delay_seconds = max(30, body.min_delay_seconds)

@@ -238,6 +238,11 @@ async def _merge_leadgen_email_wallets(conn: AsyncConnection) -> None:
             )
 
 
+async def _mailbox_aliases(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE email_mailboxes ADD COLUMN IF NOT EXISTS aliases JSON"))
+    await conn.execute(text("ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS alias_map JSON"))
+
+
 async def _phone_rental_due(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE org_phone_numbers ADD COLUMN IF NOT EXISTS rent_due_at TIMESTAMP"))
     await conn.execute(text("UPDATE org_phone_numbers SET rent_due_at = created_at + interval '30 days' WHERE rent_due_at IS NULL AND status = 'active'"))
@@ -721,6 +726,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_30_business_record_postcode_index", _business_record_postcode_index),
     ("2026_10_31_lead_account_custom_column", _lead_account_custom_column),
     ("2026_11_01_business_record_sic_text_trigram_index", _business_record_sic_text_trigram_index),
+    ("2026_11_02_mailbox_aliases", _mailbox_aliases),
 ]
 
 

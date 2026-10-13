@@ -32,6 +32,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
   const [emails, setEmails] = useState([blankEmail(0), blankEmail(3)]);
   const [mailboxIds, setMailboxIds] = useState(() => outreach.mailboxes.filter((m) => !_blocked(m)).map((m) => m.id));
   const [sched, setSched] = useState({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", gap: 120 });
+  const [aliasMap, setAliasMap] = useState({}); // {mailbox id: alias address it sends as}
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -58,7 +59,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
     try {
       made = (await api.emailCreateCampaign({
         name: name.trim() || `${list.name} campaign`, mailbox_ids: mailboxIds, sending_window_start: sched.start, sending_window_end: sched.end,
-        days_of_week: sched.days, min_delay_seconds: Number(sched.gap) || 120,
+        days_of_week: sched.days, min_delay_seconds: Number(sched.gap) || 120, aliases: aliasMap,
         steps: emails.map((e) => ({ ...e, delay_days: Number(e.delay_days) || 0 })),
       })).campaign;
       const out = await api.emailAddLeads(made.id, leads);
@@ -89,6 +90,13 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
           </React.Fragment>
         ))}
         <span style={{ flex: 1 }} />
+        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Clear everything you've entered and go back to step 1" disabled={busy}
+          onClick={() => {
+            if (!window.confirm("Start over? What you've typed in these steps will be cleared.")) return;
+            setStep(0); setListId(initialListId); setName(""); setEmails([blankEmail(0), blankEmail(3)]);
+            setMailboxIds(outreach.mailboxes.filter((m) => !_blocked(m)).map((m) => m.id));
+            setSched({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", gap: 120 }); setAliasMap({}); setError("");
+          }}>Start over</button>
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
       </div>
 
@@ -142,14 +150,26 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
         {step === 2 ? (
           <>
             <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Which mailboxes should send it?</div>
-            <div style={muted}>Emails are shared out across the mailboxes you tick. Only mailboxes that have passed their DNS checks and started warming up can send.</div>
+            <div style={muted}>Emails are shared out across the mailboxes you tick. If one gets blocked or fails, the others carry on, so tick more than one. Only mailboxes that have passed their DNS checks and started warming up can send.</div>
             {!mailboxes.length ? <div style={muted}>You have no mailbox connected yet. Connect one under Mailboxes first.</div> : null}
             {mailboxes.map((m) => (
-              <label key={m.id} className="ui-card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}>
-                <input type="checkbox" checked={mailboxIds.includes(m.id)} onChange={(e) => setMailboxIds(e.target.checked ? [...mailboxIds, m.id] : mailboxIds.filter((x) => x !== m.id))} />
-                <span style={{ ...text, fontWeight: 600, color: C.ink }}>{m.email}</span>
-                <span style={{ ...text, fontSize: 12.5, marginLeft: "auto", color: _blocked(m) ? C.red : C.green }}>{_blocked(m) ? `Can't send yet: ${_blocked(m)}` : "Ready to send"}</span>
-              </label>
+              <div key={m.id} className="ui-card" style={{ padding: "10px 12px", display: "grid", gap: 8 }}>
+                <label style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}>
+                  <input type="checkbox" checked={mailboxIds.includes(m.id)} onChange={(e) => setMailboxIds(e.target.checked ? [...mailboxIds, m.id] : mailboxIds.filter((x) => x !== m.id))} />
+                  <span style={{ ...text, fontWeight: 600, color: C.ink }}>{m.email}</span>
+                  <span style={{ ...text, fontSize: 12.5, marginLeft: "auto", color: _blocked(m) ? C.red : C.green }}>{_blocked(m) ? `Can't send yet: ${_blocked(m)}` : "Ready to send"}</span>
+                </label>
+                {mailboxIds.includes(m.id) && (m.aliases || []).length ? (
+                  <label style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingLeft: 26 }} title="Recipients see this address in the From line. Replies come back to this mailbox.">
+                    Send as
+                    <select className="ui-input" style={{ width: "auto", height: 30 }} value={aliasMap[m.id] || ""}
+                      onChange={(e) => setAliasMap((a) => { const next = { ...a }; if (e.target.value) next[m.id] = e.target.value; else delete next[m.id]; return next; })}>
+                      <option value="">{m.email} (the mailbox itself)</option>
+                      {m.aliases.map((a) => <option key={a.address} value={a.address}>{a.name ? `${a.name} <${a.address}>` : a.address}</option>)}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
             ))}
           </>
         ) : null}
@@ -179,7 +199,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
             <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4, ...text, fontSize: 13.5, color: C.textInk }}>
               <li><strong>{leads.length.toLocaleString()}</strong> people at companies in <strong>{list?.name}</strong>{members.length > leads.length ? ` (${(members.length - leads.length).toLocaleString()} skipped: no email yet)` : ""}</li>
               <li><strong>{emails.length}</strong> email{emails.length === 1 ? "" : "s"}, the first starting "{emails[0].subject || "…"}"</li>
-              <li>Sent from <strong>{chosen.map((m) => m.email).join(", ")}</strong></li>
+              <li>Sent from <strong>{chosen.map((m) => aliasMap[m.id] || m.email).join(", ")}</strong></li>
               <li>{sched.days.map((d) => DAYS.find((x) => x[0] === d)[1]).join(", ")}, {sched.start} to {sched.end}, one email every {sched.gap}s at most</li>
               <li>Every email gets an unsubscribe link, and anyone on your do-not-email list is skipped.</li>
             </ul>

@@ -1,11 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, Search, Sparkles, Users, X } from "lucide-react";
+import { ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, RotateCcw, Search, Sparkles, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
 import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
+import { SearchStatus } from "./SearchStatus";
 
+const FAVOURITES = "Favourites";
+const CHECK_TIPS = {
+  hasWebsite: "Only companies we already hold a website for",
+  hasPhone: "Only companies we already hold a phone number for",
+  hasEmail: "Only companies we already hold an email for",
+  includeClosed: "Also show companies that have closed or been dissolved",
+};
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
@@ -265,7 +273,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store }) {
+function FindLeadsSearch({ store, listsStore }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -296,6 +304,10 @@ function FindLeadsSearch({ store }) {
   const [understood, setUnderstood] = useState([]);
   const [dropTerms, setDropTerms] = useState([]);
   const dropFor = useRef("");
+  // Every search can be cancelled: a newer run id makes the older one's answer be ignored when it arrives.
+  const runId = useRef(0);
+  const pausedRef = useRef(false);
+  const [paused, setPaused] = useState(false);
 
   const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
@@ -304,6 +316,7 @@ function FindLeadsSearch({ store }) {
   ]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const chatRun = useRef(0);
   const scrollRef = useRef(null);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollIntoView({ block: "nearest" });
@@ -348,6 +361,7 @@ function FindLeadsSearch({ store }) {
     if (shape) { countArea(shape, f, drop); return; }
     setBusy(true);
     setError("");
+    const myRun = ++runId.current;
     if (!offset) {
       // A new search never leaves the last one's companies, filters and words on screen: if it fails,
       // only the error shows, not results that belong to something else.
@@ -359,6 +373,7 @@ function FindLeadsSearch({ store }) {
     }
     try {
       const r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop });
+      if (myRun !== runId.current) return; // cancelled while it was running
       if (r.points) setPoints((p) => ({ ...p, ...r.points }));
       setCompanies((prev) => (offset ? [...prev, ...r.companies] : r.companies));
       setTotal(r.total);
@@ -368,10 +383,36 @@ function FindLeadsSearch({ store }) {
       setUnderstood(r.understood || []);
       setSearched(true);
     } catch (err) {
-      setError(err.message || "The search didn't finish. Try again.");
+      if (myRun === runId.current) setError(err.message || "The search didn't finish. Try again.");
     } finally {
-      setBusy(false);
+      if (myRun === runId.current) setBusy(false);
     }
+  };
+
+  const cancelSearch = () => {
+    runId.current += 1;
+    setBusy(false);
+    setSearched(true); // what was already on screen stays; nothing claims "0 companies" for a search that was stopped
+  };
+  // Back to a clean start: empty filters, no area, no results, nothing running.
+  const resetSearch = () => {
+    runId.current += 1;
+    stopArea.current = true;
+    pausedRef.current = false;
+    setPaused(false);
+    setForm(EMPTY_FORM);
+    setExcluded([]);
+    setArea(null);
+    setAreaStep(null);
+    setCompanies([]);
+    setTotal(0);
+    setCapped(false);
+    setChips([]);
+    setUnderstood([]);
+    setDropTerms([]);
+    setSearched(false);
+    setError("");
+    setBusy(false);
   };
 
   const changePageSize = (n) => {
@@ -400,8 +441,10 @@ function FindLeadsSearch({ store }) {
     stopArea.current = true;
     setError("");
     setAreaStep({ phase: "counting" });
+    const myRun = ++runId.current;
     try {
       const r = await api.areaCount({ filters: formToFilters(f), area: shape, drop_terms: drop });
+      if (myRun !== runId.current) return;
       widenRef.current = Boolean(r.widened);
       setUnderstood(r.understood || []);
       if (r.candidates) {
@@ -410,6 +453,7 @@ function FindLeadsSearch({ store }) {
         setAreaStep({ phase: "choose", candidates: 0, capped: r.capped });
       }
     } catch (err) {
+      if (myRun !== runId.current) return;
       setAreaStep(null);
       setError(err.message || "The area couldn't be counted. Try again.");
     }
@@ -418,6 +462,8 @@ function FindLeadsSearch({ store }) {
   // Step 2: read the area in steps until there are as many as the user asked for (or none are left).
   const showFromArea = async (shape, target, candidates, f = form, drop = dropTerms) => {
     stopArea.current = false;
+    pausedRef.current = false;
+    setPaused(false);
     const got = [];
     let scan = 0;
     let more = true;
@@ -428,7 +474,9 @@ function FindLeadsSearch({ store }) {
     setSearched(true);
     try {
       while (more && !stopArea.current && got.length < target) {
-        setAreaStep({ phase: "running", found: got.length, scanned: scan, candidates });
+        while (pausedRef.current && !stopArea.current) await new Promise((r) => setTimeout(r, 300)); // paused: nothing new is read
+        if (stopArea.current) break;
+        setAreaStep({ phase: "running", found: got.length, scanned: scan, candidates, target });
         const r = await api.searchCompanies({ filters: formToFilters(f), area: shape, scan, exclude_ids: excluded, drop_terms: drop, widen: widenRef.current });
         if (stopArea.current) break;
         if (r.points) setPoints((p) => ({ ...p, ...r.points }));
@@ -463,6 +511,7 @@ function FindLeadsSearch({ store }) {
   };
   const clearArea = () => {
     stopArea.current = true;
+    runId.current += 1; // a count still on its way is ignored
     setAreaStep(null);
     setArea(null);
     setExcluded([]);
@@ -483,6 +532,41 @@ function FindLeadsSearch({ store }) {
   const pickAmount = (n) => showFromArea(area, n, areaStep.candidates);
   const pinCount = companies.filter((c) => points[c.id]).length;
   const saveOne = (c) => store.save([asAccount(c)]);
+  // Favourites are an ordinary list called Favourites, so they can be enriched and emailed like any other.
+  const favKeys = useMemo(() => {
+    const fav = (listsStore?.lists || []).find((l) => l.name.toLowerCase() === FAVOURITES.toLowerCase());
+    const ids = new Set(fav?.ids || []);
+    return new Set(store.accounts.filter((a) => ids.has(a.id)).flatMap((a) => [a.business_record_id, a.domain, a.name.toLowerCase()]).filter(Boolean));
+  }, [listsStore?.lists, store.accounts]);
+  const isFavourite = (c) => {
+    const d = domainOf(c.website);
+    return favKeys.has(c.id) || (d ? favKeys.has(d) : favKeys.has(String(c.name || "").toLowerCase()));
+  };
+  const statusOf = (c) => ({ saved: isSaved(c), favourite: isFavourite(c) });
+  const mapActions = {
+    onSave: saveOne,
+    onFavourite: (c) => store.save([asAccount(c)], FAVOURITES),
+    onAddToList: (c) => { const name = window.prompt(`Add ${c.name} to which list? Type a name to start a new one.`, "Unsorted"); if (name && name.trim()) store.save([asAccount(c)], name.trim()); },
+    onRemove: removeCompany,
+    // A note goes on the saved company (it is saved to Unsorted first if it isn't yet).
+    onNote: async (c) => {
+      const note = window.prompt(`Note on ${c.name}:`, "");
+      if (!note || !note.trim()) return;
+      const have = store.accounts.find((a) => (a.business_record_id && a.business_record_id === c.id) || (domainOf(c.website) && a.domain === domainOf(c.website)) || a.name.toLowerCase() === String(c.name || "").toLowerCase());
+      if (have) await store.update(have.id, { notes: [have.notes, note.trim()].filter(Boolean).join("\n") });
+      else await store.save([{ ...asAccount(c), notes: [asAccount(c).notes, note.trim()].filter(Boolean).join("\n") }]);
+    },
+  };
+  // The results on screen as a spreadsheet, for anyone who wants them outside the app.
+  const exportCsv = () => {
+    const cols = [["name", "Company"], ["registration_number", "Registration no."], ["industry", "Industry"], ["region", "Town"], ["postcode", "Postcode"], ["status", "Status"], ["website", "Website"], ["phone", "Phone"]];
+    const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [cols.map(([, h]) => cell(h)).join(","), ...companies.map((c) => cols.map(([k]) => cell(c[k])).join(","))].join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "companies.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
   const unsaved = companies.filter((c) => !isSaved(c));
 
   const sendChat = async (e) => {
@@ -492,11 +576,13 @@ function FindLeadsSearch({ store }) {
     setChatInput("");
     setChat((prev) => [...prev, { id: "m_" + Date.now(), role: "user", text: message }]);
     setChatBusy(true);
+    const mine = ++chatRun.current;
     try {
       const res = await api.copilotChat({
         message, history: chat.map((m) => ({ role: m.role, content: m.text })), plugin: "leadgen",
         filters: applied, exclude_ids: excluded,
       });
+      if (mine !== chatRun.current) return; // cancelled while the AI was working
       if (res?.registry) {
         stopArea.current = true;
         setAreaStep(null);
@@ -520,33 +606,38 @@ function FindLeadsSearch({ store }) {
       }
       setChat((prev) => [...prev, { id: "m_" + (Date.now() + 1), role: "assistant", text: res?.reply || "I processed your request. How else can I help?" }]);
     } catch (err) {
+      if (mine !== chatRun.current) return;
       setChat((prev) => [...prev, {
         id: "m_" + (Date.now() + 1), role: "assistant",
         text: /credits/i.test(err.message || "") ? err.message : `Couldn't reach the AI: ${err.message || "no answer from the AI service."} Try again in a moment.`,
       }]);
     } finally {
-      setChatBusy(false);
+      if (mine === chatRun.current) setChatBusy(false);
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     }
   };
 
+  const webRun = useRef(0);
+  const cancelWeb = () => { webRun.current += 1; setWeb((w) => ({ ...w, busy: false })); };
   const runWeb = async (e) => {
     if (e) e.preventDefault();
     const q = web.query.trim();
     if (!q || web.busy) return;
     setWeb((w) => ({ ...w, busy: true, error: "" }));
+    const mine = ++webRun.current;
     try {
       const r = await api.discoverAccounts({ query: q });
+      if (mine !== webRun.current) return;
       setWeb((w) => ({ ...w, busy: false, results: r.leads || [], error: (r.leads || []).length ? "" : `Nothing found on the web for "${q}". Nothing was charged.` }));
     } catch (err) {
-      setWeb((w) => ({ ...w, busy: false, error: err.message || "The web search didn't finish." }));
+      if (mine === webRun.current) setWeb((w) => ({ ...w, busy: false, error: err.message || "The web search didn't finish." }));
     }
   };
 
   const field = { display: "flex", flexDirection: "column", gap: 4, flex: "1 1 180px", minWidth: 0 };
   const label = { ...text, fontSize: 12, fontWeight: 600, color: C.slate };
   const check = (k, t) => (
-    <label style={{ ...text, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+    <label title={CHECK_TIPS[k]} style={{ ...text, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
       <input type="checkbox" checked={form[k]} onChange={(e) => setField(k, e.target.checked)} /> {t}
     </label>
   );
@@ -555,14 +646,14 @@ function FindLeadsSearch({ store }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <form onSubmit={(e) => { setExcluded([]); search(e); }} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <label style={field}><span style={label}>Industry or company name</span>
+          <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Industry or company name</span>
             <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="cafe, restaurant, or a company name" /></label>
           <div style={field}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}><span style={label}>Town / city</span>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }} title="One or more towns, separated by commas"><span style={label}>Town / city</span>
               <input className="ui-input" value={form.town} onChange={(e) => setField("town", e.target.value)} placeholder="London, Leeds" /></label>
             <DistrictPicker town={form.town} includeClosed={form.includeClosed} postcode={form.postcode} onChange={(v) => setField("postcode", v)} />
           </div>
-          <label style={{ ...field, flex: "0 1 150px" }}><span style={label}>Postcode starts with</span>
+          <label style={{ ...field, flex: "0 1 150px" }} title="Only companies whose postcode begins with this, like EC1 or M1"><span style={label}>Postcode starts with</span>
             <input className="ui-input" value={form.postcode} onChange={(e) => setField("postcode", e.target.value)} placeholder="EC1, M1" /></label>
         </div>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -575,19 +666,22 @@ function FindLeadsSearch({ store }) {
               ))}
             </div>
           </div>
-          <label style={{ ...field, flex: "0 1 110px" }}><span style={label}>Trading ≥ years</span>
+          <label style={{ ...field, flex: "0 1 110px" }} title="Only companies that have existed at least this many years"><span style={label}>Trading ≥ years</span>
             <input className="ui-input" inputMode="numeric" value={form.minAge} onChange={(e) => setField("minAge", e.target.value)} placeholder="5" /></label>
-          <label style={{ ...field, flex: "0 1 110px" }}><span style={label}>Trading ≤ years</span>
+          <label style={{ ...field, flex: "0 1 110px" }} title="Only companies that are no older than this many years"><span style={label}>Trading ≤ years</span>
             <input className="ui-input" inputMode="numeric" value={form.maxAge} onChange={(e) => setField("maxAge", e.target.value)} placeholder="2" /></label>
-          <label style={{ ...field, flex: "0 1 190px" }}><span style={label}>Company type</span>
+          <label style={{ ...field, flex: "0 1 190px" }} title="The legal form: Limited, LLP, PLC and so on"><span style={label}>Company type</span>
             <input className="ui-input" value={form.category} onChange={(e) => setField("category", e.target.value)} placeholder="Limited, LLP, PLC" /></label>
         </div>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
           {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}{check("includeClosed", "Include closed / dissolved")}
-          <button type="button" className="ui-btn ui-btn--secondary" style={{ height: 40, marginLeft: "auto" }} onClick={() => setView("map")}>
+          <button type="button" className="ui-btn ui-btn--secondary" style={{ height: 40, marginLeft: "auto" }} title="See results as pins and draw an area to search inside it" onClick={() => setView("map")}>
             <MapIcon size={15} /> Search on map
           </button>
-          <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ height: 40 }}>
+          <button type="button" className="ui-btn ui-btn--ghost" style={{ height: 40 }} onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
+            <RotateCcw size={15} /> Reset
+          </button>
+          <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ height: 40 }} title="Search the company register. It costs no credits">
             {busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {busy ? "Searching…" : "Find companies"}
           </button>
         </div>
@@ -600,6 +694,10 @@ function FindLeadsSearch({ store }) {
         <div style={{ ...muted, fontSize: 12.5 }}>Searches the official company registry we hold. You can also draw an area on the map to see the companies inside it. Free, and only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
       </form>
 
+      {busy ? (
+        <SearchStatus title={`Searching the company register${form.sector.trim() ? ` for ${form.sector.trim()}` : ""}${form.town.trim() ? ` in ${form.town.trim()}` : ""}`}
+          detail="Reading your words, matching them against every registered company, then ranking the best matches. This costs no credits." onCancel={cancelSearch} />
+      ) : null}
       {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
 
       {searched || view === "map" ? (
@@ -629,7 +727,10 @@ function FindLeadsSearch({ store }) {
                   className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--ghost"}`}><Icon size={14} /> {name}</button>
               ))}
             </div>
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!unsaved.length} onClick={() => store.save(unsaved.map(asAccount))}>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!companies.length} onClick={exportCsv} title="Download these results as a CSV file">Export CSV</button>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!companies.length} title="Put every company shown into your Favourites list"
+              onClick={() => store.save(companies.map(asAccount), FAVOURITES)}>★ Favourite all</button>
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!unsaved.length} onClick={() => { const name = window.prompt(`Save these ${unsaved.length} companies into a list. Name the list:`, "Unsorted"); if (name && name.trim()) store.save(unsaved.map(asAccount), name.trim()); }}>
               <Plus size={14} /> {unsaved.length ? `Save all ${unsaved.length}` : "All saved"}
             </button>
           </div>
@@ -652,18 +753,13 @@ function FindLeadsSearch({ store }) {
           ) : null}
           {view === "map" ? (
             <div style={{ padding: 12 }}>
-              <LeadsMap companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} />
+              <LeadsMap companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} hint={form.sector} statusOf={statusOf} actions={mapActions} />
               {areaStep && area ? (
                 <div className="ui-card" role="status" style={{ marginTop: 10, padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                   {areaStep.phase === "counting" ? (
-                    <div style={{ display: "flex", gap: 10, alignItems: "center", width: "100%" }}>
-                      <RefreshCw size={18} className="ui-spin" color={C.slate} />
-                      <div>
-                        <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Counting the companies inside your area…</div>
-                        <div style={{ ...muted, fontSize: 12.5 }}>
-                          {[appliedWords(form), "inside the shape you drew"].filter(Boolean).join(" · ")}. This takes a few seconds and costs nothing.
-                        </div>
-                      </div>
+                    <div style={{ width: "100%" }}>
+                      <SearchStatus title="Counting the companies inside your area"
+                        detail={`${[appliedWords(form), "inside the shape you drew"].filter(Boolean).join(" · ")}. This takes a few seconds and costs nothing.`} onCancel={clearArea} />
                     </div>
                   ) : null}
                   {areaStep.phase === "choose" ? (
@@ -685,10 +781,13 @@ function FindLeadsSearch({ store }) {
                     ) : <span style={muted}>Nothing found inside this area. Our data covers the UK, so draw over a UK town or a few postcodes, or use "Redraw area" for a bigger area or fewer filters.</span>
                   ) : null}
                   {areaStep.phase === "running" ? (
-                    <>
-                      <span style={{ ...muted, marginRight: "auto" }}>Placing companies on the map…{areaStep.found ? ` ${areaStep.found.toLocaleString()} so far.` : ""}</span>
-                      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { stopArea.current = true; }}>Stop</button>
-                    </>
+                    <div style={{ width: "100%" }}>
+                      <SearchStatus title={`Reading the area: ${(areaStep.found || 0).toLocaleString()} of ${(areaStep.target || 0).toLocaleString()} found`}
+                        detail={`Checked ${(areaStep.scanned || 0).toLocaleString()} of up to ${(areaStep.candidates || 0).toLocaleString()} companies in the shape. Pins appear as they are found.`}
+                        found={areaStep.found} total={areaStep.target} paused={paused}
+                        onPause={() => { pausedRef.current = true; setPaused(true); }} onResume={() => { pausedRef.current = false; setPaused(false); }}
+                        onCancel={() => { stopArea.current = true; pausedRef.current = false; setPaused(false); }} cancelLabel="Stop and keep what's found" />
+                    </div>
                   ) : null}
                   {areaStep.phase === "done" ? (
                     <>
@@ -741,7 +840,7 @@ function FindLeadsSearch({ store }) {
               )}
             </div>
           ))}
-          {chatBusy ? <div style={{ ...muted, fontSize: 12.5 }}>Thinking…</div> : null}
+          {chatBusy ? <SearchStatus title="The AI is working on it" detail="Reading your request, setting the filters and searching the registry. Nothing is charged for a search." onCancel={() => { chatRun.current += 1; setChatBusy(false); }} /> : null}
           <div ref={scrollRef} />
         </div>
         <form onSubmit={sendChat} style={{ padding: 10, borderTop: `1px solid ${C.border}`, display: "flex", gap: 8 }}>
@@ -764,7 +863,11 @@ function FindLeadsSearch({ store }) {
               <button type="submit" className="ui-btn ui-btn--secondary" disabled={web.busy || !web.query.trim()}>
                 {web.busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {web.busy ? "Searching the web…" : "Search the web"}
               </button>
+              <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { cancelWeb(); setWeb((w) => ({ ...w, query: "", results: [], error: "" })); }} title="Clear the search and its results">
+                <RotateCcw size={15} /> Reset
+              </button>
             </form>
+            {web.busy ? <SearchStatus title="Searching the open web" detail="Looking at business pages and directories. Nothing is charged unless something is found." onCancel={cancelWeb} /> : null}
             <div style={{ ...muted, fontSize: 12.5 }}>Web results are unverified and each one found uses 1 Leads credit. Registry results above are the reliable ones.</div>
             {web.error ? <div role="alert" style={{ ...muted, color: C.red }}>{web.error}</div> : null}
             {web.results.map((r, i) => {
@@ -794,7 +897,7 @@ const SUB_TABS = [
   ["import", "Import", FileSpreadsheet],
 ];
 
-export function FindLeadsView({ store, onGo }) {
+export function FindLeadsView({ store, listsStore, onGo }) {
   const [sub, setSub] = useState("search");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -806,7 +909,7 @@ export function FindLeadsView({ store, onGo }) {
           </button>
         ))}
       </div>
-      {sub === "search" && <FindLeadsSearch store={store} />}
+      {sub === "search" && <FindLeadsSearch store={store} listsStore={listsStore} />}
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

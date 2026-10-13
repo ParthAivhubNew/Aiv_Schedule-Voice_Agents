@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { RefreshCw, ShieldCheck, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
+import { announceCreditsChanged } from "./CreditsChip";
 
 // "Check companies" on Saved Accounts: tick some companies (or all), see the most it could cost,
 // and follow the run. Each company gets a verdict with its reasons. Nothing the user saved is
@@ -22,7 +23,7 @@ export const VERDICT_ORDER = ["verified", "looks_ok", "problem", "not_found", "u
 const STAGE_LABEL = { web: "Web research", our_records: "Our records", registry: "Company register", website: "Website", email: "Email", phone: "Phone", deep_search: "Deep web search", email_finder: "Email finder" };
 const STATE_WORDS = {
   email: { verified: "Confirmed", found: "A verified address was found", ok: "Looks right", invalid: "Not working", none: "None given", unchecked: "Couldn't check" },
-  phone: { ok: "Looks right", invalid: "Not a usable number", none: "None given", unchecked: "Couldn't check" },
+  phone: { ok: "Looks right", unconfirmed: "Not a normal phone line", invalid: "Not a usable number", none: "None given", unchecked: "Couldn't check" },
   website: { live: "Working", dead: "Not working", parked: "Parked or for sale", none: "None given", unchecked: "Couldn't check" },
 };
 
@@ -56,7 +57,7 @@ export function CheckDetails({ account }) {
             <React.Fragment key={key}>
               <span style={{ color: C.slate }}>{label}</span>
               <span style={{ color: s.state === "invalid" || s.state === "dead" || s.state === "parked" ? C.red : C.textInk }}>
-                {STATE_WORDS[key]?.[s.state] || s.state}{s.note && s.state !== "ok" && s.state !== "live" ? ` · ${s.note}` : ""}
+                {STATE_WORDS[key]?.[s.state] || s.state}{s.note && (key === "phone" ? s.note !== STATE_WORDS.phone[s.state] : s.state !== "ok" && s.state !== "live") ? ` · ${s.note}` : ""}
               </span>
             </React.Fragment>
           ))}
@@ -95,6 +96,7 @@ export function useCompanyCheck({ onToast, reload }) {
         const { onToast: toast, reload: refresh } = latest.current;
         if (r.job.status !== "running") {
           refresh();
+          announceCreditsChanged();
           toast(r.job.status === "done" ? "Check finished." : r.job.status === "cancelled" ? "Check cancelled. Finished companies keep their results."
             : r.job.status === "stalled" ? "The check stopped. Finished companies keep their results." : (r.job.error || "The check stopped early."));
         } else if (beat.current % 4 === 0) {
@@ -110,7 +112,8 @@ export function useCompanyCheck({ onToast, reload }) {
     start: async (body) => {
       const r = await api.startCompanyCheck(body);
       setJob(r.job);
-      latest.current.onToast("Check started. You can keep using the app.");
+      latest.current.onToast("Started. You can keep using the app.");
+      announceCreditsChanged(); // the credits it holds show straight away
       return r.job;
     },
     cancel: async () => {
@@ -127,6 +130,20 @@ export function useCompanyCheck({ onToast, reload }) {
     },
     dismiss: () => setJob(null),
   };
+}
+
+// What the run is doing right now, in plain words, from how much of each step has been done so far.
+const USED_WORDS = [["registry", "asked the company register"], ["deep", "searched the web for"], ["phone", "checked the phone network for"],
+  ["web", "researched"], ["email", "found emails for"]];
+function liveLine(job) {
+  const bits = USED_WORDS.filter(([k]) => job.used?.[k]).map(([k, w]) => `${w} ${job.used[k].toLocaleString()}`);
+  const started = job.started_at ? new Date(job.started_at + (job.started_at.endsWith("Z") ? "" : "Z")).getTime() : 0;
+  let eta = "";
+  if (job.status === "running" && !job.pause && started && job.done >= 3) {
+    const left = Math.max(0, Math.round(((Date.now() - started) / job.done) * (job.total - job.done) / 1000));
+    eta = left < 60 ? "less than a minute left" : `about ${Math.round(left / 60)} min left`;
+  }
+  return [bits.length ? `So far we've ${bits.join(", ")}.` : "Starting up: matching each company against our records.", eta].filter(Boolean).join(" ");
 }
 
 export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
@@ -150,6 +167,7 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
         {!running && pendingCount > 0 ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onRecheck}><RefreshCw size={13} /> Re-check {pendingCount} pending</button> : null}
         {!running ? <button type="button" className="ui-icon-btn" aria-label="Dismiss" onClick={check.dismiss}><X size={16} /></button> : null}
       </div>
+      {running ? <div style={{ ...muted, fontSize: 12.5 }}>{job.pause ? "Paused. Nothing more is spent until you resume." : liveLine(job)}</div> : null}
       {running ? (
         <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 3, background: C.paperSoft, overflow: "hidden" }}>
           <div style={{ width: `${pct}%`, height: "100%", background: C.cobalt, transition: "width .4s" }} />
@@ -174,6 +192,7 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
 export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
   const [email, setEmail] = useState(false);
   const [web, setWeb] = useState(true);
+  const [phone, setPhone] = useState(true);
   const [est, setEst] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -181,11 +200,11 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
   useEffect(() => {
     let alive = true;
     setEst(null);
-    api.estimateCompanyCheck({ ids, pending_only: pendingOnly, include_email: email, include_web: web })
+    api.estimateCompanyCheck({ ids, pending_only: pendingOnly, include_email: email, include_web: web, include_phone: phone })
       .then((r) => { if (alive) setEst(r); })
       .catch((e) => { if (alive) setError(e.message || "Couldn't work out the cost."); });
     return () => { alive = false; };
-  }, [ids, pendingOnly, email, web]);
+  }, [ids, pendingOnly, email, web, phone]);
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -197,7 +216,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
     setBusy(true);
     setError("");
     try {
-      await onStart({ ids, pending_only: pendingOnly, include_email: email, include_web: web });
+      await onStart({ ids, pending_only: pendingOnly, include_email: email, include_web: web, include_phone: phone });
       onClose();
     } catch (e) {
       setError(e.message || "Couldn't start the check.");
@@ -218,11 +237,20 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
         </div>
         <div style={muted}>Each company is corrected and completed one step at a time, cheapest first. Blanks are filled in. A value you gave that looks wrong is never overwritten: it is offered as a fix you can accept, with your original kept beside it.</div>
         <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
-          <li style={li}><strong>Our records</strong>, plus website, email and phone checks: free</li>
+          <li style={li}><strong>Our records</strong>, plus website and email format checks: free</li>
           <li style={li}><strong>Company register</strong>, asked directly when our records can't settle it: {est ? `${est.rates.check_registry} credit${est.rates.check_registry === 1 ? "" : "s"} each` : "…"}{est && !est.ready.registry ? " (not set up yet, so skipped)" : ""}</li>
           <li style={li}><strong>Deep web search</strong>, only if nothing above knows the company: {est ? `${est.rates.google_deep_search} credits each` : "…"}{est && !est.ready.deep ? " (not set up yet, so skipped)" : ""}</li>
         </ul>
-        <label style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start" }}>
+        <label title="Asks the phone network whether each number exists and what kind of line it is" style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start", opacity: est && !est.ready.phone ? 0.55 : 1 }}>
+          <input type="checkbox" checked={phone} disabled={est ? !est.ready.phone : false} onChange={(e) => setPhone(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>
+            Check every phone number with the phone network{est ? ` (${est.rates.lead_phone_check} credit${est.rates.lead_phone_check === 1 ? "" : "s"} per 5 numbers)` : ""}
+            <span style={{ ...muted, display: "block", fontSize: 12 }}>
+              {est ? (!est.ready.phone ? "Not set up yet." : `${est.phone_rows.toLocaleString()} numbers to check. It confirms the number exists, what kind of line it is, and fixes a missing leading 0. Numbers checked in the last 30 days are free.`) : ""}
+            </span>
+          </span>
+        </label>
+        <label title="A live search of the open web for the company's people, phone numbers and emails" style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start" }}>
           <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} style={{ marginTop: 3 }} />
           <span>
             Also search the web for each company's people, phones and emails{est ? ` (${est.rates.lead_lookup} credits for each company where something is found)` : ""}
@@ -231,7 +259,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
             </span>
           </span>
         </label>
-        <label style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start", opacity: est && !est.ready.email ? 0.55 : 1 }}>
+        <label title="Looks for the work email of each named contact and checks it is deliverable" style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start", opacity: est && !est.ready.email ? 0.55 : 1 }}>
           <input type="checkbox" checked={email} disabled={est ? !est.ready.email : false} onChange={(e) => setEmail(e.target.checked)} style={{ marginTop: 3 }} />
           <span>
             Also find or confirm contact emails{est ? ` (${est.rates.check_email} credits for each verified email found)` : ""}

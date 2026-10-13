@@ -398,7 +398,7 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     from app.database import AsyncSessionLocal
 
     stages: List[str] = []
-    spent = {"registry": 0, "deep": 0, "email": 0}
+    spent = {"registry": 0, "deep": 0, "email": 0, "phone": 0}
     ev: Dict[str, Any] = {}
     free_task = asyncio.create_task(_free_checks(row, ctx))
 
@@ -446,6 +446,11 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
         ev["deep"] = {"state": "off"}
 
     free = await free_task
+    if getattr(ctx, "check_phones", False) and free["phone"].get("state") == "ok":
+        free["phone"], asked = await verify_phone(row, free["phone"], ctx)
+        spent["phone"] = asked
+        if free["phone"].get("verified") is not None:
+            stages.append("phone_lookup")
     ev["website"] = free["website"]
     stages.extend(s for s in ("website", "email", "phone") if free.get(s) and free[s].get("state") not in (None, "none", "unchecked"))
 
@@ -482,6 +487,70 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     return out
 
 
+def phone_candidates(raw: str) -> List[str]:
+    """The international forms worth asking the phone network about. A UK number saved without its
+    leading 0 (7702 167658) would read as a foreign number, so the UK form is tried first."""
+    from app.services.timezone_service import normalize_phone
+
+    raw = (raw or "").strip()
+    digits = re.sub(r"\D", "", raw)
+    out: List[str] = []
+    if raw and not raw.startswith(("+", "0")) and len(digits) == 10 and digits[0] in "123578":
+        out.append("+44" + digits)
+    plain = normalize_phone(raw)
+    if plain and plain not in out:
+        out.append(plain)
+    return out
+
+
+async def verify_phone(row: Dict[str, Any], state: Dict[str, Any], ctx: "Context") -> Tuple[Dict[str, Any], int]:
+    """Ask the phone network (cached answers first, 30 days) whether the number is real and what kind
+    of line it is. Returns the phone state and 1 when a paid lookup answered, else 0. A lookup that
+    can't be reached leaves the format-only result as it was and is never charged."""
+    from app.database import AsyncSessionLocal
+    from app.services import number_check as NC
+
+    best: Optional[Dict[str, Any]] = None
+    asked = 0
+    for e164 in phone_candidates(row.get("phone") or ""):
+        item = NC.prepare([{"key": row["id"], "phone": e164, "names": [row["name"]]}], set())[0]
+        if item["status"]:
+            continue
+        try:
+            async with AsyncSessionLocal() as db:
+                todo = NC.plan([item], await NC.cached_answers(db, [e164]))
+            if todo:
+                async with ctx.phone_sem:
+                    answered = await NC.look_up(todo, client=ctx.phone_client)
+                asked += answered
+                if answered:
+                    async with AsyncSessionLocal() as db:
+                        await NC.remember(db, [item])
+                        await db.commit()
+        except Exception as err:
+            logger.debug(f"[company_check] phone lookup skipped: {err}")
+            continue
+        best = item
+        if item["status"] == "good":
+            break
+    if not best or best["status"] in ("", "couldnt_check", "bad_format", "duplicate"):
+        return {**state, "verified": None, "note": "Couldn't reach the phone network, so only the format was checked"}, asked
+    kind = {"mobile": "mobile", "landline": "landline", "voip": "internet line", "toll_free": "freephone"}.get(best["line_type"], "")
+    if best["status"] == "not_working":
+        return {"state": "invalid", "verified": False, "note": "The phone network doesn't know this number"}, asked
+    if best["status"] == "good":
+        net = best["carrier"]
+        out = {"state": "ok", "verified": True, "line_type": best["line_type"], "carrier": net,
+               "note": "Confirmed by the phone network" + (": " + kind if kind else "") + (" on " + net if net else "")}
+        plain = re.sub(r"\D", "", row.get("phone") or "")
+        if best["phone"].startswith("+44") and plain and not (row.get("phone") or "").strip().startswith(("+", "0")):
+            out["suggest"] = "0" + best["phone"][3:]
+            out["note"] += ", saved without its leading 0"
+        return out, asked
+    return {"state": "unconfirmed", "verified": False, "line_type": best["line_type"], "carrier": best["carrier"],
+            "note": "The phone network has this number but not as a normal mobile or landline"}, asked
+
+
 def _digits(raw: str) -> str:
     return re.sub(r"\D", "", raw or "")[-9:]
 
@@ -510,6 +579,9 @@ def build_fixes(row: Dict[str, Any], deep: Optional[Dict[str, Any]], free: Dict[
         add("website", "", site, "Found by the deep web search")
     elif site and cur_site and _host(site) != _host(cur_site) and (free.get("website") or {}).get("state") in ("dead", "parked"):
         add("website", cur_site, site, "Your website isn't working; the deep web search found this one")
+    suggest = ((free.get("phone") or {}).get("suggest") or "").strip()
+    if suggest and cur_phone and _digits(suggest) == _digits(cur_phone) and suggest != cur_phone:
+        add("phone", cur_phone, suggest, (free["phone"].get("note") or "The phone network confirms this number with its leading 0"))
     cur_email = (row.get("email") or "").strip()
     if found_email and found_email.lower() != cur_email.lower():
         add("email", cur_email, found_email.lower(), "A verified address was found for this contact")
@@ -591,7 +663,7 @@ async def live_sources() -> List[Any]:
     return out
 
 
-def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, *, registry: bool, deep: bool, email: bool, web_rows: int = 0) -> Dict[str, int]:
+def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, *, registry: bool, deep: bool, email: bool, web_rows: int = 0, phone_rows: int = 0) -> Dict[str, int]:
     """The most a run could cost, in whole credits, per paid step (a run is charged once per step,
     rounded up). Used for the cost shown before the run and for the credits held while it runs."""
     import math
@@ -602,6 +674,7 @@ def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, 
     out = {"registry": cost("check_registry", rows) if registry else 0,
            "deep": cost("google_deep_search", rows) if deep else 0,
            "email": cost("check_email", with_contact) if email else 0,
-           "web": cost("lead_lookup", web_rows)}
-    out["total"] = out["registry"] + out["deep"] + out["email"] + out["web"]
+           "web": cost("lead_lookup", web_rows),
+           "phone": int(math.ceil(phone_rows / 5 * float(rates["lead_phone_check"]["credits"]))) if phone_rows > 0 and "lead_phone_check" in rates else 0}
+    out["total"] = out["registry"] + out["deep"] + out["email"] + out["web"] + out["phone"]
     return out

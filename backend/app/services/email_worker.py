@@ -172,22 +172,28 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
         if step.channel != "email":  # voice steps: not run from email yet, skipped
             await _advance(enr, steps, now)
             continue
-        candidates = [boxes[enr.mailbox_id]] if enr.mailbox_id in boxes else pool
-        mb = None
-        for c in candidates:
-            if _has_room(c, await day_log(db, c.id), camp, now):
-                mb = c
-                break
-        if mb is None:
-            continue
+        # A follow-up goes from the mailbox that sent the first email. If that one is blocked, paused or
+        # failing, any other ready mailbox in the campaign takes over, so one bad mailbox never stalls the list.
+        sticky = boxes.get(enr.mailbox_id)
+        candidates = [sticky] if sticky is not None and sticky.status in SENDING else pool
         subject = render(step.subject, enr).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else "")
         body = render(step.body_template, enr)
         from app.services.enrichment_waterfall import classify_pecr_entity
 
-        res = await send_cold_email(db, org_id, mb, enr.email, subject, body, campaign_id=camp.id,
-                                    sequence_step_id=step.id, enrollment_id=enr.id, prospect_id=enr.prospect_id or "",
-                                    entity_type=classify_pecr_entity(enr.company, enr.email),
-                                    in_reply_to=enr.last_message_id if enr.current_step > 1 else "")
+        res, mb = None, None
+        for c in candidates:
+            if not _has_room(c, await day_log(db, c.id), camp, now):
+                continue
+            mb = c
+            res = await send_cold_email(db, org_id, c, enr.email, subject, body, campaign_id=camp.id,
+                                        sequence_step_id=step.id, enrollment_id=enr.id, prospect_id=enr.prospect_id or "",
+                                        entity_type=classify_pecr_entity(enr.company, enr.email),
+                                        in_reply_to=enr.last_message_id if enr.current_step > 1 else "",
+                                        from_alias=(camp.alias_map or {}).get(c.id, ""))
+            if res["status"] != "failed":
+                break  # sent, or stopped for a reason another mailbox wouldn't change; a failed send tries the next mailbox
+        if res is None or mb is None:
+            continue
         enr.last_action_at = now
         if res["status"] == "sent":
             sent += 1

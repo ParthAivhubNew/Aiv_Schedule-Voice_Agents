@@ -105,8 +105,32 @@ def _registry_out(biz: BusinessRecord) -> Dict[str, Any]:
     }
 
 
+QUALITY_FIELDS = ("website", "phone", "email", "contact_name")  # what "complete" means for a company's contact details
+
+
+def _found(a: LeadAccount) -> Dict[str, Any]:
+    """What we added to this company beyond what was saved, and how complete it is now and was before:
+    fields a web search or a check filled in, plus the extra people, emails and phones that research
+    turned up. A field the user had is never listed as found."""
+    r = a.research or {}
+    filled: Dict[str, Dict[str, Any]] = {f["field"]: {**f, "how": "web"} for f in (r.get("filled") or []) if f.get("field")}
+    for fx in (a.verification or {}).get("fixes") or []:
+        if fx.get("kind") == "fill" and fx.get("applied") and fx.get("field") and fx["field"] not in filled:
+            filled[fx["field"]] = {"field": fx["field"], "value": fx.get("to", ""), "how": "check"}
+    have = lambda f: bool((getattr(a, f, "") or "").strip())
+    new = [v for v in filled.values() if have(v["field"])]
+    new_fields = {v["field"] for v in new}
+    extra = {"people": len(r.get("team") or r.get("people") or []), "emails": len(r.get("emails") or []), "phones": len(r.get("phones") or []),
+             "socials": len(r.get("socials") or {}), "offices": len(r.get("other_offices") or [])}
+    after = sum(1 for f in QUALITY_FIELDS if have(f))
+    before = after - sum(1 for f in QUALITY_FIELDS if f in new_fields)
+    pct = lambda n: round(100 * n / len(QUALITY_FIELDS))
+    return {"filled": new, "extra": extra, "had": [f for f in QUALITY_FIELDS if have(f) and f not in new_fields],
+            "before_pct": pct(before), "after_pct": pct(after), "new_count": len(new) + sum(extra.values())}
+
+
 def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]:
-    return {
+    return {"found": _found(a),
         "id": a.id, "name": a.name, "domain": a.domain or "", "website": a.website or "", "phone": a.phone or "",
         "email": a.email or "", "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
         "industry": a.industry or "", "region": a.region or "", "notes": a.notes or "", "source": a.source or "manual",
@@ -325,6 +349,9 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     added: List[LeadAccount] = []
     matched: List[str] = []  # companies that were already saved: not copied, but still go in the list
     skipped = 0
+    unnamed = 0  # rows with no name or website: nothing to save
+    repeats = 0  # the same company twice in what was sent (e.g. a file listing it on two rows)
+    fresh: set = set()
     claimed = {i.business_record_id for i in body.accounts if i.business_record_id}
     known_biz = set((await db.execute(select(BusinessRecord.id).where(BusinessRecord.id.in_(claimed)))).scalars().all()) if claimed else set()
     for item in body.accounts:
@@ -333,12 +360,16 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         name = _clean(item.name) or domain
         if not name:
             skipped += 1
+            unnamed += 1
             continue
         key = (name.lower(), _place(item.region))
         hit = by_domain.get(domain) if domain else by_name.get(key)
         if hit:
             skipped += 1
-            matched.append(hit)
+            if hit in fresh:
+                repeats += 1
+            else:
+                matched.append(hit)
             continue
         row = LeadAccount(
             id=f"acc_{uuid.uuid4().hex[:16]}", name=name, domain=domain,
@@ -351,11 +382,12 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         )
         db.add(row)
         added.append(row)
+        fresh.add(row.id)
         if domain:
             by_domain[domain] = row.id
         by_name[key] = row.id
     await db.commit()
-    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "accounts": [_out(a) for a in added]}
+    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "unnamed": unnamed, "repeats": repeats, "accounts": [_out(a) for a in added]}
     if body.list_id or body.list_name.strip():
         from app.api.lead_lists import put_in_list
 
@@ -487,6 +519,7 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
     """The live web search itself: fills the account's empty fields and its research dossier. Returns
     whether anything was found (the only case that is charged). Does not commit or charge; the caller does.
     Raises HTTPException 502 when the search can't run. Used by Research and by the bulk Enrich run."""
+    before = {f: (getattr(row, f, "") or "").strip() for f in QUALITY_FIELDS}
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
                                                   domain=row.domain or row.website or None, person=row.contact_name or None,
@@ -539,6 +572,9 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
         if named:
             row.contact_name = named["name"]
     row.researched_at = row.updated_at = datetime.utcnow()
+    # What this run added to fields that were empty (the values the user gave are never in this list).
+    row.research = {**row.research, "filled": [{"field": f, "value": (getattr(row, f, "") or "").strip()}
+                                              for f in QUALITY_FIELDS if not before[f] and (getattr(row, f, "") or "").strip()]}
     if found and (row.domain or row.name):
         # Save what the live search found back into the shared store too, tagged as the least
         # trusted tier (a web-search summary, not a verified registry) -- the next organisation
@@ -554,7 +590,7 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
             # The full dossier (team, named contacts, sources) is public fact about the business,
             # not this organisation's private data -- every other organisation's saved account for
             # the same company gets it too, for free, via _apply_shared_record above.
-            shared_row.shared_research = row.research
+            shared_row.shared_research = {k: v for k, v in row.research.items() if k != "filled"}  # what this run filled in is this account's own
             await db.flush()
         except ValueError:
             pass  # nothing identifiable enough to be worth caching for anyone else

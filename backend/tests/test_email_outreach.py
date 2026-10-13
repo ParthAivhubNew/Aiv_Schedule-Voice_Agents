@@ -190,6 +190,65 @@ async def test_follow_up_threads_under_the_first_email_on_the_same_mailbox(clien
     assert second["Subject"] == "Re: Hello" and second["In-Reply-To"] == first["Message-ID"]
 
 
+async def test_a_follow_up_moves_to_another_mailbox_when_the_first_is_blocked(client, db, mail):
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import EmailMailbox
+    from app.services import credits as K
+
+    with org_scope("org_default"):
+        await K.add_credits(db, "leadgen", 10, source="grant", note="Test")
+        await db.commit()
+    boxes = [await _mailbox(client, "a@acme-sales.com"), await _mailbox(client, "b@acme-sales.com")]
+    for mb in boxes:
+        await client.post(f"/api/email/mailboxes/{mb['id']}/warmup", json={"action": "skip"})
+    camp = (await client.post("/api/email/campaigns", json={
+        "name": "Spare", "mailbox_ids": [m["id"] for m in boxes],
+        "steps": [{"subject": "Hello", "body": "One"}, {"delay_days": 2, "body": "Two"}]})).json()["campaign"]
+    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "bo@corp.io", "company": "Corp"}]})
+    await client.post(f"/api/email/campaigns/{camp['id']}/status", json={"status": "running"})
+    campaign_mail = lambda: [m for _, m in mail.sent if m["Subject"] in ("Hello", "Re: Hello")]  # the two mailboxes also warm each other up
+    await _run(db, MONDAY_10)
+    assert len(campaign_mail()) == 1
+    first = next(m for m in boxes if m["email"] in campaign_mail()[0]["From"])
+    spare = next(m for m in boxes if m is not first)
+    with org_scope("org_default"):
+        async with AsyncSessionLocal() as s:
+            row = await s.get(EmailMailbox, first["id"])
+            row.status = "paused"  # the mailbox that sent the first email is blocked
+            await s.commit()
+    await _run(db, MONDAY_10 + timedelta(days=2, minutes=5))
+    assert len(campaign_mail()) == 2 and spare["email"] in campaign_mail()[1]["From"]
+
+
+async def test_a_campaign_can_send_as_an_alias_of_its_mailbox(client, db, mail):
+    from app.core.tenancy import org_scope
+    from app.services import credits as K
+
+    with org_scope("org_default"):
+        await K.add_credits(db, "leadgen", 10, source="grant", note="Test")
+        await db.commit()
+    mb = await _mailbox(client)
+    await client.post(f"/api/email/mailboxes/{mb['id']}/warmup", json={"action": "skip"})
+    base = f"/api/email/mailboxes/{mb['id']}/aliases"
+    assert (await client.post(base, json={"address": "sales@other.com"})).status_code == 400  # not the mailbox's domain
+    r = await client.post(base, json={"address": "Sales@acme-sales.com", "name": "Acme Sales"})
+    assert r.status_code == 200 and r.json()["mailbox"]["aliases"] == [{"address": "sales@acme-sales.com", "name": "Acme Sales"}]
+    assert (await client.post(base, json={"address": "sales@acme-sales.com"})).status_code == 409
+    camp = (await client.post("/api/email/campaigns", json={
+        "name": "As sales", "mailbox_ids": [mb["id"]], "aliases": {mb["id"]: "sales@acme-sales.com", "mb_nope": "x@acme-sales.com"},
+        "steps": [{"subject": "Hello", "body": "One"}]})).json()["campaign"]
+    assert camp["aliases"] == {mb["id"]: "sales@acme-sales.com"}
+    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "bo@corp.io", "company": "Corp"}]})
+    await client.post(f"/api/email/campaigns/{camp['id']}/status", json={"status": "running"})
+    await _run(db, MONDAY_10)
+    sent = [m for _, m in mail.sent if m["Subject"] == "Hello"]
+    assert len(sent) == 1 and "sales@acme-sales.com" in sent[0]["From"] and "Acme Sales" in sent[0]["From"]
+    # removing the alias stops it being used and clears it from the campaign
+    assert (await client.delete(base, params={"address": "sales@acme-sales.com"})).json()["mailbox"]["aliases"] == []
+    assert (await client.get(f"/api/email/campaigns/{camp['id']}")).json()["campaign"]["aliases"] == {}
+
+
 async def test_unsubscribe_link_needs_the_button_and_stops_the_lead(client, anon, db, mail):
     from app.services.email_dispatcher import unsubscribe_token
 

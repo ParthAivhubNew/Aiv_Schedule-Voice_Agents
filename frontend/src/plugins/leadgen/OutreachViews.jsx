@@ -12,8 +12,8 @@ const row = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 const label = { fontSize: 12, fontWeight: 600, color: C.slate, display: "grid", gap: 4 };
 const small = { fontSize: 12, color: C.slate };
 
-function Check({ ok, children }) {
-  return <span style={{ fontSize: 12, color: ok ? C.green : C.red, fontWeight: 600 }}>{ok ? "✓" : "✗"} {children}</span>;
+function Check({ ok, children, tip }) {
+  return <span title={tip} style={{ fontSize: 12, color: ok ? C.green : C.red, fontWeight: 600, cursor: tip ? "help" : undefined }}>{ok ? "✓" : "✗"} {children}</span>;
 }
 
 function CopyBox({ text }) {
@@ -84,6 +84,38 @@ export function useOutreachData() {
 // ── Mailboxes ───────────────────────────────────────────────────────────────
 const blankBox = { email: "", display_name: "", preset: "one.com", password: "", smtp_host: "", smtp_port: "", imap_host: "", imap_port: "", username: "", max_daily_target: 40, signature: "" };
 
+// Extra "send as" addresses for one mailbox (set up at the email provider first), usable per campaign.
+function AliasBox({ mailbox: m, run }) {
+  const [open, setOpen] = useState(false);
+  const [address, setAddress] = useState("");
+  const [name, setName] = useState("");
+  const domain = m.email.split("@")[1];
+  const aliases = m.aliases || [];
+  if (!open && !aliases.length) {
+    return <div><button type="button" style={btn(false)} title="Let this mailbox send as another address on your domain, like sales@" onClick={() => setOpen(true)}>Add an alias</button></div>;
+  }
+  return (
+    <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+      <div style={small}>Aliases: other addresses on @{domain} this mailbox can send as. Create the alias at your email provider first, then add it here and pick it in a campaign.</div>
+      {aliases.map((a) => (
+        <div key={a.address} style={row}>
+          <span style={{ fontSize: 13 }}>{a.name ? `${a.name} <${a.address}>` : a.address}</span>
+          <button type="button" style={btn(false)} onClick={() => run(() => api.emailRemoveAlias(m.id, a.address), "Alias removed.")}>Remove</button>
+        </div>
+      ))}
+      <div style={row}>
+        <input style={{ ...input, width: 220 }} value={address} onChange={(e) => setAddress(e.target.value)} placeholder={`sales@${domain}`} aria-label="Alias address" />
+        <input style={{ ...input, width: 160 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name shown (optional)" aria-label="Alias name" />
+        <button type="button" style={btn(true, !address.trim())} disabled={!address.trim()} onClick={() => run(async () => {
+          await api.emailAddAlias(m.id, address.trim(), name.trim());
+          setAddress(""); setName("");
+        }, "Alias added.")}>Add alias</button>
+        <button type="button" style={btn(false)} title="Clear the fields" onClick={() => { setAddress(""); setName(""); }}>Reset</button>
+      </div>
+    </div>
+  );
+}
+
 export function MailboxesView({ outreach }) {
   const [overview] = useLoad(api.emailOverview);
   const [msg, run] = useAction(outreach.reloadMailboxes);
@@ -124,7 +156,7 @@ export function MailboxesView({ outreach }) {
             <label style={label}>Password{form.preset === "gmail" || form.preset === "outlook" ? " (an app password)" : ""}
               <input style={input} type="password" autoComplete="new-password" value={form.password} onChange={set("password")} />
             </label>
-            <label style={label}>Daily target (emails)<input style={input} type="number" min={5} max={100} value={form.max_daily_target} onChange={set("max_daily_target")} /></label>
+            <label style={label} title="The most emails this mailbox will send a day once warmed up. Start low: 40 is safe"><span>Daily target (emails)</span><input style={input} type="number" min={5} max={100} value={form.max_daily_target} onChange={set("max_daily_target")} /></label>
           </div>
           {form.preset === "" && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
@@ -139,7 +171,10 @@ export function MailboxesView({ outreach }) {
           {(form.preset === "gmail" || form.preset === "outlook") && (
             <div style={small}>Google and Microsoft need IMAP turned on and an app password (2-step verification on), not your normal password.</div>
           )}
-          <div><button type="button" style={btn(true)} onClick={connect}>Test and connect</button></div>
+          <div style={row}>
+            <button type="button" style={btn(true)} onClick={connect}>Test and connect</button>
+            <button type="button" style={btn(false)} title="Clear every field" onClick={() => setForm(blankBox)}>Reset</button>
+          </div>
         </div>
       )}
 
@@ -158,8 +193,10 @@ export function MailboxesView({ outreach }) {
             {m.pause_reason && <div style={{ fontSize: 12, color: C.amber }}>{m.pause_reason}</div>}
             {m.last_error && <div style={{ fontSize: 12, color: C.red }}>{m.last_error}</div>}
             <div style={row}>
-              <Check ok={m.spf_verified}>SPF</Check><Check ok={m.dkim_verified}>DKIM</Check>
-              <Check ok={m.dmarc_verified}>DMARC</Check><Check ok={m.mx_verified}>MX</Check>
+              <Check ok={m.spf_verified} tip="SPF: a DNS record listing which servers may send mail for your domain">SPF</Check>
+              <Check ok={m.dkim_verified} tip="DKIM: a signature that proves your email wasn't changed on the way">DKIM</Check>
+              <Check ok={m.dmarc_verified} tip="DMARC: tells receiving servers what to do with mail that fails SPF or DKIM">DMARC</Check>
+              <Check ok={m.mx_verified} tip="MX: the domain can receive mail, so replies reach you">MX</Check>
               <span style={small}>Bounces (7 days): {(m.bounce_rate_7d * 100).toFixed(1)}%</span>
             </div>
             {!m.can_send && (m.blockers || []).length > 0 && (
@@ -171,16 +208,17 @@ export function MailboxesView({ outreach }) {
               onAuto={(sel) => api.emailCheckDns(m.id, sel).then(outreach.reloadMailboxes).catch(() => {})} />
             {(dns.recommendations || []).filter((r) => /unavailable|No DKIM record found/.test(r)).map((r) => <div key={r} style={small}>{r}</div>)}
             <div style={row}>
-              {!sending && <button type="button" style={btn(true)} onClick={() => run(() => api.emailWarmup(m.id, "start"), "Warmup started.")}>Start warmup</button>}
+              {!sending && <button type="button" style={btn(true)} title="Begin the gradual ramp-up that builds your sending reputation" onClick={() => run(() => api.emailWarmup(m.id, "start"), "Warmup started.")}>Start warmup</button>}
               {!sending && <button type="button" style={btn(false)} title="For a mailbox that has sent normal email for months" onClick={() => {
                 if (window.confirm("Skip warmup? Only do this for a mailbox that already sends email every day. It will send up to its daily target straight away.")) run(() => api.emailWarmup(m.id, "skip"), "Sending at full volume.");
               }}>Already warm</button>}
-              {sending && <button type="button" style={btn(false)} onClick={() => run(() => api.emailWarmup(m.id, "pause"), "Paused.")}>Pause</button>}
-              <button type="button" style={btn(false)} onClick={() => run(() => api.emailCheckDns(m.id), "DNS checked.")}>Check DNS</button>
-              <button type="button" style={btn(false)} onClick={() => run(() => api.emailTestMailbox(m.id), "Login works.")}>Test login</button>
-              <button type="button" style={btn(false)} onClick={() => { setEditing(editing === m.id ? "" : m.id); setPatch({ display_name: m.display_name, max_daily_target: m.max_daily_target, signature: m.signature, password: "" }); }}>Edit</button>
-              <button type="button" style={btn(false)} onClick={() => { if (window.confirm(`Remove ${m.email}? Campaigns stop using it.`)) run(() => api.emailDeleteMailbox(m.id), "Removed."); }}>Remove</button>
+              {sending && <button type="button" style={btn(false)} title="Stop sending from this mailbox until you start it again" onClick={() => run(() => api.emailWarmup(m.id, "pause"), "Paused.")}>Pause</button>}
+              <button type="button" style={btn(false)} title="Look up your domain's SPF, DKIM, DMARC and MX records now" onClick={() => run(() => api.emailCheckDns(m.id), "DNS checked.")}>Check DNS</button>
+              <button type="button" style={btn(false)} title="Check the mailbox password and servers work" onClick={() => run(() => api.emailTestMailbox(m.id), "Login works.")}>Test login</button>
+              <button type="button" style={btn(false)} title="Change the name, daily target, password or signature" onClick={() => { setEditing(editing === m.id ? "" : m.id); setPatch({ display_name: m.display_name, max_daily_target: m.max_daily_target, signature: m.signature, password: "" }); }}>Edit</button>
+              <button type="button" style={btn(false)} title="Disconnect this mailbox. Campaigns stop using it" onClick={() => { if (window.confirm(`Remove ${m.email}? Campaigns stop using it.`)) run(() => api.emailDeleteMailbox(m.id), "Removed."); }}>Remove</button>
             </div>
+            <AliasBox mailbox={m} run={run} />
             {editing === m.id && (
               <div style={{ display: "grid", gap: 8, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
@@ -189,10 +227,14 @@ export function MailboxesView({ outreach }) {
                   <label style={label}>New password (optional)<input style={input} type="password" autoComplete="new-password" value={patch.password} onChange={(e) => setPatch({ ...patch, password: e.target.value })} /></label>
                 </div>
                 <label style={label}>Signature<textarea style={{ ...input, minHeight: 60 }} value={patch.signature} onChange={(e) => setPatch({ ...patch, signature: e.target.value })} /></label>
-                <div><button type="button" style={btn(true)} onClick={() => run(async () => {
-                  await api.emailUpdateMailbox(m.id, { ...patch, max_daily_target: Number(patch.max_daily_target) || 40, password: patch.password || null });
-                  setEditing("");
-                }, "Saved.")}>Save</button></div>
+                <div style={row}>
+                  <button type="button" style={btn(true)} onClick={() => run(async () => {
+                    await api.emailUpdateMailbox(m.id, { ...patch, max_daily_target: Number(patch.max_daily_target) || 40, password: patch.password || null });
+                    setEditing("");
+                  }, "Saved.")}>Save</button>
+                  <button type="button" style={btn(false)} title="Put the fields back to what is saved"
+                    onClick={() => setPatch({ display_name: m.display_name, max_daily_target: m.max_daily_target, signature: m.signature, password: "" })}>Reset</button>
+                </div>
               </div>
             )}
           </div>
@@ -239,7 +281,7 @@ function CampaignEditor({ initial, mailboxes, onSaved, onCancel }) {
   return (
     <div style={{ ...card, display: "grid", gap: 12 }}>
       <Note error={msg.error}>{msg.text}</Note>
-      <label style={label}>Campaign name<input style={input} value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} /></label>
+      <label style={label} title="Only you see this name"><span>Campaign name</span><input style={input} value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} /></label>
       <div style={label}>Send from
         <div style={row}>
           {mailboxes.length === 0 && <span style={small}>Connect a mailbox first.</span>}
@@ -261,7 +303,7 @@ function CampaignEditor({ initial, mailboxes, onSaved, onCancel }) {
         </div>
         <label style={label}>From<input style={{ ...input, width: 90 }} type="time" value={c.sending_window_start} onChange={(e) => setC({ ...c, sending_window_start: e.target.value })} /></label>
         <label style={label}>To<input style={{ ...input, width: 90 }} type="time" value={c.sending_window_end} onChange={(e) => setC({ ...c, sending_window_end: e.target.value })} /></label>
-        <label style={label}>Gap between emails (seconds)<input style={{ ...input, width: 110 }} type="number" min={30} value={c.min_delay_seconds} onChange={(e) => setC({ ...c, min_delay_seconds: e.target.value })} /></label>
+        <label style={label} title="The shortest wait between two emails from the same mailbox"><span>Gap between emails (seconds)</span><input style={{ ...input, width: 110 }} type="number" min={30} value={c.min_delay_seconds} onChange={(e) => setC({ ...c, min_delay_seconds: e.target.value })} /></label>
       </div>
       <div style={small}>Hours are in your company's timezone. Use {"{{first_name}}"}, {"{{last_name}}"} and {"{{company}}"} in subjects and emails. Follow-ups with no subject go as a reply in the same thread.</div>
       {c.steps.map((s, i) => (
@@ -278,6 +320,7 @@ function CampaignEditor({ initial, mailboxes, onSaved, onCancel }) {
       <div style={row}>
         {c.steps.length < 6 && <button type="button" style={btn(false)} onClick={() => setC({ ...c, steps: [...c.steps, { subject: "", body: "Hi {{first_name}},\n\n", delay_days: 3 }] })}>Add follow-up</button>}
         <button type="button" style={{ ...btn(true), marginLeft: "auto" }} onClick={save}>Save campaign</button>
+        <button type="button" style={btn(false)} title="Put everything back to how it was when you opened this" onClick={() => setC(initial)}>Reset</button>
         <button type="button" style={btn(false)} onClick={onCancel}>Cancel</button>
       </div>
       <div style={small}>Every email gets an unsubscribe link automatically. Leads who reply, bounce or unsubscribe stop getting follow-ups.</div>
@@ -430,7 +473,10 @@ export function FindView({ outreach, defaultTarget = "" }) {
           <label style={label}>Company website<input style={input} value={q.domain} onChange={set("domain")} placeholder="client.com" /></label>
           <label style={label}>or company name<input style={input} value={q.company_name} onChange={set("company_name")} /></label>
         </div>
-        <div><button type="button" style={btn(true, busy)} disabled={busy} onClick={find}>{busy ? "Searching…" : "Find email"}</button></div>
+        <div style={row}>
+          <button type="button" style={btn(true, busy)} disabled={busy} onClick={find}>{busy ? "Searching…" : "Find email"}</button>
+          <button type="button" style={btn(false)} title="Clear the fields and the result" onClick={() => { setQ({ first_name: "", last_name: "", company_name: "", domain: "" }); setResult(null); }}>Reset</button>
+        </div>
       </div>
       <Note error={msg.error}>{msg.text}</Note>
       {result && !result.found && <div style={{ ...card, ...small }}>{result.detail || "No verified email found."} No credit used.</div>}

@@ -33,6 +33,27 @@ async def _summary(db: AsyncSession) -> Dict[str, Any]:
     }
 
 
+@router.get("/leads")
+async def leads_credits(request: Request, db: AsyncSession = Depends(get_db)):
+    """The Leads wallet at a glance, for everyone in the organisation (not only admins): what is left,
+    what running jobs hold, and what was used today and in the last 30 days."""
+    current(request)
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import func, select
+
+    from app.models.models import CreditEntry
+
+    wallet = next((w for w in await K.wallets(db) if w["key"] == "leadgen"), {"balance": 0, "held": 0, "low": False, "empty": False})
+    day_ago = datetime.utcnow() - timedelta(days=1)
+    today = (await db.execute(select(func.coalesce(func.sum(CreditEntry.amount), 0)).where(
+        CreditEntry.kind == "usage", CreditEntry.wallet == "leadgen", CreditEntry.created_at >= day_ago))).scalar() or 0
+    month = (await db.execute(select(func.coalesce(func.sum(CreditEntry.amount), 0)).where(
+        CreditEntry.kind == "usage", CreditEntry.wallet == "leadgen", CreditEntry.created_at >= datetime.utcnow() - timedelta(days=30)))).scalar() or 0
+    return {"balance": wallet["balance"], "held": wallet["held"], "low": wallet["low"], "empty": wallet["empty"],
+            "used_today": -int(today), "used_30d": -int(month)}
+
+
 @router.get("")
 async def my_credits(request: Request, db: AsyncSession = Depends(get_db)):
     _admin(request)

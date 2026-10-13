@@ -35,6 +35,7 @@ import { CampaignsView, MailboxesView, RepliesView, useOutreachData } from "./Ou
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
 import { ListsView, useLeadLists } from "./Lists";
+import { CreditsChip } from "./CreditsChip";
 import { CampaignWizard } from "./CampaignWizard";
 
 
@@ -311,6 +312,7 @@ export default function LeadGenerationPlugin({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {!isLocked || view === "subscription" ? <CreditsChip onOpen={operator?.is_admin ? () => setView("subscription") : undefined} /> : null}
             {view === "lists" && (
               <button
                 onClick={() => setShowAddModal(true)}
@@ -364,7 +366,7 @@ export default function LeadGenerationPlugin({
           ) : (
             <>
           {(findOpened || view === "find_leads") && (
-            <div style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} onGo={goTo} /></div>
+            <div style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} /></div>
           )}
 
           {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }} />}

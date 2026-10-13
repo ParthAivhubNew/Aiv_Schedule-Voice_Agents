@@ -104,7 +104,7 @@ async def estimate(db: AsyncSession, companies: int, contacts: str, checks: List
     parts["company_check"] = priced["registry"] + priced["deep"]
     parts["email_check"] = priced["email"]
     if "phone" in checks:
-        parts["phone_check"] = int(math.ceil(companies / NC.PER_CREDIT * float(rates["number_check"]["credits"])))
+        parts["phone_check"] = int(math.ceil(companies / NC.PER_CREDIT * float(rates["lead_phone_check"]["credits"])))
     total = sum(parts.values())
     balance = await K.wallet_balance(db, "leadgen") + (await K.wallet_balance(db, "voice") if "phone" in checks else 0)
     enforced = bool((await K.org_settings(db))["enforce"])
@@ -237,14 +237,14 @@ async def _phone_checks(job_id: str, lead_ids: List[str]) -> Dict[str, Any]:
         todo = NC.plan(rows, await NC.cached_answers(db, [r["phone"] for r in rows if not r["status"]]))
         todo = todo[:NC.MAX_PER_RUN]
         if todo:
-            ok, why = await K.can_start(db, "number_check", len(todo) / NC.PER_CREDIT)
+            ok, why = await K.can_start(db, "lead_phone_check", len(todo) / NC.PER_CREDIT)
             if not ok:
                 await _patch(job_id, check_error=why)
             else:
                 answered = await NC.look_up(todo)
                 await NC.remember(db, todo)
                 if answered:
-                    await K.charge(db, "number_check", answered / NC.PER_CREDIT, f"numcheck:{uuid.uuid4().hex[:16]}", f"Number check: {answered} numbers")
+                    await K.charge(db, "lead_phone_check", answered / NC.PER_CREDIT, f"numcheck:{uuid.uuid4().hex[:16]}", f"Number check: {answered} numbers")
                 await db.commit()
         return {r["key"]: NC.public(r) for r in rows}
 

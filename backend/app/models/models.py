@@ -1193,6 +1193,8 @@ class EmailMailbox(Base):
     last_sync_at = Column(DateTime, nullable=True)
     last_error = Column(Text, default="")
     signature = Column(Text, default="")
+    # Extra "send as" addresses on this mailbox's domain: [{"address": "sales@acme.com", "name": "Sales"}].
+    aliases = Column(JSON, default=list)
     # IMAP: the highest message UID already read from INBOX (new mail is read above it).
     imap_last_uid = Column(Integer, default=0)
     # Today's plan from the warmup engine (re-planned once a day).
@@ -1274,6 +1276,7 @@ class EmailCampaign(Base):
     name = Column(String, nullable=False)
     status = Column(String, default="draft")  # draft, running, paused, completed
     mailbox_ids = Column(JSON, default=list)  # Rotating pool of mailboxes
+    alias_map = Column(JSON, default=dict)  # {mailbox_id: alias address} -- which address each mailbox sends this campaign as
     timezone_policy = Column(String, default="recipient")  # recipient, org
     sending_window_start = Column(String, default="09:00")
     sending_window_end = Column(String, default="17:00")

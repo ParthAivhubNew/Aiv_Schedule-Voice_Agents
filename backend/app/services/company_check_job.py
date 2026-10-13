@@ -27,7 +27,8 @@ _TASKS: Dict[str, "asyncio.Task"] = {}
 FLUSH_EVERY = 10
 POLL_SECONDS = 3.0
 _STEPS = (("registry", "check_registry", "Registry check"), ("deep", "google_deep_search", "Deep web search"),
-          ("email", "check_email", "Contact email check"), ("web", "lead_lookup", "Web research"))
+          ("email", "check_email", "Contact email check"), ("web", "lead_lookup", "Web research"),
+          ("phone", "lead_phone_check", "Phone check"))
 
 
 def _key(org_id: str, job_id: str) -> str:
@@ -99,22 +100,27 @@ async def readiness() -> Dict[str, Any]:
     from app.services.enrichment_waterfall import finder_keys
 
     sources = await cc.live_sources()
-    return {"sources": sources, "registry": bool(sources), "deep": bool(await google_places_key()), "email": bool(await finder_keys())}
+    from app.services.telnyx_client import platform_key
+
+    return {"sources": sources, "registry": bool(sources), "deep": bool(await google_places_key()), "email": bool(await finder_keys()),
+            "phone": bool(platform_key())}
 
 
-async def estimate(db, accounts: List[Any], include_email: bool, include_web: bool = False) -> Dict[str, Any]:
+async def estimate(db, accounts: List[Any], include_email: bool, include_web: bool = False, include_phone: bool = False) -> Dict[str, Any]:
     ready = await readiness()
     rates = await credit.rates(db)
     with_contact = sum(1 for a in accounts if len((a.contact_name or "").split()) >= 2)
     web_rows = sum(1 for a in accounts if not a.researched_at) if include_web else 0
+    phone_rows = sum(1 for a in accounts if cc.phone_shape(a.phone or "") == "ok") if include_phone and ready.get("phone") else 0
     parts = cc.price_parts(rates, len(accounts), with_contact, registry=ready["registry"], deep=ready["deep"],
-                           email=include_email and ready["email"], web_rows=web_rows)
-    return {"companies": len(accounts), "with_contact": with_contact, "web_rows": web_rows, "ready": {k: ready[k] for k in ("registry", "deep", "email")},
+                           email=include_email and ready["email"], web_rows=web_rows, phone_rows=phone_rows)
+    return {"companies": len(accounts), "with_contact": with_contact, "web_rows": web_rows, "phone_rows": phone_rows,
+            "ready": {k: ready[k] for k in ("registry", "deep", "email", "phone") if k in ready},
             "max_credits": parts, "balance": await credit.wallet_balance(db, "leadgen"),
-            "rates": {i: rates[i]["credits"] for i in ("check_registry", "google_deep_search", "check_email", "lead_lookup")}}
+            "rates": {i: rates[i]["credits"] for i in ("check_registry", "google_deep_search", "check_email", "lead_lookup", "lead_phone_check")}}
 
 
-async def start(db, accounts: List[Any], include_email: bool, include_web: bool = False) -> Dict[str, Any]:
+async def start(db, accounts: List[Any], include_email: bool, include_web: bool = False, include_phone: bool = False) -> Dict[str, Any]:
     """Hold the credits and start the run. Returns {error} when it can't start."""
     org = current_org()
     pointer = await _read(_latest_key(org))
@@ -124,12 +130,12 @@ async def start(db, accounts: List[Any], include_email: bool, include_web: bool 
             return {"error": "A check is already running. Let it finish or cancel it first."}
     if not accounts:
         return {"error": "Pick at least one company to check."}
-    est = await estimate(db, accounts, include_email, include_web)
+    est = await estimate(db, accounts, include_email, include_web, include_phone)
     job_id = f"chk_{uuid.uuid4().hex[:12]}"
     held = []
     for step, item, label in _STEPS:
         if est["max_credits"][step] > 0:
-            qty = {"email": est["with_contact"], "web": est["web_rows"]}.get(step, len(accounts))
+            qty = {"email": est["with_contact"], "web": est["web_rows"], "phone": est["phone_rows"] / 5}.get(step, len(accounts))
             held.append({"item": item, "quantity": qty, "ref": f"{job_id}:{step}", "note": f"{label} (held for a company check)"})
     ok, why = await credit.hold(db, held)
     if not ok:
@@ -138,7 +144,7 @@ async def start(db, accounts: List[Any], include_email: bool, include_web: bool 
     await db.commit()
     ready = await readiness()
     doc = {"job_id": job_id, "org_id": org, "status": "running", "total": len(accounts), "done": 0, "cancel": False,
-           "options": {"email": bool(include_email and ready["email"]), "web": bool(include_web)}, "max_credits": est["max_credits"],
+           "options": {"email": bool(include_email and ready["email"]), "web": bool(include_web), "phone": bool(include_phone and ready.get("phone"))}, "max_credits": est["max_credits"],
            "counts": {v: 0 for v in cc.VERDICTS}, "used": {s: 0 for s, _, _ in _STEPS}, "charged": None,
            "ready": est["ready"], "started_at": datetime.utcnow().isoformat(), "updated_at": datetime.utcnow().isoformat()}
     await _write(_key(org, job_id), doc)
@@ -154,7 +160,8 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
         with org_scope(org):
             ctx = cc.Context(
                 org_id=org, job_id=job_id, registry_sources=ready["sources"], paces={s.id: cc.Pace() for s in ready["sources"]},
-                deep_ready=ready["deep"], find_emails=doc["options"]["email"],
+                deep_ready=ready["deep"], find_emails=doc["options"]["email"], check_phones=doc["options"].get("phone", False),
+                phone_sem=asyncio.Semaphore(6), phone_client=_phone_client() if doc["options"].get("phone") else None,
                 web_sem=asyncio.Semaphore(10), dns_sem=asyncio.Semaphore(20), deep_sem=asyncio.Semaphore(4), email_sem=asyncio.Semaphore(3))
             queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue()
             for r in rows:
@@ -200,7 +207,7 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                     except Exception as err:
                         logger.warning(f"[company_check] {row['name']} failed: {err}")
                         result = {"verdict": "unclear", "reasons": ["The check couldn't finish for this company"], "stages": [],
-                                  "spent": {"registry": 0, "deep": 0, "email": 0}, "email": {"state": "unchecked"},
+                                  "spent": {"registry": 0, "deep": 0, "email": 0, "phone": 0}, "email": {"state": "unchecked"},
                                   "phone": {"state": "unchecked"}, "website": {"state": "unchecked"},
                                   "checked_at": datetime.utcnow().isoformat() + "Z", "job_id": job_id, "pending_registry": False}
                     if doc["options"].get("web") and not row.get("researched"):
@@ -232,6 +239,12 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
         except Exception:
             logger.warning("[company_check] final progress not saved")
         _TASKS.pop(job_id, None)
+
+
+def _phone_client():
+    from app.services.telnyx_client import TelnyxClient, platform_key
+
+    return TelnyxClient(platform_key())
 
 
 async def _web_research(account_id: str, result: Dict[str, Any]) -> int:
@@ -289,7 +302,7 @@ async def _settle(job_id: str, refs: List[str], doc: Dict[str, Any]) -> None:
             used = int(doc["used"].get(step, 0))
             if used > 0:
                 try:
-                    charged[step] = await credit.charge(db, item, used, f"{job_id}:{step}", f"{label}: {used} {'company' if step != 'email' else 'email found'}")
+                    charged[step] = await credit.charge(db, item, used / 5 if step == "phone" else used, f"{job_id}:{step}", f"{label}: {used} {'company' if step != 'email' else 'email found'}")
                 except Exception as err:
                     logger.warning(f"[company_check] charge for {step} skipped: {err}")
                     charged[step] = 0

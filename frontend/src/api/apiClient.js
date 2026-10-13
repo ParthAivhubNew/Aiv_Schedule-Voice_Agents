@@ -171,6 +171,7 @@ export const api = {
   },
   getOnboarding: () => apiRequest('/auth/onboarding'),
   getCredits: () => apiRequest('/credits'),
+  getLeadCredits: () => apiRequest('/credits/leads'),
   getNumbersOverview: () => apiRequest('/telnyx/overview'),
   getNumberRequirements: (country, numberType) => apiRequest(`/telnyx/requirements?country=${encodeURIComponent(country)}&number_type=${encodeURIComponent(numberType)}`),
   submitVerification: ({ entityType, texts, addresses, files }) => {
@@ -474,6 +475,8 @@ export const api = {
   emailMailboxes: () => apiRequest('/email/mailboxes'),
   emailConnectMailbox: (body) => apiRequest('/email/mailboxes', { method: 'POST', body, timeoutMs: 60000 }),
   emailUpdateMailbox: (id, body) => apiRequest(`/email/mailboxes/${id}`, { method: 'PATCH', body, timeoutMs: 60000 }),
+  emailAddAlias: (id, address, name = '') => apiRequest(`/email/mailboxes/${id}/aliases`, { method: 'POST', body: { address, name } }),
+  emailRemoveAlias: (id, address) => apiRequest(`/email/mailboxes/${id}/aliases?address=${encodeURIComponent(address)}`, { method: 'DELETE' }),
   emailDeleteMailbox: (id) => apiRequest(`/email/mailboxes/${id}`, { method: 'DELETE' }),
   emailTestMailbox: (id) => apiRequest(`/email/mailboxes/${id}/test`, { method: 'POST', timeoutMs: 60000 }),
   emailCheckDns: (id, dkimSelector) => apiRequest(`/email/mailboxes/${id}/dns-check`, { method: 'POST', body: dkimSelector ? { dkim_selector: dkimSelector } : {}, timeoutMs: 30000 }),

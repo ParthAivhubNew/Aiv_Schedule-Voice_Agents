@@ -228,7 +228,7 @@ async def test_you_can_bring_your_own_leads_and_the_original_single_form_still_w
 async def test_a_list_you_bring_can_be_phone_checked_for_the_same_price_as_the_app(db, admin_token, monkeypatch):
     from app.services import number_check as NC
 
-    await _credits(db, 100, "voice")
+    await _credits(db, 100, "leadgen")
     asked = []
 
     async def look_up(rows, client=None):

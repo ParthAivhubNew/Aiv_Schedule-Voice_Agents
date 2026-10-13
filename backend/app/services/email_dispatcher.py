@@ -108,10 +108,17 @@ def _html_of(text: str) -> str:
     return "".join(f"<p>{html.escape(p).replace(chr(10), '<br>')}</p>" for p in paras)
 
 
+def alias_for(mb: EmailMailbox, address: str) -> Optional[Dict[str, Any]]:
+    """The saved alias of this mailbox with that address, or None (an alias that was removed is never used)."""
+    want = (address or "").strip().lower()
+    return next((a for a in (mb.aliases or []) if str(a.get("address", "")).lower() == want), None) if want else None
+
+
 def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, warmup_id: str = "",
-          in_reply_to: str = "", references: str = "") -> MimeMessage:
+          in_reply_to: str = "", references: str = "", from_alias: str = "") -> MimeMessage:
     msg = MimeMessage()
-    msg["From"] = formataddr((mb.display_name or "", mb.email))
+    alias = alias_for(mb, from_alias)
+    msg["From"] = formataddr(((alias.get("name") if alias else "") or mb.display_name or "", alias["address"] if alias else mb.email))
     msg["To"] = to
     msg["Subject"] = subject
     msg["Date"] = formatdate(localtime=False, usegmt=True)
@@ -150,6 +157,7 @@ async def send_cold_email(
     is_warmup: bool = False,
     warmup_id: str = "",
     in_reply_to: str = "",
+    from_alias: str = "",
 ) -> Dict[str, Any]:
     """Checks, sends and records one email. Returns {status: sent|suppressed|blocked_pecr|failed, ...}.
     The caller commits."""
@@ -167,7 +175,7 @@ async def send_cold_email(
             return {"status": "insufficient_credits", "reason": why}
 
     msg = build(mailbox, to, subject, body_text, org_id=org_id, warmup_id=warmup_id if is_warmup else "",
-                in_reply_to=in_reply_to)
+                in_reply_to=in_reply_to, from_alias=from_alias)
     try:
         await T.send(mailbox_settings(mailbox), msg)
     except T.MailError as err:

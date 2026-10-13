@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ListChecks, Megaphone, Trash2 } from "lucide-react";
+import { ListChecks, Megaphone, Plus, Trash2 } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { AccountsView, emailFor } from "./AccountsViews";
@@ -68,9 +68,9 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
                 title={withEmail.length ? "" : "None of these companies has an email yet. Get contact details first."}>
                 <Megaphone size={14} /> Start a campaign
               </button>
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy}
+              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title="Change the name of this list"
                 onClick={() => { const n = window.prompt("Rename this list", open.name); if (n && n.trim()) act(() => api.updateLeadList(open.id, { name: n }), "Renamed."); }}>Rename</button>
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy}
+              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title="Delete the list only. The companies stay in your account"
                 onClick={() => { if (window.confirm(`Delete the list ${open.name}? The companies stay in your account and in your other lists.`)) act(async () => { await api.deleteLeadList(open.id); setOpenId(""); }, "List deleted."); }}><Trash2 size={14} /> Delete</button>
             </>
           ) : null}
@@ -84,8 +84,19 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ ...muted, flex: "1 1 280px" }}>Every search you save and every file you import becomes a list. Open a list to get contact details, fix what is wrong, then start a campaign on it.</div>
-        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => onGo("find_leads")}>Find companies or import a file</button>
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onAdd}>Add one by hand</button>
+        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Search for companies, or bring in your own spreadsheet" onClick={() => onGo("find_leads")}>Find companies or import a file</button>
+        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Create an empty list, then add companies to it" onClick={async () => {
+          const name = window.prompt("Name your new list", "");
+          if (!name || !name.trim()) return;
+          try {
+            const r = await api.createLeadList(name.trim(), []);
+            await reload();
+            setOpenId(r.list.id);
+          } catch (e) {
+            store.toast(e.message || "Couldn't create the list.");
+          }
+        }}><Plus size={14} /> New list</button>
+        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Type in one company yourself" onClick={onAdd}>Add one by hand</button>
       </div>
       {!lists.length && !store.accounts.length ? (
         <div className="ui-card" style={{ padding: "40px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>

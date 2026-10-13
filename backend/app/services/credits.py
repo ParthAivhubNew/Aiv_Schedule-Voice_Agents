@@ -64,6 +64,7 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "number_setup": {"label": "Number setup", "unit": "number", "credits": 5, "wallet": "voice", "charged": True},
     # Checking imported phone numbers: 1 credit per 5 numbers that get a real answer.
     "number_check": {"label": "Number check", "unit": "5 numbers", "credits": 1, "wallet": "voice", "charged": True},
+    "lead_phone_check": {"label": "Phone check (Leads)", "unit": "5 numbers", "credits": 1, "wallet": "leadgen", "charged": True},
 }
 RATES_KEY = "credit_rates"
 
@@ -87,6 +88,7 @@ DEFAULT_UNIT_COSTS_USD_CENTS: Dict[str, float] = {
                                      # riding alongside it costs whatever provider the org
                                      # configured, left out above
     "number_check": 1.5,            # 5 Telnyx Number Lookups at $0.003 each
+    "lead_phone_check": 1.5,        # the same lookups, charged to the Leads wallet
     "google_deep_search": 3.5,      # Google Places Text Search + Place Details, combined ($0.035)
 }
 

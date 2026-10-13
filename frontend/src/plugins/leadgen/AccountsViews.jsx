@@ -3,6 +3,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { Building2, Check, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
+import { announceCreditsChanged } from "./CreditsChip";
 import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { AddToListDialog } from "./Lists";
@@ -62,11 +63,12 @@ export function useLeadAccounts(onToast, onListsChanged) {
     // Saves new accounts; ones already saved are skipped by the server.
     // Every save lands in a list (Unsorted unless a name is given); a company already saved is not copied,
     // it is just added to that list too.
-    save: async (list, listName = "Unsorted") => {
+    save: async (list, listName = "Unsorted", { quiet = false } = {}) => {
       try {
         const r = await api.saveLeadAccounts(list, listName);
         if (r.accounts?.length) setAccounts((prev) => [...r.accounts, ...prev]);
         if (onListsChanged) onListsChanged();
+        if (quiet) return r; // the caller reports once, after the last batch
         const where = r.list ? ` in the list ${r.list.name}` : "";
         onToast(r.added || r.matched
           ? `Saved ${r.added} new ${r.added === 1 ? "company" : "companies"}${where}${r.matched ? `. ${r.matched} ${r.matched === 1 ? "was" : "were"} already saved and ${r.matched === 1 ? "was" : "were"} added to the list` : ""}.`
@@ -104,6 +106,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
       try {
         const a = await api.researchLeadAccount(id);
         replace(a);
+        announceCreditsChanged();
         onToast(hasFindings(a) ? `Researched ${a.name}.` : `Nothing public found for ${a.name}. No credit used.`);
         return a;
       } catch (e) {
@@ -125,6 +128,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
         const before = accounts.find((x) => x.id === id);
         const a = await api.deepSearchLeadAccount(id);
         replace(a);
+        announceCreditsChanged();
         const changed = before && (a.phone !== before.phone || a.website !== before.website || a.region !== before.region);
         onToast(changed ? `Deep web search found more on ${a.name}.` : `Nothing new found for ${a.name}. No credit used.`);
         return a;
@@ -229,7 +233,7 @@ function SiteLink({ account }) {
 
 // ---------------------------------------------------------------- Saved Accounts
 // Columns a person can hide from their own view of the table (kept in their browser; nothing is deleted).
-const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["check", "Check"], ["source", "Found by"]];
+const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["quality", "Complete"], ["check", "Check"], ["source", "Found by"]];
 const ROLE_INBOXES = new Set(["info", "sales", "admin", "contact", "hello", "office", "enquiries", "enquiry", "support", "accounts", "mail", "team", "hr", "jobs", "careers", "marketing", "service", "bookings", "orders", "reception", "help", "general"]);
 
 // What a row can honestly show for "Contact" and "Email": what is saved on the company first, then what its
@@ -239,8 +243,71 @@ export function wasLookedUp(a) {
   return Boolean(a?.researched_at || (a?.verification && a.verification.checked_at));
 }
 
+function NewTag() {
+  return <span title="We found this: it was empty before" style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "#15803D", background: "#DCFCE7", borderRadius: 4, padding: "1px 5px" }}>NEW</span>;
+}
+
 function Empty({ a }) {
   return <span style={{ color: C.slateLight }}>{wasLookedUp(a) ? "Not found" : "Not checked yet"}</span>;
+}
+
+// A number saved on the company first, then what research found, so a researched company never looks empty.
+export function phoneFor(a) {
+  if (a.phone) return { text: a.phone, fromResearch: false };
+  const r = a.research || {};
+  const found = (r.phones || [])[0] || (r.team || []).map((t) => t.phone).find(Boolean) || (r.other_offices || []).map((o) => o.phone).find(Boolean);
+  return found ? { text: found, fromResearch: true } : null;
+}
+// Was this field empty before we looked, and filled in by us?
+export const isNew = (a, field) => Boolean(a.found?.filled?.some((f) => f.field === field));
+export const foundCount = (a) => a.found?.new_count || 0;
+
+const HOW_WORD = { web: "web search", check: "contact check" };
+const FIELD_WORD = { website: "Website", phone: "Phone", email: "Email", contact_name: "Contact" };
+const barColor = (p) => (p >= 75 ? "#16A34A" : p >= 50 ? "#D97706" : "#DC2626");
+
+// How complete a company's contact details are (website, phone, email, contact), and what it was before we looked.
+export function QualityBar({ found, wide = false }) {
+  if (!found) return null;
+  const { before_pct: before, after_pct: after } = found;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+      title={`${after}% of this company's contact details (website, phone, email, contact) are filled in.${before !== after ? ` It was ${before}% before we looked.` : ""}`}>
+      <span style={{ width: wide ? 120 : 48, height: 6, borderRadius: 3, background: C.border, overflow: "hidden", display: "inline-block" }}>
+        <span style={{ display: "block", height: "100%", width: `${after}%`, background: barColor(after) }} />
+      </span>
+      <span style={{ ...text, fontSize: 12, color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{after}%</span>
+      {before !== after ? <span style={{ ...text, fontSize: 11.5, color: C.slateLight }}>was {before}%</span> : null}
+    </span>
+  );
+}
+
+// "What we found": what was already there, what is new, and the extras research turned up, with how complete it is now.
+function FoundSummary({ account }) {
+  const f = account.found;
+  if (!f || !wasLookedUp(account)) return null;
+  const extra = [["people", "people"], ["emails", "emails"], ["phones", "phone numbers"], ["socials", "social profiles"], ["offices", "other offices"]]
+    .filter(([k]) => f.extra?.[k]).map(([k, label]) => `${f.extra[k]} ${label}`);
+  const sec = { ...text, fontSize: 13, color: C.textInk, lineHeight: 1.6 };
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>What we found</div>
+        <QualityBar found={f} wide />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", ...sec }}>
+        <span style={{ color: C.slate }}>Already had</span>
+        <span>{f.had?.length ? f.had.map((k) => FIELD_WORD[k] || k).join(", ") : "None of the contact details"}</span>
+        <span style={{ color: C.slate }}>New</span>
+        <span>
+          {f.filled?.length
+            ? f.filled.map((x) => <div key={x.field}><strong>{FIELD_WORD[x.field] || x.field}:</strong> {x.value} <span style={{ color: C.slateLight }}>· from {HOW_WORD[x.how] || x.how}</span></div>)
+            : "Nothing was missing that we could fill in"}
+        </span>
+        {extra.length ? <><span style={{ color: C.slate }}>Also found</span><span>{extra.join(", ")}. See the research below.</span></> : null}
+      </div>
+    </section>
+  );
 }
 
 export function contactFor(a) {
@@ -316,12 +383,20 @@ export function readiness(a) {
   return "other";
 }
 const ACCOUNT_CHIPS = [
-  ["all", "All", () => true],
-  ["ready", "Ready to email", (a) => readiness(a) === "ready"],
-  ["fixes", "Fixes to review", (a) => readiness(a) === "fixes"],
-  ["attention", "Needs attention", (a) => readiness(a) === "attention"],
-  ["noemail", "No email found", (a) => readiness(a) === "noemail"],
+  ["all", "All", () => true, "Every company in this list"],
+  ["new", "New data found", (a) => foundCount(a) > 0, "Companies where we filled in a blank or found extra people, emails or phones"],
+  ["ready", "Ready to email", (a) => readiness(a) === "ready", "Has an email that passed the checks"],
+  ["fixes", "Fixes to review", (a) => readiness(a) === "fixes", "We found a better value than the one you had. Nothing changes until you accept it"],
+  ["attention", "Needs attention", (a) => readiness(a) === "attention", "The company looks closed, or its email can't receive mail"],
+  ["noemail", "No email found", (a) => readiness(a) === "noemail", "We looked and found no email"],
 ];
+const VERDICT_TIPS = {
+  verified: "Confirmed active by the official register or our records",
+  looks_ok: "Nothing wrong found, but no register confirmed it",
+  problem: "Closed or dissolved, or its website or email doesn't work",
+  not_found: "We found no record of this company",
+  unclear: "The check couldn't finish for these",
+};
 
 export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds = null, listId = "" }) {
   const [filter, setFilter] = useState("");
@@ -350,13 +425,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   const toggleColumn = (id) => saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
   const showing = (id) => !hidden.includes(id);
   const shownOwn = own.filter((n) => showing(`c:${n}`));
-  const columnCount = 2 + ["phone", "email", "contact", "check", "source"].filter(showing).length + shownOwn.length + 1;
+  const columnCount = 2 + ["phone", "email", "contact", "quality", "check", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
   // Verdict filters appear once some companies have been checked.
   const verdictChips = VERDICT_ORDER
     .map((k) => [`v_${k}`, VERDICTS[k].label, (a) => a.verification?.verdict === k])
     .filter(([, , pred]) => base.some(pred))
-    .map(([id, label, pred]) => [id, `${label} ${base.filter(pred).length}`, pred]);
+    .map(([id, label, pred]) => [id, `${label} ${base.filter(pred).length}`, pred, VERDICT_TIPS[id.slice(2)]]);
   const chips = [...ACCOUNT_CHIPS, ...verdictChips];
   const scopePred = (chips.find(([id]) => id === scope) || ACCOUNT_CHIPS[0])[2];
   const shown = base
@@ -369,10 +444,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   const pendingCount = base.filter((a) => a.verification?.pending_registry).length;
   const fixIds = base.filter((a) => openFixes(a).length).map((a) => a.id);
   const stats = [
-    ["Companies", base.length],
-    ["Ready to email", base.filter((a) => readiness(a) === "ready").length],
-    ["Fixes to review", fixIds.length],
-    ["Needs attention", base.filter((a) => readiness(a) === "attention").length],
+    ["Companies", base.length, "How many companies are in this list"],
+    ["Ready to email", base.filter((a) => readiness(a) === "ready").length, "Companies with an email that passed the checks"],
+    ["Fixes to review", fixIds.length, "Companies where we found a better value than the one you had"],
+    ["Needs attention", base.filter((a) => readiness(a) === "attention").length, "Closed companies, or emails that can't receive mail"],
   ];
   // Takes companies out of the list being looked at (one or many). They stay in your account and in any other list.
   const removeFromList = async (ids) => {
@@ -398,8 +473,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="grid-2-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
-        {stats.map(([label, n]) => (
-          <div key={label} className="ui-card" style={{ padding: "12px 16px" }}>
+        {stats.map(([label, n, tip]) => (
+          <div key={label} className="ui-card" title={tip} style={{ padding: "12px 16px" }}>
             <div style={{ ...muted, fontSize: 12.5 }}>{label}</div>
             <div style={{ ...text, fontSize: 22, fontWeight: 600, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{n}</div>
           </div>
@@ -408,8 +483,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
       <CheckProgress check={check} pendingCount={pendingCount} onFilter={(k) => setScope(`v_${k}`)}
         onRecheck={() => setChecking({ ids: base.filter((a) => a.verification?.pending_registry).map((a) => a.id), pendingOnly: true })} />
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {chips.map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setScope(id)}
+        {chips.map(([id, label, , tip]) => (
+          <button key={id} type="button" onClick={() => setScope(id)} title={tip}
             className={`ui-btn ui-btn--sm ${scope === id ? "ui-btn--primary" : "ui-btn--ghost"}`}>
             {label}
           </button>
@@ -421,7 +496,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
           <span style={{ flex: 1 }} />
           <span style={{ ...muted, fontSize: 12.5 }}>{pickedIds.length ? `${pickedIds.length.toLocaleString()} selected` : "Tick companies to enrich or list them"}</span>
           {fixIds.length ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm"
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Apply every suggested fix in this list. The value you had is kept in the company's check details"
               onClick={() => { if (window.confirm(`Apply ${fixIds.length.toLocaleString()} ${fixIds.length === 1 ? "company's" : "companies'"} suggested fixes? The values you had stay noted in each company's check details.`)) acceptFixes(fixIds); }}>
               Accept all fixes ({fixIds.length.toLocaleString()})
             </button>
@@ -459,11 +534,12 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                   <input type="checkbox" checked={allShownPicked} onChange={() => setPicked(allShownPicked ? new Set() : new Set(shownIds))} aria-label="Select all companies shown" />
                 </th>
                 <th>Company</th>
-                {showing("phone") ? <th>Phone</th> : null}
-                {showing("email") ? <th>Email</th> : null}
-                {showing("contact") ? <th>Contact</th> : null}
-                {showing("check") ? <th>Check</th> : null}
-                {showing("source") ? <th>Found by</th> : null}
+                {showing("phone") ? <th title="The number you saved, or one research found. A tick means the phone network confirmed it">Phone</th> : null}
+                {showing("email") ? <th title="The email you saved, or one research found">Email</th> : null}
+                {showing("contact") ? <th title="The person to write to">Contact</th> : null}
+                {showing("quality") ? <th title="How much of the website, phone, email and contact is filled in">Complete</th> : null}
+                {showing("check") ? <th title="Whether the company, its website and its email look real">Check</th> : null}
+                {showing("source") ? <th title="Where this company came from">Found by</th> : null}
                 {shownOwn.map((n) => <th key={n} style={{ whiteSpace: "nowrap" }}>{n}</th>)}
                 <th style={{ width: 1 }} aria-label="Actions" />
               </tr>
@@ -476,9 +552,21 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                     <button type="button" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
                     <div style={{ fontSize: 12, marginTop: 1 }}><SiteLink account={a} /></div>
                   </td>
-                  {showing("phone") ? <td style={{ fontVariantNumeric: "tabular-nums" }}>{a.phone || <Empty a={a} />}</td> : null}
-                  {showing("email") ? <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={emailFor(a)?.text || ""}>
-                    {emailFor(a) ? emailFor(a).text : <Empty a={a} />}</td> : null}
+                  {showing("phone") ? (
+                    <td style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                      {phoneFor(a) ? (
+                        <>
+                          {phoneFor(a).text}
+                          {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: "#16A34A" }}> ✓</span> : null}
+                          {a.verification?.phone?.state === "invalid" ? <span title={a.verification.phone.note || "Not a usable number"} style={{ color: C.red }}> ✕</span> : null}
+                          {phoneFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}
+                          {isNew(a, "phone") ? <NewTag /> : null}
+                        </>
+                      ) : <Empty a={a} />}
+                    </td>
+                  ) : null}
+                  {showing("email") ? <td style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={emailFor(a)?.text || ""}>
+                    {emailFor(a) ? <>{emailFor(a).text}{emailFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}{isNew(a, "email") ? <NewTag /> : null}</> : <Empty a={a} />}</td> : null}
                   {showing("contact") ? (
                     <td>
                       {contactFor(a)
@@ -487,6 +575,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                         : <Empty a={a} />}
                     </td>
                   ) : null}
+                  {showing("quality") ? <td>{wasLookedUp(a) ? <QualityBar found={a.found} /> : <span style={{ color: C.slateLight }}>—</span>}</td> : null}
                   {showing("check") ? (
                     <td>
                       <VerdictBadge verification={a.verification} />
@@ -774,6 +863,7 @@ export function AccountPanel({ account, store, onClose }) {
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+          <FoundSummary account={live} />
           <CheckDetails account={live} />
           {Object.keys(live.custom || {}).length ? (
             <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -806,6 +896,8 @@ export function AccountPanel({ account, store, onClose }) {
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button type="button" className="ui-btn ui-btn--primary" disabled={!changed || !form.name.trim()}
                 onClick={async () => { if (await store.update(live.id, form)) onClose(); }}>Save changes</button>
+              <button type="button" className="ui-btn ui-btn--ghost" disabled={!changed} title="Put every field back to what is saved"
+                onClick={() => setForm(Object.fromEntries([...ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""]), ["notes", live.notes || ""]]))}>Reset</button>
               <span style={{ flex: 1 }} />
               {confirmRemove ? (
                 <>
@@ -825,8 +917,9 @@ export function AccountPanel({ account, store, onClose }) {
 }
 
 // ---------------------------------------------------------------- add by hand
+const BLANK_ACCOUNT = { name: "", website: "", phone: "", email: "", contact_name: "", contact_title: "" };
 export function AddAccountForm({ store, onClose }) {
-  const [form, setForm] = useState({ name: "", website: "", phone: "", email: "", contact_name: "", contact_title: "" });
+  const [form, setForm] = useState(BLANK_ACCOUNT);
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
@@ -846,6 +939,7 @@ export function AddAccountForm({ store, onClose }) {
         </div>
         <AccountFieldGrid fields={ACCOUNT_FIELDS.slice(0, 6)} form={form} setForm={setForm} autoFocusFirst />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+          <button type="button" className="ui-btn ui-btn--ghost" onClick={() => setForm(BLANK_ACCOUNT)} title="Clear every field">Reset</button>
           <button type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="ui-btn ui-btn--primary" disabled={!form.name.trim() || busy}>{busy ? "Saving…" : "Add account"}</button>
         </div>
@@ -889,6 +983,41 @@ async function parseImportFile(file) {
   return { sheets, sheetNames };
 }
 
+const IMPORT_BATCH = 500;
+
+// What an import did, in plain terms, and what to do next.
+function ImportReport({ done, onGo, onClose }) {
+  const row = (n, label, tip) => (n ? <div title={tip} style={{ display: "flex", gap: 8 }}><strong style={{ minWidth: 44, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n.toLocaleString()}</strong><span>{label}</span></div> : null);
+  const gaps = [["phone number", done.blanks.phone], ["email", done.blanks.email], ["website", done.blanks.website]].filter(([, n]) => n);
+  return (
+    <div className="ui-card" role="status" style={{ padding: 16, textAlign: "left", display: "flex", flexDirection: "column", gap: 8, maxWidth: 560, width: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Check size={16} color={C.green} />
+        <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
+          Imported {done.file ? `${done.file} ` : ""}into the list {done.list?.name || "Unsorted"}
+        </div>
+        <button type="button" className="ui-icon-btn" aria-label="Dismiss" onClick={onClose}><X size={16} /></button>
+      </div>
+      <div style={{ ...text, fontSize: 13, color: C.textInk, lineHeight: 1.6 }}>
+        {row(done.added, "new companies saved", "Companies that were not in your account before")}
+        {row(done.matched, "already saved, so just added to this list (not copied, nothing to pay again)", "Matched by website, or by name and town")}
+        {row(done.repeats, "repeated in your file, kept once", "The same company on more than one row")}
+        {row(done.unnamed, "left out: no company name or website", "Rows with nothing to identify the company")}
+        {!done.added && !done.matched ? <div style={{ color: C.slate }}>Nothing was added.</div> : null}
+      </div>
+      {gaps.length ? (
+        <div style={{ ...muted, fontSize: 12.5 }}>
+          Still missing in your file: {gaps.map(([label, n]) => `${n.toLocaleString()} ${label}${n === 1 ? "" : "s"}`).join(", ")}. "Get contact details" can fill these and fix what looks wrong.
+        </div>
+      ) : null}
+      {done.custom?.length ? <div style={{ ...muted, fontSize: 12.5 }}>Your own columns were kept: {done.custom.join(", ")}.</div> : null}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => onGo("lists")}>Open the list</button>
+      </div>
+    </div>
+  );
+}
+
 export function ImportView({ store, onGo, onAskAi }) {
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
@@ -901,6 +1030,7 @@ export function ImportView({ store, onGo, onAskAi }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
   const [listName, setListName] = useState(""); // the list this file is saved into
+  const [progress, setProgress] = useState(null); // { done, total } while a big file is going in
 
   const resetFile = () => {
     setFile(null);
@@ -938,13 +1068,30 @@ export function ImportView({ store, onGo, onAskAi }) {
   };
 
   const usable = fields.filter((r) => r.name || r.website);
+  // The blanks in what is about to be imported, so the report can say what "Get contact details" will have to fill.
+  const blanks = (rows) => ({ phone: rows.filter((r) => !r.phone).length, email: rows.filter((r) => !r.email).length, website: rows.filter((r) => !r.website).length });
   const importNow = async () => {
     setBusy(true);
-    const r = await store.save(usable.map((x) => ({ ...x, source: "import" })), listName.trim() || "Unsorted");
-    setBusy(false);
-    if (r) {
-      setDone(r);
+    const name = listName.trim() || "Unsorted";
+    const rows = usable.map((x) => ({ ...x, source: "import" }));
+    const total = { added: 0, matched: 0, repeats: 0, unnamed: fields.length - usable.length, list: null, rows: rows.length, file: file?.name || "", blanks: blanks(rows), custom: customColumns(fields) };
+    try {
+      // In batches, so a big file shows how far it has got and never hits the size limit of one request.
+      for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
+        setProgress({ done: i, total: rows.length });
+        const r = await store.save(rows.slice(i, i + IMPORT_BATCH), name, { quiet: true });
+        if (!r) throw new Error(`Stopped after ${i.toLocaleString()} of ${rows.length.toLocaleString()} rows. What was imported so far is in the list ${name}.`);
+        total.added += r.added; total.matched += r.matched || 0; total.repeats += r.repeats || 0; total.unnamed += r.unnamed || 0; total.list = r.list || total.list;
+      }
+      setDone(total);
+      store.toast(`Imported ${total.added.toLocaleString()} new ${total.added === 1 ? "company" : "companies"} into ${total.list?.name || name}.`);
       resetFile();
+    } catch (e) {
+      setError(e.message || "The import stopped. Try again.");
+      store.toast(e.message || "The import stopped. Try again.");
+    } finally {
+      setProgress(null);
+      setBusy(false);
     }
   };
 
@@ -974,12 +1121,7 @@ export function ImportView({ store, onGo, onAskAi }) {
             ))}
           </div>
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-          {done ? (
-            <div style={{ ...muted, color: C.textInk }}>
-              Imported {done.added} new {done.added === 1 ? "company" : "companies"}{done.matched ? `, ${done.matched} already saved and added to the list` : ""}{done.list ? ` in ${done.list.name}` : ""}.{" "}
-              <button type="button" className="ui-link" onClick={() => onGo("lists")}>Open your lists</button>
-            </div>
-          ) : null}
+          {done ? <ImportReport done={done} onGo={onGo} onClose={() => setDone(null)} /> : null}
           {onAskAi ? (
             <div style={{ fontSize: 12.5, color: C.slate, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
               Or
@@ -1011,6 +1153,7 @@ export function ImportView({ store, onGo, onAskAi }) {
           </div>
           <label style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>Save into the list
             <input className="ui-input" style={{ maxWidth: 280 }} value={listName} maxLength={80} onChange={(e) => setListName(e.target.value)} aria-label="List name" />
+            <button type="button" className="ui-link" onClick={() => setListName((file?.name || "").replace(/\.[^.]+$/, "").slice(0, 80))} title="Use the file name again">Reset</button>
             <span style={{ fontSize: 12 }}>A list with this name is reused if you already have one.</span>
           </label>
           {customColumns(fields).length ? (
@@ -1018,10 +1161,16 @@ export function ImportView({ store, onGo, onAskAi }) {
           ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button type="button" className="ui-btn ui-btn--primary" disabled={!usable.length || busy} onClick={importNow}>
-              {busy ? "Importing…" : `Import ${usable.length} ${usable.length === 1 ? "company" : "companies"}`}
+              {busy ? (progress ? `Importing ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}…` : "Importing…") : `Import ${usable.length} ${usable.length === 1 ? "company" : "companies"}`}
             </button>
+            {busy && progress ? (
+              <div role="progressbar" aria-valuenow={Math.round((progress.done / progress.total) * 100)} style={{ flex: "1 1 160px", height: 6, borderRadius: 3, background: C.paperSoft, overflow: "hidden" }}>
+                <div style={{ width: `${Math.round((progress.done / progress.total) * 100)}%`, height: "100%", background: C.cobalt, transition: "width .3s" }} />
+              </div>
+            ) : null}
             {fields.length > usable.length ? <span style={{ ...muted, fontSize: 12.5 }}>{fields.length - usable.length} without a name or website will be left out.</span> : null}
           </div>
+          {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
         </div>
       )}
     </div>

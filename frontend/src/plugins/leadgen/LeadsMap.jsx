@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { Eraser, Pencil, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { shapeFromPath } from "./drawShape";
+import { directionsUrl, legendFor, pinHtml, pinKind } from "./mapPins";
 
 const text = { fontFamily: FONT_BODY };
 const BRAND = "#111111"; // pins and the drawn line are black so they stand out on the map
@@ -18,9 +19,12 @@ const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent('<svg x
 
 // Map of the companies in the results, with a pencil to draw an area. Plain Leaflet (no wrapper library).
 // `points` is {companyId: [lat, lng]}; `area` is the drawn polygon [[lat, lng], ...] or null.
+// Each pin shows the kind of business (see mapPins.js); clicking one opens a card with the company's details
+// and what can be done with it. `statusOf(c)` says whether it is saved or a favourite, and `actions` are
+// {onSave, onFavourite, onAddToList, onRemove}; `hint` is what the user searched for.
 // Drawing: press and drag to draw around the area, let go to finish (the end joins back to the start),
 // Esc cancels. Works with a mouse, a finger or a stylus.
-export function LeadsMap({ companies, points, area, busy, onArea, onClear, height = 460 }) {
+export function LeadsMap({ companies, points, area, busy, onArea, onClear, height = 460, statusOf, actions, hint = "" }) {
   const el = useRef(null);
   const map = useRef(null);
   const markers = useRef(null);
@@ -28,7 +32,8 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
   const draft = useRef({ pts: [], line: null });
   const [drawing, setDrawing] = useState(false);
   const cbs = useRef({ onArea });
-  cbs.current = { onArea };
+  cbs.current = { onArea, statusOf, actions, hint };
+  const statusKey = companies.map((c) => { const s = statusOf?.(c) || {}; return `${c.id}${s.saved ? "s" : ""}${s.favourite ? "f" : ""}`; }).join("|");
 
   useEffect(() => {
     const m = L.map(el.current, {
@@ -46,28 +51,80 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
     return () => { if (watch) watch.disconnect(); m.remove(); map.current = null; };
   }, []);
 
-  // Company pins.
+  // The card that opens when a pin is clicked. Built fresh each time so it shows the current saved / favourite state.
+  const card = (c, pin) => {
+    const { statusOf: status, actions: act, hint: searched } = cbs.current;
+    const s = status?.(c) || {};
+    const kind = pinKind(c, searched);
+    const box = document.createElement("div");
+    box.style.cssText = "min-width:230px;max-width:280px;font:13px/1.45 system-ui,sans-serif";
+    const line = (html, css = "") => { const d = document.createElement("div"); d.style.cssText = css; d.textContent = html; return d; };
+    box.append(line(`${kind.icon} ${c.name}`, "font-weight:700;font-size:14px;margin-bottom:2px"));
+    const where = [c.industry, [c.region, c.postcode].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
+    if (where) box.append(line(where, "color:#555;font-size:12px"));
+    const facts = [c.status, c.company_category, c.registration_number && `No. ${c.registration_number}`].filter(Boolean).join(" · ");
+    if (facts) box.append(line(facts, "color:#777;font-size:12px"));
+    if (c.phone) box.append(line(c.phone, "margin-top:4px"));
+    if (c.website) {
+      const a = document.createElement("a");
+      a.href = /^https?:/.test(c.website) ? c.website : `https://${c.website}`;
+      a.target = "_blank"; a.rel = "noreferrer"; a.textContent = c.website.replace(/^https?:\/\/(www\.)?/, "");
+      a.style.cssText = "display:block;margin-top:2px;color:#2563EB;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      box.append(a);
+    }
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin-top:8px";
+    const button = (label, fn, opts = {}) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = label; b.title = opts.title || ""; b.disabled = Boolean(opts.disabled);
+      b.style.cssText = `padding:4px 9px;border-radius:6px;border:1px solid ${opts.primary ? "#111" : "#d4d4d8"};background:${opts.primary ? "#111" : "#fff"};color:${opts.primary ? "#fff" : "#111"};font:600 12px system-ui,sans-serif;cursor:${opts.disabled ? "default" : "pointer"};opacity:${opts.disabled ? 0.6 : 1}`;
+      b.onclick = () => { if (!opts.disabled) { fn(); pin.closePopup(); } };
+      return b;
+    };
+    row.append(button(s.favourite ? "★ Favourite" : "☆ Favourite", () => act?.onFavourite?.(c), { primary: !s.favourite, disabled: s.favourite, title: "Keep it in your Favourites list" }));
+    row.append(button(s.saved ? "✓ Saved" : "Save", () => act?.onSave?.(c), { disabled: s.saved, title: "Save it to your Unsorted list" }));
+    row.append(button("Add to list…", () => act?.onAddToList?.(c), { title: "Save it into a list you name" }));
+    row.append(button("Note…", () => act?.onNote?.(c), { title: "Write a note on this company" }));
+    row.append(button("Not interested", () => act?.onRemove?.(c), { title: "Take it out of these results" }));
+    box.append(row);
+    const links = document.createElement("div");
+    links.style.cssText = "display:flex;gap:12px;margin-top:8px;font-size:12px";
+    const dir = document.createElement("a");
+    dir.href = directionsUrl(c); dir.target = "_blank"; dir.rel = "noreferrer"; dir.textContent = "Directions"; dir.style.color = "#2563EB";
+    const copy = document.createElement("a");
+    copy.href = "#"; copy.textContent = "Copy details"; copy.style.color = "#2563EB";
+    copy.onclick = (e) => {
+      e.preventDefault();
+      const textual = [c.name, where, c.phone, c.website].filter(Boolean).join("\n");
+      try { navigator.clipboard.writeText(textual); copy.textContent = "Copied"; } catch { copy.textContent = "Couldn't copy"; }
+    };
+    links.append(dir, copy);
+    box.append(links);
+    return box;
+  };
+
+  // Company pins: an icon for the kind of business, a star for a favourite, a tick for one already saved.
   useEffect(() => {
     const m = map.current;
     if (!m) return;
     markers.current.clearLayers();
-    const bounds = [];
     companies.forEach((c) => {
       const p = points[c.id];
       if (!p) return;
-      bounds.push(p);
-      const pin = L.circleMarker(p, { radius: 7, color: "#fff", weight: 2, fillColor: BRAND, fillOpacity: 0.95 });
-      const box = document.createElement("div");
-      const name = document.createElement("strong");
-      name.textContent = c.name;
-      const sub = document.createElement("div");
-      sub.textContent = [c.industry, c.postcode].filter(Boolean).join(" · ");
-      sub.style.fontSize = "12px";
-      box.append(name, sub);
-      pin.bindPopup(box);
+      const s = cbs.current.statusOf?.(c) || {};
+      const icon = L.divIcon({ html: pinHtml(pinKind(c, cbs.current.hint), s), className: "lead-pin", iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -14] });
+      const pin = L.marker(p, { icon, title: c.name, riseOnHover: true });
+      pin.bindPopup(() => card(c, pin), { minWidth: 230 });
       markers.current.addLayer(pin);
     });
-    if (bounds.length && !area) m.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+  }, [companies, points, statusKey]);
+
+  // Move the map to the results only when they change, never because a company was saved.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || area) return;
+    const bounds = companies.map((c) => points[c.id]).filter(Boolean);
+    if (bounds.length) m.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
   }, [companies, points, area]);
 
   // The finished area.
@@ -154,6 +211,16 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
         )}
         {area && !drawing ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={onClear}><Eraser size={14} /> Clear area</button> : null}
       </div>
+      {legendFor(companies.filter((c) => points[c.id]), hint).length > 1 || companies.some((c) => points[c.id]) ? (
+        <div style={{ position: "absolute", left: 10, top: 10, zIndex: 500, background: "rgba(255,255,255,.95)", padding: "6px 10px", borderRadius: 6, ...text, fontSize: 12, color: C.ink, maxHeight: 180, overflowY: "auto", boxShadow: "0 1px 4px rgba(0,0,0,.15)" }}>
+          {legendFor(companies.filter((c) => points[c.id]), hint).slice(0, 8).map((k) => (
+            <div key={k.kind} style={{ display: "flex", alignItems: "center", gap: 6, lineHeight: 1.6 }}>
+              <span style={{ display: "inline-flex", width: 18, height: 18, borderRadius: "50%", background: k.color, alignItems: "center", justifyContent: "center", fontSize: 10 }}>{k.icon}</span>
+              {k.label} <span style={{ color: C.slate }}>{k.count}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {drawing ? (
         <div style={{ position: "absolute", left: 10, bottom: 28, zIndex: 500, background: "rgba(255,255,255,.95)", padding: "6px 10px", borderRadius: 6, ...text, fontSize: 12.5, color: C.ink }}>
           Press and drag to draw around the area. Let go to finish. Esc cancels.
