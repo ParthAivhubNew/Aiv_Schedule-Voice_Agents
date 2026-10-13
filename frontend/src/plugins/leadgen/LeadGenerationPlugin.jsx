@@ -118,13 +118,14 @@ export default function LeadGenerationPlugin({
   const store = useLeadAccounts(showToast, listsStore.reload);
   const outreach = useOutreachData();
   const [wizard, setWizard] = useState(null); // { listId } while the new-campaign steps are open
+  const [inboxStart, setInboxStart] = useState(null); // opens Sent & Replies on a given tab, such as one mailbox's sent emails
 
   // Navigation Items on Left
   const navItems = [
     { id: "find_leads", label: "Find Leads", icon: Sparkles, section: "Find Leads" },
     { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, section: "Enrichment" },
     { id: "outreach", label: "Campaigns", icon: Send, section: "Email Outreach" },
-    { id: "replies", label: "Inbox & Replies", icon: MessageSquare, section: "Email Outreach" },
+    { id: "replies", label: "Sent & Replies", icon: MessageSquare, section: "Email Outreach" },
     { id: "mailboxes", label: "Mailboxes", icon: Layers, section: "Mailboxes" },
     { id: "business", label: "About your business", icon: Building2, section: "Company" },
     ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, section: "Billing" }] : []),
@@ -134,7 +135,7 @@ export default function LeadGenerationPlugin({
     find_leads: { title: "Find Leads", desc: "Search for companies, then refine with the AI in the same place -- or import a spreadsheet instead." },
     lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
-    replies: { title: "Inbox & Reply Categorization", desc: "Classified prospect replies with intent tagging, plus your do-not-email list." },
+    replies: { title: "Sent & Replies", desc: "Every email you have sent and what became of it, the replies that came back sorted by intent, and your do-not-email list." },
     mailboxes: { title: "Mailboxes", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails. It is your company profile, shared with your other Outreach tools." },
     subscription: { title: "Subscription & Credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
@@ -381,9 +382,9 @@ export default function LeadGenerationPlugin({
                 onOpenBusiness={() => { setWizard(null); setView("business"); }} onCancel={() => setWizard(null)} onDone={() => { setWizard(null); outreach.reloadCampaigns(); }} />
             : <CampaignsView outreach={outreach} onNew={() => setWizard({ listId: "" })} />)}
 
-          {view === "replies" && <RepliesView />}
+          {view === "replies" && <RepliesView outreach={outreach} initial={inboxStart} onStarted={() => setInboxStart(null)} />}
 
-          {view === "mailboxes" && <MailboxesView outreach={outreach} />}
+          {view === "mailboxes" && <MailboxesView outreach={outreach} onViewSent={(id) => { setInboxStart({ sub: "sent", mailboxId: id }); setView("replies"); }} />}
           {view === "business" && <div style={{ maxWidth: 760 }}><ProfileBox page /></div>}
 
           {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}

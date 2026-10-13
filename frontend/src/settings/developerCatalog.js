@@ -78,6 +78,12 @@ export const ENDPOINTS = [
     body: { to: "jo@bloggs.example", subject: "Your tender, {{firstName}}", body: "Hi {{firstName}},\n\nA quick note about your tender.\n\nThanks", first_name: "Jo", company: "Bloggs Dental" },
     response: { id: "5d1f...", status: "sent", to: "jo@bloggs.example", from: "sales@yourcompany.com" },
   },
+  {
+    group: "email", method: "GET", path: "/v1/email/messages", scope: "email:write", title: "List sent emails",
+    summary: "The emails that actually went out, newest first, with what became of each: sent, replied or bounced. Filter with ?status=, ?campaign_id=, ?mailbox_id=, ?kind=one_to_one and ?q= (address or subject). Warm-up emails are left out.",
+    response: { data: [{ id: "5d1f...", to: "jo@bloggs.example", subject: "Your tender", status: "sent", sent_at: "2026-11-03T10:30:00Z", mailbox: "sales@yourcompany.com", kind: "one_to_one" }], next_cursor: null },
+  },
+  { group: "email", method: "GET", path: "/v1/email/messages/{id}", scope: "email:write", title: "See one sent email", summary: "The email as it went out, plus the reply or the bounce reason if there was one.", pathParam: { name: "id", example: "5d1f0a7e-..." } },
   { group: "email", method: "GET", path: "/v1/email/campaigns/{id}", scope: "email:write", title: "See a campaign", summary: "The emails, any warnings about the AI-written text, the opening line written for each person and the facts it came from, how many went out, replies, and where it is in the approval.", pathParam: { name: "id", example: "cp_4a1b2c3d4e5f" } },
   { group: "email", method: "GET", path: "/v1/email/campaigns", scope: "email:write", title: "List campaigns", summary: "Campaigns made through the API." },
   {
@@ -175,6 +181,8 @@ export const RUN_ACTIONS = {
   "GET /v1/leads": "leads.lead.list",
   "POST /v1/email/campaigns": "leads.campaign.create",
   "POST /v1/email/send": "leads.email.send",
+  "GET /v1/email/messages": "leads.email.list",
+  "GET /v1/email/messages/{id}": "leads.email.get",
   "GET /v1/email/campaigns/{id}": "leads.campaign.get",
   "GET /v1/email/campaigns": "leads.campaign.list",
   "PATCH /v1/email/campaigns/{id}": "leads.campaign.edit",

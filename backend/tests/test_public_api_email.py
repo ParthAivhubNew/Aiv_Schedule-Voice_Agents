@@ -471,3 +471,30 @@ async def test_a_test_key_pretends_to_send(db, admin_token, outbox):
     async with _http(key) as c:
         r = await c.post("/v1/email/send", json={"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello"})
     assert r.status_code == 201 and r.json()["test"] is True and outbox == []
+
+
+async def test_sent_emails_can_be_listed_and_read_through_the_api(db, admin_token):
+    from app.models.models import EmailMessage
+
+    await _company(db)
+    now = datetime.utcnow()
+    db.add_all([EmailMessage(id="p1", mailbox_id="mb_1", campaign_id="", recipient_email="jo@x.test", subject="Hello", body_text="Hi Jo", status="sent", sent_at=now),
+                EmailMessage(id="p2", mailbox_id="mb_1", campaign_id="cp_x", recipient_email="sam@y.test", subject="Hi", body_text="Hi Sam", status="replied",
+                             reply_snippet="Sounds good", sent_at=now),
+                EmailMessage(id="p3", mailbox_id="mb_1", recipient_email="w@w.test", subject="warm", is_warmup=True, status="sent", sent_at=now)])
+    await db.commit()
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        everything = (await c.get("/v1/email/messages")).json()
+        assert sorted(m["id"] for m in everything["data"]) == ["p1", "p2"] and everything["next_cursor"] is None
+        assert [m["id"] for m in (await c.get("/v1/email/messages", params={"status": "replied"})).json()["data"]] == ["p2"]
+        assert [m["id"] for m in (await c.get("/v1/email/messages", params={"kind": "one_to_one"})).json()["data"]] == ["p1"]
+        first = (await c.get("/v1/email/messages", params={"limit": 1})).json()
+        assert len(first["data"]) == 1 and first["next_cursor"]
+        one = (await c.get("/v1/email/messages/p2")).json()
+        assert one["body"] == "Hi Sam" and one["reply"] == "Sounds good"
+        assert (await c.get("/v1/email/messages/p3")).status_code == 404
+        assert (await c.get("/v1/email/messages", params={"status": "weird"})).status_code == 422
+    test = await _key(admin_token, live=False)
+    async with _http(test) as c:
+        assert (await c.get("/v1/email/messages")).json()["data"] == []  # a test key never sees real mail

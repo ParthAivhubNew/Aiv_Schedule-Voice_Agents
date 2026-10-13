@@ -429,3 +429,48 @@ async def test_a_mailbox_can_be_cleared_to_send_without_dkim_but_never_without_s
     state["spf"] = False
     await client.post(f"/api/email/mailboxes/{mb['id']}/dns-check")
     assert (await client.post(f"/api/email/mailboxes/{mb['id']}/dkim-override", json={"allow": True})).status_code == 400
+
+
+async def test_sent_emails_are_listed_with_what_became_of_them(client, db, mail):
+    from datetime import datetime
+
+    from app.models.models import EmailMessage
+
+    mb = await _mailbox(client)
+    now = datetime.utcnow()
+    db.add_all([
+        EmailMessage(id="m1", mailbox_id=mb["id"], campaign_id="", recipient_email="jo@x.test", subject="One to one", body_text="Hello Jo", status="sent", sent_at=now),
+        EmailMessage(id="m2", mailbox_id=mb["id"], campaign_id="cp_x", recipient_email="sam@y.test", subject="Campaign mail", body_text="Hi Sam", status="replied",
+                     reply_snippet="Yes please", reply_category="interested", sent_at=now, replied_at=now),
+        EmailMessage(id="m3", mailbox_id=mb["id"], campaign_id="cp_x", recipient_email="bad@z.test", subject="Bounced", body_text="Hi", status="bounced",
+                     bounce_reason="no such user", sent_at=now),
+        EmailMessage(id="m4", mailbox_id=mb["id"], recipient_email="warm@w.test", subject="warm", is_warmup=True, status="sent", sent_at=now)])
+    await db.commit()
+    got = (await client.get("/api/email/messages")).json()
+    by = {m["id"]: m for m in got["messages"]}
+    assert got["total"] == 3 and set(by) == {"m1", "m2", "m3"}  # warm-up traffic is never listed
+    assert by["m1"]["kind"] == "one_to_one" and by["m2"]["kind"] == "campaign" and by["m2"]["status"] == "replied" and by["m3"]["status"] == "bounced"
+    assert by["m1"]["mailbox"] == "sam@acme-sales.com"
+    async def ids(**q):
+        return sorted(m["id"] for m in (await client.get("/api/email/messages", params=q)).json()["messages"])
+
+    assert await ids(status="bounced") == ["m3"] and await ids(kind="one_to_one") == ["m1"] and await ids(q="sam") == ["m2"]
+    assert await ids(status="sent") == ["m1"] and await ids(mailbox_id="nope") == []
+    one = (await client.get("/api/email/messages/m2")).json()["message"]
+    assert one["body"] == "Hi Sam" and one["reply"] == "Yes please" and one["reply_category"] == "interested"
+    assert (await client.get("/api/email/messages/m3")).json()["message"]["bounce_reason"] == "no such user"
+    assert (await client.get("/api/email/messages/m4")).status_code == 404  # a warm-up email is not shown
+
+
+def test_a_campaign_says_when_its_next_sending_window_opens():
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from app.services.email_worker import next_window
+
+    camp = SimpleNamespace(days_of_week=[1, 2, 3, 4, 5], sending_window_start="09:00", sending_window_end="17:00")
+    assert next_window(camp, datetime(2026, 10, 13, 10, 0)) == (True, "")  # Tuesday morning: open
+    assert next_window(camp, datetime(2026, 10, 13, 17, 54)) == (False, "tomorrow at 09:00")  # Tuesday evening
+    assert next_window(camp, datetime(2026, 10, 13, 7, 30)) == (False, "today at 09:00")
+    assert next_window(camp, datetime(2026, 10, 16, 18, 0)) == (False, "Monday at 09:00")  # Friday evening waits for Monday
+    assert next_window(camp, datetime(2026, 10, 17, 11, 0)) == (False, "Monday at 09:00")  # a Saturday

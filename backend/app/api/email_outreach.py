@@ -445,6 +445,12 @@ async def _campaign_out(db: AsyncSession, camp: EmailCampaign, full: bool = Fals
     out["steps"] = [{"step": s.step_number, "delay_days": s.delay_days, "delay_hours": s.delay_hours,
                      "subject": s.subject, "body": s.body_template, "channel": s.channel} for s in steps]
     if full:
+        from app.services.email_worker import local_now, next_window
+        from app.services.org_settings import org_timezone
+
+        tz = await org_timezone(db)
+        is_open, opens = next_window(camp, local_now(tz))
+        out["send_window"] = {"open": is_open, "opens": opens, "timezone": tz}
         rows = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id)
                                  .order_by(EmailEnrollment.created_at.desc()).limit(500))).scalars().all()
         out["lead_list"] = [{"id": e.id, "email": e.email, "first_name": e.first_name, "last_name": e.last_name,
@@ -1290,3 +1296,76 @@ async def personalise_lines(body: PersonaliseBody, request: Request, db: AsyncSe
         r = by_id.get(a.id) or {"line": "", "facts": [], "reason": "We hold no facts about this company to write from."}
         lines.append({"account_id": a.id, "name": a.name, "line": r["line"], "facts": r["facts"], "reason": r["reason"]})
     return {"lines": lines, "written": made, "charged": charged}
+
+
+# ── Sent emails: what actually went out, and what became of it ──────────────
+def _sent_status(m: EmailMessage) -> str:
+    return m.status if m.status in ("replied", "bounced", "failed") else "sent"
+
+
+async def sent_rows(db: AsyncSession, *, mailbox_id: str = "", campaign_id: str = "", status: str = "", kind: str = "", q: str = "",
+                    limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+    """Emails this organisation sent (warm-up traffic is left out), newest first, with who they went to and what happened."""
+    from sqlalchemy import or_
+
+    where = [EmailMessage.is_warmup.is_(False)]
+    if mailbox_id:
+        where.append(EmailMessage.mailbox_id == mailbox_id)
+    if campaign_id:
+        where.append(EmailMessage.campaign_id == campaign_id)
+    if kind == "one_to_one":
+        where.append(EmailMessage.campaign_id == "")
+    elif kind == "campaign":
+        where.append(EmailMessage.campaign_id != "")
+    if status == "sent":
+        where.append(EmailMessage.status.notin_(["replied", "bounced", "failed"]))
+    elif status in ("replied", "bounced", "failed"):
+        where.append(EmailMessage.status == status)
+    if q.strip():
+        like = f"%{q.strip()}%"
+        where.append(or_(EmailMessage.recipient_email.ilike(like), EmailMessage.subject.ilike(like)))
+    total = (await db.execute(select(func.count(EmailMessage.id)).where(*where))).scalar() or 0
+    rows = (await db.execute(select(EmailMessage).where(*where).order_by(func.coalesce(EmailMessage.sent_at, EmailMessage.created_at).desc())
+                             .limit(max(1, min(limit, 201))).offset(max(0, offset)))).scalars().all()
+    return {"messages": await _present(db, rows), "total": total}
+
+
+async def _present(db: AsyncSession, rows: List[EmailMessage]) -> List[Dict[str, Any]]:
+    boxes = {b.id: b.email for b in (await db.execute(select(EmailMailbox))).scalars().all()}
+    camps = {c.id: c.name for c in (await db.execute(select(EmailCampaign))).scalars().all()}
+    leads = {e.id: e for e in (await db.execute(select(EmailEnrollment).where(
+        EmailEnrollment.id.in_([m.enrollment_id for m in rows if m.enrollment_id])))).scalars().all()} if rows else {}
+    out = []
+    for m in rows:
+        lead = leads.get(m.enrollment_id)
+        out.append({"id": m.id, "to": m.recipient_email, "name": f"{lead.first_name} {lead.last_name}".strip() if lead else "",
+                    "company": lead.company if lead else "", "subject": m.subject or "", "status": _sent_status(m),
+                    "sent_at": _iso(m.sent_at or m.created_at), "mailbox_id": m.mailbox_id or "", "mailbox": boxes.get(m.mailbox_id or "", ""),
+                    "campaign_id": m.campaign_id or "", "campaign": camps.get(m.campaign_id, "") if m.campaign_id else "",
+                    "kind": "campaign" if m.campaign_id else "one_to_one"})
+    return out
+
+
+async def sent_detail(db: AsyncSession, message_id: str) -> Optional[Dict[str, Any]]:
+    m = (await db.execute(select(EmailMessage).where(EmailMessage.id == message_id, EmailMessage.is_warmup.is_(False)))).scalars().first()
+    if not m:
+        return None
+    base = (await _present(db, [m]))[0]
+    return {**base, "body": m.body_text or "", "bounce_reason": m.bounce_reason or "", "reply": m.reply_snippet or "", "reply_from": m.reply_from or "",
+            "reply_category": m.reply_category or "", "replied_at": _iso(m.replied_at)}
+
+
+@router.get("/messages")
+async def list_sent(request: Request, mailbox_id: str = "", campaign_id: str = "", status: str = "", kind: str = "", q: str = "",
+                    limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db)):
+    current(request)
+    return await sent_rows(db, mailbox_id=mailbox_id, campaign_id=campaign_id, status=status, kind=kind, q=q, limit=limit, offset=offset)
+
+
+@router.get("/messages/{message_id}")
+async def get_sent(message_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    current(request)
+    found = await sent_detail(db, message_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="That email wasn't found.")
+    return {"message": found}

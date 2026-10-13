@@ -491,6 +491,11 @@ export const api = {
   emailAddLeads: (id, leads) => apiRequest(`/email/campaigns/${id}/leads`, { method: 'POST', body: { leads } }),
   emailRemoveLead: (id, leadId) => apiRequest(`/email/campaigns/${id}/leads/${leadId}`, { method: 'DELETE' }),
   emailFind: (body) => apiRequest('/email/find', { method: 'POST', body, timeoutMs: 90000 }),
+  emailSent: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null && v !== undefined));
+    return apiRequest(`/email/messages${q.toString() ? `?${q}` : ''}`);
+  },
+  emailSentOne: (id) => apiRequest(`/email/messages/${encodeURIComponent(id)}`),
   emailReplies: (category) => apiRequest(`/email/replies${category ? `?category=${encodeURIComponent(category)}` : ''}`),
   emailReplyCategory: (id, category) => apiRequest(`/email/replies/${id}/category`, { method: 'POST', body: { category } }),
   emailSuppressions: () => apiRequest('/email/suppression'),

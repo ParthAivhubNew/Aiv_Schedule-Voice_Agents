@@ -22,7 +22,7 @@ import random
 import re
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -92,6 +92,22 @@ def render(template: str, enr: EmailEnrollment) -> str:
     out = re.sub(r"\{\{\s*([A-Za-z_]+)\s*\}\}", sub, template or "")
     out = re.sub(r"[ \t]+([,.!?])", r"\1", out)
     return re.sub(r"\n{3,}", "\n\n", out)  # an empty {{personal_line}} leaves no gap
+
+
+def next_window(camp: EmailCampaign, local: datetime) -> Tuple[bool, str]:
+    """(open now, when the next sending window opens in words). Emails only go out inside the campaign's days and hours."""
+    if in_window(camp, local):
+        return True, ""
+    days = camp.days_of_week or [1, 2, 3, 4, 5]
+    start = camp.sending_window_start or "09:00"
+    for i in range(8):
+        d = local.date() + timedelta(days=i)
+        if d.isoweekday() not in days:
+            continue
+        if i == 0 and local.strftime("%H:%M") >= start:
+            continue  # today's hours are over
+        return False, f"{'today' if i == 0 else 'tomorrow' if i == 1 else d.strftime('%A')} at {start}"
+    return False, ""
 
 
 # ── Daily plan ──────────────────────────────────────────────────────────────

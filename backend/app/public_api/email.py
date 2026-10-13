@@ -659,6 +659,32 @@ async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(ge
     fail(502, "send_failed", f"The mailbox could not send it: {result.get('reason') or 'unknown error'}. Nothing was recorded as sent.")
 
 
+@router.get("/messages")
+async def list_sent(request: Request, status: Optional[Literal["sent", "replied", "bounced", "failed"]] = None, campaign_id: str = "", mailbox_id: str = "",
+                    kind: Optional[Literal["campaign", "one_to_one"]] = None, q: str = "", limit: int = 20, cursor: str = "", db: AsyncSession = Depends(get_db)):
+    """Emails that were sent (warm-up traffic left out), newest first, with what became of each: sent, replied or bounced."""
+    from app.api.email_outreach import sent_rows
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"data": [], "next_cursor": None}
+    lim, off = page_args(limit, cursor)
+    got = await sent_rows(db, mailbox_id=mailbox_id, campaign_id=campaign_id, status=status or "", kind=kind or "", q=q, limit=lim + 1, offset=off)
+    return page_of(got["messages"], lim, off)
+
+
+@router.get("/messages/{message_id}")
+async def get_sent(message_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """One sent email as it went out, with the reply or the bounce reason if there was one."""
+    from app.api.email_outreach import sent_detail
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    found = None if is_test(ctx) else await sent_detail(db, message_id)
+    if not found:
+        fail(404, "not_found", f"Email '{message_id}' not found.")
+    return found
+
+
 @router.post("/campaigns/{campaign_id}/decision")
 async def decision(campaign_id: str, body: DecisionIn, request: Request, db: AsyncSession = Depends(get_db)):
     """Approve to launch, or reject. This is the only way a campaign starts sending."""
