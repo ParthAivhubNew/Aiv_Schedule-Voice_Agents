@@ -125,7 +125,7 @@ export const ENDPOINTS = [
 
 export const STEPS = [
   { title: "Make a test key", text: "Open the Keys tab and make a key marked Test. It starts with sk_test_, costs nothing and pretends everything: calls, posts, emails and meetings all work but nothing real happens and nothing is charged." },
-  { title: "Try a call", text: "Open the Playground, pick “Make a call”, paste your test key and press Send. A pretend call finishes in a few seconds; ask for it to see the answers." },
+  { title: "Try a call", text: "Open “Build and test a request”, pick “Start a call”, paste your test key and press Send. A pretend call finishes in a few seconds; ask for it to see the answers." },
   { title: "Go live", text: "Make a live key (sk_live_…) in the Keys tab, give it only the permissions it needs, and use it in your software instead. Connect your social accounts and mailboxes in the app first; the API uses them." },
 ];
 
