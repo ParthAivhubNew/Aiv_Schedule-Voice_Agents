@@ -397,3 +397,77 @@ async def test_your_own_emails_can_still_get_opening_lines_but_only_if_they_use_
                                                             "steps": [{"subject": "Hi", "body": "Hi {{firstName}}, quick question."}]})).json()
         done = await _wait(c, unused["id"])
         assert done["personal_lines"] == [] and any("none of the emails uses" in w for w in done["warnings"])
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    from app.services import mail_transport as T
+
+    sent = []
+
+    async def fake_send(settings, msg):
+        sent.append(msg)
+
+    monkeypatch.setattr(T, "send", fake_send)
+    return sent
+
+
+async def _ready_box(db, status="warming", spf=True, dkim_skipped=True):
+    from app.models.models import EmailMailbox
+
+    mb = await db.get(EmailMailbox, "mb_1")
+    mb.status, mb.spf_verified, mb.dkim_override = status, spf, dkim_skipped
+    await db.commit()
+
+
+async def test_one_email_can_go_now_even_from_a_mailbox_still_warming_up(db, admin_token, outbox):
+    from app.services import credits as K
+
+    await _company(db, mailbox_status="warming", credits=100)
+    await _ready_box(db)
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        r = await c.post("/v1/email/send", json={"to": "Jo@Bloggs.test", "subject": "Hello {{firstName}}", "body": "Hi {{firstName}} at {{company}},\n\nA quick note.\n\nThanks",
+                                                 "first_name": "Jo", "company": "Bloggs Ltd"})
+    assert r.status_code == 201, r.text
+    assert r.json()["status"] == "sent" and r.json()["from"] == "sales@acme.test" and r.json()["to"] == "jo@bloggs.test"
+    assert len(outbox) == 1 and outbox[0]["Subject"] == "Hello Jo" and "Hi Jo at Bloggs Ltd" in outbox[0].as_string()
+    assert outbox[0]["List-Unsubscribe"]  # the unsubscribe link is always there
+    db.expire_all()
+    assert await K.wallet_balance(db, "leadgen") == 99
+
+
+async def test_one_to_one_sending_keeps_its_safety_rules(db, admin_token, outbox, monkeypatch):
+    from app.public_api import email as E
+
+    await _company(db, mailbox_status="active", credits=100)
+    await _ready_box(db, status="active")
+    key = await _key(admin_token)
+    weak = await _key(admin_token, scopes=("email:write",))
+    body = {"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello"}
+    async with _http(weak) as c:
+        assert (await c.post("/v1/email/send", json=body)).status_code == 403  # sending needs the approve permission
+    async with _http(key) as c:
+        assert (await c.post("/v1/email/send", json={**body, "to": "nope"})).json()["error"]["code"] == "invalid_email"
+        person = await c.post("/v1/email/send", json={**body, "to_is_a_person": True})
+        assert person.status_code == 422 and person.json()["error"]["code"] == "needs_consent" and outbox == []
+        monkeypatch.setattr(E, "DIRECT_DAILY_LIMIT", 1)
+        assert (await c.post("/v1/email/send", json=body)).status_code == 201
+        limited = await c.post("/v1/email/send", json={**body, "to": "sam@bloggs.test"})
+        assert limited.status_code == 429 and limited.json()["error"]["code"] == "daily_limit"
+
+
+async def test_nothing_sends_without_a_mailbox_that_passes_spf(db, admin_token, outbox):
+    await _company(db, mailbox_status="active", credits=100)
+    await _ready_box(db, status="active", spf=False)
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        r = await c.post("/v1/email/send", json={"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello"})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "no_mailbox" and outbox == []
+
+
+async def test_a_test_key_pretends_to_send(db, admin_token, outbox):
+    key = await _key(admin_token, live=False)
+    async with _http(key) as c:
+        r = await c.post("/v1/email/send", json={"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello"})
+    assert r.status_code == 201 and r.json()["test"] is True and outbox == []

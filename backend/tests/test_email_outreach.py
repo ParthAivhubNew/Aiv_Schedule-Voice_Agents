@@ -390,7 +390,7 @@ async def test_staff_set_the_platform_mailbox_and_it_answers_warmup_mail(staff, 
     assert [i["name"] for i in finder["items"]] == ["Icypeas", "Hunter", "Findymail", "LeadMagic", "BetterContact"]
 
 
-async def test_warming_mailboxes_warm_each_other_and_skip_campaigns_in_week_one(client, db, mail):
+async def test_warming_mailboxes_warm_each_other_and_allow_a_few_real_emails_in_week_one(client, db, mail):
     a = await _mailbox(client, "a@acme-sales.com")
     b = await _mailbox(client, "b@acme-sales.com")
     for m in (a, b):
@@ -398,7 +398,7 @@ async def test_warming_mailboxes_warm_each_other_and_skip_campaigns_in_week_one(
     await _run(db, MONDAY_10)
     boxes = {m["email"]: m for m in (await client.get("/api/email/mailboxes")).json()["mailboxes"]}
     assert boxes["a@acme-sales.com"]["status"] == "warming"
-    assert boxes["a@acme-sales.com"]["warmup_quota"] == 5 and boxes["a@acme-sales.com"]["campaign_quota"] == 0
+    assert boxes["a@acme-sales.com"]["warmup_quota"] == 3 and boxes["a@acme-sales.com"]["campaign_quota"] == 2
     sent = [(m["From"], m["To"], m[T.WARMUP_HEADER]) for _, m in mail.sent]
     assert len(sent) == 2 and all(w for _, _, w in sent)
     assert {s[1] for s in sent} == {"a@acme-sales.com", "b@acme-sales.com"}

@@ -45,6 +45,12 @@ _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+POST_ANGLES = (
+    "a short customer-style story", "one practical tip", "a common myth busted", "a question that makes people think",
+    "a behind-the-scenes look", "a before-and-after example", "a quick how-to", "a lesson learned",
+)
+
+
 def parse_date(value: Any) -> Optional[date]:
     try:
         return datetime.strptime(str(value or "").strip()[:10], "%Y-%m-%d").date()
@@ -342,6 +348,9 @@ async def materialize(db: AsyncSession, s: SocialSchedule, today: date, tz: str,
     )).all() if row[0]]
     groups = []
     made = 0
+    # Days made in this run are not written yet, so they cannot see each other: each gets a
+    # different angle up front (rotating on from the posts already made), at no extra AI call.
+    angle_at = len(have)
     for d in dates:
         if made + len(channels) > budget:
             break
@@ -365,8 +374,12 @@ async def materialize(db: AsyncSession, s: SocialSchedule, today: date, tz: str,
             plan = topic + (f"\n\nBackground for the series \"{s.theme}\": {s.focus}" if s.focus else "")
         else:
             avoid = ("\nDo not repeat these earlier posts in this series: " + "; ".join(earlier)) if earlier else ""
+            angle = POST_ANGLES[angle_at % len(POST_ANGLES)]
+            angle_at += 1
+            others = [t for dd, t in sorted((s.date_topics or {}).items()) if dd != d.isoformat() and t]
+            planned = ("\nOther days already have these topics, so do not overlap: " + "; ".join(t[:80] for t in others[:8])) if others else ""
             plan = (f"{s.focus}\n\nOne post in the series \"{s.theme}\" for {d.strftime('%A %d %B %Y')}. "
-                    f"Give it its own topic and angle.{avoid}")
+                    f"Give it its own topic. Angle for this post: {angle}.{avoid}{planned}")
         groups.append({
             "post_ids": ids,
             "plan": plan,

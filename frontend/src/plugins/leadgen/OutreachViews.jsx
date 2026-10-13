@@ -25,7 +25,7 @@ export function readiness(m) {
   }
   if (m.status === "connected") return { tone: "blue", title: "Ready to warm up.", body: "Your DNS records are in place. Start warm-up to begin building this mailbox's sending reputation." };
   if (m.status === "paused") return { tone: "amber", title: "Sending is paused.", body: m.pause_reason || "Start it again when you are ready." };
-  if (m.status === "warming") return { tone: "blue", title: "Warming up.", body: `Day ${m.consecutive_healthy_days} of about 21. Campaigns send automatically at a gentle pace until it graduates.` };
+  if (m.status === "warming") return { tone: "blue", title: "Warming up.", body: `Day ${m.consecutive_healthy_days} of about 21. Campaigns send in small numbers that grow each day, until it reaches your daily target.` };
   return null;
 }
 
@@ -163,7 +163,7 @@ export function MailboxesView({ outreach }) {
         <Note>Warm-up uses your own mailboxes until the Outreach team adds the platform mailbox. Connect two or more mailboxes so they warm each other up.</Note>
       )}
       <div style={row}>
-        <div style={small}>Each mailbox warms up for about 3–4 weeks (5 a day rising to your daily target), then sends campaigns. Bounces over 2% pause it automatically.</div>
+        <div style={small}>Each mailbox warms up for about 3–4 weeks, rising to your daily target. Campaigns can send from day one in small numbers and grow as it warms up. Bounces over 2% pause it automatically.</div>
         <button title="Close without saving" type="button" style={{ ...btn(true), marginLeft: "auto" }} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Connect mailbox"}</button>
       </div>
 
@@ -244,7 +244,7 @@ export function MailboxesView({ outreach }) {
             <div style={row}>
               {!sending && <button type="button" style={btn(true, !m.spf_verified || !(m.dkim_verified || m.dkim_override))} disabled={!m.spf_verified || !(m.dkim_verified || m.dkim_override)} title={m.spf_verified && (m.dkim_verified || m.dkim_override) ? "Begin the gradual ramp-up that builds your sending reputation" : "Add the DNS records above first"} onClick={() => run(() => api.emailWarmup(m.id, "start"), "Warm-up started.")}>Start warm-up</button>}
               {sending && <button type="button" style={btn(false)} title="Stop sending from this mailbox until you start it again" onClick={() => run(() => api.emailWarmup(m.id, "pause"), "Sending paused.")}>Pause sending</button>}
-              {!sending && <button type="button" style={btn(false)} title="For a mailbox that already sends normal email every day" onClick={async () => {
+              {(!sending || m.status === "warming") && <button type="button" style={btn(false)} title="For a mailbox that already sends normal email every day. Campaigns can then send straight away instead of after the first week of warm-up" onClick={async () => {
                 if (await askConfirm({ title: "Skip warm-up?", body: "Only do this for a mailbox that already sends email every day. It will send up to its daily target straight away.", confirm: "Skip warm-up" })) run(() => api.emailWarmup(m.id, "skip"), "Sending at full volume.");
               }}>Skip warm-up…</button>}
               <button type="button" style={btn(false)} title="Check the mailbox login and servers work" onClick={() => run(() => api.emailTestMailbox(m.id), "Connection works.")}>Test connection</button>

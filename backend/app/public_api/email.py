@@ -586,6 +586,79 @@ async def edit(campaign_id: str, body: EditIn, request: Request, db: AsyncSessio
     return await view(db, camp, org)
 
 
+class SendIn(BaseModel):
+    to: str = Field(..., max_length=254, description="Who it goes to")
+    subject: str = Field(..., min_length=1, max_length=300)
+    body: str = Field(..., min_length=1, max_length=10000, description="Use {{firstName}}, {{lastName}} and {{company}} to personalise")
+    first_name: str = Field("", max_length=80)
+    last_name: str = Field("", max_length=80)
+    company: str = Field("", max_length=160)
+    mailbox_id: Optional[str] = Field(None, description="Send from this mailbox. Default: the best one that can send")
+    to_is_a_person: bool = Field(False, description="True if this is a named person's own address (UK PECR: they need to have agreed to hear from you first)")
+
+
+DIRECT_DAILY_LIMIT = 25  # one-to-one emails an organisation may send through the API in a day
+
+
+@router.post("/send", status_code=201)
+async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Send one email to one person now. No warm-up wait and no sending hours, because it is one personal message,
+    not a campaign. It still checks the do-not-email list, adds the unsubscribe link, counts against the mailbox's
+    daily limit and credits, and needs permission to approve sending (`email:approve`)."""
+    from datetime import date
+
+    from app.api.email_outreach import _EMAIL
+    from app.services.email_dispatcher import day_log, send_cold_email
+    from app.services.email_worker import render
+
+    ctx = await authorize(request, db, "email:approve", "leads")
+    org = ctx["org_id"]
+    to = body.to.strip().lower()
+    if not _EMAIL.match(to):
+        fail(422, "invalid_email", "That is not a valid email address.")
+    if is_test(ctx):
+        return {"id": f"em_test_{uuid.uuid4().hex[:12]}", "status": "sent", "to": to, "from": "test@example.com", "test": True}
+
+    start = datetime.combine(date.today(), datetime.min.time())
+    sent_today = len([m for m in (await db.execute(select(EmailMessage).where(
+        EmailMessage.campaign_id == "", EmailMessage.is_warmup.is_(False), EmailMessage.sent_at >= start))).scalars().all()])
+    if sent_today >= DIRECT_DAILY_LIMIT:
+        fail(429, "daily_limit", f"You have sent {DIRECT_DAILY_LIMIT} one-to-one emails today, which is the limit. Try again tomorrow, or use a campaign.")
+
+    boxes = (await db.execute(select(EmailMailbox))).scalars().all()
+    if body.mailbox_id:
+        boxes = [m for m in boxes if m.id == body.mailbox_id]
+
+    def can_send(m: EmailMailbox) -> bool:
+        return bool(m.spf_verified and (m.dkim_verified or m.dkim_override) and m.status in ("connected", "warming", "active", "graduated"))
+
+    rank = {"active": 0, "graduated": 0, "warming": 1, "connected": 2}
+    ready = sorted([m for m in boxes if can_send(m)], key=lambda m: rank.get(m.status, 3))
+    mailbox = None
+    for m in ready:
+        if ((await day_log(db, m.id)).sent_count or 0) < max(m.max_daily_target or 40, 40):  # the mailbox's own daily ceiling
+            mailbox = m
+            break
+    if not mailbox:
+        fail(422, "no_mailbox", "No mailbox can send yet. Connect one under Mailboxes and add its SPF record (and DKIM, or choose to send without it).",
+             fix_url=links.fix_url("mailboxes"))
+
+    who = SimpleNamespace(first_name=body.first_name, last_name=body.last_name, company=body.company, email=to, vars=None)
+    result = await send_cold_email(db, org, mailbox, to, render(body.subject, who), render(body.body, who),
+                                   entity_type="individual" if body.to_is_a_person else "corporate")
+    await db.commit()
+    status = result["status"]
+    if status == "sent":
+        return {"id": result["id"], "status": "sent", "to": to, "from": mailbox.email, "message_id": result["message_id"]}
+    if status == "suppressed":
+        fail(422, "do_not_email", "That address is on your do-not-email list, so nothing was sent.", reason=result.get("reason"))
+    if status == "blocked_pecr":
+        fail(422, "needs_consent", result.get("reason") or "A person's own address needs their consent first.")
+    if status == "insufficient_credits":
+        fail(402, "insufficient_credits", result.get("reason") or "Not enough Leads credits.")
+    fail(502, "send_failed", f"The mailbox could not send it: {result.get('reason') or 'unknown error'}. Nothing was recorded as sent.")
+
+
 @router.post("/campaigns/{campaign_id}/decision")
 async def decision(campaign_id: str, body: DecisionIn, request: Request, db: AsyncSession = Depends(get_db)):
     """Approve to launch, or reject. This is the only way a campaign starts sending."""

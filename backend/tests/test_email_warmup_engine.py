@@ -24,15 +24,15 @@ def test_ramp_schedule_smoothness_and_target():
 
 
 def test_plan_mailbox_day_first_day():
-    """First day of warming starts with low warmup sends only."""
+    """The first day of warming is mostly warm-up, with a couple of real emails allowed."""
     mb = MailboxState(id="mb_1", email="test@domain.com", status="warming", consecutive_healthy_days=0)
     decision = plan_mailbox_day(mb, recent_logs=[])
     
     assert decision["action"] == "send"
     assert decision["new_status"] == "warming"
     assert decision["daily_cap"] == 5
-    assert decision["warmup_sends"] == 5
-    assert decision["campaign_sends"] == 0
+    assert decision["warmup_sends"] == 3
+    assert decision["campaign_sends"] == 2  # never a silent week: real mail can go from day one, in small numbers
     assert decision["consecutive_healthy_days"] == 1
 
 

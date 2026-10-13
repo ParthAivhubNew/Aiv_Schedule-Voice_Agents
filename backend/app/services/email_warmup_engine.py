@@ -72,6 +72,7 @@ def compute_ramp_schedule(max_target: int = 40, total_days: int = 28) -> List[in
 BOUNCE_PAUSE_THRESHOLD = 0.02  # 2.0% bounce rate triggers auto-pause
 MIN_SENDS_FOR_RATE_CHECK = 10  # Don't evaluate bounce rate on negligible volume
 GRADUATION_HEALTHY_DAYS = 21   # 21 continuous healthy days to graduate
+EARLY_CAMPAIGN_MIN = 2         # real emails a day allowed in the first week of warm-up
 
 
 def plan_mailbox_day(
@@ -158,8 +159,10 @@ def plan_mailbox_day(
             new_status = "warming"
             # During warmup: early days 100% warmup, transitioning gradually to real sends
             if healthy_days <= 7:
-                warmup_sends = current_cap
-                campaign_sends = 0
+                # Real emails are allowed from day one, in small numbers (about a third of the day's cap, at least 2),
+                # so a new mailbox is never silent for a week. Skip warm-up is for people who want more, sooner.
+                campaign_sends = min(current_cap, max(EARLY_CAMPAIGN_MIN, current_cap // 3))
+                warmup_sends = current_cap - campaign_sends
             elif healthy_days <= 14:
                 warmup_sends = int(current_cap * 0.6)
                 campaign_sends = current_cap - warmup_sends

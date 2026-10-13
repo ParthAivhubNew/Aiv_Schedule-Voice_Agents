@@ -1810,6 +1810,16 @@ function wantsPerChannelDiff(text) {
   return false;
 }
 
+// Posts on different days get their own writing and image unless the user asks for the same one.
+function wantsSameAcrossDays(text) {
+  const t = String(text || "").toLowerCase();
+  if (!t.trim()) return false;
+  return /(same|identical)\s+(\w+\s+){0,2}(on|for|across|in)\s+(all|every|each)\s+(the\s+)?(day|date)s?/.test(t)
+    || /(same|identical)\s+(post|image|picture|content|caption|copy|visual)\s+(on\s+)?(all|every|each)\s+(the\s+)?(day|date)s?/.test(t)
+    || /repeat\s+(the\s+|this\s+)?(same|post|image)/.test(t)
+    || /(all|every|each)\s+(the\s+)?(day|date)s?.{0,20}\b(same|identical)\b/.test(t);
+}
+
 function companyName(profile) {
   return (profile && (profile.name || profile.company)) || "your company";
 }
@@ -2667,7 +2677,7 @@ export function SocialWorkspace({
   // Apply a Plan AI outline: new posts are created and queued for writing; existing posts
   // get only the fields the AI changed (and a queued rewrite when it asked for one); posts it
   // did not mention are never touched.
-  const applyPlan = (incoming, share = true) => {
+  const applyPlan = (incoming, share = true, sameDays = false) => {
     if (!incoming) return { created: [], updated: [], deleted: [] };
     const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || todayIso();
     const stamp = "b_" + Date.now();
@@ -2692,7 +2702,8 @@ export function SocialWorkspace({
         return;
       }
       const channel = String(raw.channel || (incoming.channels && incoming.channels[0]) || channelDrafts[0] || "linkedin").toLowerCase();
-      const key = share ? normPlan((raw.headline || "") + " " + (raw.plan || "")) : raw.id;
+      const day = raw.date || pinFallback;
+      const key = share ? normPlan((raw.headline || "") + " " + (raw.plan || "")) + (sameDays ? "" : "_" + day) : raw.id;
       created.push({
         id: raw.id && String(raw.id).startsWith("v2_") ? raw.id : newPostId(),
         date: raw.date || pinFallback,
@@ -2732,7 +2743,7 @@ export function SocialWorkspace({
       setDateDraft(first.date);
     }
     updated.filter((u) => !revisions.some((r) => r.post.id === u.id)).forEach(persistPost);
-    if (created.length) fillPackages(created, { share });
+    if (created.length) fillPackages(created, { share, sameDays });
     revisions.forEach((r) => fillPackages([r.post], { skipImage: true, revisionNote: r.note, share: false }));
     if (first) {
       setSelectedId(first.id);
@@ -2747,6 +2758,7 @@ export function SocialWorkspace({
     const skipImage = !!opts.skipImage;
     const revisionNote = String(opts.revisionNote || "").trim();
     const shareOpt = opts.share !== false;
+    const sameDays = !!opts.sameDays;
     const seeds = (items || []).map((item) => (typeof item === "string" ? { id: item } : item)).filter((p) => p && p.id);
     if (!seeds.length) return;
     const groups = [];
@@ -2761,6 +2773,17 @@ export function SocialWorkspace({
       ids.forEach((id) => used.add(id));
       groups.push({ lead: p, ids });
     });
+    // Several days on one brief: each day's writer is told it is one of a series, so the angle,
+    // hook and image differ from the other days (unless the user asked for the same post).
+    const dayVariedPlan = (lead) => {
+      const base = lead.plan || lead.headline || "";
+      if (sameDays || revisionNote || !lead.date) return base;
+      const key = normPlan(base);
+      const days = [...new Set(seeds.filter((s) => normPlan(s.plan || s.headline || "") === key && s.date).map((s) => s.date))].sort();
+      if (days.length < 2) return base;
+      return base + "\n\n[Series note: this brief is posted on " + days.length + " different days; this is day "
+        + (days.indexOf(lead.date) + 1) + " of " + days.length + ". Take a fresh angle, hook and example, and a clearly different image concept from the other days.]";
+    };
     const allIds = groups.flatMap((g) => g.ids);
     try {  // so we can tell them when a long batch is done while they are elsewhere
       if (allIds.length > 1 && "Notification" in window && window.Notification.permission === "default") window.Notification.requestPermission();
@@ -2774,7 +2797,7 @@ export function SocialWorkspace({
         linkedinDirective: (commonAi && commonAi.channelDirectives && commonAi.channelDirectives.linkedin) || "",
         groups: groups.map(({ lead, ids }) => ({
           postIds: ids,
-          plan: lead.plan || lead.headline || "",
+          plan: dayVariedPlan(lead),
           headline: lead.headline || "",
           channel: lead.channel || "linkedin",
           date: lead.date || "",
@@ -3326,6 +3349,7 @@ export function SocialWorkspace({
     repeatGenerate.current = "";
     const batchId = "b_" + Date.now();
     const perChannel = wantsPerChannelDiff(topic);
+    const sameDays = wantsSameAcrossDays(topic);
     const created = [];
     dates.forEach((date) => {
       channels.forEach((channel) => {
@@ -3340,7 +3364,7 @@ export function SocialWorkspace({
           caption: "",
           imagePrompt: topic,
           imageUrl: "",
-          batchId,
+          batchId: sameDays ? batchId : batchId + "_" + date,  // one post per day; channels of a day share it
           uniqueForChannel: perChannel,
           status: "draft",
           enriching: true,
@@ -3355,7 +3379,7 @@ export function SocialWorkspace({
     setApprovalOpen(true);
     setPosts((ps) => [...ps, ...created]);
     created.forEach(persistPost);
-    fillPackages(created, { share: !perChannel });
+    fillPackages(created, { share: !perChannel, sameDays });
     const d = new Date(parseIsoDate(created[0].date));
     setCal({ year: d.getFullYear(), month: d.getMonth() });
     setPlan({
@@ -3485,7 +3509,7 @@ export function SocialWorkspace({
         }
         repeatGenerate.current = "";
       }
-      const result = applyPlan(incoming, !wantsPerChannelDiff(text));
+      const result = applyPlan(incoming, !wantsPerChannelDiff(text), wantsSameAcrossDays(text));
       const bits = [];
       if (result.created.length) {
         bits.push("Planned " + result.created.length + " post" + (result.created.length === 1 ? "" : "s")

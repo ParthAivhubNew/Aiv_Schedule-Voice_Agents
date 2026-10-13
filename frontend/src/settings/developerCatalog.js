@@ -72,6 +72,12 @@ export const ENDPOINTS = [
       leads: [{ email: "jo@bloggs.example", first_name: "Jo", company: "Bloggs Dental", company_number: "01234567", facts: ["Opened a second surgery in 2025"] }],
     },
   },
+  {
+    group: "email", method: "POST", path: "/v1/email/send", scope: "email:approve", title: "Send one email now",
+    summary: "One personal email to one person, straight away: no warm-up wait and no sending hours. It still skips anyone on your do-not-email list, adds the unsubscribe link and uses a credit. Up to 25 a day. For many people use a campaign.",
+    body: { to: "jo@bloggs.example", subject: "Your tender, {{firstName}}", body: "Hi {{firstName}},\n\nA quick note about your tender.\n\nThanks", first_name: "Jo", company: "Bloggs Dental" },
+    response: { id: "5d1f...", status: "sent", to: "jo@bloggs.example", from: "sales@yourcompany.com" },
+  },
   { group: "email", method: "GET", path: "/v1/email/campaigns/{id}", scope: "email:write", title: "See a campaign", summary: "The emails, any warnings about the AI-written text, the opening line written for each person and the facts it came from, how many went out, replies, and where it is in the approval.", pathParam: { name: "id", example: "cp_4a1b2c3d4e5f" } },
   { group: "email", method: "GET", path: "/v1/email/campaigns", scope: "email:write", title: "List campaigns", summary: "Campaigns made through the API." },
   {
@@ -168,6 +174,7 @@ export const RUN_ACTIONS = {
   "POST /v1/leads": "leads.lead.add",
   "GET /v1/leads": "leads.lead.list",
   "POST /v1/email/campaigns": "leads.campaign.create",
+  "POST /v1/email/send": "leads.email.send",
   "GET /v1/email/campaigns/{id}": "leads.campaign.get",
   "GET /v1/email/campaigns": "leads.campaign.list",
   "PATCH /v1/email/campaigns/{id}": "leads.campaign.edit",

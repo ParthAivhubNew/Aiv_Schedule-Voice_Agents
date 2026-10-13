@@ -69,29 +69,31 @@ export function ProfileBox({ onReady, onManage, page = false }) {
   return (
     <div className="ui-card" style={{ padding: 12, display: "grid", gap: 10, borderColor: ready ? undefined : C.amber }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <strong style={{ ...text, fontSize: 13.5, color: C.ink }} title="The same company profile your other Outreach tools use">About your business</strong>
-        <span style={{ ...muted, fontSize: 12.5, flex: "1 1 240px" }}>
-          {ready ? `${saved.profile.company}: ${saved.profile.sells}`.slice(0, 120) : `The AI writes only from what it knows about your business. Still needed: ${saved.missing.join(", ")}.`}
-        </span>
+        {page ? null : <strong style={{ ...text, fontSize: 13.5, color: C.ink }} title="The same company profile your other Outreach tools use">About your business</strong>}
+        {!ready || (!open && !page) ? (
+          <span style={{ ...muted, fontSize: 12.5, flex: "1 1 240px" }}>
+            {ready ? `${saved.profile.company} is set up. The AI will write from it.` : `The AI writes only from what it knows about your business. Still needed: ${saved.missing.join(", ")}.`}
+          </span>
+        ) : null}
         {page ? null : <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="What the AI is allowed to say about your business" onClick={() => setOpen(!open)}>{open ? "Close" : locked ? "View" : ready ? "Edit" : "Fill in"}</button>}
         {onManage && !page ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Open the About your business page in the menu" onClick={onManage}>Open full page</button> : null}
       </div>
       {open ? (
         <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, alignItems: "end" }}>
             <label style={label} title="Your company's trading name">Company name (required)<input className="ui-input" value={form.company} onChange={set("company")} maxLength={120} /></label>
-            <label style={label} title="Used in the sign-off">Who the emails are signed by (required)<input className="ui-input" value={form.sender_name} onChange={set("sender_name")} maxLength={80} placeholder="For example Priya Shah" /></label>
-            <label style={label} title="Optional, shown under the name">Their job title<input className="ui-input" value={form.sender_title} onChange={set("sender_title")} maxLength={80} /></label>
-            <label style={label} title="Optional">Your website<input className="ui-input" value={form.website} onChange={set("website")} maxLength={200} /></label>
+            <label style={label} title="Optional">Website<input className="ui-input" value={form.website} onChange={set("website")} maxLength={200} placeholder="https://" /></label>
+            <label style={label} title="The name the emails are signed with">Sign-off name (required)<input className="ui-input" value={form.sender_name} onChange={set("sender_name")} maxLength={80} placeholder="For example Priya Shah" /></label>
+            <label style={label} title="Optional, shown under the name">Sign-off job title<input className="ui-input" value={form.sender_title} onChange={set("sender_title")} maxLength={80} placeholder="For example Founder" /></label>
           </div>
           {locked ? <div role="status" style={{ ...muted, fontSize: 12.5, color: C.amber }}>Only an admin can change this, because every tool reads it. Ask an admin to update it.</div> : null}
-          <div style={{ ...muted, fontSize: 12 }}>This is your company profile, shared with your other Outreach tools: change it here and it changes there.{saved.services ? ` Your ${saved.services} saved service${saved.services === 1 ? "" : "s"} are included automatically.` : ""}</div>
+          <div style={{ ...muted, fontSize: 12 }}>This is your company profile, shared with your other Outreach tools: change it here and it changes there.{saved.services ? ` Your ${saved.services} saved service${saved.services === 1 ? " is" : "s are"} included automatically.` : ""}</div>
           <label style={label} title="Plain words. The AI cannot say more about you than this">What your business does (required)
             <textarea className="ui-input" rows={3} value={form.sells} onChange={set("sells")} maxLength={700} style={{ height: "auto", padding: "8px 10px" }} placeholder="For example Bookkeeping and year-end accounts for small shops and cafes" /></label>
           <label style={label} title="Who you help. Helps the AI aim the email">Who it is for<input className="ui-input" value={form.audience} onChange={set("audience")} maxLength={400} placeholder="For example Owner-run shops with fewer than 10 staff" /></label>
           <label style={label} title="The only results, numbers or customers the AI may quote. Leave empty and it quotes none">Proof it may quote, one per line (only true things)
             <textarea className="ui-input" rows={3} value={proof} onChange={(e) => setProof(e.target.value)} style={{ height: "auto", padding: "8px 10px" }} placeholder="We have looked after 40 local shops since 2015" /></label>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, alignItems: "end" }}>
             <label style={label} title="What you offer the reader as the next step">What to offer them<input className="ui-input" value={form.offer} onChange={set("offer")} maxLength={300} placeholder="For example a free 15-minute review of their books" /></label>
             <label style={label} title="For example friendly, formal, direct">Tone<input className="ui-input" value={form.tone} onChange={set("tone")} maxLength={60} placeholder="Friendly and direct" /></label>
           </div>
